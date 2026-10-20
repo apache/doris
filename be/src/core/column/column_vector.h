@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 #include <sys/types.h>
 
@@ -54,7 +55,7 @@
 class SipHash;
 
 namespace doris {
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 struct ProcessHashTableProbe;
 }
 
@@ -71,13 +72,13 @@ template <PrimitiveType T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
                   T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
-                  T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T));
+                  T == TYPE_TIMESTAMPTZ || is_timestamp_ns_type(T) || T == TYPE_UUID);
 
 private:
     using Self = ColumnVector;
     friend class COWHelper<IColumn, Self>;
 
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     friend struct doris::ProcessHashTableProbe;
 
     struct less;
@@ -413,7 +414,13 @@ public:
     // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
     // raise errors for null cell.
     static value_type default_value() {
-        if constexpr (is_date_type(T) || T == PrimitiveType::TYPE_TIMESTAMPTZ) {
+        if constexpr (T == PrimitiveType::TYPE_DATE) {
+            return PrimitiveTypeTraits<T>::CppType::DATE_DEFAULT_VALUE;
+        } else if constexpr (T == PrimitiveType::TYPE_DATETIME) {
+            return PrimitiveTypeTraits<T>::CppType::DATETIME_DEFAULT_VALUE;
+        } else if constexpr (T == PrimitiveType::TYPE_DATEV2 ||
+                             T == PrimitiveType::TYPE_DATETIMEV2 ||
+                             T == PrimitiveType::TYPE_TIMESTAMPTZ) {
             return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
@@ -443,6 +450,7 @@ using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
+using ColumnUUID = ColumnVector<TYPE_UUID>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
@@ -459,6 +467,7 @@ extern template class ColumnVector<TYPE_FLOAT>;
 extern template class ColumnVector<TYPE_DOUBLE>;
 extern template class ColumnVector<TYPE_IPV4>;
 extern template class ColumnVector<TYPE_IPV6>;
+extern template class ColumnVector<TYPE_UUID>;
 extern template class ColumnVector<TYPE_DATE>;
 extern template class ColumnVector<TYPE_DATEV2>;
 extern template class ColumnVector<TYPE_DATETIME>;

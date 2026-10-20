@@ -43,6 +43,13 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-loader</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -112,6 +119,14 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
             <version>${paimon.version}</version>
+        </dependency>
+
+        <!-- REST catalogs discover OSS through Paimon's FileIOLoader SPI; the optional Jindo
+             runtime jars alone only supply the Hadoop implementation, not this adapter. The SDK/native
+             jars stay in the host so Paimon and Iceberg cannot load the native library twice. -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
         </dependency>
 
         <!-- FIX-C (build 968994, Class C): the paimon-hive metastore-client closure
@@ -351,6 +366,13 @@ under the License.
     <build>
         <finalName>doris-fe-connector-paimon</finalName>
         <plugins>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Hive's Kryo expression serializer reflects into collections, as in the FE JVM. -->
+                    <argLine>@{argLine} --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>

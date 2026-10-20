@@ -89,7 +89,8 @@ private:
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
-                      std::is_same_v<ColumnType, ColumnIPv6>) {
+                      std::is_same_v<ColumnType, ColumnIPv6> ||
+                      std::is_same_v<ColumnType, ColumnUUID>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
             if (data_type()->is_nullable()) {
@@ -143,6 +144,7 @@ private:
             CASE_TYPE(TYPE_TIMESTAMP_NS, ColumnTimeStampNs)
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
+            CASE_TYPE(TYPE_UUID, ColumnUUID)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)
@@ -242,15 +244,21 @@ private:
                             then_columns[i].get())
                             ->get_data()
                             .data();
-            if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+            if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                          std::is_same_v<ColumnType, ColumnFloat64> ||
+                          std::is_same_v<ColumnType, ColumnDate> ||
                           std::is_same_v<ColumnType, ColumnDateTime> ||
                           std::is_same_v<ColumnType, ColumnDateV2> ||
                           std::is_same_v<ColumnType, ColumnDateTimeV2> ||
                           std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                           std::is_same_v<ColumnType, ColumnTimeStampTz>) {
-                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    result_raw_data[row_idx] = (then_idx[row_idx] == i) ? column_raw_data[row_idx]
-                                                                        : result_raw_data[row_idx];
+                // Arithmetic masking propagates unselected NaN/Infinity and loses signed zero.
+                // Conditional stores also let the compiler vectorize without loading from a
+                // selected source/destination pointer, as a ternary assignment can do.
+                for (size_t row_idx = 0; row_idx < rows_count; row_idx++) {
+                    if (then_idx[row_idx] == i) {
+                        result_raw_data[row_idx] = column_raw_data[row_idx];
+                    }
                 }
             } else {
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {

@@ -41,11 +41,12 @@ import java.util.stream.Collectors;
  *   - REFRESH INCREMENTAL must appear correctly
  */
 public class ShowCreateMTMVTest extends SqlTestBase {
+
     @Override
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
         Config.enable_table_stream = true;
-        createTable("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
+        createTableWithRowBinlog("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
                 + "    id bigint,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -79,7 +80,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
     public void testShowCreateIncrementalMVNoRowIdColumn() throws Exception {
         createMvByNereids("create materialized view mv_show_ivm_no_rowid "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                + "PROPERTIES ('replication_num' = '1')\n"
+                + "PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1')\n"
                 + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -134,7 +135,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
     public void testShowCreateIncrementalMVIsReplayable() throws Exception {
         createMvByNereids("create materialized view mv_show_ivm_replay "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                + "PROPERTIES ('replication_num' = '1')\n"
+                + "PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1')\n"
                 + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");

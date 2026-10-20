@@ -31,7 +31,7 @@
 #include "core/types.h"
 #include "io/fs/file_writer.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/olap_common.h"
@@ -147,9 +147,8 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
 }
 
 ColumnWriter::ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta)
-        : _column(std::move(column)), _is_nullable(is_nullable), _column_meta(meta) {
-    _data_type = DataTypeFactory::instance().create_data_type(*_column_meta);
-}
+        : _column(std::move(column)), _is_nullable(is_nullable), _column_meta(meta) {}
+
 Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer) {
@@ -527,8 +526,11 @@ Status ScalarColumnWriter::init() {
         _null_bitmap_builder = std::make_unique<NullBitmapBuilder>();
     }
     if (_opts.need_zone_map) {
-        RETURN_IF_ERROR(
-                ZoneMapIndexWriter::create(_data_type, get_column(), _zone_map_index_builder));
+        // Physical helper writers, such as ARRAY/MAP offsets, disable zone maps and do not have a
+        // logical IDataType. Create the type only for writers that actually build a zone map.
+        auto data_type = DataTypeFactory::instance().create_data_type(*get_column_meta());
+        RETURN_IF_ERROR(ZoneMapIndexWriter::create(std::move(data_type), get_column(),
+                                                   _zone_map_index_builder));
     }
 
     if (_opts.need_inverted_index) {
@@ -1021,18 +1023,6 @@ Status StructColumnWriter::write_ordinal_index() {
     return Status::OK();
 }
 
-Status StructColumnWriter::append_nulls(size_t num_rows) {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->append_nulls(num_rows));
-    }
-    if (is_nullable()) {
-        std::vector<UInt8> null_signs(num_rows, 1);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
-    }
-    return Status::OK();
-}
-
 Status StructColumnWriter::finish_current_page() {
     return Status::NotSupported("struct writer has no data, can not finish_current_page");
 }
@@ -1322,23 +1312,6 @@ Status MapColumnWriter::write_ordinal_index() {
     return Status::OK();
 }
 
-Status MapColumnWriter::append_nulls(size_t num_rows) {
-    for (auto& sub_writer : _kv_writers) {
-        RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
-    }
-    const UInt64 offset = cast_set<UInt64>(_kv_writers[0]->get_next_rowid());
-    std::vector<UInt64> offsets_data(num_rows + 1, offset);
-    const uint8_t* offsets_ptr = reinterpret_cast<const uint8_t*>(offsets_data.data());
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
-
-    if (is_nullable()) {
-        std::vector<UInt8> null_signs(num_rows, 1);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
-    }
-    return Status::OK();
-}
-
 Status MapColumnWriter::finish_current_page() {
     return Status::NotSupported("map writer has no data, can not finish_current_page");
 }
@@ -1367,6 +1340,19 @@ Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 
 uint64_t VariantColumnWriter::estimate_buffer_size() {
     return _impl->estimate_buffer_size();
+}
+
+uint64_t VariantColumnWriter::get_raw_data_bytes() const {
+    return _impl->get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+}
+
+uint64_t VariantColumnWriter::get_total_uncompressed_data_pages_bytes() const {
+    return _impl->get_total_data_pages_bytes(
+            &ColumnWriter::get_total_uncompressed_data_pages_bytes);
+}
+
+uint64_t VariantColumnWriter::get_total_compressed_data_pages_bytes() const {
+    return _impl->get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
 }
 
 Status VariantColumnWriter::finish() {

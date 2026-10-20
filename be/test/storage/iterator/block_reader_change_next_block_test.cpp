@@ -371,7 +371,11 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     }
     auto read_schema =
             std::make_shared<ReadSchema>(reader._tablet_schema->columns(), std::move(read_types));
-    read_schema->init_row_binlog_column_mappings(*reader._tablet_schema);
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*reader._tablet_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/true)
+                        .ok());
     reader._read_schema = std::move(read_schema);
 
     reader._next_row.block = source;

@@ -29,11 +29,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
@@ -129,6 +131,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // null bitmap
         String stmtStr = "";
         try {
+            ctx.getProtocolAdapter().beforeStatement(ctx);
             StatementContext statementContext = prepCtx.getStatementContext();
             if (!ctx.isProxy()) {
                 // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
@@ -340,7 +343,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         table.readLock();
         try {
             MysqlProtocolAdapter.of(ctx).resultSender(ctx)
-                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchema());
+                    // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
+                    // the display schema (the nullability the source declares), not the read schema.
+                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
         } catch (Throwable throwable) {
             handleQueryException(throwable, "", null, null);
         } finally {
@@ -365,16 +370,34 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (!MysqlHandshakePacket.AUTH_PLUGIN_NAME.equals(authPluginName)) {
             MysqlChannel channel = ctx.getMysqlChannel();
             MysqlSerializer serializer = MysqlSerializer.newInstance();
-            serializer.writeInt1((byte) 0xfe);
-            serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
-            serializer.writeBytes(authPluginData);
-            serializer.writeInt1(0);
-            channel.sendAndFlush(serializer.toByteBuffer());
-            // Server receive auth switch response packet from client.
-            ByteBuffer authSwitchResponse = channel.fetchOnePacket();
-            int length = authSwitchResponse.limit();
-            password = new byte[length];
-            System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+            if (CachingSha2PasswordExchange.serves(authPluginName, ctx.getConnectAttributes())) {
+                // Same client class as at login (see NativePasswordResolver): full authentication,
+                // then the plaintext is checked the native way below.
+                String plainPassword;
+                try {
+                    plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
+                            authPluginData, channel.isSslMode());
+                } catch (CachingSha2PasswordExchange.Rejected e) {
+                    LOG.warn("caching_sha2_password exchange rejected on COM_CHANGE_USER: {}", e.getMessage());
+                    plainPassword = null;
+                }
+                if (plainPassword == null) {
+                    ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                    return;
+                }
+                password = NativePasswordResolver.nativeScramble(plainPassword, authPluginData);
+            } else {
+                serializer.writeInt1((byte) 0xfe);
+                serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+                serializer.writeBytes(authPluginData);
+                serializer.writeInt1(0);
+                channel.sendAndFlush(serializer.toByteBuffer());
+                // Server receive auth switch response packet from client.
+                ByteBuffer authSwitchResponse = channel.fetchOnePacket();
+                int length = authSwitchResponse.limit();
+                password = new byte[length];
+                System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+            }
         }
 
         // For safety, not allowed to change to root or admin.

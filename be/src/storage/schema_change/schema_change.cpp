@@ -44,6 +44,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "exec/common/util.hpp"
 #include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -58,8 +59,8 @@
 #include "runtime/runtime_state.h"
 #include "storage/data_dir.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/iterators.h"
 #include "storage/merger.h"
@@ -421,6 +422,11 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
                 RETURN_IF_ERROR(
                         _check_cast_valid(ref_column_def.column, result_tmp_column_def.column));
             }
+            // Both the schema change and the rollup (e.g. a synchronous materialized view on
+            // MAX(CAST(v AS CHAR(1)))) write the expression result into the new column directly.
+            RETURN_IF_ERROR(check_string_length_within_schema(
+                    result_tmp_column_def.column, *_schema_mapping[idx].new_column,
+                    _schema_mapping[idx].new_column->name()));
             swap_idx_list.emplace_back(result_tmp_column_idx, idx);
         } else if (_schema_mapping[idx].ref_column_idx < 0) {
             // new column, write default value
@@ -434,6 +440,11 @@ Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
                 column->insert_duplicate_fields(value, row_num);
             }
             new_block->get_by_position(idx).column = std::move(column);
+            // An FE before the byte length check of default values may send a default value
+            // longer than the CHAR/VARCHAR length in bytes.
+            RETURN_IF_ERROR(check_string_length_within_schema(
+                    new_block->get_by_position(idx).column, *_schema_mapping[idx].new_column,
+                    _schema_mapping[idx].new_column->name()));
         } else {
             // same type, just swap column
             swap_idx_list.emplace_back(_schema_mapping[idx].ref_column_idx, idx);
@@ -526,6 +537,46 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_
             return Status::DataQualityError(
                     "null map is changed after calculation, input_column={}",
                     input_column->get_name());
+        }
+    }
+    return Status::OK();
+}
+
+Status BlockChanger::check_string_length_within_schema(const ColumnPtr& column,
+                                                       const TabletColumn& new_column,
+                                                       const std::string& column_name) {
+    // The converted values (e.g. JSON to VARCHAR(n)), the rollup expression results and the default
+    // values of new columns are not truncated to the declared CHAR/VARCHAR length, so they must be
+    // checked here like the load path does.
+    // STRING has no declared length.
+    int32_t max_length = 0;
+    if (new_column.type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+        max_length = new_column.length();
+    } else if (new_column.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
+        // The VARCHAR length of a tablet column includes the 2-byte length prefix, see
+        // TabletColumn::get_field_length_by_type.
+        max_length = new_column.length() - cast_set<int32_t>(sizeof(OLAP_VARCHAR_MAX_LENGTH));
+    } else {
+        return Status::OK();
+    }
+    DORIS_CHECK(max_length >= 0) << "invalid length of column " << column_name << ": "
+                                 << new_column.length();
+
+    const auto* nullable = check_and_get_column<ColumnNullable>(column.get());
+    const auto& string_column = assert_cast<const ColumnString&>(
+            nullable == nullptr ? *column : nullable->get_nested_column());
+    const auto* null_map = nullable == nullptr ? nullptr : nullable->get_null_map_data().data();
+    for (size_t i = 0; i < string_column.size(); ++i) {
+        // NULL has no length, same as the load path.
+        if (null_map != nullptr && null_map[i]) {
+            continue;
+        }
+        const auto value = string_column.get_data_at(i);
+        if (value.size > cast_set<size_t>(max_length)) {
+            return Status::DataQualityError(
+                    "the length of value exceeds the length of column {} after schema change, "
+                    "schema length: {}; actual length: {}; first 32 bytes of value: [{}]",
+                    column_name, max_length, value.size, value.to_prefix(32));
         }
     }
     return Status::OK();
@@ -937,6 +988,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     std::vector<TabletColumnPtr> read_columns(_base_tablet_schema->columns().begin(),
                                               _base_tablet_schema->columns().begin() + num_cols);
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(std::move(read_columns));
+    RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
+                                                         /*merge_by_sequence_mapping=*/false,
+                                                         /*map_row_binlog_columns=*/false));
     std::vector<uint32_t> cluster_key_idxes;
 
     DBUG_EXECUTE_IF("SchemaChangeJob::_do_process_alter_tablet.block", DBUG_BLOCK);
@@ -1046,7 +1100,6 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             read_schema->append_dropped_columns(std::move(dropped_columns));
 
             reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-            reader_context.tablet_schema = _base_tablet_schema;
             reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
             reader_context.read_schema = read_schema;

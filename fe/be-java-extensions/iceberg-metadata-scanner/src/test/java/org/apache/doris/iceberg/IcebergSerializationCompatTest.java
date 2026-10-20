@@ -17,18 +17,29 @@
 
 package org.apache.doris.iceberg;
 
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InvalidClassException;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamConstants;
+import java.io.Serializable;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 public class IcebergSerializationCompatTest {
+    // BaseFile's serialVersionUID in Iceberg 1.11.0; 1.12.0 changed it (and added a field).
+    private static final long ICEBERG_1_11_0_BASE_FILE_UID = -8856745894322453272L;
+
     // An empty StaticDataTask serialized by Iceberg 1.10.1. It carries the old Schema serialVersionUID while
     // keeping all data neutral and local, so the fixture remains stable and safe to commit.
     private static final String ICEBERG_1_10_1_TASK = "rO0ABXNyACFvcmcuYXBhY2hlLmljZWJlcmcuU3RhdGljRGF0YVRhc2t2PvVIpr/rlAIABEwADG1ldGFkYXRh"
@@ -53,7 +64,7 @@ public class IcebergSerializationCompatTest {
     public void deserializesIceberg1101SystemTableTask() {
         FileScanTask task = IcebergSerializationCompat.deserializeFromBase64(ICEBERG_1_10_1_TASK);
 
-        Assert.assertEquals("id", task.schema().columns().get(0).name());
+        Assertions.assertEquals("id", task.schema().columns().get(0).name());
     }
 
     @Test
@@ -63,7 +74,79 @@ public class IcebergSerializationCompatTest {
         Schema actual = IcebergSerializationCompat.deserializeFromBase64(
                 serializeToBase64(expected));
 
-        Assert.assertTrue(expected.sameSchema(actual));
+        Assertions.assertTrue(expected.sameSchema(actual));
+    }
+
+    @Test
+    public void reportsATaskFromAnotherIcebergVersion() throws IOException {
+        // WHY: every system-table task carries a DataFile (StaticDataTask's metadata file is built like this one),
+        // and an FE on Iceberg 1.11 writes BaseFile with its 1.11 UID. MUTATION: dropping the InvalidClassException
+        // mapping -> a bare UncheckedIOException with no hint at the version skew -> red.
+        byte[] bytes = serialize(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("/dummyPath").withFileSizeInBytes(0L).withRecordCount(1L)
+                .withFormat(FileFormat.METADATA).build());
+        rewriteUid(bytes, "org.apache.iceberg.BaseFile", ICEBERG_1_11_0_BASE_FILE_UID);
+
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> IcebergSerializationCompat.deserializeFromBase64(Base64.getEncoder().encodeToString(bytes)));
+        Assertions.assertTrue(e.getMessage().contains("different Iceberg version"), e.getMessage());
+        Assertions.assertInstanceOf(InvalidClassException.class, e.getCause());
+    }
+
+    @Test
+    public void reportsAClassThisIcebergDoesNotHave() throws IOException {
+        // WHY: Iceberg 1.12 renumbered anonymous classes a task carries (e.g. BaseFile$1), so a task from another
+        // version can name a class that does not exist here. MUTATION: mapping only InvalidClassException -> red.
+        byte[] bytes = serialize(new Probe());
+        String name = Probe.class.getName();
+        replaceAll(bytes, name.getBytes(StandardCharsets.UTF_8),
+                (name.substring(0, name.length() - 1) + "X").getBytes(StandardCharsets.UTF_8));
+
+        IllegalStateException e = Assertions.assertThrows(IllegalStateException.class,
+                () -> IcebergSerializationCompat.deserializeFromBase64(Base64.getEncoder().encodeToString(bytes)));
+        Assertions.assertInstanceOf(ClassNotFoundException.class, e.getCause());
+    }
+
+    private static final class Probe implements Serializable {
+        private static final long serialVersionUID = 1L;
+    }
+
+    private static byte[] serialize(Object value) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ObjectOutputStream objectOutput = new ObjectOutputStream(output)) {
+            objectOutput.writeObject(value);
+        }
+        return output.toByteArray();
+    }
+
+    /** Overwrites the serialVersionUID that follows the class descriptor named {@code className}. */
+    private static void rewriteUid(byte[] bytes, String className, long uid) {
+        byte[] name = className.getBytes(StandardCharsets.UTF_8);
+        for (int i = 0; i + 3 + name.length + Long.BYTES <= bytes.length; i++) {
+            if (bytes[i] == ObjectStreamConstants.TC_CLASSDESC && bytes[i + 1] == (byte) (name.length >>> 8)
+                    && bytes[i + 2] == (byte) name.length && matchesAt(bytes, i + 3, name)) {
+                ByteBuffer.wrap(bytes, i + 3 + name.length, Long.BYTES).putLong(uid);
+                return;
+            }
+        }
+        Assertions.fail("no class descriptor for " + className);
+    }
+
+    private static void replaceAll(byte[] bytes, byte[] from, byte[] to) {
+        for (int i = 0; i + from.length <= bytes.length; i++) {
+            if (matchesAt(bytes, i, from)) {
+                System.arraycopy(to, 0, bytes, i, to.length);
+            }
+        }
+    }
+
+    private static boolean matchesAt(byte[] bytes, int offset, byte[] pattern) {
+        for (int j = 0; j < pattern.length; j++) {
+            if (bytes[offset + j] != pattern[j]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String serializeToBase64(Object value) throws IOException {

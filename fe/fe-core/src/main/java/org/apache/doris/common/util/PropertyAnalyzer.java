@@ -222,6 +222,16 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_IVM_USE_FULL_KEYS = "ivm_use_full_keys";
     /**
+     * Builds the MV on the unique-key (merge-on-write) table model even where its query would qualify
+     * for the other model, an append-only detail MV, which is a plain DUP table its refresh only ever
+     * appends to. Both models maintain the same query; they differ in what the MV is: the unique-key one
+     * is maintained through a hidden row-id, so it carries a delete sign and a sequence column, and the
+     * layout its refresh reads is pinned down by a plan signature.
+     *
+     * <p>Like ivm_use_full_keys this is fixed at creation time: an MV's key model cannot be altered.
+     */
+    public static final String PROPERTIES_IVM_FORCE_MOW = "ivm_force_mow";
+    /**
      * Limits IVM incremental refresh of each configured base table to its last N
      * partitions (by partition value). This is a lossy computation window used only
      * by the IVM incremental refresh path: COMPLETE refresh (initial load, fallback,
@@ -1539,7 +1549,11 @@ public class PropertyAnalyzer {
         if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
             String ttlSeconds = properties.get(PROPERTIES_BINLOG_TTL_SECONDS);
             try {
-                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(Long.parseLong(ttlSeconds)));
+                long ttl = Long.parseLong(ttlSeconds);
+                if (ttl < BinlogConfig.NO_TTL) {
+                    throw new NumberFormatException();
+                }
+                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(ttl));
                 properties.remove(PROPERTIES_BINLOG_TTL_SECONDS);
             } catch (Exception e) {
                 throw new AnalysisException("Invalid binlog ttl_seconds value: " + ttlSeconds);
@@ -1570,8 +1584,7 @@ public class PropertyAnalyzer {
         if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
             String format = properties.get(PROPERTIES_BINLOG_FORMAT);
             try {
-                BinlogConfig.BinlogFormat.valueOf(format);
-                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, BinlogConfig.BinlogFormat.fromString(format).name());
                 properties.remove(PROPERTIES_BINLOG_FORMAT);
             } catch (Exception e) {
                 throw new AnalysisException("Invalid binlog format value: " + format);
@@ -1591,6 +1604,16 @@ public class PropertyAnalyzer {
 
 
         return binlogConfigMap;
+    }
+
+    /**
+     * Rewrite binlog.format to its canonical name, for properties persisted as written (database
+     * properties): they are parsed again on replay, and an FE that predates case-insensitive parsing
+     * only accepts the canonical name. The value must already be validated by analyzeBinlogConfig.
+     */
+    public static void normalizeBinlogFormat(Map<String, String> properties) {
+        properties.computeIfPresent(PROPERTIES_BINLOG_FORMAT,
+                (key, format) -> BinlogConfig.BinlogFormat.fromString(format).name());
     }
 
     public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {

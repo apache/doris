@@ -17,12 +17,23 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.parser.NereidsParser;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 
 public class TypeTest {
+
+    @Test
+    public void testVarbinaryColumnSizeIsItsLengthInBytes() {
+        // information_schema.columns takes the length in COLUMN_TYPE and CHARACTER_MAXIMUM_LENGTH of a VARBINARY
+        // column from here, as it does for a VARCHAR column; without it they were unknown and NULL.
+        Assertions.assertEquals(16, ScalarType.createVarbinaryType(16).getColumnSize());
+        Assertions.assertEquals(ScalarType.MAX_VARBINARY_LENGTH,
+                ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH).getColumnSize());
+    }
 
     @Test
     public void testTimestampNsJavaUdfType() {
@@ -39,6 +50,14 @@ public class TypeTest {
     @Test
     public void testTimestampNsVariantSubtype() {
         Assertions.assertTrue(Type.getVariantSubTypes().contains(Type.TIMESTAMP_NS));
+    }
+
+    @Test
+    public void testTimestampTzIsNotVariantSubtype() {
+        Assertions.assertFalse(Type.VARIANT.supportSubType(ScalarType.createTimeStampTzType(6)));
+        Assertions.assertFalse(Type.VARIANT.supportSubType(
+                new ArrayType(ScalarType.createTimeStampTzType(3), true)));
+        Assertions.assertTrue(Type.VARIANT.supportSubType(ScalarType.createDatetimeV2Type(6)));
     }
 
     // ===================== ArrayType =====================
@@ -160,6 +179,21 @@ public class TypeTest {
                 false, 0L, 64, true);
 
         Assertions.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
+    }
+
+    @Test
+    public void testVariantFieldCommentToSqlRoundTrip() {
+        String comment = "O'Reilly \"quoted\" a\\b";
+        ArrayList<VariantField> fields = new ArrayList<>();
+        fields.add(new VariantField("price", Type.INT, comment));
+        String sql = new VariantType(fields, 0, false, 10000, 1, false, 0L, 64, false).toSql();
+
+        org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType(sql);
+        Assertions.assertEquals(comment, parsed.getPredefinedFields().get(0).getComment());
+        org.apache.doris.nereids.types.VariantType reparsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType("variant<" + parsed.getPredefinedFields().get(0).toSql() + ">");
+        Assertions.assertEquals(comment, reparsed.getPredefinedFields().get(0).getComment());
     }
 
     @Test

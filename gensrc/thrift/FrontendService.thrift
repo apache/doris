@@ -338,6 +338,9 @@ struct TReportExecStatusParams {
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  // Paimon commit messages prepared by BE and committed by FE.
+  34: optional list<DataSinks.TPaimonCommitMessage> paimon_commit_messages
 }
 
 struct TFeResult {
@@ -917,6 +920,7 @@ struct TInitExternalCtlMetaResult {
 }
 
 enum TSchemaTableName {
+  // Wire ids must stay consistent across maintained branches. Do not renumber or reuse ids.
   // BACKENDS = 0,
   METADATA_TABLE = 1, // tvf
   ACTIVE_QUERIES = 2, // db information_schema's table
@@ -931,11 +935,11 @@ enum TSchemaTableName {
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
-  DATABASE_PROPERTIES = 13,
-  AUTHENTICATION_INTEGRATIONS = 14,
+  AUTHENTICATION_INTEGRATIONS = 13,
+  ROLE_MAPPINGS = 14,
   TABLE_STREAMS = 15,
   TABLE_STREAM_CONSUMPTION = 16,
-  ROLE_MAPPINGS = 17,
+  DATABASE_PROPERTIES = 17,
   EXTENSIONS = 18,
   TSO_STATUS = 19,
   STATISTICS = 20,
@@ -1994,12 +1998,27 @@ struct TAcquireTimeBasedChangeReadFenceRequest {
     2: optional i64 end_timestamp_ms
     3: required i64 timeout_ms
     4: required bool wait_for_transactions
+    // False/absent retains the legacy drain for old callers and unbounded relations.
+    5: optional bool all_ends_explicit
+}
+
+struct TIncrWindowNotReady {
+    1: required i64 requested_end_timestamp_ms
+    2: required i64 committed_tso
+    3: required i64 retry_after_ms
+    4: optional i64 current_tso
+    // Absent on older masters: ERR_INCR_WINDOW_NOT_READY (5100).
+    5: optional i32 error_code
+    6: optional i64 timeout_ms
+    7: optional string reason
 }
 
 struct TAcquireTimeBasedChangeReadFenceResult {
     1: required Status.TStatus status
     2: optional i64 current_tso
     3: optional i64 max_journal_id
+    4: optional i64 committed_tso
+    5: optional TIncrWindowNotReady window_not_ready
 }
 
 service FrontendService {

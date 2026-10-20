@@ -22,7 +22,7 @@ suite("test_packed_file_stream_load_case2", "p0,nonConcurrent") {
     }
 
     final String tableName = "packed_file_case2"
-    final String dataFile = "cloud_p0/packed_file/merge_file_stream_load.csv"
+    final String dataFile = "${context.config.dataPath}/cloud_p0/packed_file/merge_file_stream_load.csv"
     final int rowsPerLoad = 200
 
     def createTable = {

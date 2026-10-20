@@ -30,7 +30,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "util/defer_op.h"
 
 namespace doris {
 
@@ -41,6 +40,9 @@ TEST(HdfsFileSystemTest, RejectsCacheBlockSizeNotDividingHdfsBatch) {
     EXPECT_TRUE(io::validate_hdfs_write_batch_buffer_size(1, 256 * 1024).ok());
     EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 640 * 1024).ok());
     EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 2 * 1024 * 1024).ok());
+    // ExecEnv::init_file_cache_factory relies on this rejection before it divides by the size.
+    EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 0).ok());
+    EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, -1).ok());
 }
 
 TEST(HdfsFileSystemTest, Write) {
@@ -158,20 +160,6 @@ TEST(HdfsFileSystemTest, Write) {
 
     st = local_fs->delete_directory(test_dir);
 }
-
-// Guarded: the enable_java_support check is compiled out on libhdfs3 builds.
-#ifdef USE_HADOOP_HDFS
-// create() returns error when java support is disabled.
-TEST(HdfsFileSystemTest, CreateFailsWhenJavaSupportDisabled) {
-    const bool old_enable_java_support = config::enable_java_support;
-    config::enable_java_support = false;
-    Defer defer {[&]() { config::enable_java_support = old_enable_java_support; }};
-    std::map<std::string, std::string> properties;
-    auto res = io::HdfsFileSystem::create(properties, "hdfs://namenode:8020", "test_id", "/");
-    ASSERT_FALSE(res.has_value());
-    EXPECT_NE(res.error().to_string().find("enable_java_support"), std::string::npos);
-}
-#endif
 
 // open_file_internal returns IOError when _fs_handler is null.
 TEST(HdfsFileSystemTest, OpenFileFailsWithoutHandler) {

@@ -132,12 +132,16 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {TLocalPartitionType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->is_serial_operator() ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
-                                                : DataDistribution(TLocalPartitionType::NOOP);
+            if (!_child->is_serial_operator()) {
+                return {TLocalPartitionType::NOOP};
+            }
+            return state->enable_share_hash_table_for_broadcast_join()
+                           ? DataDistribution(TLocalPartitionType::PASS_TO_ONE)
+                           : DataDistribution(TLocalPartitionType::BROADCAST);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
@@ -212,7 +216,7 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key,
                bool short_circuit_for_null, bool with_other_conjuncts) {
         if (null_map) {

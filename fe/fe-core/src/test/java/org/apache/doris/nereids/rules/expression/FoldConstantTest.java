@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
@@ -91,6 +93,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondMicrosecondAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
@@ -103,6 +106,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -119,13 +123,17 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -138,6 +146,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
@@ -190,6 +199,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("if(true, a + 1,  a + 2)", "a + 1");
         assertRewriteAfterTypeCoercion("if(false, a + 1,  a + 2)", "a + 2");
         assertRewriteAfterTypeCoercion("if(b > 0, a + 100,  a + 100)", "a + 100");
+
+        // NaNs of opposite signs are different branches, signbit() tells them apart
+        SlotReference condition = SlotReference.of("c", BooleanType.INSTANCE);
+        DoubleLiteral positiveNan = new DoubleLiteral(Double.NaN);
+        DoubleLiteral negativeNan = new DoubleLiteral(Math.copySign(Double.NaN, -1.0));
+        If ifNan = new If(condition, negativeNan, positiveNan);
+        Assertions.assertEquals(ifNan, executor.rewrite(ifNan, context));
+        CaseWhen caseWhenNan = new CaseWhen(ImmutableList.of(new WhenClause(condition, negativeNan)), positiveNan);
+        Assertions.assertEquals(caseWhenNan, executor.rewrite(caseWhenNan, context));
+        If ifFloatNan = new If(condition, new FloatLiteral(Math.copySign(Float.NaN, -1.0f)),
+                new FloatLiteral(Float.NaN));
+        Assertions.assertEquals(ifFloatNan, executor.rewrite(ifFloatNan, context));
+        If ifArrayNan = new If(condition, new ArrayLiteral(ImmutableList.<Literal>of(negativeNan)),
+                new ArrayLiteral(ImmutableList.<Literal>of(positiveNan)));
+        Assertions.assertEquals(ifArrayNan, executor.rewrite(ifArrayNan, context));
     }
 
     @Test
@@ -295,6 +319,38 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Cast timestampNsToDouble = new Cast(timestampNsToVariant.child(), DoubleType.INSTANCE);
         rewritten = executor.rewrite(timestampNsToDouble, context);
         Assertions.assertEquals(new DoubleLiteral(20240229123456D), rewritten);
+    }
+
+    @Test
+    void testCastVarBinaryToStringFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+
+        // BE keeps the bytes of a VARBINARY cast to a string type, so FE folds to those bytes, not to
+        // their hex text '616263'.
+        VarBinaryLiteral abc = new VarBinaryLiteral("abc".getBytes(StandardCharsets.UTF_8));
+        Assertions.assertEquals(new StringLiteral("abc"),
+                executor.rewrite(new Cast(abc, StringType.INSTANCE), context));
+        Assertions.assertEquals(new VarcharLiteral("abc", 16),
+                executor.rewrite(new Cast(abc, VarcharType.createVarcharType(16)), context));
+        VarBinaryLiteral multiByte = new VarBinaryLiteral("中文".getBytes(StandardCharsets.UTF_8));
+        Assertions.assertEquals(new StringLiteral("中文"),
+                executor.rewrite(new Cast(multiByte, StringType.INSTANCE), context));
+
+        // 0xFF is not valid UTF-8, so no FE string literal carries it; the cast is left for BE.
+        Cast notUtf8 = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xFF}), StringType.INSTANCE);
+        Assertions.assertEquals(notUtf8, executor.rewrite(notUtf8, context));
+
+        // FE does not evaluate a NUL byte or a supplementary character like BE: a string comparison takes the
+        // bytes after a NUL for padding, and VARCHAR(n) truncation splits U+1F600 into a lone surrogate. Those
+        // casts are left for BE as well.
+        Cast withNul = new Cast(new VarBinaryLiteral(new byte[] {'a', 0, 'b'}), StringType.INSTANCE);
+        Assertions.assertEquals(withNul, executor.rewrite(withNul, context));
+        VarBinaryLiteral grinningFace = new VarBinaryLiteral(
+                new byte[] {(byte) 0xF0, (byte) 0x9F, (byte) 0x98, (byte) 0x80});
+        Cast supplementary = new Cast(grinningFace, VarcharType.createVarcharType(1));
+        Assertions.assertEquals(supplementary, executor.rewrite(supplementary, context));
     }
 
     @Test
@@ -1160,6 +1216,58 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         divide = new Divide(new DoubleLiteral(Double.NEGATIVE_INFINITY), new DoubleLiteral(Double.NEGATIVE_INFINITY));
         rewritten = executor.rewrite(divide, context);
         Assertions.assertEquals(new DoubleLiteral(Double.NaN), rewritten);
+        // DECIMALV2 division is NULL only for a zero divisor, as BE executes it
+        DecimalV2Type decimalV2 = DecimalV2Type.SYSTEM_DEFAULT;
+        divide = new Divide(new DecimalLiteral(new BigDecimal("0")), new DecimalLiteral(new BigDecimal("2")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0")), rewritten);
+        divide = new Divide(new DecimalLiteral(new BigDecimal("1")), new DecimalLiteral(new BigDecimal("0")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new NullLiteral(decimalV2), rewritten);
+        // a DECIMALV2 quotient keeps scale 9 and rounds like BE DecimalV2Value::operator/
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0.333333333")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("1024")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0.000976563")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("-2")),
+                new DecimalLiteral(decimalV2, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("-0.666666667")), rewritten);
+        // BE rounds up once the remainder reaches divisor >> 1, which differs from half up for an odd divisor
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("0.000000003")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("333333333.333333334")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("0.000000001")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("1000000000")), rewritten);
+
+        // a DECIMALV3 quotient is truncated toward zero at the result scale like BE DivideDecimalImpl;
+        // type coercion casts 2.0 / 3 to DECIMALV3(6, 5) / DECIMALV3(3, 0) with result DECIMALV3(6, 5)
+        DecimalV3Type dividendType = DecimalV3Type.createDecimalV3Type(6, 5);
+        DecimalV3Type divisorType = DecimalV3Type.createDecimalV3Type(3, 0);
+        DecimalV3Type quotientType = DecimalV3Type.createDecimalV3Type(6, 5);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("0.66666")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("-2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("-0.66666")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(4, 0), new BigDecimal("1024")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("0.00097")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("0")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new NullLiteral(quotientType), rewritten);
 
         Fmod fmod = new Fmod(new DoubleLiteral(Double.POSITIVE_INFINITY), new DoubleLiteral(1));
         rewritten = executor.rewrite(fmod, context);
@@ -1624,6 +1732,25 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             sessionVariable.enableStrictCast = false;
             sessionVariable.setDebugSkipFoldConstant(false);
             sessionVariable.setEnableFoldConstantByBe(false);
+        }
+    }
+
+    @Test
+    void testShortCircuitIfDoesNotFoldUnselectedBranch() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        try {
+            sessionVariable.enableStrictCast = true;
+            executor = new ExpressionRuleExecutor(ImmutableList.of(
+                    bottomUp(FoldConstantRule.INSTANCE)));
+            Expression invalidCast = new Cast(new StringLiteral("not-an-int"), IntegerType.INSTANCE);
+            Expression guarded = new ShortCircuitIf(
+                    BooleanLiteral.TRUE, new IntegerLiteral(7), invalidCast);
+
+            Assertions.assertEquals(new IntegerLiteral(7), executor.rewrite(guarded, context));
+            Assertions.assertEquals(new IntegerLiteral(7),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(guarded, context));
+        } finally {
+            sessionVariable.enableStrictCast = false;
         }
     }
 

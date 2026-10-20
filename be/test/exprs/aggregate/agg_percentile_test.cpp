@@ -23,14 +23,17 @@
 #include <vector>
 
 #include "core/column/column_array.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_quantilestate.h"
 #include "core/string_buffer.hpp"
 #include "exprs/aggregate/aggregate_function_percentile.h"
+#include "exprs/aggregate/aggregate_function_quantile_state.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "util/tdigest.h"
 
@@ -110,8 +113,131 @@ void expect_results_equal(const std::vector<double>& actual, const std::vector<d
 
 } // namespace
 
+TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = true, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    QuantileState seed(10000);
+    constexpr size_t seed_count = 4096;
+    for (size_t i = 0; i < seed_count; ++i) {
+        seed.add_value(10);
+    }
+    input->insert_value(std::move(seed));
+    const IColumn* columns[] = {input.get()};
+    function->add(place, columns, 0, arena);
+    input->clear();
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
+    auto& accumulator = reinterpret_cast<Data*>(place)->value;
+    auto* original = accumulator._tdigest_ptr.get();
+    const size_t initial_unprocessed = accumulator._mutable_tdigest().unprocessed().size();
+    auto results = ColumnQuantileState::create();
+    constexpr size_t result_count = 12000;
+    results->reserve(result_count);
+    bool reused_accumulator = true;
+    size_t unprocessed_centroids = 0;
+    for (size_t row = 0; row < result_count; ++row) {
+        QuantileState value;
+        value.add_value(20 + row);
+        input->clear();
+        input->insert_value(std::move(value));
+        function->add(place, columns, 0, arena);
+        unprocessed_centroids += accumulator._mutable_tdigest().unprocessed().size();
+        function->insert_result_into(place, *results);
+        reused_accumulator &= accumulator._tdigest_ptr.get() == original;
+    }
+    EXPECT_TRUE(reused_accumulator);
+    // Each sample should enter result-insertion sorting only once across the window.
+    EXPECT_EQ(initial_unprocessed + result_count, unprocessed_centroids);
+    RecordProperty("unprocessed_centroids", std::to_string(unprocessed_centroids));
+    EXPECT_NE(accumulator._tdigest_ptr, results->get_element(result_count - 1)._tdigest_ptr);
+    // Inspect actual capacities independently of the column's approximate accounting.
+    size_t digest_bytes = 0;
+    for (auto& result : results->get_data()) {
+        auto& digest = result._mutable_tdigest();
+        ASSERT_EQ(0, digest._unprocessed.capacity());
+        ASSERT_EQ(digest._processed.size(), digest._processed.capacity());
+        ASSERT_EQ(digest._cumulative.size(), digest._cumulative.capacity());
+        digest_bytes +=
+                (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+                digest._cumulative.capacity() * sizeof(Weight);
+    }
+    RecordProperty("retained_digest_bytes", std::to_string(digest_bytes));
+    EXPECT_LT(digest_bytes, result_count * 160 * 1024);
+    for (size_t row : {size_t(0), result_count / 2, result_count - 1}) {
+        auto& result = results->get_element(row);
+        EXPECT_EQ(0, result._mutable_tdigest().unprocessed().capacity());
+        EXPECT_EQ(10, result.get_value_by_percentile(0));
+        EXPECT_EQ(20 + row, result.get_value_by_percentile(1));
+        std::vector<double> values(seed_count, 10);
+        for (size_t i = 0; i <= row; ++i) {
+            values.push_back(20 + i);
+        }
+        const std::vector<double> quantiles {0.5, 0.9, 0.99};
+        const auto expected = expected_quantiles(values, quantiles, 10000);
+        for (size_t i = 0; i < quantiles.size(); ++i) {
+            EXPECT_NEAR(expected[i], result.get_value_by_percentile(quantiles[i]), 1.0);
+        }
+    }
+    EXPECT_GE(accumulator._mutable_tdigest().unprocessed().capacity(), 80001);
+    EXPECT_FALSE(accumulator._mutable_tdigest().have_unprocessed());
+}
+
+class AggregateFunctionQuantileStateRangeTest : public testing::TestWithParam<bool> {};
+
+TEST_P(AggregateFunctionQuantileStateRangeTest, RangeResultsShareOneSavedDigest) {
+    const bool is_window = GetParam();
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = is_window, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    QuantileState state(10000);
+    for (int i = 0; i < 4096; ++i) {
+        state.add_value(10);
+    }
+    input->insert_value(state);
+    const IColumn* columns[] = {input.get()};
+    function->add(place, columns, 0, arena);
+    auto results = ColumnQuantileState::create();
+    results->insert_many_defaults(3);
+    function->insert_result_into_range(place, *results, 3, 12003);
+    function->insert_result_into_range(place, *results, 12003, 12003);
+    ASSERT_EQ(12003, results->size());
+    const size_t column_bytes = results->allocated_bytes();
+    const auto& first = results->get_element(3);
+    for (size_t row = 3; row < results->size(); ++row) {
+        EXPECT_EQ(first._tdigest_ptr, results->get_element(row)._tdigest_ptr);
+    }
+    if (is_window) {
+        EXPECT_NE(state._tdigest_ptr, first._tdigest_ptr);
+    } else {
+        EXPECT_EQ(state._tdigest_ptr, first._tdigest_ptr);
+    }
+    auto modified = first;
+    modified.add_value(110);
+    EXPECT_EQ(110, modified.get_value_by_percentile(1));
+    EXPECT_EQ(10, first.get_value_by_percentile(1));
+    EXPECT_EQ(10, state.get_value_by_percentile(1));
+    EXPECT_EQ(column_bytes, results->allocated_bytes());
+}
+
+INSTANTIATE_TEST_SUITE_P(AggregateAndWindow, AggregateFunctionQuantileStateRangeTest,
+                         testing::Bool());
+
 TEST(AggregateFunctionPercentileApproxArrayTest, AddAndBatchPaths) {
-    const std::vector<double> values {1, 2, 3, 4, 5, 100};
+    const std::vector<double> values {1, 2, 3, 4, 5, 100, std::numeric_limits<double>::quiet_NaN()};
     const std::vector<double> quantiles {0.9, 0.0, 0.5, 0.5, 1.0};
     auto function = create_percentile_approx_array_function(false);
     ASSERT_NE(function, nullptr);
@@ -255,7 +381,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantil
     function->deserialize(restored_place, reader, arena);
     const auto& restored_state =
             *reinterpret_cast<const PercentileApproxArrayState*>(restored_place);
-    EXPECT_TRUE(restored_state.init_flag);
+    EXPECT_FALSE(restored_state.init_flag);
     EXPECT_EQ(restored_state.digest.get(), nullptr);
     EXPECT_TRUE(read_result(function, restored_place).empty());
 
@@ -264,7 +390,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantil
     function->create(merged_place);
     function->merge(merged_place, restored_place, arena);
     const auto& merged_state = *reinterpret_cast<const PercentileApproxArrayState*>(merged_place);
-    EXPECT_TRUE(merged_state.init_flag);
+    EXPECT_FALSE(merged_state.init_flag);
     EXPECT_EQ(merged_state.digest.get(), nullptr);
     EXPECT_TRUE(read_result(function, merged_place).empty());
 

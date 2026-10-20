@@ -943,6 +943,17 @@ std::optional<OrcSargComparisonLiteral> make_integer_to_floating_comparison_lite
     };
 }
 
+bool has_unsafe_timestamp_bounds(const OrcSargColumn& column, const ::orc::Literal& literal) {
+    if (column.predicate_type != ::orc::PredicateDataType::TIMESTAMP) {
+        return false;
+    }
+    const auto timestamp = literal.getTimestamp();
+    // ORC reconstructs negative timestamp statistics with truncating division, which can
+    // produce a non-canonical nanos component. The exact epoch is unsafe too because its
+    // half-up lower bound is -500ns. Leave these predicates to Doris row filtering.
+    return timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0);
+}
+
 std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
         const OrcSargColumn& column, const VExprSPtr& source_expr, const VExprSPtr& literal_expr,
         TExprOpcode::type normalized_op, const cctz::time_zone& timezone) {
@@ -981,14 +992,8 @@ std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
     if (!literal.has_value()) {
         return std::nullopt;
     }
-    if (column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
-        const auto timestamp = literal->getTimestamp();
-        // ORC reconstructs negative timestamp statistics with truncating division, which can
-        // produce a non-canonical nanos component. The exact epoch is unsafe too because its
-        // half-up lower bound is -500ns. Leave these predicates to Doris row filtering.
-        if (timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0)) {
-            return std::nullopt;
-        }
+    if (has_unsafe_timestamp_bounds(column, *literal)) {
+        return std::nullopt;
     }
     return OrcSargComparisonLiteral {
             .literal = *literal,
@@ -1064,11 +1069,8 @@ std::optional<std::vector<::orc::Literal>> make_in_literals_for_sarg(
         if (!literal.has_value()) {
             return std::nullopt;
         }
-        if (column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
-            const auto timestamp = literal->getTimestamp();
-            if (timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0)) {
-                return std::nullopt;
-            }
+        if (has_unsafe_timestamp_bounds(column, *literal)) {
+            return std::nullopt;
         }
         literals.push_back(*literal);
     }

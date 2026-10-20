@@ -58,14 +58,10 @@ std::string hdfs_error() {
     std::stringstream ss;
     int err = errno;
     ss << "(" << err << "), " << errno_message(err) << ")";
-#ifdef USE_HADOOP_HDFS
     char* root_cause = hdfsGetLastExceptionRootCause();
     if (root_cause != nullptr) {
         ss << ", reason: " << root_cause;
     }
-#else
-    ss << ", reason: " << hdfsGetLastError();
-#endif
     return ss.str();
 }
 

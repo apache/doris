@@ -26,8 +26,10 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -206,9 +208,11 @@ public interface ConnectorScanPlanProvider {
      * <p>When {@code true}, a partition-aware ScanNode (e.g. {@code PluginDrivenScanNode}) may
      * enter batch mode: instead of enumerating all splits synchronously via {@link #planScan},
      * it slices the pruned partitions into batches and calls {@link #planScanForPartitionBatch}
-     * per batch on a background executor, streaming splits as they are produced (mirrors legacy
-     * {@code MaxComputeScanNode.startSplit}). The default is {@code false}, so connectors stay on
-     * the synchronous {@code planScan} path unless they opt in.</p>
+     * per batch on a background executor (mirrors legacy {@code MaxComputeScanNode.startSplit}).
+     * Both {@link #planScanForPartitionBatch} and {@link #streamSplits} MUST honor each request's
+     * partition subset. The default streaming adapter defers the existing eager batch hook; a
+     * connector can override it to enumerate each batch lazily. The default {@code false} disables
+     * partition batching; file-count streaming is decided independently by {@link #streamingSplitEstimate}.</p>
      *
      * @param session the current session
      * @param handle  the table handle
@@ -321,6 +325,55 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Opens a lazy source for a scan request. The engine advances and closes each source serially,
+     * but may drive sources for disjoint partition batches concurrently when {@link #supportsBatchScan}
+     * is true. Such sources MUST restrict enumeration to the request's partition subset.
+     *
+     * <p>For partition-batching connectors, the default defers {@link #planScanForPartitionBatch}
+     * until consumption, preserving existing batch implementations. Connectors that can stream
+     * within a partition override this to avoid materializing the batch's ranges. Streaming-only
+     * connectors must override this method and keep their whole-scan semantics.</p>
+     *
+     * @param session the current session
+     * @param request the scan scope, columns, filter and limit; snapshot/time-travel is already pinned
+     * @return a lazy, closeable source of scan ranges
+     */
+    default ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        if (!supportsBatchScan(session, request.getTableHandle())) {
+            throw new UnsupportedOperationException("Connector did not implement streaming split generation");
+        }
+        return new ConnectorSplitSource() {
+            private Iterator<ConnectorScanRange> ranges;
+            private boolean closed;
+
+            @Override
+            public boolean hasNext() {
+                if (closed) {
+                    return false;
+                }
+                if (ranges == null) {
+                    ranges = planScanForPartitionBatch(session, request, request.getRequiredPartitions()).iterator();
+                }
+                return ranges.hasNext();
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return ranges.next();
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+                ranges = Collections.emptyIterator();
+            }
+        };
+    }
+
+    /**
      * Decides whether this scan should use streaming (lazy) split generation and, if so, estimates
      * the number of splits it will produce. This is the file-count counterpart of the partition-count
      * batch gate ({@link #supportsBatchScan}), and echoes Trino's lazy {@code ConnectorSplitSource}
@@ -332,7 +385,7 @@ public interface ConnectorScanPlanProvider {
      * <p>When this returns a non-negative value, the engine drives streaming split generation via
      * {@link #streamSplits} (pulling ranges with backpressure) instead of the synchronous
      * {@link #planScan}; the returned estimate doubles as the BE concurrency hint. A negative value
-     * keeps the scan on the synchronous {@code planScan} path (the default).</p>
+     * disables file-count streaming; partition batching may still use {@link #streamSplits}.</p>
      *
      * <p>The decision MUST be cheap (e.g. manifest metadata counts), NOT a full split enumeration —
      * the heavy enumeration is deferred to {@link #streamSplits}.</p>
@@ -361,33 +414,6 @@ public interface ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter) {
         return false;
-    }
-
-    /**
-     * Builds a lazy {@link ConnectorSplitSource} for streaming split generation. Called once, on a
-     * background task, only when {@link #streamingSplitEstimate} returned a non-negative value. The
-     * engine pulls ranges from the source with backpressure and pumps them into the split queue
-     * (mirrors legacy {@code IcebergScanNode.doStartSplit}).
-     *
-     * <p>The source MUST defer the heavy planning (e.g. {@code TableScan.planFiles()}) until ranges
-     * are consumed, so FE heap usage stays bounded for very large scans. The default throws, so a
-     * connector that returns a non-negative {@link #streamingSplitEstimate} must override this.</p>
-     *
-     * @param session the current session
-     * @param handle  the table handle (snapshot/time-travel already pinned by the engine)
-     * @param columns the columns to read
-     * @param filter  an optional remaining filter expression
-     * @param limit   the maximum number of rows to return, or -1 for no limit
-     * @return a lazy, closeable source of scan ranges
-     */
-    default ConnectorSplitSource streamSplits(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumnHandle> columns,
-            Optional<ConnectorExpression> filter,
-            long limit) {
-        throw new UnsupportedOperationException(
-                "streamSplits requires streamingSplitEstimate(...) >= 0; connector did not implement it");
     }
 
     /**
@@ -484,6 +510,17 @@ public interface ConnectorScanPlanProvider {
      */
     default boolean usesHiveParquetInt96TimeZone() {
         return false;
+    }
+
+    /**
+     * Whether a table column default is also the value of that column in older files which do not
+     * physically contain it. The default preserves the existing external-file behavior. Connectors
+     * whose defaults are write-time only (for example Paimon) return {@code false}, so a nullable
+     * column missing from an older file is read as {@code NULL} while omitted values in later writes
+     * still use the connector's default.
+     */
+    default boolean applyColumnDefaultsOnRead() {
+        return true;
     }
 
     /**

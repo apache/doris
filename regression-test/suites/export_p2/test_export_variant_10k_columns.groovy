@@ -112,8 +112,7 @@ suite("test_export_variant_10k_columns", "p0") {
         dataFile.delete()
     }
 
-    // def format = "parquet"
-    def format = "native"
+    def format = "parquet"
 
     // 4. Export to S3 (Parquet)
     def uuid = UUID.randomUUID().toString()
@@ -161,7 +160,7 @@ suite("test_export_variant_10k_columns", "p0") {
              type: "VARIANT<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\")>",
              value: "cast(v['k1'] as int)"],
             // CAST(STRING AS VARIANT) creates a Variant string scalar. Parsing a JSON document
-            // from the native-to-text representation must therefore be explicit.
+            // from the exported text representation must therefore be explicit.
             [suffix: "text", type: "TEXT", value: "cast(parse_to_variant(v)['k1'] as int)"]
         ]
 

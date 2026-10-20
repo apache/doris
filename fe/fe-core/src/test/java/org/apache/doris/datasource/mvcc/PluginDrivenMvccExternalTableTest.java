@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -53,7 +54,18 @@ import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.AfterEach;
@@ -73,6 +85,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link PluginDrivenMvccExternalTable}, the generic MVCC/MTMV-capable plugin table.
@@ -94,6 +107,57 @@ public class PluginDrivenMvccExternalTableTest {
     private static final long PINNED_SNAPSHOT_ID = 4242L;
     private static final long TS_2024_01_01 = 1_700_000_000_000L;
     private static final long TS_2024_02_02 = 1_800_000_000_000L;
+
+    @Test
+    public void transformedBinaryPartitionTypesPreserveCounts() {
+        ConnectorPartitionInfo bucket = new ConnectorPartitionInfo("dt_bucket=3",
+                Collections.singletonMap("dt", "3"), Collections.emptyMap(), -1, -1, -1, -1,
+                Collections.singletonList("3"), Collections.singletonList(false),
+                Collections.singletonList(ConnectorType.of("INT")));
+        Fixture f = Fixture.with(Collections.singletonList(bucket), Type.VARBINARY);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Assertions.assertEquals(1, pin.getNameToPartitionItem().size());
+        ListPartitionItem item = (ListPartitionItem) pin.getNameToPartitionItem().get("dt_bucket=3");
+        Assertions.assertEquals(PrimitiveType.INT, item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType());
+    }
+
+    @Test
+    public void unpartitionedViewDoesNotPruneTransformedValuesAsSourceColumns() {
+        Fixture f = Fixture.rangeView(ConnectorMvccPartitionView.unpartitioned());
+        Optional<MvccSnapshot> pin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        withContextSnapshot(f.table, pin.get(), () -> {
+            SlotReference slot = new SlotReference("dt", DateV2Type.INSTANCE);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(1), f.table,
+                    Collections.singletonList("db"), Collections.emptyList(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), Optional.of(Collections.singletonList(slot)));
+            LogicalFilter<?> filter = new LogicalFilter<>(
+                    Collections.singleton(new EqualTo(slot, new DateV2Literal(2024, 1, 1))), scan);
+            CascadesContext context = CascadesContext.initContext(
+                    ConnectContext.get().getStatementContext(), filter,
+                    PhysicalProperties.ANY);
+            Plan rewritten = new PruneFileScanPartition().build().transform(filter, context).get(0);
+            LogicalFileScan result = (LogicalFileScan) rewritten.child(0);
+            // Enumeration is for counts; the connector must receive the original predicate for pruning.
+            Assertions.assertFalse(result.getSelectedPartitions().isPruned);
+            Assertions.assertEquals(2, result.getSelectedPartitions().totalPartitionNum);
+            Assertions.assertEquals(2, result.getSelectedPartitions().selectedPartitions.size());
+        });
+    }
+
+    @Test
+    public void sourceColumnPruningUsesTheRetainedPartitionView() {
+        Fixture f = Fixture.partitioned();
+        Optional<MvccSnapshot> listPin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of(ConnectorMvccPartitionView.unpartitioned()));
+        Optional<MvccSnapshot> rawPin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertTrue(f.table.supportInternalPartitionPruned(listPin));
+        Assertions.assertFalse(f.table.supportInternalPartitionPruned(rawPin));
+        Fixture range = Fixture.rangeView(rangeView(rangePart("p1", "2024-01-01", "2024-01-02", FRESH_555)));
+        Optional<MvccSnapshot> rangePin = Optional.of(range.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertTrue(range.table.supportInternalPartitionPruned(rangePin));
+    }
 
     @AfterEach
     public void cleanup() {
@@ -568,6 +632,130 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testLatestSchemaIdDoesNotOptIntoSchemaPublication() {
+        Fixture f = Fixture.timeTravel();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).build();
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle)).thenReturn(Optional.of(snapshot));
+        Mockito.when(f.metadata.applySnapshot(f.session, f.handle, snapshot)).thenReturn(f.pinnedHandle);
+
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertNull(pin.getPinnedSchema(),
+                "a schema ID alone must not change ordinary schema or SHOW CREATE publication");
+        Assertions.assertSame(f.latestCacheValue, f.table.getSchemaCacheValue(Optional.of(pin)).get());
+        Mockito.verify(f.metadata, Mockito.never())
+                .getTableSchema(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testLatestSnapshotCarriesConnectorBoundSchema() {
+        Fixture f = Fixture.timeTravel();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).retainSchema(true).build();
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle))
+                .thenReturn(Optional.of(snapshot));
+        Mockito.when(f.metadata.applySnapshot(f.session, f.handle, snapshot))
+                .thenReturn(f.pinnedHandle);
+
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertNotNull(pin.getPinnedSchema());
+        Assertions.assertEquals("v1", pin.getPinnedSchema().getSchema().get(0).getName(),
+                "a connector's latest schema generation must survive the data fence materialization");
+    }
+
+    @Test
+    public void testLatestRangeUsesPinnedPartitionTypeAndArity() {
+        Fixture f = pinnedPartitionFixture();
+        Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                .thenReturn(Optional.of(rangeView(rangePart("p1", "10", "20", FRESH_555))));
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        RangePartitionItem item = (RangePartitionItem) pin.getNameToPartitionItem().get("p1");
+        Assertions.assertEquals(1, item.getItems().lowerEndpoint().getKeys().size());
+        Assertions.assertEquals(Type.INT, item.getItems().lowerEndpoint().getKeys().get(0).getType());
+        Assertions.assertEquals("10", item.getItems().lowerEndpoint().getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testLatestListUsesPinnedPartitionTypeAndArity() {
+        checkLatestPinnedList(false);
+    }
+
+    @Test
+    public void testLatestUnpartitionedViewUsesPinnedListColumns() {
+        checkLatestPinnedList(true);
+    }
+
+    private void checkLatestPinnedList(boolean unpartitionedView) {
+        Fixture f = pinnedPartitionFixture();
+        if (unpartitionedView) {
+            // The ambient schema has no partition columns, but this pin still owns a LIST partition.
+            f.latestCacheValue.getPartitionColumns().clear();
+            Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                    .thenReturn(Optional.of(ConnectorMvccPartitionView.unpartitioned()));
+        }
+        Mockito.when(f.metadata.listPartitions(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("key=10", TS_2024_01_01)));
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+        Assertions.assertEquals(1, pin.getNameToPartitionItem().size());
+        PartitionKey key = ((ListPartitionItem) pin.getNameToPartitionItem().get("key=10")).getItems().get(0);
+        Assertions.assertEquals(1, key.getKeys().size());
+        Assertions.assertEquals(Type.INT, key.getKeys().get(0).getType());
+        Assertions.assertEquals("10", key.getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testLatestPinnedSchemaRejectsCaseInsensitiveDuplicateColumns() {
+        checkLatestPinnedDuplicateColumns(false);
+    }
+
+    @Test
+    public void testLatestPinnedSchemaRejectsIdentifierMappingCollisions() {
+        checkLatestPinnedDuplicateColumns(true);
+    }
+
+    private void checkLatestPinnedDuplicateColumns(boolean mappedCollision) {
+        Fixture f = pinnedPartitionFixture();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).retainSchema(true).build();
+        ConnectorTableSchema schema = new ConnectorTableSchema("REMOTE_TBL", Arrays.asList(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null),
+                new ConnectorColumn(mappedCollision ? "remote_id" : "ID", ConnectorType.of("INT"), "", true, null)),
+                "", Collections.emptyMap());
+        Mockito.when(f.metadata.getTableSchema(f.session, f.pinnedHandle, snapshot)).thenReturn(schema);
+        if (mappedCollision) {
+            Mockito.when(f.metadata.fromRemoteColumnName(f.session, "REMOTE_DB", "REMOTE_TBL", "remote_id"))
+                    .thenReturn("ID");
+        }
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertEquals("Duplicate column name found: ID", error.getMessage());
+        Mockito.verify(f.metadata, Mockito.never()).getMvccPartitionView(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    private Fixture pinnedPartitionFixture() {
+        Fixture f = Fixture.timeTravel();
+        // The local pin predates a partition type/arity change in the ambient latest schema.
+        f.latestCacheValue.getPartitionColumns().clear();
+        f.latestCacheValue.getPartitionColumns().add(new Column("key", Type.DATEV2));
+        f.latestCacheValue.getPartitionColumns().add(new Column("added", Type.INT));
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder()
+                .snapshotId(PINNED_SNAPSHOT_ID).schemaId(Fixture.TT_SCHEMA_ID).retainSchema(true).build();
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle)).thenReturn(Optional.of(snapshot));
+        ConnectorTableSchema schema = new ConnectorTableSchema("REMOTE_TBL",
+                Collections.singletonList(new ConnectorColumn("key", ConnectorType.of("INT"), "", true, null)),
+                "", Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "key"));
+        Mockito.when(f.metadata.getTableSchema(f.session, f.pinnedHandle, snapshot)).thenReturn(schema);
+        return f;
+    }
+
+    @Test
     public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
         Fixture f = Fixture.partitioned();
         Mockito.when(f.metadata.listPartitions(
@@ -903,23 +1091,77 @@ public class PluginDrivenMvccExternalTableTest {
         // The returned pin carries the connector-resolved snapshot.
         Assertions.assertSame(f.resolvedSnapshot, pin.getConnectorSnapshot());
         Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
-        // MUTATION: listing partitions for time-travel makes these maps non-empty (red) and the
-        // verify(never) below catches the listPartitions call.
+        // The fixture's connector does not claim listsPartitionsAtSnapshot, so the maps stay empty:
+        // listing at LATEST would be the wrong universe for a pinned read, and an empty one means
+        // scan-all. MUTATION: listing partitions for a snapshot-blind connector makes these maps
+        // non-empty (red) and the verify(never) below catches the listPartitions call.
         Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
-                "time-travel reads must NOT list partitions");
+                "a connector that cannot list AT the pin must not have its partitions listed");
         Assertions.assertTrue(pin.getNameToLastModifiedMillis().isEmpty(),
-                "time-travel reads must NOT list partitions");
+                "a connector that cannot list AT the pin must not have its partitions listed");
         Mockito.verify(f.metadata, Mockito.never())
                 .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
 
-        // The pinned schema must be the AT-SNAPSHOT schema (column "v1"), NOT the latest fixture
-        // schema (column "dt"). MUTATION: pinning the latest schema instead of the at-snapshot one
+        // The pinned schema must be the AT-SNAPSHOT schema, NOT the latest fixture schema: it
+        // carries "v1", which the latest schema does not have, and its "dt" is STRING where the
+        // latest one is DATEV2. MUTATION: pinning the latest schema instead of the at-snapshot one
         // makes this red.
         PluginDrivenSchemaCacheValue pinned = (PluginDrivenSchemaCacheValue) pin.getPinnedSchema();
         Assertions.assertNotNull(pinned);
-        Assertions.assertEquals(1, pinned.getSchema().size());
-        Assertions.assertEquals("v1", pinned.getSchema().get(0).getName(),
+        Assertions.assertEquals(Arrays.asList("v1", "dt"),
+                pinned.getSchema().stream().map(Column::getName).collect(Collectors.toList()),
                 "the pinned schema must reflect getTableSchema(..., snapshot), not the latest schema");
+        Assertions.assertEquals(Collections.singletonList("dt"),
+                pinned.getPartitionColumns().stream().map(Column::getName)
+                        .collect(Collectors.toList()));
+    }
+
+    /**
+     * The other half of the same decision: a connector whose listing IS snapshot-exact gets its real
+     * partition set into the pin, listed on the SNAPSHOT-APPLIED handle. Without this the pin would carry
+     * an empty set for a connector that can do better, every time-travel query would read every partition,
+     * and EXPLAIN would report partition=0/0 - which is indistinguishable from "pruned to nothing".
+     */
+    @Test
+    public void testTimeTravelPinsTheRealPartitionSetOfASnapshotAwareConnector() {
+        Fixture f = Fixture.timeTravel();
+        Mockito.when(f.metadata.listsPartitionsAtSnapshot(Mockito.any(), Mockito.eq(f.pinnedHandle)))
+                .thenReturn(true);
+        // What the table held AT the pin: one partition, where it has two today. Listing the unpinned
+        // handle would produce both, so the assertion below is also what proves which handle was used.
+        Mockito.when(f.metadata.listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("dt=2024-01-01", TS_2024_01_01)));
+
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
+
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                pin.getNameToPartitionItem().keySet(),
+                "the pin must carry the partition set listed at the snapshot");
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                pin.getNameToLastModifiedMillis().keySet());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        // The pinned schema is unaffected by which listing was used.
+        Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
+
+        // ...and the items are TYPED by the pinned schema, not by the latest one. The fixture's
+        // at-snapshot "dt" is STRING and its latest "dt" is DATEV2, so the literal in the built key
+        // says which schema did the typing. MUTATION: typing this listing with getPartitionColumns()
+        // - the latest schema, which is what this branch used to do - makes the literal DATEV2.
+        //
+        // This is load-bearing beyond the type. The two schemas do not have to agree on WHICH
+        // columns partition the table, and when they disagree the arity check inside
+        // toListPartitionItem throws per partition, is caught, and the pin comes back empty - a
+        // silent degrade to UNPARTITIONED with one WARN per partition as the only signal.
+        ListPartitionItem item = (ListPartitionItem) pin.getNameToPartitionItem().get("dt=2024-01-01");
+        Assertions.assertEquals(1, item.getItems().size());
+        Assertions.assertEquals(PrimitiveType.STRING,
+                item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType(),
+                "the pinned listing must be typed by the PINNED schema's partition columns");
     }
 
     @Test
@@ -1202,6 +1444,35 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testRangeViewTimestamptzBoundsStayUtcInEverySessionZone() throws AnalysisException {
+        // Transform bounds are UTC instants, and the NULL-min sentinel must stay below them: parsing it as a
+        // wall-clock date would underflow year zero in a positive-offset session.
+        Type timestamptz = org.apache.doris.catalog.ScalarType.createTimeStampTzType(6);
+        for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.getSessionVariable().setTimeZone(zone);
+            ctx.setThreadLocalInfo();
+            try {
+                Fixture f = Fixture.rangeView(rangeView(
+                        rangePart("pnull", "0000-01-01", null, FRESH_555),
+                        rangePart("p0", "1970-01-01 00:00:00+00:00", "1970-01-02 00:00:00+00:00", FRESH_777)),
+                        timestamptz);
+                Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+                com.google.common.collect.Range<PartitionKey> nullRange =
+                        ((RangePartitionItem) items.get("pnull")).getItems();
+                com.google.common.collect.Range<PartitionKey> dayZero =
+                        ((RangePartitionItem) items.get("p0")).getItems();
+                Assertions.assertFalse(nullRange.isEmpty(), zone);
+                Assertions.assertTrue(nullRange.upperEndpoint().compareTo(dayZero.lowerEndpoint()) < 0, zone);
+                Assertions.assertEquals(0, dayZero.lowerEndpoint().getKeys().get(0).compareLiteral(
+                        new org.apache.doris.analysis.DateLiteral(1970, 1, 1, 0, 0, 0, 0, timestamptz)), zone);
+            } finally {
+                ConnectContext.remove();
+            }
+        }
+    }
+
+    @Test
     public void testRangeViewPartitionSnapshotIsSnapshotId() throws AnalysisException {
         Fixture f = Fixture.rangeView(rangeView(
                 rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
@@ -1467,7 +1738,13 @@ public class PluginDrivenMvccExternalTableTest {
          * the snapshot-consistent enumeration. The partition column is the default DATEV2 {@code dt}.
          */
         static Fixture rangeView(ConnectorMvccPartitionView view) {
-            Fixture f = partitioned();
+            return rangeView(view, Type.DATEV2);
+        }
+
+        static Fixture rangeView(ConnectorMvccPartitionView view, Type partitionColType) {
+            Fixture f = with(Arrays.asList(
+                    cpi("dt=2024-01-01", TS_2024_01_01),
+                    cpi("dt=2024-02-02", TS_2024_02_02)), partitionColType);
             Mockito.when(f.metadata.applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
                     .thenReturn(f.pinnedHandle);
             Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
@@ -1514,23 +1791,40 @@ public class PluginDrivenMvccExternalTableTest {
             // string-key path) — the LATEST schema.
             List<Column> schema = Collections.singletonList(new Column("dt", partitionColType));
             PluginDrivenSchemaCacheValue latestCacheValue = new PluginDrivenSchemaCacheValue(
-                    schema, schema, Collections.singletonList("dt"));
+                    schema, new ArrayList<>(schema), Collections.singletonList("dt"));
 
             ConnectorMvccSnapshot resolvedSnapshot = ConnectorMvccSnapshot.builder()
                     .snapshotId(7L).schemaId(TT_SCHEMA_ID).build();
 
             if (timeTravel) {
                 // resolveTimeTravel succeeds; applySnapshot returns the branch-aware pinnedHandle;
-                // getTableSchema(..,snapshot) returns the AT-SNAPSHOT schema (column "v1"), distinct
-                // from the latest schema (column "dt"). fromRemoteColumnName is identity.
+                // getTableSchema(..,snapshot) returns the AT-SNAPSHOT schema, distinct from the
+                // latest schema in both of the ways that matter. fromRemoteColumnName is identity.
+                //
+                // Column "v1" is there and "dt" is not, in the latest schema: that is what proves
+                // the pin carries the schema AT the snapshot rather than today's.
+                //
+                // "dt" is there TOO, and declared a partition column, because a snapshot-aware
+                // connector's pinned listing is typed by this schema (see listPartitions in the
+                // pinned branch). Without it pinnedSchema.getPartitionColumns() is empty, every
+                // listed partition fails the value/type arity check, and the pin silently comes
+                // back with no partitions at all - which is what a fixture carrying no partition
+                // column asserts by accident.
+                //
+                // Its type is STRING while the latest "dt" is DATEV2, so the two are distinguishable
+                // in a built PartitionKey: that is what lets a test assert WHICH schema typed the
+                // partition items. Both parse "2024-01-01", so neither typing loses the partition
+                // and the difference shows up as a type rather than as an absence.
                 Mockito.when(metadata.resolveTimeTravel(Mockito.eq(session), Mockito.eq(handle),
                         Mockito.any())).thenReturn(Optional.of(resolvedSnapshot));
                 Mockito.when(metadata.applySnapshot(session, handle, resolvedSnapshot))
                         .thenReturn(pinnedHandle);
                 ConnectorTableSchema atSchema = new ConnectorTableSchema("REMOTE_TBL",
-                        Collections.singletonList(new ConnectorColumn("v1", ConnectorType.of("INT"),
-                                "", true, null)),
-                        "", Collections.emptyMap());
+                        Arrays.asList(
+                                new ConnectorColumn("v1", ConnectorType.of("INT"), "", true, null),
+                                new ConnectorColumn("dt", ConnectorType.of("STRING"), "", true, null)),
+                        "", Collections.singletonMap(
+                                ConnectorTableSchema.PARTITION_COLUMNS_KEY, "dt"));
                 Mockito.when(metadata.getTableSchema(Mockito.eq(session), Mockito.any(),
                         Mockito.any(ConnectorMvccSnapshot.class))).thenReturn(atSchema);
                 Mockito.when(metadata.fromRemoteColumnName(Mockito.eq(session), Mockito.any(),

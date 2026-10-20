@@ -409,7 +409,7 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
+        if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         if (!context->is_col_constant(1)) {
@@ -826,6 +826,13 @@ public:
         }
         auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
         auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        // FE only rejects a nonpositive gram_num once it is a literal. A constant expression that
+        // FE cannot evaluate (e.g. `crc32('abc') % 3 - 3`) reaches BE unchecked when the whole
+        // call is folded on BE, so validate here before it is used as a substring length.
+        if (gram_num <= 0) {
+            return Status::InvalidArgument(
+                    "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
+        }
         const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
 
         if (col_const[0]) {
@@ -1274,7 +1281,8 @@ public:
     static bool execute_const_null(ColumnString::MutablePtr& res_col,
                                    PaddedPODArray<UInt8>& res_null_map_data,
                                    size_t input_rows_count, size_t null_index) {
-        if (null_index == 1) {
+        // Only a NULL bits argument makes the result NULL; NULL strings are skipped.
+        if (null_index == 0) {
             res_col->insert_many_defaults(input_rows_count);
             res_null_map_data.assign(input_rows_count, (UInt8)1);
             return true;
@@ -1530,7 +1538,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
 
@@ -1578,7 +1586,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto* state = reinterpret_cast<UnicodeNormalizeState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (state == nullptr || state->normalizer == nullptr) {
             return Status::RuntimeError("unicode_normalize function state is not initialized");
         }

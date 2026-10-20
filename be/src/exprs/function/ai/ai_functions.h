@@ -42,11 +42,10 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "exprs/function/function.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "service/http/http_client.h"
-#include "util/security.h"
 #include "util/string_util.h"
 #include "util/threadpool.h"
 
@@ -66,6 +65,14 @@ public:
     }
 
     bool is_blockable() const override { return true; }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+            // Release this execution context's cached clients.
+            context->set_function_state(scope, nullptr);
+        }
+        return Status::OK();
+    }
 
     bool use_default_implementation_for_nulls() const final { return false; }
 
@@ -96,7 +103,7 @@ public:
             return Status::OK();
         }
 
-        TAIResource config;
+        AIResource config;
         std::shared_ptr<AIAdapter> adapter;
         if (Status status = this->_init_from_resource(context, block, arguments, config, adapter);
             !status.ok()) {
@@ -130,7 +137,7 @@ protected:
         return Status::OK();
     }
 
-    static void normalize_endpoint(TAIResource& config) {
+    static void normalize_endpoint(AIResource& config) {
         // 1. If users configure only the version root like `.../v1` or `.../v1beta`, append
         //    `models/<model>:batchEmbedContents` for `embed`, and `models/<model>:generateContent`
         //    for other AI scalar functions.
@@ -169,53 +176,20 @@ protected:
         }
     }
 
-    // Executes one HTTP POST request and validates transport-level success.
-    Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response, const TAIResource& config,
-                           std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
-        RETURN_IF_ERROR(client->init(config.endpoint, false));
-
-        QueryContext* query_ctx = context->state()->get_query_ctx();
-        int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
-        if (remaining_query_time <= 0) {
-            return Status::TimedOut("Query timeout exceeded before AI request");
-        }
-
-        client->set_timeout_ms(remaining_query_time * 1000);
-
-        if (!config.api_key.empty()) {
-            RETURN_IF_ERROR(adapter->set_authentication(client));
-        }
-
-        Status st = client->execute_post_request(request_body, &response);
-        long http_status = client->get_http_status();
-
-        if (!st.ok()) {
-            LOG(INFO) << "AI HTTP request failed before status validation, provider="
-                      << config.provider_type << ", model=" << config.model_name
-                      << ", endpoint=" << mask_token(config.endpoint)
-                      << ", exec_status=" << st.to_string() << ", response_body=" << response;
-            return st;
-        }
-        if (http_status != 200) {
-            return Status::HttpError(
-                    "http status code is not 200, code={}, url={}, response_body={}", http_status,
-                    mask_token(config.endpoint), response);
-        }
-        return Status::OK();
-    }
-
-    // Sends the request with retry mechanism for handling transient failures
     Status send_request_to_llm(const std::string& request_body, std::string& response,
-                               const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
+                               const AIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                FunctionContext* context) const {
-        return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
-                                              [this, &request_body, &response, &config, &adapter,
-                                               context](HttpClient* client) -> Status {
-                                                  return this->do_send_request(client, request_body,
-                                                                               response, config,
-                                                                               adapter, context);
-                                              });
+        // Retain the cache across batches/Blocks.
+        auto* executor = static_cast<AIRequestExecutor*>(
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        if (executor == nullptr) {
+            auto state = std::make_shared<AIRequestExecutor>();
+            executor = state.get();
+            context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                        std::move(state));
+        }
+        return executor->execute(request_body, response, config, *adapter,
+                                 context->state()->get_query_ctx());
     }
 
     // Provider-reusable helper for string-returning functions.
@@ -228,7 +202,7 @@ protected:
     // Provider-reusable helper for string-returning functions.
     // Executes one batch request and parses the provider result into one string per input row.
     Status execute_batch_request(const std::vector<std::string>& batch_prompts,
-                                 std::vector<std::string>& results, const TAIResource& config,
+                                 std::vector<std::string>& results, const AIResource& config,
                                  std::shared_ptr<AIAdapter>& adapter,
                                  FunctionContext* context) const {
 #ifdef BE_TEST
@@ -292,7 +266,7 @@ protected:
     // Runs the common batch execution flow; derived classes only need to define how one batch of
     // string results is inserted into the final output column.
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, const TAIResource& config,
+                   uint32_t result, size_t input_rows_count, const AIResource& config,
                    std::shared_ptr<AIAdapter>& adapter) const {
         Columns prompt_columns;
         prompt_columns.reserve(arguments.size() - 1);
@@ -417,7 +391,7 @@ protected:
 private:
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
-                               const ColumnNumbers& arguments, TAIResource& config,
+                               const ColumnNumbers& arguments, AIResource& config,
                                std::shared_ptr<AIAdapter>& adapter) const {
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);
@@ -428,7 +402,12 @@ private:
         DORIS_CHECK(ai_resources);
         auto it = ai_resources->find(resource_name);
         DORIS_CHECK(it != ai_resources->end());
-        config = it->second;
+        PrimitiveType input_type = INVALID_TYPE;
+        if (arguments.size() > 1) {
+            input_type =
+                    remove_nullable(block.get_by_position(arguments[1]).type)->get_primitive_type();
+        }
+        config = assert_cast<const Derived&>(*this).select_ai_resource(it->second, input_type);
 
         normalize_endpoint(config);
 
@@ -437,6 +416,10 @@ private:
 
         adapter->init(config);
         return Status::OK();
+    }
+
+    AIResource select_ai_resource(const TAIResource& resource, PrimitiveType /*input_type*/) const {
+        return AIResource(resource);
     }
 
     // Serializes one text batch into the shared JSON-array prompt format consumed by LLM

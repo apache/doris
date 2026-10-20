@@ -21,6 +21,7 @@ import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.suite.event.EventListener
+import org.apache.doris.regression.util.Http
 
 import java.lang.reflect.UndeclaredThrowableException
 import java.util.concurrent.ExecutorService
@@ -62,6 +63,16 @@ class ScriptContext implements Closeable {
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
+        Http.configure(
+                (config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false,
+                config.otherConfigs.get("tlsVerifyMode")?.toString()?.toLowerCase() ?: "strict",
+                config.otherConfigs.get("trustStorePath")?.toString(),
+                config.otherConfigs.get("trustStorePassword")?.toString(),
+                config.otherConfigs.get("trustStoreType")?.toString() ?: "PKCS12",
+                config.otherConfigs.get("keyStorePath")?.toString(),
+                config.otherConfigs.get("keyStorePassword")?.toString(),
+                config.otherConfigs.get("keyStoreType")?.toString() ?: "PKCS12"
+        )
     }
 
     private final synchronized Suite newSuite(String suiteName, String group) {

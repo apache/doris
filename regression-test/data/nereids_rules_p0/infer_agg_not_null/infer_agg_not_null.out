@@ -11,3 +11,12 @@
 -- !mixed_count_array_agg --
 1	3
 
+-- !null_ignoring_aggregate_identities --
+9	9	1	1
+
+-- !all_null_equals_empty_input --
+\N	\N	0	0	0	0	0	0
+
+-- !null_sensitive_aggregates_keep_rows --
+3	3
+

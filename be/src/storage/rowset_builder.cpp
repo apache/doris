@@ -189,8 +189,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     }
     // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'.
     // max_version_config must > 100, otherwise silent errors will occur.
-    if ((!config::disable_auto_compaction &&
-         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) &&
+    if ((!config::disable_auto_compaction && !_tablet->tablet_meta()->disable_auto_compaction()) &&
         (version_count > max_version_config - 100) &&
         !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction
@@ -257,7 +256,8 @@ Status RowsetBuilder::init() {
               tmp_pending_rowset_ids.begin() + 1);
     _pending_rs_guard = _engine.pending_local_rowsets().add(tmp_pending_rowset_ids);
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     _is_init = true;
     return Status::OK();
@@ -268,6 +268,7 @@ Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& conte
 
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.db_id = _req.table_schema_param->db_id();
     context.table_id = _req.table_schema_param->table_id();
     context.rowset_state = PREPARED;
@@ -414,13 +415,17 @@ Status RowsetBuilder::commit_txn() {
     return Status::OK();
 }
 
-Status BaseRowsetBuilder::cancel() {
+Status BaseRowsetBuilder::cancel(const Status& st) {
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
     if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
+        _calc_delete_bitmap_token->cancel(st);
+    }
+    // Flush-time bitmap work belongs to the rowset writer, not the builder token.
+    if (_rowset_writer != nullptr) {
+        _rowset_writer->cancel_calc_delete_bitmap(st);
     }
     _is_cancelled = true;
     return Status::OK();
@@ -497,7 +502,8 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
                 table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
                 table_schema_param->nano_seconds(), table_schema_param->timezone(),
                 table_schema_param->auto_increment_coulumn(),
-                table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
+                table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase,
+                &_req.load_id));
     }
     return Status::OK();
 }
@@ -596,6 +602,12 @@ Status GroupRowsetBuilder::submit_calc_delete_bitmap_task() {
 
 Status GroupRowsetBuilder::wait_calc_delete_bitmap() {
     return _txn_rs_builder->wait_calc_delete_bitmap();
+}
+
+Status GroupRowsetBuilder::cancel(const Status& st) {
+    RETURN_IF_ERROR(_txn_rs_builder->cancel(st));
+    RETURN_IF_ERROR(_row_binlog_rowset_builder->cancel(st));
+    return BaseRowsetBuilder::cancel(st);
 }
 
 Status GroupRowsetBuilder::commit_txn() {

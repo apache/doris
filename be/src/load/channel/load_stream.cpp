@@ -792,12 +792,74 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     } break;
     case PStreamHeader::CLOSE_LOAD: {
         DBUG_EXECUTE_IF("LoadStream.close_load.block", DBUG_BLOCK);
+        DBUG_EXECUTE_IF("LoadStream.close_load.force_last_source", {
+            if (_schema->table_id() == dp->param<int64_t>("table_id", -1)) {
+                MonotonicStopWatch wait_timer;
+                wait_timer.start();
+                while (true) {
+                    bool ready = false;
+                    bool single_source = false;
+                    {
+                        std::lock_guard lock_guard(_lock);
+                        if (_debug_last_close_src_id < 0) {
+                            int opened_streams = _close_load_cnt;
+                            for (const auto& [_, count] : _open_streams) {
+                                opened_streams += count;
+                            }
+                            // Wait for every source to open before selecting a stable
+                            // min/max source ID. No CLOSE_LOAD is counted before selection.
+                            if (opened_streams == _total_streams) {
+                                single_source = _open_streams.size() < 2;
+                                if (!single_source) {
+                                    const bool pick_max = dp->param<bool>("pick_max", true);
+                                    _debug_last_close_src_id = _open_streams.begin()->first;
+                                    for (const auto& [src_id, _] : _open_streams) {
+                                        if ((pick_max && src_id > _debug_last_close_src_id) ||
+                                            (!pick_max && src_id < _debug_last_close_src_id)) {
+                                            _debug_last_close_src_id = src_id;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ready = _debug_last_close_src_id >= 0 &&
+                                (hdr.src_id() != _debug_last_close_src_id ||
+                                 _open_streams.size() == 1);
+                    }
+                    if (ready) {
+                        break;
+                    }
+                    if (single_source ||
+                        wait_timer.elapsed_time() / 1000000 >=
+                                dp->param<int64_t>("wait_ms", 30000) ||
+                        !DebugPoints::instance()->is_enable(DP_NAME)) {
+                        LOG(WARNING) << "cannot force last CLOSE_LOAD source (requires multiple "
+                                        "sources), "
+                                     << *this;
+                        // Closing without EOS makes the load fail instead of silently
+                        // passing a test that did not establish the requested ordering.
+                        brpc::StreamClose(id);
+                        return;
+                    }
+                    bthread_usleep(1000);
+                }
+            }
+        });
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         // Step 1: count this CLOSE_LOAD and, if this is the last one, commit. Under _lock.
         bool all_received =
                 close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
+        DBUG_EXECUTE_IF("LoadStream.close_load.force_last_source", {
+            if (all_received && _schema->table_id() == dp->param<int64_t>("table_id", -1) &&
+                dp->param<bool>("require_failure", false) && failed_tablets.empty()) {
+                LOG(WARNING) << "expected a failed tablet in the final CLOSE_LOAD result, "
+                             << *this;
+                brpc::StreamClose(id);
+                return;
+            }
+        });
         // Step 2: send THIS stream's EOS (network IO, must be outside _lock). A stream
         // must not be StreamClose'd before its own EOS is delivered, otherwise the
         // sender sees on_closed without EOS and reports "Stream closed without EOS".

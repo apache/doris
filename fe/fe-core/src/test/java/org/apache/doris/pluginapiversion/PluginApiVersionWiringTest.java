@@ -108,6 +108,14 @@ public class PluginApiVersionWiringTest {
     }
 
     @Test
+    public void connectorPluginWithoutOpenCsvContractIsRefused() throws IOException {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("8.0")));
+        Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
+                "API 8 plugins omit the OpenCSV semantic flag and must not load on an API 9 engine");
+    }
+
+    @Test
     public void connectorPluginDeclaringNothingIsRefused() throws IOException {
         // The regression this whole change exists for: before, a plugin that said nothing about its API
         // version inherited the kernel's own default and was always admitted.

@@ -25,12 +25,10 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.DelegatedCredential;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -216,13 +214,6 @@ public class FEOpExecutor {
             params.setTxnLoadInfo(ctx.getTxnEntry().getTxnLoadInfoInObserver());
         }
 
-        if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
-            if (null != ctx.getPrepareExecuteBuffer()) {
-                params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
-            }
-            params.setCursorFetchRequested(ctx.isCursorFetchRequested());
-        }
-
         ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
             params.setDelegatedCredentialSessionId(ctx.getSessionContext().getSessionId());
             params.setDelegatedCredentialType(credential.getType().name());
@@ -230,15 +221,10 @@ public class FEOpExecutor {
             credential.getExpiresAtMillis().ifPresent(params::setDelegatedCredentialExpiresAtMillis);
         });
 
-        // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
-        // generates packets matching the original client's protocol expectations.
-        // Only a MySQL connection negotiates this capability and owns a MysqlChannel;
-        // an Arrow Flight SQL session has none, and leaving the field unset keeps the
-        // master on its default packet layout.
-        if (ctx.getConnectType() == ConnectType.MYSQL) {
-            params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
-            params.setMysqlCapability(ctx.getCapability().getFlags());
-        }
+        // What the master needs to know about the client to produce the response it expects: the
+        // negotiated capabilities and the COM_STMT_EXECUTE packet for a MySQL connection, nothing
+        // for a protocol that consumes the master's status and rows rather than its packets.
+        ctx.getProtocolAdapter().fillForwardRequest(ctx, params);
 
         return params;
     }
@@ -285,13 +271,14 @@ public class FEOpExecutor {
     // result at the follower, which still has the original execute flag and client capability.
     // DML/DDL OK and ERR packets are retained verbatim, including warnings and load info.
     public void prepareQueryResultForClient() {
-        if (!ctx.getMysqlChannel().clientDeprecatedEOF() || isClientDeprecatedEofApplied()
+        MysqlProtocolAdapter mysqlAdapter = MysqlProtocolAdapter.of(ctx);
+        if (!mysqlAdapter.getChannel().clientDeprecatedEOF() || isClientDeprecatedEofApplied()
                 || !hasQueryResultPackets()) {
             return;
         }
         List<ByteBuffer> packets = new ArrayList<>(result.getQueryResultBufList());
         int metadataEnd = Math.toIntExact(MysqlProto.readVInt(packets.get(0).duplicate())) + 1;
-        boolean needsCursorTerminator = MysqlProtocolAdapter.of(ctx).clientConsumesCursorMetadataTerminator(ctx);
+        boolean needsCursorTerminator = mysqlAdapter.clientConsumesCursorMetadataTerminator(ctx);
         // An execution error may occur after only part of the metadata has been buffered.
         if (metadataEnd > packets.size()) {
             Preconditions.checkState(isErrorPacket(result.packet));

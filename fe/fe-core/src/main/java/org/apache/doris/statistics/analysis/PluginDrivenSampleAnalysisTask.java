@@ -63,7 +63,6 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         Pair<Double, Long> sampleInfo = getSampleInfo();
         params.put("scaleFactor", String.valueOf(sampleInfo.first));
-        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
@@ -91,10 +90,10 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
             sb.append(LINEAR_ANALYZE_TEMPLATE);
             params.put("ndvFunction", "ROUND(NDV(${colName}) * ${scaleFactor})");
             params.put("rowCount", "ROUND(COUNT(1) * ${scaleFactor})");
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
         } else {
             sb.append(DUJ1_ANALYZE_TEMPLATE);
             params.put("subStringColName", getStringTypeColName(col));
+            params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
             params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
             params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");

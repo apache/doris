@@ -156,6 +156,8 @@ protected:
     int64_t _start_offset = 0;
     int64_t _size = -1;
     int _skip_lines = 0;
+    // Enabled only by readers using plain, quote-independent delimiter matching.
+    bool _align_split_prefix = false;
     char _escape = 0;
     bool _line_reader_eof = false;
     bool _bom_removed = false;

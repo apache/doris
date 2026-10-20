@@ -80,6 +80,7 @@ import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -324,7 +325,7 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
-    private boolean isEffectiveRowBinlogEnabled() {
+    private boolean isEffectiveRowBinlogEnabled() throws org.apache.doris.common.AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         BinlogConfig binlogConfig = db == null
                 ? BinlogConfig.fromProperties(properties)
@@ -484,13 +485,6 @@ public class CreateTableInfo {
             }
             if (columnDef.getType().isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
-            }
-            if (columnDef.getType().isVariantType()) {
-                if (columnNameUpperCase.indexOf('.') != -1) {
-                    throw new AnalysisException(
-                        "Disable to create table of `VARIANT` type column named with a `.` character: "
-                                + columnNameUpperCase);
-                }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
@@ -725,8 +719,10 @@ public class CreateTableInfo {
         keysSet.addAll(keys);
         Set<String> orderKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
+        // Internal statistics tables need state columns. The internal-query flag can also be set by user SHOWs.
+        boolean isSystemGeneratedTable = targetIsInternalCatalog && FeConstants.INTERNAL_DB_NAME.equals(dbName);
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
-                keysType));
+                keysType, isSystemGeneratedTable));
 
         try {
             invertedIndexFileStorageFormat =
@@ -1140,24 +1136,27 @@ public class CreateTableInfo {
             if (!info.isPresent()) {
                 continue;
             }
-            Expression parsedExpression = info.get().getExpression();
-            checkParsedExpressionInGeneratedColumn(parsedExpression);
-            Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
-            Scope scope = new Scope(slots);
-            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-            Expression expr;
-            try {
-                expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
-            } catch (AnalysisException e) {
-                throw new AnalysisException("In generated column '" + column.getName() + "', "
-                        + Utils.convertFirstChar(e.getMessage()));
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx,
+                    info.get().getSessionVariables().orElse(null))) {
+                Expression parsedExpression = info.get().getExpression();
+                checkParsedExpressionInGeneratedColumn(parsedExpression);
+                Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
+                Scope scope = new Scope(slots);
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+                Expression expr;
+                try {
+                    expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("In generated column '" + column.getName() + "', "
+                            + Utils.convertFirstChar(e.getMessage()));
+                }
+                checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
+                TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
+                ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
+                Expr e = expr.accept(translator, planTranslatorContext);
+                info.get().setExpr(e);
+                exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
             }
-            checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
-            TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
-            ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
-            Expr e = expr.accept(translator, planTranslatorContext);
-            info.get().setExpr(e);
-            exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
         }
 
         // for alter drop column

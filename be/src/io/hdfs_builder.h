@@ -45,19 +45,30 @@ class HDFSCommonBuilder {
 
 public:
     HDFSCommonBuilder() {}
+    // hdfsBuilderConnect() takes the builder over and frees it, so there is only something to
+    // free here on the paths that never reach it: create_hdfs_builder() allocates the builder
+    // first and can still fail afterwards - a catalog with a principal but no keytab does
+    // exactly that - and used to leak one hdfsBuilder per such query.
     ~HDFSCommonBuilder() {
-#ifdef USE_LIBHDFS3
-        // for hadoop hdfs, the hdfs_builder will be freed in hdfsConnect
         if (hdfs_builder != nullptr) {
             hdfsFreeBuilder(hdfs_builder);
         }
-#endif
     }
+
+    HDFSCommonBuilder(const HDFSCommonBuilder&) = delete;
+    HDFSCommonBuilder& operator=(const HDFSCommonBuilder&) = delete;
 
     // Must call this to init hdfs_builder first.
     Status init_hdfs_builder();
 
     hdfsBuilder* get() { return hdfs_builder; }
+    // Hands the builder to hdfsBuilderConnect(), which frees it. Call it at that one call site
+    // and nowhere else; anything else that took the pointer out of get() would double-free.
+    hdfsBuilder* release() {
+        hdfsBuilder* released = hdfs_builder;
+        hdfs_builder = nullptr;
+        return released;
+    }
     bool is_kerberos() const { return kerberos_login; }
     Status check_krb_params();
 

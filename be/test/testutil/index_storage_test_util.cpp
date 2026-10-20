@@ -48,7 +48,7 @@
 #include "storage/compaction/full_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/options.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -406,9 +406,7 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
                            size_t column_pos, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
     auto variant_column = ColumnVariantV2::create();
-    JsonStringToVariantEncoder encoder(
-            {.throw_on_invalid_json = true,
-             .check_duplicate_json_path = batch.check_duplicate_json_path});
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
     for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
         encoder.add_json({json.data(), json.size()});
     }
@@ -617,7 +615,11 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto seg_pos = rowset->rowset_meta()->position_of(segment_id);
+    if (!seg_pos.has_value()) {
+        return ResultError(seg_pos.error());
+    }
+    auto seg = rowset->segment(seg_pos.value());
     auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
@@ -1303,9 +1305,13 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
 
         RowsetReaderContext context;
         context.reader_type = options.reader_type;
-        context.tablet_schema = _tablet_schema;
         context.need_ordered_result = options.need_ordered_result;
         context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*_tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         context.predicates = &predicates;
         context.stats = &result.stats;
         context.target_cast_type_for_variants = options.target_cast_type_for_variants;

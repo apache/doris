@@ -22,6 +22,7 @@
 #include <gtest/gtest-test-part.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -111,6 +112,69 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsInvalidDir) {
             non_existent_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
     EXPECT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::DIR_NOT_EXIST);
+}
+
+TEST_F(SnapshotManagerTest, ConvertRowsetIdsPreservesCommitTso) {
+    const std::vector<std::optional<TsoRange>> cases = {std::nullopt, TsoRange(-1, -1),
+                                                        TsoRange(100, 100), TsoRange(100, 200)};
+    for (size_t i = 0; i < cases.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto clone_dir = _engine_data_path + "/commit_tso_" + std::to_string(i);
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(clone_dir).ok());
+        auto tablet_meta = testutil::create_tablet_meta_pb(10006, 12346, 1, 1000, 100);
+        auto* schema = tablet_meta.mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_num_short_key_columns(1);
+        schema->set_num_rows_per_row_block(1024);
+        schema->set_compress_kind(COMPRESS_LZ4);
+        testutil::add_column_pb(schema, 0, "k1", "INT", true, false);
+
+        RowsetMetaPB source;
+        source.set_rowset_id(0);
+        source.set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        source.set_tablet_id(10006);
+        source.set_tablet_schema_hash(12346);
+        source.set_rowset_type(BETA_ROWSET);
+        source.set_rowset_state(VISIBLE);
+        source.set_start_version(7);
+        source.set_end_version(
+                cases[i].has_value() && cases[i]->start_tso() != cases[i]->end_tso() ? 8 : 7);
+        source.set_num_rows(0);
+        source.set_num_segments(0);
+        source.set_empty(true);
+        source.set_segments_overlap_pb(NONOVERLAPPING);
+        source.mutable_tablet_schema()->CopyFrom(*schema);
+        if (cases[i].has_value()) {
+            source.mutable_commit_tso()->set_start_tso(cases[i]->start_tso());
+            source.mutable_commit_tso()->set_end_tso(cases[i]->end_tso());
+        }
+        tablet_meta.add_rs_metas()->CopyFrom(source);
+        auto* stale = tablet_meta.add_stale_rs_metas();
+        stale->CopyFrom(source);
+        stale->set_rowset_id_v2(_engine->next_rowset_id().to_string());
+        stale->set_start_version(3);
+        stale->set_end_version(source.start_version() == source.end_version() ? 3 : 4);
+
+        const auto meta_file = clone_dir + "/20006.hdr";
+        ASSERT_TRUE(TabletMeta::save(meta_file, tablet_meta).ok());
+        auto result =
+                _engine->snapshot_mgr()->convert_rowset_ids(clone_dir, 20006, 2, 2000, 200, 65432);
+        ASSERT_TRUE(result.has_value()) << result.error();
+        TabletMetaPB converted;
+        ASSERT_TRUE(TabletMeta::load_from_file(meta_file, &converted).ok());
+        ASSERT_EQ(1, converted.rs_metas_size());
+        ASSERT_EQ(1, converted.stale_rs_metas_size());
+        auto check = [](const RowsetMetaPB& before, const RowsetMetaPB& after) {
+            EXPECT_NE(before.rowset_id_v2(), after.rowset_id_v2());
+            EXPECT_EQ(before.has_commit_tso(), after.has_commit_tso());
+            EXPECT_EQ(before.commit_tso().SerializeAsString(),
+                      after.commit_tso().SerializeAsString());
+            EXPECT_EQ(before.start_version(), after.start_version());
+            EXPECT_EQ(before.end_version(), after.end_version());
+        };
+        check(source, converted.rs_metas(0));
+        check(tablet_meta.stale_rs_metas(0), converted.stale_rs_metas(0));
+    }
 }
 
 TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
