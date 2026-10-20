@@ -235,6 +235,12 @@ public:
             std::map<TabletInfo, RowsetSharedPtr>* tablet_infos,
             std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>>* tablet_txn_infos = nullptr);
 
+    // PREPARED entries and the interval between commit_txn() and installation of the
+    // MoW delete bitmap are not publishable. Check under the transaction-map lock.
+    Status get_publishable_tablet_txn_info(TPartitionId partition_id, TTransactionId transaction_id,
+                                           const TabletInfo& tablet_info, bool require_mow,
+                                           std::shared_ptr<TabletTxnInfo>* txn_info);
+
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
     // Get all expired txns and save them in expire_txn_map.
