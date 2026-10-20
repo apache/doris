@@ -18,12 +18,10 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -37,6 +35,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.List;
 
 public class LanceIndexPrewarmAuthTest {
     @Mocked
@@ -58,7 +57,7 @@ public class LanceIndexPrewarmAuthTest {
                 access.checkGlobalPriv(context, PrivPredicate.ADMIN);
                 result = admin;
                 minTimes = 0;
-                access.checkTblPriv(context, withInstanceOf(TableName.class), PrivPredicate.SELECT);
+                access.checkTblPriv(context, "lake", "db", "items", PrivPredicate.SELECT);
                 result = select;
                 minTimes = 0;
             }
@@ -68,7 +67,7 @@ public class LanceIndexPrewarmAuthTest {
     @Test
     public void checksAdminAndSelectBeforeExternalCatalogLookup() throws Exception {
         environment(false, true);
-        TableNameInfo table = new TableNameInfo("lake", "db", "items");
+        List<String> table = java.util.Arrays.asList("lake", "db", "items");
         Assert.assertTrue(Assert.assertThrows(UserException.class,
                 () -> LanceIndexPrewarm.run(context, null, table, Collections.emptyList(), () -> false))
                 .getMessage().contains("ADMIN"));
@@ -84,7 +83,7 @@ public class LanceIndexPrewarmAuthTest {
     public void requiresTableSelectEvenWhenAdminCheckPasses() {
         environment(true, false);
         Assert.assertTrue(Assert.assertThrows(UserException.class,
-                () -> LanceIndexPrewarm.checkPrivileges(context, new TableNameInfo("lake", "db", "items")))
+                () -> LanceIndexPrewarm.checkPrivileges(context, java.util.Arrays.asList("lake", "db", "items")))
                 .getMessage().contains("SELECT"));
     }
 

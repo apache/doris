@@ -9598,12 +9598,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new AnalysisException("Index-only WARM UP SELECT does not support WHERE or EXPLAIN");
             }
             // Index cache fills must not execute the data scan or require the data-file cache.
-            List<String> columns = indexWarmupColumns(ctx, projectList);
+            List<Slot> columns = indexWarmupColumns(ctx, projectList);
             UnboundBlackholeSink<?> sink = new UnboundBlackholeSink<>(project,
                     new UnboundBlackholeSinkContext(true));
+            // The grammar can produce an empty alias context when no alias is present.
+            DorisParser.TableAliasContext alias = ctx.warmUpSingleTableRef().tableAlias();
             return new WarmupSelectCommand(sink,
-                    new TableNameInfo(visitMultipartIdentifier(ctx.warmUpSingleTableRef().multipartIdentifier())),
-                    columns);
+                    visitMultipartIdentifier(ctx.warmUpSingleTableRef().multipartIdentifier()),
+                    alias == null || alias.strictIdentifier() == null ? null
+                            : alias.strictIdentifier().getText(), columns);
         }
 
         if (Config.isNotCloudMode() && (!ConnectContext.get().getSessionVariable().isEnableFileCache())) {
@@ -9626,45 +9629,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return withExplain(command, ctx.explain());
     }
 
-    private List<String> indexWarmupColumns(DorisParser.WarmUpSelectContext ctx, List<Expression> projects) {
+    private List<Slot> indexWarmupColumns(DorisParser.WarmUpSelectContext ctx, List<Expression> projects) {
         DorisParser.WarmUpSingleTableRefContext table = ctx.warmUpSingleTableRef();
-        List<String> qualifier = visitMultipartIdentifier(table.multipartIdentifier());
-        boolean hasAlias = table.tableAlias() != null && table.tableAlias().strictIdentifier() != null;
-        if (hasAlias) {
-            if (table.tableAlias().identifierList() != null) {
-                throw new AnalysisException("Index-only WARM UP SELECT does not support column aliases");
-            }
-            qualifier = ImmutableList.of(table.tableAlias().strictIdentifier().getText());
+        if (table.tableAlias() != null && table.tableAlias().identifierList() != null) {
+            throw new AnalysisException("Index-only WARM UP SELECT does not support column aliases");
         }
-        List<String> columns = new ArrayList<>();
+        List<Slot> columns = new ArrayList<>();
         for (Expression expression : projects) {
             if (!(expression instanceof UnboundSlot) && !(expression instanceof UnboundStar)) {
                 throw new AnalysisException("Index-only WARM UP SELECT requires column names or *");
             }
-            Slot slot = (Slot) expression;
-            List<String> actual = slot.getQualifier();
-            if (!hasAlias && actual.size() > qualifier.size() && ConnectContext.get() != null) {
-                // A projection may spell out catalog/database defaults omitted by FROM.
-                // Aliases hide the original table name and must never receive those defaults.
-                qualifier = RelationUtil.getQualifierName(ConnectContext.get(), qualifier);
-            }
-            if (actual.size() > qualifier.size()) {
-                throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
-            }
-            for (int i = 0; i < actual.size(); i++) {
-                if (!actual.get(i).equalsIgnoreCase(qualifier.get(qualifier.size() - actual.size() + i))) {
-                    throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
-                }
-            }
-            if (slot instanceof UnboundStar) {
-                UnboundStar star = (UnboundStar) slot;
+            if (expression instanceof UnboundStar) {
+                UnboundStar star = (UnboundStar) expression;
                 if (projects.size() != 1 || !star.getExceptedSlots().isEmpty() || !star.getReplacedAlias().isEmpty()) {
                     throw new AnalysisException("Index-only WARM UP SELECT requires * alone without EXCEPT or REPLACE");
                 }
-            } else {
-                List<String> parts = ((UnboundSlot) slot).getNameParts();
-                columns.add(parts.get(parts.size() - 1));
             }
+            // USE and prepared execution can change defaults after parsing. Retain qualifiers
+            // until they can be checked against the same table that this execution will warm.
+            columns.add((Slot) expression);
         }
         return columns;
     }

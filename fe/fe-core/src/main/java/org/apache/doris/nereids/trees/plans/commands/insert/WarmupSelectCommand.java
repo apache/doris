@@ -25,10 +25,13 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.lance.LanceIndexPrewarm;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordInterface;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -46,6 +49,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,22 +73,25 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
             .addColumn(new Column("BytesWriteIntoCache", ScalarType.createType(PrimitiveType.BIGINT)))
             .build();
 
-    private final TableNameInfo indexTable;
-    private final List<String> indexColumns;
+    private final List<String> indexTable;
+    private final String indexAlias;
+    private final List<Slot> indexProjections;
 
     /**
      * WarmupSelectCommand constructor
      */
     public WarmupSelectCommand(LogicalPlan logicalQuery) {
-        this(logicalQuery, null, ImmutableList.of());
+        this(logicalQuery, null, null, ImmutableList.of());
     }
 
-    /** An empty column list selects every logical index in the pinned snapshot. */
-    public WarmupSelectCommand(LogicalPlan logicalQuery, TableNameInfo indexTable, List<String> indexColumns) {
+    /** Retain unbound identifiers so every execution resolves its own session defaults. */
+    public WarmupSelectCommand(LogicalPlan logicalQuery, List<String> indexTable, String indexAlias,
+            List<Slot> indexProjections) {
         super(PlanType.INSERT_INTO_BLACKHOLE_COMMAND, logicalQuery, Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty());
-        this.indexTable = indexTable;
-        this.indexColumns = ImmutableList.copyOf(indexColumns);
+        this.indexTable = indexTable == null ? null : ImmutableList.copyOf(indexTable);
+        this.indexAlias = indexAlias;
+        this.indexProjections = ImmutableList.copyOf(indexProjections);
         super.setInsertExecutorListener(new InsertExecutorListener() {
             @Override
             public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
@@ -234,11 +241,36 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (indexTable != null) {
-            LanceIndexPrewarm.run(ctx, executor, indexTable, indexColumns,
+            // Do not cache resolved defaults or pass identifiers through TableNameInfo, whose
+            // constructor applies the global case policy before the catalog can resolve them.
+            // RelationUtil also rejects overqualified names instead of discarding leading parts.
+            List<String> table = RelationUtil.getQualifierName(ctx, indexTable);
+            LanceIndexPrewarm.run(ctx, executor, table, indexWarmupColumns(table),
                     () -> executor.isCancelled() || ctx.isKilled());
         } else {
             super.run(ctx, executor);
         }
+    }
+
+    private List<String> indexWarmupColumns(List<String> table) {
+        List<String> qualifier = indexAlias == null ? table : ImmutableList.of(indexAlias);
+        List<String> columns = new ArrayList<>();
+        for (Slot projection : indexProjections) {
+            List<String> actual = projection.getQualifier();
+            if (actual.size() > qualifier.size()) {
+                throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
+            }
+            for (int i = 0; i < actual.size(); i++) {
+                if (!actual.get(i).equalsIgnoreCase(qualifier.get(qualifier.size() - actual.size() + i))) {
+                    throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
+                }
+            }
+            if (projection instanceof UnboundSlot) {
+                List<String> parts = ((UnboundSlot) projection).getNameParts();
+                columns.add(parts.get(parts.size() - 1));
+            }
+        }
+        return columns;
     }
 
     @Override

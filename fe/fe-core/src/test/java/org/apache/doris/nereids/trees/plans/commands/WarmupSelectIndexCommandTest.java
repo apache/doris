@@ -67,8 +67,9 @@ class WarmupSelectIndexCommandTest {
                     "SELECT demo.items.embedding FROM items i",
                     "SELECT lake.demo.items.* FROM demo.items i",
                     "SELECT demo.i.* FROM items i"}) {
-                Assertions.assertThrows(AnalysisException.class, () -> new NereidsParser().parseSingle(
-                        "WARM UP " + query + " PROPERTIES (read_index_only=true)"), query);
+                WarmupSelectCommand command = (WarmupSelectCommand) new NereidsParser().parseSingle(
+                        "WARM UP " + query + " PROPERTIES (read_index_only=true)");
+                Assertions.assertThrows(AnalysisException.class, () -> command.run(context, null), query);
             }
         } finally {
             ConnectContext.remove();
@@ -131,7 +132,6 @@ class WarmupSelectIndexCommandTest {
                 "WARM UP SELECT * FROM items PROPERTIES (typo=true)",
                 "WARM UP SELECT * FROM items WHERE id=1 PROPERTIES (read_index_only=true)",
                 "EXPLAIN WARM UP SELECT * FROM items PROPERTIES (read_index_only=true)",
-                "WARM UP SELECT wrong.embedding FROM items PROPERTIES (read_index_only=true)",
                 "WARM UP SELECT * EXCEPT(id) FROM items PROPERTIES (read_index_only=true)",
                 "WARM UP SELECT *, id FROM items PROPERTIES (read_index_only=true)",
                 "WARM UP SELECT id+1 FROM items PROPERTIES (read_index_only=true)"}) {

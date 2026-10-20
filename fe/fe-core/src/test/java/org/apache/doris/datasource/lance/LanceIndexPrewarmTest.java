@@ -18,9 +18,10 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.lance.index.LanceIndexSegmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceIndexPrewarmMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
-import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.lance.profile.LanceMetadataMetrics;
 import org.apache.doris.proto.InternalService.PLanceIndexPrewarmRequest;
 import org.apache.doris.proto.InternalService.PLanceIndexPrewarmResponse;
 import org.apache.doris.proto.Types.PStatus;
@@ -34,7 +35,12 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.lance.Dataset;
+import org.lance.index.Index;
 import org.lance.index.IndexType;
+import org.lance.schema.LanceField;
+import org.lance.schema.LanceSchema;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -48,14 +54,50 @@ import java.util.concurrent.atomic.AtomicInteger;
 class LanceIndexPrewarmTest {
     private static final String INDEX = "vector_idx";
 
-    private LanceTableMetadata metadata(long version) {
-        LanceIndexSegmentInfo segment = new LanceIndexSegmentInfo(UUID.randomUUID(), INDEX,
-                Collections.singletonList(0), Collections.singletonList(0L), IndexType.IVF_PQ, "l2");
-        return LanceTableMetadata.createSnapshotWithIndexes(
+    private LanceIndexPrewarmMetadata metadata(long version) {
+        return new LanceIndexPrewarmMetadata(
                 new LanceTableAccess("s3://test-bucket/dataset.lance",
                         Collections.singletonMap("aws_session_token", "test-only-token")),
-                version, new Schema(Collections.emptyList()), Collections.emptyList(),
-                Collections.singletonMap("vector", 0), Arrays.asList(segment, segment));
+                version, new Schema(Collections.emptyList()), Collections.singletonMap("vector", 0),
+                Collections.singletonMap(INDEX, Collections.singletonList(0)));
+    }
+
+    @Test
+    void discoversLegacyScalarIndexesAlongsideModernIndexes() throws Exception {
+        for (boolean mixed : new boolean[] {false, true}) {
+            Dataset dataset = Mockito.mock(Dataset.class);
+            LanceSchema lanceSchema = Mockito.mock(LanceSchema.class);
+            LanceField field = Mockito.mock(LanceField.class);
+            Mockito.when(field.getName()).thenReturn("id");
+            Mockito.when(field.getId()).thenReturn(3);
+            Mockito.when(lanceSchema.fields()).thenReturn(Collections.singletonList(field));
+            Mockito.when(dataset.getLanceSchema()).thenReturn(lanceSchema);
+            Mockito.when(dataset.getSchema()).thenReturn(new Schema(Collections.singletonList(
+                    Field.nullable("id", new ArrowType.Int(64, true)))));
+            Mockito.when(dataset.version()).thenReturn(9L);
+            Index legacy = Index.builder().name("id").uuid(UUID.randomUUID()).datasetVersion(9)
+                    .fields(Collections.singletonList(3)).build();
+            Index modern = Index.builder().name("modern").uuid(UUID.randomUUID()).datasetVersion(9)
+                    .fields(Collections.singletonList(3)).indexType(IndexType.BTREE)
+                    .indexDetails(new byte[] {1}).build();
+            Index secondSegment = Index.builder().name("id").uuid(UUID.randomUUID()).datasetVersion(9)
+                    .fields(Collections.singletonList(3)).build();
+            Index internal = Index.builder().name("__lance_frag_reuse").uuid(UUID.randomUUID()).build();
+            Mockito.when(dataset.getIndexes()).thenReturn(mixed
+                    ? Arrays.asList(legacy, modern, secondSegment, internal)
+                    : Arrays.asList(legacy, secondSegment, internal));
+            LanceIndexPrewarmMetadata metadata = LanceMetadataLoader.readForPrewarm(dataset,
+                    new LanceTableAccess("s3://test-bucket/legacy.lance", Collections.emptyMap()),
+                    LanceMetadataMetrics.disabled());
+            Mockito.verify(dataset, Mockito.never()).describeIndices(Mockito.any());
+            List<String> expected = mixed ? Arrays.asList("id", "modern") : Collections.singletonList("id");
+            Assertions.assertEquals(expected, LanceIndexPrewarm.selectIndexes(metadata, Collections.emptyList()));
+            Assertions.assertEquals(expected, LanceIndexPrewarm.selectIndexes(metadata, Collections.singletonList("id")));
+            Assertions.assertEquals(9, LanceIndexPrewarm.request(metadata, "id").getDatasetVersion());
+            Mockito.verify(dataset, Mockito.never()).listIndexes();
+            Mockito.verify(dataset, Mockito.never()).getFragments();
+            Mockito.verify(dataset, Mockito.never()).close();
+        }
     }
 
     private PLanceIndexPrewarmRequest request() throws Exception {
@@ -87,14 +129,10 @@ class LanceIndexPrewarmTest {
                 new Field("vector", FieldType.nullable(new ArrowType.Int(32, true)), null),
                 new Field("id", FieldType.nullable(new ArrowType.Int(64, true)), null),
                 new Field("unindexed", FieldType.nullable(new ArrowType.Int(64, true)), null)));
-        LanceIndexSegmentInfo vector = new LanceIndexSegmentInfo(UUID.randomUUID(), INDEX,
-                Collections.singletonList(8), Collections.singletonList(0L), IndexType.IVF_PQ, "l2");
-        LanceIndexSegmentInfo scalar = new LanceIndexSegmentInfo(UUID.randomUUID(), "id_idx",
-                Collections.singletonList(3), Collections.singletonList(0L), IndexType.BTREE, null);
-        LanceTableMetadata snapshot = LanceTableMetadata.createSnapshotWithIndexes(
+        LanceIndexPrewarmMetadata snapshot = new LanceIndexPrewarmMetadata(
                 new LanceTableAccess("s3://test-bucket/dataset.lance", Collections.emptyMap()),
-                9, schema, Collections.emptyList(), ImmutableMap.of("vector", 8, "id", 3, "unindexed", 12),
-                Arrays.asList(vector, scalar, vector));
+                9, schema, ImmutableMap.of("vector", 8, "id", 3, "unindexed", 12),
+                ImmutableMap.of(INDEX, Collections.singletonList(8), "id_idx", Collections.singletonList(3)));
         Assertions.assertEquals(Arrays.asList(INDEX, "id_idx"),
                 LanceIndexPrewarm.selectIndexes(snapshot, Collections.emptyList()));
         Assertions.assertEquals(Collections.singletonList(INDEX),
@@ -105,9 +143,9 @@ class LanceIndexPrewarmTest {
                 () -> LanceIndexPrewarm.selectIndexes(snapshot, Arrays.asList("vector", "missing")));
         Assertions.assertThrows(UserException.class,
                 () -> LanceIndexPrewarm.selectIndexes(snapshot, Collections.singletonList("unindexed")));
-        LanceTableMetadata unavailable = LanceTableMetadata.createSnapshotWithUnavailableFieldIds(
+        LanceIndexPrewarmMetadata unavailable = new LanceIndexPrewarmMetadata(
                 new LanceTableAccess("s3://test-bucket/dataset.lance", Collections.emptyMap()),
-                9, schema, Collections.emptyList(), Collections.singletonList(vector));
+                9, schema, Collections.emptyMap(), Collections.singletonMap(INDEX, Collections.singletonList(8)));
         Assertions.assertEquals(Collections.singletonList(INDEX),
                 LanceIndexPrewarm.selectIndexes(unavailable, Collections.emptyList()));
         Assertions.assertThrows(UserException.class,

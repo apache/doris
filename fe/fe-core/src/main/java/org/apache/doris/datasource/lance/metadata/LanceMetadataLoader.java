@@ -38,6 +38,7 @@ import org.lance.schema.LanceField;
 import org.lance.schema.LanceSchema;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -97,6 +98,17 @@ public final class LanceMetadataLoader {
         return LanceTableMetadata.createSnapshotWithIndexes(access, resolvedVersion,
                 metrics.measure(Stage.SCHEMA, dataset::getSchema), fragments, lanceFieldIds,
                 indexSegments);
+    }
+
+    /** Prewarm shares the query access/version pin, but must not inherit planner exclusions. */
+    public static LanceIndexPrewarmMetadata readForPrewarm(Dataset dataset, LanceTableAccess access,
+            LanceMetadataMetrics metrics) {
+        long version = dataset.version();
+        Map<String, Integer> fieldIds = metrics.measure(Stage.FIELD_IDS, () -> loadTopLevelFieldIds(dataset));
+        return new LanceIndexPrewarmMetadata(access, version,
+                metrics.measure(Stage.SCHEMA, dataset::getSchema),
+                fieldIds == null ? Collections.emptyMap() : fieldIds,
+                metrics.measure(Stage.INDEXES, () -> LanceDatasetIndexDiscovery.readPrewarmIndexFields(dataset)));
     }
 
     private static List<LanceFragmentInfo> readFragments(Dataset dataset) {

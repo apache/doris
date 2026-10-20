@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -28,10 +27,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
-import org.apache.doris.datasource.lance.index.LanceIndexSegmentGroup;
-import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.datasource.lance.metadata.LanceIndexPrewarmMetadata;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService.PLanceIndexPrewarmRequest;
 import org.apache.doris.proto.InternalService.PLanceIndexPrewarmResponse;
 import org.apache.doris.qe.ConnectContext;
@@ -49,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Future;
@@ -73,21 +72,20 @@ public final class LanceIndexPrewarm {
         return RESULT_META;
     }
 
-    public static void run(ConnectContext ctx, StmtExecutor executor, TableNameInfo tableName,
+    public static void run(ConnectContext ctx, StmtExecutor executor, List<String> tableName,
             List<String> columns, BooleanSupplier cancelled) throws Exception {
         long started = System.nanoTime();
         long elapsedMs = ctx.getStartTime() > 0 ? Math.max(0, System.currentTimeMillis() - ctx.getStartTime()) : 0;
         long remainingMs = TimeUnit.SECONDS.toMillis(ctx.getQueryTimeoutS()) - elapsedMs;
         long deadline = started + TimeUnit.MILLISECONDS.toNanos(Math.max(0, remainingMs));
-        tableName.analyze(ctx);
         checkPrivileges(ctx, tableName);
         List<Backend> targets = selectBackends(resolveComputeGroup(ctx));
         // Resolve catalog/table initialization and snapshot IO in the bounded metadata pool.
         // The worker owns native resources until it returns, even if this caller stops waiting.
-        String catalogName = tableName.getCtl();
-        String databaseName = tableName.getDb();
-        String name = tableName.getTbl();
-        LanceTableMetadata metadata = LanceIndexInspectionExecutor.execute(() -> {
+        String catalogName = tableName.get(0);
+        String databaseName = tableName.get(1);
+        String name = tableName.get(2);
+        LanceIndexPrewarmMetadata metadata = LanceIndexInspectionExecutor.execute(() -> {
             CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
             if (!(catalog instanceof LanceExternalCatalog)) {
                 throw new AnalysisException("Index-only WARM UP SELECT requires a Lance catalog table");
@@ -98,7 +96,7 @@ public final class LanceIndexPrewarm {
             }
             checkActive(deadline, cancelled);
             // Use the query access path, including REST-vended credentials, exactly once.
-            return ((LanceExternalTable) table).loadMetadata();
+            return ((LanceExternalTable) table).loadMetadataForPrewarm();
         }, deadline, cancelled);
         List<String> indexes = selectIndexes(metadata, columns);
         List<List<String>> rows = new ArrayList<>();
@@ -109,14 +107,16 @@ public final class LanceIndexPrewarm {
             execute(targets, request, deadline, cancelled, (backend, rpcRequest, timeoutMs) ->
                     BackendServiceProxy.getInstance().prewarmLanceIndexAsync(
                             new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), rpcRequest, timeoutMs));
-            rows.add(Arrays.asList(tableName.toSql(), index, Long.toString(metadata.getVersion()),
+            rows.add(Arrays.asList(Utils.qualifiedNameWithBackquote(tableName), index,
+                    Long.toString(metadata.getVersion()),
                     Integer.toString(targets.size()),
                     Long.toString(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - indexStarted))));
         }
         executor.sendResultSet(new ShowResultSet(RESULT_META, rows));
     }
 
-    static List<String> selectIndexes(LanceTableMetadata metadata, List<String> columns) throws AnalysisException {
+    static List<String> selectIndexes(LanceIndexPrewarmMetadata metadata, List<String> columns)
+            throws AnalysisException {
         Set<Integer> fields = new HashSet<>();
         for (String column : columns) {
             List<String> matches = new ArrayList<>();
@@ -135,10 +135,9 @@ public final class LanceIndexPrewarm {
             fields.add(field.getAsInt());
         }
         List<String> indexes = new ArrayList<>();
-        for (LanceIndexSegmentGroup index : metadata.getIndexes()) {
-            if (columns.isEmpty() || index.getSegments().stream()
-                    .anyMatch(segment -> segment.getFieldIds().stream().anyMatch(fields::contains))) {
-                indexes.add(index.getName());
+        for (Map.Entry<String, List<Integer>> index : metadata.getIndexFields().entrySet()) {
+            if (columns.isEmpty() || index.getValue().stream().anyMatch(fields::contains)) {
+                indexes.add(index.getKey());
             }
         }
         if (indexes.isEmpty()) {
@@ -147,14 +146,15 @@ public final class LanceIndexPrewarm {
         return indexes;
     }
 
-    static void checkPrivileges(ConnectContext ctx, TableNameInfo table) throws AnalysisException {
+    static void checkPrivileges(ConnectContext ctx, List<String> table) throws AnalysisException {
         // Authorize before catalog lookup: resolving external metadata can perform remote IO.
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
             throw new AnalysisException("ADMIN privilege is required for Index-only WARM UP SELECT");
         }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
-                new TableName(table.getCtl(), table.getDb(), table.getTbl()), PrivPredicate.SELECT)) {
-            throw new AnalysisException("SELECT denied for Index-only WARM UP SELECT on " + table.toSql());
+                table.get(0), table.get(1), table.get(2), PrivPredicate.SELECT)) {
+            throw new AnalysisException("SELECT denied for Index-only WARM UP SELECT on "
+                    + Utils.qualifiedNameWithBackquote(table));
         }
     }
 
@@ -186,12 +186,12 @@ public final class LanceIndexPrewarm {
         return new ArrayList<>(targets);
     }
 
-    static PLanceIndexPrewarmRequest request(LanceTableMetadata metadata, String indexName)
+    static PLanceIndexPrewarmRequest request(LanceIndexPrewarmMetadata metadata, String indexName)
             throws AnalysisException {
         if (metadata.getVersion() <= 0) {
             throw new AnalysisException("Index prewarm requires a fixed positive dataset version");
         }
-        if (indexName.isEmpty() || metadata.getIndexes().stream().noneMatch(i -> i.getName().equals(indexName))) {
+        if (indexName.isEmpty() || !metadata.getIndexFields().containsKey(indexName)) {
             throw new AnalysisException("Lance index '" + indexName + "' does not exist in dataset version "
                     + metadata.getVersion());
         }

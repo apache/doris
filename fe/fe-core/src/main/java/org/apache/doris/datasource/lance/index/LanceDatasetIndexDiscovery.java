@@ -28,8 +28,10 @@ import org.lance.index.IndexDescription;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Shared index discovery on an already-open snapshot, independent of SHOW INDEX formatting and execution. */
@@ -136,6 +138,38 @@ public final class LanceDatasetIndexDiscovery {
             descriptions.add(description);
         }
         return descriptions;
+    }
+
+    /** Reads raw user-index fields from the caller's pinned snapshot without describing index types. */
+    public static Map<String, List<Integer>> readPrewarmIndexFields(Dataset dataset) {
+        List<Index> indexes = dataset.getIndexes();
+        if (indexes == null || indexes.size() > MAX_PHYSICAL_INDEX_ENTRIES) {
+            throw new IllegalArgumentException("Invalid Lance physical index entries for prewarm; limit="
+                    + MAX_PHYSICAL_INDEX_ENTRIES);
+        }
+        Map<String, Set<Integer>> fieldsByName = new LinkedHashMap<>();
+        for (Index index : indexes) {
+            if (index == null) {
+                throw new IllegalArgumentException("Lance physical index entry must not be null");
+            }
+            String name = requireExternalString(index.name(), "Lance logical index name");
+            if (SYSTEM_INDEX_NAMES.contains(name)) {
+                continue;
+            }
+            // Missing details exclude legacy scalar indexes from FE query planning, but the
+            // SDK can still open and prewarm them. Only the raw name and fields are needed here.
+            List<Integer> fields = index.fields();
+            if (fields == null || fields.isEmpty() || fields.stream().anyMatch(id -> id == null || id < 0)) {
+                throw new IllegalArgumentException("Invalid Lance index field IDs for prewarm index '" + name + "'");
+            }
+            fieldsByName.computeIfAbsent(name, ignored -> new LinkedHashSet<>()).addAll(fields);
+            if (fieldsByName.size() > MAX_LOGICAL_INDEXES) {
+                throw new IllegalArgumentException("Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
+            }
+        }
+        Map<String, List<Integer>> result = new LinkedHashMap<>();
+        fieldsByName.forEach((name, fields) -> result.put(name, new ArrayList<>(fields)));
+        return result;
     }
 
     /** Names with at least one physical entry and no segment carrying index details. */

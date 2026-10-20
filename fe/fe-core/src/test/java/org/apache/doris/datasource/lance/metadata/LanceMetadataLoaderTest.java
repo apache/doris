@@ -20,6 +20,7 @@ package org.apache.doris.datasource.lance.metadata;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.profile.LanceMetadataMetrics;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -27,6 +28,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.Dataset;
+import org.lance.index.Index;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -86,6 +88,37 @@ public class LanceMetadataLoaderTest {
         LanceExternalTable table = new LanceExternalTable(1, "tbl", "tbl", catalog, database);
         Assertions.assertEquals("id", table.initSchema().get().getSchema().get(0).getName());
         Mockito.verify(catalog).loadTableSchema("db", "tbl");
+        Mockito.verify(catalog, Mockito.never()).loadTableMetadata(Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void testPrewarmRetainsLegacyIndexesWhenFieldIdsAreUnavailable() {
+        Dataset dataset = emptyDataset();
+        Mockito.when(dataset.getLanceSchema()).thenThrow(new IllegalArgumentException("ArrowSchema conversion error"));
+        Mockito.when(dataset.getIndexes()).thenReturn(Collections.singletonList(
+                Index.builder().name("legacy").fields(Collections.singletonList(3)).build()));
+        LanceIndexPrewarmMetadata metadata = LanceMetadataLoader.readForPrewarm(dataset,
+                new LanceTableAccess("table.lance", Collections.singletonMap("token", "vended")),
+                LanceMetadataMetrics.disabled());
+        Assertions.assertEquals(7, metadata.getVersion());
+        Assertions.assertEquals("vended", metadata.getLanceStorageOptions().get("token"));
+        Assertions.assertFalse(metadata.getLanceFieldId("id").isPresent());
+        Assertions.assertEquals(Collections.singletonMap("legacy", Collections.singletonList(3)),
+                metadata.getIndexFields());
+    }
+
+    @Test
+    public void testPrewarmUsesTheDedicatedCatalogReadWithRemoteNames() {
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        LanceExternalDatabase database = Mockito.mock(LanceExternalDatabase.class);
+        Mockito.when(database.getRemoteName()).thenReturn("remote_db");
+        LanceExternalTable table = new LanceExternalTable(1, "local_table", "RemoteTable", catalog, database);
+        LanceIndexPrewarmMetadata expected = new LanceIndexPrewarmMetadata(
+                new LanceTableAccess("table.lance", Collections.emptyMap()), 7,
+                new Schema(Collections.emptyList()), Collections.emptyMap(), Collections.emptyMap());
+        Mockito.when(catalog.loadTableMetadataForPrewarm("remote_db", "RemoteTable")).thenReturn(expected);
+        Assertions.assertSame(expected, table.loadMetadataForPrewarm());
+        Mockito.verify(catalog).loadTableMetadataForPrewarm("remote_db", "RemoteTable");
         Mockito.verify(catalog, Mockito.never()).loadTableMetadata(Mockito.anyString(), Mockito.anyString());
     }
 

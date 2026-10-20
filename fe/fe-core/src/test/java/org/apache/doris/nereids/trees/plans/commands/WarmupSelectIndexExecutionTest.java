@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.common.Status;
 import org.apache.doris.datasource.lance.LanceIndexPrewarm;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -62,7 +61,7 @@ public class WarmupSelectIndexExecutionTest {
         AtomicReference<BooleanSupplier> cancellation = new AtomicReference<>();
         new MockUp<LanceIndexPrewarm>() {
             @Mock
-            public void run(ConnectContext ctx, StmtExecutor executor, TableNameInfo table,
+            public void run(ConnectContext ctx, StmtExecutor executor, List<String> table,
                     List<String> columns, BooleanSupplier cancelled) {
                 cancellation.set(cancelled);
             }

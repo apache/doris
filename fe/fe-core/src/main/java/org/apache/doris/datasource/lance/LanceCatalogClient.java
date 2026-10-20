@@ -24,6 +24,7 @@ import org.apache.doris.datasource.lance.index.LanceIndexInspection;
 import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+import org.apache.doris.datasource.lance.metadata.LanceIndexPrewarmMetadata;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceReadOptions;
 import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
@@ -224,6 +225,10 @@ final class LanceCatalogClient implements AutoCloseable {
 
     boolean tableExists(String dbName, String tableName) {
         return namespaceClient.tableExists(dbName, tableName);
+    }
+
+    public LanceIndexPrewarmMetadata loadTableMetadataForPrewarm(String dbName, String tableName) {
+        return readTableSnapshot(dbName, tableName, LanceRefSelector.latest(), LanceMetadataLoader::readForPrewarm);
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
