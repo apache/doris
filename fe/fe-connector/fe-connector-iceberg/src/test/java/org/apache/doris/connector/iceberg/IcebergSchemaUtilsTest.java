@@ -791,4 +791,14 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertThrows(RuntimeException.class,
                 () -> IcebergSchemaUtils.applySchemaEvolution(params, "!!!not-base64-thrift!!!"));
     }
+
+    @Test
+    public void variantInitialDefaultMustBeNull() {
+        // A VARIANT added without an initial-default reads as NULL from older data files, and any other
+        // initial-default is rejected rather than handed to BE.
+        Assertions.assertNull(IcebergSchemaUtils.writeDefaultToDorisString(Types.VariantType.get(), null, false));
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergSchemaUtils.serializeInitialDefault(Types.VariantType.get(), "non-null-variant", false));
+        Assertions.assertEquals("Iceberg VARIANT initial-default must be NULL", exception.getMessage());
+    }
 }

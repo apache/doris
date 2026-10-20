@@ -1395,11 +1395,13 @@ public class IcebergConnectorMetadataTest {
         Map<String, ConnectorColumnHandle> handles =
                 metadataWith(ops).getColumnHandles(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals(4, handles.size());
+        Assertions.assertEquals(5, handles.size());
         Assertions.assertTrue(handles.containsKey("ID"));
         Assertions.assertTrue(handles.containsKey("Name"));
         Assertions.assertTrue(handles.containsKey("_file"));
         Assertions.assertTrue(handles.containsKey("_pos"));
+        // The hidden DML row-id column, so the scan provider can tell a scan that produces row IDs.
+        Assertions.assertEquals(-1, ((IcebergColumnHandle) handles.get("__DORIS_ICEBERG_ROWID_COL__")).getFieldId());
         Assertions.assertFalse(handles.containsKey("id"), "post-#65094 the handle key keeps the iceberg case");
         Assertions.assertEquals(7, ((IcebergColumnHandle) handles.get("ID")).getFieldId());
         Assertions.assertEquals(9, ((IcebergColumnHandle) handles.get("Name")).getFieldId());

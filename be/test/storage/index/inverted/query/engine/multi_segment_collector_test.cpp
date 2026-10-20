@@ -249,6 +249,7 @@ static void check_native_posting_block(const index_query::PostingsBlock& block, 
     EXPECT_EQ(block.doc_at(0), doc);
     EXPECT_EQ(block.docs.front(), doc);
     EXPECT_EQ(block.freq_at(0), 1);
+    // These segments omit norms; crossing a partition must retain unit length.
     EXPECT_TRUE(block.norms.empty());
     EXPECT_EQ(block.norm_at(0), 1);
 }
@@ -408,6 +409,7 @@ TEST_F(MultiSegmentCollectorTest, PhraseCandidatesRemainValidAfterWeightDestruct
             auto scorer = weight->scorer(segment, "");
             weight.reset();
             ASSERT_EQ(scorer->doc(), 3);
+            // Materialized phrase postings retain the no-norm source's unit length.
             const float expected_score = scoring ? similarity->score(1.0F, 1) : 1.0F;
             EXPECT_FLOAT_EQ(scorer->score(), expected_score);
             EXPECT_EQ(scorer->seek(3), 3);

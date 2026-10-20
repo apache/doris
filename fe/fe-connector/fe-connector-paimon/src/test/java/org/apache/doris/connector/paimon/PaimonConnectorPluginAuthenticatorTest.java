@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.hive.pool.CachedClientPool;
@@ -61,6 +62,20 @@ public class PaimonConnectorPluginAuthenticatorTest {
                         "hadoop.kerberos.keytab", "/etc/security/doris.keytab"),
                 new HashMap<>());
         Assertions.assertNotNull(auth, "storage kerberos must yield a plugin authenticator");
+    }
+
+    @Test
+    public void canonicalStorageKerberosBuildsPluginAuthenticator() {
+        HadoopAuthenticator auth = PaimonConnector.buildPluginAuthenticator(
+                props("paimon.catalog.type", "hms", "warehouse", "hdfs://ns/warehouse",
+                        "hdfs.authentication.type", "kerberos",
+                        "hdfs.authentication.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hdfs.authentication.kerberos.keytab", "/etc/security/storage.keytab"),
+                props("hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"));
+        Assertions.assertTrue(auth instanceof HadoopKerberosAuthenticator,
+                "Canonical storage configuration must select the plugin-side Kerberos UGI");
     }
 
     /**

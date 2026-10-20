@@ -38,7 +38,8 @@ suite("test_hive_compress_type_large_data", "p2,external") {
         // All 16 fixture files fit in that size, so the default must preserve one range per file.
         sql """set file_split_size=0"""
         explain {
-            sql("select count(*) from test_compress_partitioned")
+            // Streaming EXPLAIN reports estimates before file enumeration, not exact split counts.
+            sql("select /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) from test_compress_partitioned")
             contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
             contains "partition=8/8"
         }
@@ -52,7 +53,7 @@ suite("test_hive_compress_type_large_data", "p2,external") {
 
         sql """set file_split_size=8388608"""
         explain {
-            sql("select count(*) from test_compress_partitioned")
+            sql("select /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) from test_compress_partitioned")
             // Compression determines which files can split; require actual splitting without
             // coupling this correctness test to the legacy planner's exact split count.
             check { result ->

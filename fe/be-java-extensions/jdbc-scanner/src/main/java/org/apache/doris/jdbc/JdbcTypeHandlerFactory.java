@@ -42,7 +42,7 @@ public class JdbcTypeHandlerFactory {
                 return new MySQLTypeHandler(tableType);
             case "ORACLE":
             case "OCEANBASE_ORACLE":
-                return new OracleTypeHandler(sensitiveValues);
+                return new OracleTypeHandler(tableType, sensitiveValues);
             case "POSTGRESQL":
                 return new PostgreSQLTypeHandler();
             case "CLICKHOUSE":
