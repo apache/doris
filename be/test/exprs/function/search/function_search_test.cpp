@@ -17,6 +17,25 @@
 
 #include "exprs/function/search/function_search.h"
 
+#include <CLucene.h>
+// CLucene internal headers use pre-C++11 virtual declarations.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#pragma clang diagnostic ignored "-Winconsistent-missing-override"
+#pragma clang diagnostic ignored "-Wreorder-ctor"
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
+#endif
+#include <CLucene/index/_MultiSegmentReader.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include <gen_cpp/Exprs_types.h>
 #include <gtest/gtest.h>
 
@@ -44,15 +63,19 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/search/function_search_leaf.h"
 #include "exprs/function/search/search_lowering.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/query/engine/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/collect/top_k_collector.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_query.h"
@@ -184,17 +207,27 @@ public:
         DORIS_CHECK(inverted_param != nullptr);
         DORIS_CHECK(*inverted_param != nullptr);
         DORIS_CHECK((*inverted_param)->roaring != nullptr);
-        (*inverted_param)->roaring->add(3);
+        if (cached_result) {
+            (*inverted_param)->roaring = cached_result;
+        } else {
+            (*inverted_param)->roaring->add(3);
+        }
         return Status::OK();
     }
 
-    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* /*cache_handle*/) override {
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* cache_handle) override {
+        if (cached_result) {
+            return InvertedIndexIterator::read_null_bitmap(cache_handle);
+        }
         return Status::OK();
     }
 
-    Result<bool> has_null() override { return false; }
+    Result<bool> has_null() override {
+        return cached_result ? InvertedIndexIterator::has_null() : Result<bool>(false);
+    }
 
     int read_calls = 0;
+    std::shared_ptr<roaring::Roaring> cached_result;
 };
 
 class DummyInvertedIndexReader final : public segment_v2::InvertedIndexReader {
@@ -552,19 +585,14 @@ static TSearchClause make_leaf_clause(const std::string& clause_type, const std:
 static Status insert_search_dsl_cache(
         segment_v2::InvertedIndexQueryCache* cache,
         const std::shared_ptr<segment_v2::IndexFileReader>& index_file_reader,
-        const TSearchParam& search_param, roaring::Roaring bitmap) {
+        const TSearchParam& search_param, roaring::Roaring bitmap,
+        const std::string& cache_namespace = "__search_dsl_2vl__") {
     std::string signature = FunctionSearch::dsl_cache_signature(search_param, nullptr);
     if (signature.empty()) {
         return Status::InternalError("the search param cannot be serialized");
     }
-    // A cached result is its rows and its UNKNOWN rows, here none.
-    segment_v2::InvertedIndexQueryCache::CacheKey null_key {
-            index_file_reader->get_index_path_prefix(), "__search_dsl__",
-            segment_v2::InvertedIndexQueryType::SEARCH_DSL_QUERY, signature + "__null"};
-    segment_v2::InvertedIndexQueryCacheHandle null_handle;
-    cache->insert(null_key, std::make_shared<roaring::Roaring>(), &null_handle);
     segment_v2::InvertedIndexQueryCache::CacheKey key {
-            index_file_reader->get_index_path_prefix(), "__search_dsl__",
+            index_file_reader->get_index_path_prefix(), cache_namespace,
             segment_v2::InvertedIndexQueryType::SEARCH_DSL_QUERY, std::move(signature)};
     segment_v2::InvertedIndexQueryCacheHandle handle;
     cache->insert(key, std::make_shared<roaring::Roaring>(std::move(bitmap)), &handle);
@@ -773,33 +801,14 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexBasic) {
 }
 
 TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyInputs) {
-    // Test evaluate_inverted_index_with_search_param with empty inputs
-    TSearchParam search_param;
-    search_param.original_dsl = "title:hello";
-
-    TSearchClause rootClause;
-    rootClause.clause_type = "TERM";
-    rootClause.field_name = "title";
-    rootClause.value = "hello";
-    search_param.root = rootClause;
-
-    std::unordered_map<std::string, IndexFieldNameAndTypePair> empty_data_types;
-    std::unordered_map<std::string, IndexIterator*> empty_iterators;
-    uint32_t num_rows = 100;
-    InvertedIndexResultBitmap bitmap_result;
-
-    // Test with empty iterators
-    auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, empty_data_types, empty_iterators, num_rows, bitmap_result);
-    EXPECT_TRUE(status.ok()); // Should return OK but with empty result
-
-    // Test with empty data types but non-empty iterators - should still return OK
-    // because empty data_types will cause early return
-    std::unordered_map<std::string, IndexIterator*> non_empty_iterators;
-    non_empty_iterators["title"] = nullptr; // Add null iterator
-    status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, empty_data_types, non_empty_iterators, num_rows, bitmap_result);
-    EXPECT_TRUE(status.ok()); // Should return OK due to empty data_types check
+    TSearchParam param;
+    param.original_dsl = "title:hello";
+    param.root = make_leaf_clause("TERM", "hello");
+    param.root.field_name = "title";
+    InvertedIndexResultBitmap result;
+    auto status =
+            function_search->evaluate_inverted_index_with_search_param(param, {}, {}, 100, result);
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, status.code());
 }
 
 TEST_F(FunctionSearchTest, TestEmptySearchParam) {
@@ -815,7 +824,7 @@ TEST_F(FunctionSearchTest, TestEmptySearchParam) {
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
             empty_param, data_types, iterators, num_rows, bitmap_result);
-    EXPECT_TRUE(status.ok()); // Should handle gracefully
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
 }
 
 TEST_F(FunctionSearchTest, TestNullIterators) {
@@ -889,9 +898,15 @@ TEST_F(FunctionSearchTest, TestZeroRowsScenario) {
 
     TSearchClause rootClause;
     rootClause.clause_type = "TERM";
-    rootClause.field_name = "title";
+    rootClause.__isset.field_name = true;
+    rootClause.__isset.value = true;
+    rootClause.field_name = "v.missing";
     rootClause.value = "hello";
     search_param.root = rootClause;
+    TSearchFieldBinding binding;
+    binding.field_name = rootClause.field_name;
+    binding.__set_is_variant_subcolumn(true);
+    search_param.field_bindings = {binding};
 
     // Empty data types and iterators - this is a realistic zero-data scenario
     std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
@@ -902,7 +917,9 @@ TEST_F(FunctionSearchTest, TestZeroRowsScenario) {
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
             search_param, data_types, iterators, num_rows, bitmap_result);
-    EXPECT_TRUE(status.ok()); // Should handle zero data gracefully and return empty result
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(bitmap_result.get_data_bitmap()->isEmpty());
+    EXPECT_TRUE(bitmap_result.get_null_bitmap()->isEmpty());
 }
 
 TEST_F(FunctionSearchTest, TestVeryLargeRowCount) {
@@ -912,9 +929,15 @@ TEST_F(FunctionSearchTest, TestVeryLargeRowCount) {
 
     TSearchClause rootClause;
     rootClause.clause_type = "TERM";
-    rootClause.field_name = "title";
+    rootClause.__isset.field_name = true;
+    rootClause.__isset.value = true;
+    rootClause.field_name = "v.missing";
     rootClause.value = "hello";
     search_param.root = rootClause;
+    TSearchFieldBinding binding;
+    binding.field_name = rootClause.field_name;
+    binding.__set_is_variant_subcolumn(true);
+    search_param.field_bindings = {binding};
 
     // Empty data types and iterators - this tests the large row count parameter handling
     std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
@@ -925,7 +948,9 @@ TEST_F(FunctionSearchTest, TestVeryLargeRowCount) {
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
             search_param, data_types, iterators, num_rows, bitmap_result);
-    EXPECT_TRUE(status.ok()); // Should handle large row counts gracefully and return empty result
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(bitmap_result.get_data_bitmap()->isEmpty());
+    EXPECT_TRUE(bitmap_result.get_null_bitmap()->isEmpty());
 }
 
 // Tests for FieldReaderResolver::resolve function coverage (lines 74+)
@@ -1453,6 +1478,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
     data_type_with_names.emplace("content", IndexFieldNameAndTypePair {"content", nullptr});
 
     std::unordered_map<std::string, IndexIterator*> iterators;
+    RecordingIndexIterator physical_iterator;
+    iterators["content"] = &physical_iterator;
     FieldReaderResolver resolver(data_type_with_names, iterators, context);
 
     FieldReaderBinding binding;
@@ -1518,6 +1545,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
     data_type_with_names.emplace("content", IndexFieldNameAndTypePair {"content", nullptr});
     std::unordered_map<std::string, IndexIterator*> iterators;
+    RecordingIndexIterator physical_iterator;
+    iterators["content"] = &physical_iterator;
     FieldReaderResolver resolver(data_type_with_names, iterators, context);
 
     FieldReaderBinding binding;
@@ -1552,7 +1581,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     policy_mgr->apply_policy_changes({}, {tokenizer.id, analyzer.id});
 }
 
-TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldReturnsUnknown) {
+TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldDoesNotMatch) {
     TSearchClause clause;
     clause.clause_type = "TERM";
     clause.field_name = "var.items.missing";
@@ -1597,10 +1626,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldReturnsUnknown) 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
     EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
-    ASSERT_TRUE(scorer->has_null_bitmap());
-    const auto* null_bitmap = scorer->get_null_bitmap();
-    ASSERT_NE(null_bitmap, nullptr);
-    EXPECT_EQ(5u, null_bitmap->cardinality());
+    EXPECT_FALSE(scorer->has_null_bitmap());
 }
 
 TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantSubcolumnWithMissingIterator) {
@@ -1622,7 +1648,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantSubcolumnWithMissingIte
     auto status =
             resolver.resolve("var.items.level", InvertedIndexQueryType::EQUAL_QUERY, &binding);
 
-    ASSERT_TRUE(status.ok());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, status.code());
     EXPECT_FALSE(binding.is_bound());
     EXPECT_TRUE(resolver.binding_cache().empty());
 }
@@ -1900,7 +1926,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
 
     auto weight = query->weight(true);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -1914,15 +1940,13 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
     EXPECT_TRUE(decoy_reader->fake_source->expanded.empty());
     // The NULL rows are the column's, so either index answers them, once.
     EXPECT_EQ(1, decoy_reader->null_bitmap_calls + selected_reader->null_bitmap_calls);
-    ASSERT_TRUE(scorer->has_null_bitmap());
-    const auto* null_bitmap = scorer->get_null_bitmap();
-    ASSERT_NE(nullptr, null_bitmap);
-    expect_bitmap_eq(*null_bitmap, {3});
+    EXPECT_FALSE(scorer->has_null_bitmap());
+    EXPECT_EQ(nullptr, scorer->get_null_bitmap());
 
     scoped_policy_mgr.apply_policy_changes({}, {analyzer.id});
 }
 
-TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldExists) {
+TEST_F(FunctionSearchTest, TestSniiWildcardUsesDocumentBooleanAndFieldExists) {
     auto context = std::make_shared<IndexQueryContext>();
     std::map<std::string, std::string> properties {
             {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}};
@@ -1960,10 +1984,9 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
     not_clause.__isset.children = true;
     auto exists_clause = make_leaf_clause("WILDCARD", "*");
 
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto verify_result = [&](const TSearchClause& root,
-                             std::initializer_list<uint32_t> expected_docs,
-                             std::initializer_list<uint32_t> expected_nulls) {
+                             std::initializer_list<uint32_t> expected_docs) {
         inverted_index::query_v2::QueryPtr query;
         std::string binding_key;
         auto status = function_search->build_query_recursive(root, context, resolver, &query,
@@ -1976,15 +1999,12 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
                 build_variant_search_query_execution_context(4, resolver, &nulls), binding_key);
         ASSERT_NE(nullptr, scorer);
         expect_bitmap_eq(collect_docs(scorer), expected_docs);
-        ASSERT_TRUE(scorer->has_null_bitmap());
-        const auto* null_bitmap = scorer->get_null_bitmap();
-        ASSERT_NE(nullptr, null_bitmap);
-        expect_bitmap_eq(*null_bitmap, expected_nulls);
+        EXPECT_FALSE(scorer->has_null_bitmap());
     };
 
-    verify_result(or_clause, {0, 1}, {3});
-    verify_result(not_clause, {1, 2}, {3});
-    verify_result(exists_clause, {0, 1, 2}, {3});
+    verify_result(or_clause, {0, 1});
+    verify_result(not_clause, {1, 2, 3});
+    verify_result(exists_clause, {0, 1, 2});
     EXPECT_EQ(0, reader->query_calls);
 }
 
@@ -2031,7 +2051,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermOnAnalyzedFieldIsAMatchAnyQuery) {
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2072,7 +2092,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermOnKeywordFieldIsAnEqualQuery) {
               reader->fake_source->prepared);
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2187,7 +2207,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermDefaultOperatorAndMapsToMatchAllQue
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2232,7 +2252,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2274,7 +2294,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsE
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2319,7 +2339,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixIsALiteralStem) {
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2400,7 +2420,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
     // SEARCH's REGEXP matches whole terms, so "alphabet" stays out.
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2469,7 +2489,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsTheDslSuffix) 
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    VariantSearchNullBitmapAdapter nulls(resolver);
+    SearchNullBitmapResolver nulls;
     auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
                                  binding_key);
     ASSERT_NE(nullptr, scorer);
@@ -2583,6 +2603,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryClucenePrefixOfAStopwordStaysAPrefi
     std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
     data_type_with_names.emplace("body", IndexFieldNameAndTypePair {"body", nullptr});
     std::unordered_map<std::string, IndexIterator*> iterators;
+    RecordingIndexIterator physical_iterator;
+    iterators["body"] = &physical_iterator;
     FieldReaderResolver resolver(data_type_with_names, iterators, context);
 
     FieldReaderBinding binding;
@@ -3192,7 +3214,7 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheRemainsEnabledForUnreferencedSniiFi
     EXPECT_EQ(0, number_iterator.read_calls);
 }
 
-TEST_F(FunctionSearchTest, TestBuildLeafQueryDirectUnknownClauseUsesLeafMapper) {
+TEST_F(FunctionSearchTest, TestBuildLeafQueryRejectsUnsupportedDirectClause) {
     TSearchClause clause;
     clause.clause_type = "PHRASE";
     clause.field_name = "var.items.active";
@@ -3245,23 +3267,9 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryDirectUnknownClauseUsesLeafMapper) 
     std::string out_binding_key;
     Status st = function_search->build_query_recursive(clause, context, resolver, &out,
                                                        &out_binding_key, "OR", 0, 4);
-    ASSERT_TRUE(st.ok());
-    ASSERT_NE(out, nullptr);
-    EXPECT_TRUE(mapper_called);
-    EXPECT_EQ(key, out_binding_key);
-    EXPECT_TRUE(iterator.last_column_name.empty());
-
-    auto weight = out->weight(false);
-    ASSERT_NE(weight, nullptr);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx);
-    ASSERT_NE(scorer, nullptr);
-    EXPECT_EQ(inverted_index::query_v2::TERMINATED, scorer->doc());
-    ASSERT_TRUE(scorer->has_null_bitmap());
-    const auto* null_bitmap = scorer->get_null_bitmap();
-    ASSERT_NE(null_bitmap, nullptr);
-    EXPECT_EQ(4u, null_bitmap->cardinality());
+    EXPECT_FALSE(st.ok());
+    EXPECT_FALSE(mapper_called);
+    EXPECT_EQ(nullptr, out);
 }
 
 TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantBoolUsesDirectIndexReader) {
@@ -4044,6 +4052,406 @@ TEST_F(FunctionSearchTest, TestSniiNativeWildcardNormalizesOnlyItsLiterals) {
     EXPECT_EQ("a", reader->fake_source->expanded.back());
 
     scoped_policy_mgr.apply_policy_changes({}, {char_filter.id, analyzer.id});
+}
+
+TEST_F(FunctionSearchTest, DocumentBooleanContractPreservesScoringMatchSets) {
+    auto index_meta = make_test_inverted_index(
+            101, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE}});
+    auto file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    std::vector<std::unique_ptr<InvertedIndexIterator>> owned_iterators;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    const std::vector<roaring::Roaring> hits = {make_bitmap({0, 1, 2}), make_bitmap({0, 3, 6}),
+                                                make_bitmap({2, 7})};
+    const std::vector<roaring::Roaring> nulls = {make_bitmap({6, 7, 8}), make_bitmap({2, 5, 8}),
+                                                 make_bitmap({0, 5, 8})};
+    for (size_t i = 0; i < hits.size(); ++i) {
+        const std::string field(1, static_cast<char>('a' + i));
+        auto reader =
+                std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, file_reader);
+        std::vector<uint32_t> hit_rows(hits[i].begin(), hits[i].end());
+        reader->fake_source->add("hit", hit_rows);
+        reader->set_null_bitmap(nulls[i]);
+        auto iterator = std::make_unique<InvertedIndexIterator>();
+        iterator->add_reader(InvertedIndexReaderType::FULLTEXT, reader);
+        types.emplace(field, IndexFieldNameAndTypePair {field, std::make_shared<DataTypeString>()});
+        iterators[field] = iterator.get();
+        owned_iterators.emplace_back(std::move(iterator));
+    }
+    auto leaf = [](const std::string& field) {
+        auto clause = make_leaf_clause("TERM", "hit");
+        clause.field_name = field;
+        return clause;
+    };
+    auto boolean = [](const std::string& op, const std::vector<TSearchClause>& children) {
+        TSearchClause clause;
+        clause.clause_type = op;
+        clause.__set_children(children);
+        return clause;
+    };
+    const auto a = leaf("a");
+    const auto b = leaf("b");
+    const auto c = leaf("c");
+    const auto conjunction = boolean("AND", {a, b});
+    const auto disjunction = boolean("OR", {a, b});
+    auto must = a;
+    must.__set_occur(TSearchOccur::MUST);
+    auto not_b = b;
+    not_b.__set_occur(TSearchOccur::MUST_NOT);
+    auto not_c = c;
+    not_c.__set_occur(TSearchOccur::MUST_NOT);
+    const auto exclusions = boolean("OCCUR_BOOLEAN", {must, not_b, not_c});
+    const std::vector<std::pair<TSearchClause, roaring::Roaring>> cases = {
+            {a, make_bitmap({0, 1, 2})},
+            {conjunction, make_bitmap({0})},
+            {disjunction, make_bitmap({0, 1, 2, 3, 6})},
+            {boolean("NOT", {conjunction}), make_bitmap({1, 2, 3, 4, 5, 6, 7, 8})},
+            {boolean("NOT", {disjunction}), make_bitmap({4, 5, 7, 8})},
+            {boolean("NOT", {a}), make_bitmap({3, 4, 5, 6, 7, 8})},
+            {boolean("AND", {a, boolean("NOT", {b})}), make_bitmap({1, 2})},
+            {exclusions, make_bitmap({1})},
+            {boolean("NOT", {exclusions}), make_bitmap({0, 2, 3, 4, 5, 6, 7, 8})},
+            {boolean("OR", {a, boolean("NOT", {a})}), make_bitmap({0, 1, 2, 3, 4, 5, 6, 7, 8})},
+            {boolean("AND", {a, boolean("NOT", {a})}), make_bitmap({})},
+            {boolean("NOT", {boolean("NOT", {a})}), make_bitmap({0, 1, 2})}};
+    for (bool scoring : {false, true}) {
+        for (const auto& [root, expected] : cases) {
+            TSearchParam param;
+            param.original_dsl = "document Boolean contract";
+            param.root = root;
+            auto context = std::make_shared<IndexQueryContext>();
+            if (scoring) {
+                context->collection_similarity = std::make_shared<CollectionSimilarity>();
+                context->collection_statistics = std::make_shared<FixedSearchStatistics>();
+            }
+            InvertedIndexResultBitmap result;
+            ASSERT_TRUE(function_search
+                                ->evaluate_inverted_index_with_search_param(param, types, iterators,
+                                                                            9, result, false,
+                                                                            nullptr, {}, context)
+                                .ok());
+            ASSERT_NE(nullptr, result.get_data_bitmap());
+            EXPECT_TRUE(*result.get_data_bitmap() == expected);
+            ASSERT_NE(nullptr, result.get_null_bitmap());
+            EXPECT_TRUE(result.get_null_bitmap()->isEmpty());
+        }
+    }
+}
+
+TEST_F(FunctionSearchTest, MissingFieldsStillEvaluateTheCompleteBooleanTree) {
+    auto missing = make_leaf_clause("TERM", "hit");
+    missing.field_name = "v.absent";
+    TSearchFieldBinding binding;
+    binding.field_name = missing.field_name;
+    binding.__set_is_variant_subcolumn(true);
+    // The production VSearchExpr collection boundary verifies storage absence
+    // before omitting the field from the resolver's metadata map.
+    TSearchClause negated;
+    negated.clause_type = "NOT";
+    negated.__set_children({missing});
+    TSearchClause twice;
+    twice.clause_type = "NOT";
+    twice.__set_children({negated});
+    for (const auto& [root, expected] :
+         std::vector<std::pair<TSearchClause, roaring::Roaring>> {{missing, make_bitmap({})},
+                                                                  {negated, make_bitmap({0, 1, 2})},
+                                                                  {twice, make_bitmap({})}}) {
+        TSearchParam param;
+        param.original_dsl = "missing field Boolean contract";
+        param.root = root;
+        param.field_bindings = {binding};
+        for (bool scoring : {false, true}) {
+            auto context = std::make_shared<IndexQueryContext>();
+            if (scoring) {
+                context->collection_similarity = std::make_shared<CollectionSimilarity>();
+            }
+            InvertedIndexResultBitmap result;
+            auto status = function_search->evaluate_inverted_index_with_search_param(
+                    param, {}, {}, 3, result, false, nullptr, {}, context);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_TRUE(*result.get_data_bitmap() == expected);
+            EXPECT_TRUE(result.get_null_bitmap()->isEmpty());
+        }
+    }
+}
+
+TEST_F(FunctionSearchTest, DirectSearchOwnsTheReaderCachedMatchBitmap) {
+    auto index_meta = make_test_inverted_index(104);
+    auto file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, file_reader, InvertedIndexReaderType::BKD);
+    reader->set_null_bitmap(make_bitmap({1}));
+    RecordingDirectInvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::BKD, reader);
+    // Model the real BKD reader's cache alias, including a NULL payload hit.
+    // The leaf must remove it from its own result without modifying the cache.
+    iterator.cached_result = std::make_shared<roaring::Roaring>(make_bitmap({0, 1, 3}));
+    auto context = std::make_shared<IndexQueryContext>();
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {
+            {"age", {"age", std::make_shared<DataTypeInt32>()}}};
+    std::unordered_map<std::string, IndexIterator*> iterators {{"age", &iterator}};
+    FieldReaderResolver resolver(types, iterators, context);
+    auto clause = make_leaf_clause("TERM", "42");
+    clause.field_name = "age";
+    for (int repetition = 0; repetition < 2; ++repetition) {
+        inverted_index::query_v2::QueryPtr query;
+        std::string binding_key;
+        ASSERT_TRUE(function_search
+                            ->build_query_recursive(clause, context, resolver, &query, &binding_key,
+                                                    "OR", -1, 4)
+                            .ok());
+        auto scorer = query->weight(false)->scorer(
+                build_variant_search_query_execution_context(4, resolver, nullptr), binding_key);
+        expect_bitmap_eq(collect_docs(scorer), {0, 3});
+        EXPECT_FALSE(scorer->has_null_bitmap());
+        expect_bitmap_eq(*iterator.cached_result, {0, 1, 3});
+    }
+    EXPECT_EQ(2, iterator.read_calls);
+}
+
+TEST_F(FunctionSearchTest, SearchCacheVersionsAndOwnsTheCompleteMatchSet) {
+    ScopedInvertedIndexQueryCache cache_guard;
+    auto text_meta = make_test_inverted_index(
+            102, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE}});
+    auto number_meta = make_test_inverted_index(103);
+    auto file_reader = std::make_shared<RejectingCluceneIndexFileReader>(
+            InvertedIndexStorageFormatPB::V2, "/tmp/search_2vl_cache_idx");
+    auto text_reader = std::make_shared<DummyInvertedIndexReader>(
+            &text_meta, file_reader, InvertedIndexReaderType::STRING_TYPE);
+    auto number_reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &number_meta, file_reader, InvertedIndexReaderType::BKD);
+    InvertedIndexIterator text_iterator;
+    text_iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, text_reader);
+    RecordingDirectInvertedIndexIterator number_iterator;
+    number_iterator.add_reader(InvertedIndexReaderType::BKD, number_reader);
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {
+            {"unused", {"unused", std::make_shared<DataTypeString>()}},
+            {"age", {"age", std::make_shared<DataTypeInt32>()}}};
+    std::unordered_map<std::string, IndexIterator*> iterators {{"unused", &text_iterator},
+                                                               {"age", &number_iterator}};
+    TSearchParam param;
+    param.original_dsl = "age:42";
+    param.root = make_leaf_clause("TERM", "42");
+    param.root.field_name = "age";
+    // Seed the old namespace with a deliberately wrong result. It cannot be
+    // reused under the document Boolean contract, with or without its NULL key.
+    ASSERT_TRUE(insert_search_dsl_cache(cache_guard.get(), file_reader, param, make_bitmap({1}),
+                                        "__search_dsl__")
+                        .ok());
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    InvertedIndexResultBitmap cold;
+    ASSERT_TRUE(function_search
+                        ->evaluate_inverted_index_with_search_param(
+                                param, types, iterators, 4, cold, true, nullptr, {}, context)
+                        .ok());
+    expect_bitmap_eq(*cold.get_data_bitmap(), {3});
+    EXPECT_TRUE(cold.get_null_bitmap()->isEmpty());
+    EXPECT_EQ(1, number_iterator.read_calls);
+    // Mutating the caller's bitmap must not alter the cached entry.
+    *cold.get_data_bitmap() = roaring::Roaring();
+    for (int i = 0; i < 2; ++i) {
+        InvertedIndexResultBitmap warm;
+        ASSERT_TRUE(function_search
+                            ->evaluate_inverted_index_with_search_param(
+                                    param, types, iterators, 4, warm, true, nullptr, {}, context)
+                            .ok());
+        expect_bitmap_eq(*warm.get_data_bitmap(), {3});
+        EXPECT_TRUE(warm.get_null_bitmap()->isEmpty());
+        *warm.get_data_bitmap() = roaring::Roaring();
+    }
+    EXPECT_EQ(1, number_iterator.read_calls);
+    EXPECT_EQ(2, stats.inverted_index_query_cache_hit);
+    EXPECT_EQ(1, stats.inverted_index_query_cache_miss);
+}
+
+// Keep the NULL-layout / score / collector matrix together against one physical
+// reader so every execution path uses the same independently specified oracle.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(FunctionSearchTest, SearchExistsUsesLocalDocIdsForEachCluceneSubReader) {
+    using namespace inverted_index::query_v2;
+    const std::string path = "./ut_dir/search_exists_multi_segment";
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
+    DEFER(EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok()));
+    inverted_index::CustomAnalyzerConfig::Builder analyzer_builder;
+    analyzer_builder.with_tokenizer_config("standard", {});
+    auto analyzer = inverted_index::CustomAnalyzer::build_custom_analyzer(analyzer_builder.build());
+    auto* writer = _CLNEW lucene::index::IndexWriter(path.c_str(), analyzer.get(), true);
+    writer->setMaxBufferedDocs(2);
+    writer->setRAMBufferSizeMB(-1);
+    writer->setMergeFactor(1000000000);
+    writer->setUseCompoundFile(false);
+    auto string_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    auto* document = _CLNEW lucene::document::Document();
+    auto* field = _CLNEW lucene::document::Field(
+            L"a", int32_t(lucene::document::Field::STORE_NO) |
+                          int32_t(lucene::document::Field::INDEX_NONORMS) |
+                          int32_t(lucene::document::Field::INDEX_TOKENIZED));
+    document->add(*field);
+    for (const std::string value : {"hit", "hit", "miss", "hit"}) {
+        string_reader->init(value.data(), value.size(), false);
+        field->setValue(analyzer->reusableTokenStream(field->name(), string_reader));
+        writer->addDocument(document);
+    }
+    writer->close();
+    _CLDELETE(writer);
+    _CLDELETE(document);
+    auto reader = std::shared_ptr<lucene::index::IndexReader>(
+            lucene::index::IndexReader::open(path.c_str()), [](lucene::index::IndexReader* ptr) {
+                ptr->close();
+                _CLDELETE(ptr);
+            });
+    ASSERT_EQ(4, reader->maxDoc());
+    const auto* multi_reader = dynamic_cast<lucene::index::MultiSegmentReader*>(reader.get());
+    ASSERT_NE(nullptr, multi_reader);
+    const auto* segments = multi_reader->getSubReaders();
+    ASSERT_NE(nullptr, segments);
+    ASSERT_GT(segments->length, 1);
+
+    TabletIndex index_meta;
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(910901);
+    index_meta.init_from_pb(index_pb);
+    auto index_file = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto physical_reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file);
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_statistics->_total_num_docs = 4;
+    context->collection_statistics->_total_num_tokens[L"a"] = 4;
+    context->collection_statistics->_term_doc_freqs[L"a"][L"hit"] = 3;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {
+            {"a", {"a", std::make_shared<DataTypeString>()}}};
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, physical_reader);
+    std::unordered_map<std::string, IndexIterator*> iterators {{"a", &iterator}};
+    FieldReaderResolver resolver(types, iterators, context);
+    for (const auto type :
+         {InvertedIndexQueryType::MATCH_ANY_QUERY, InvertedIndexQueryType::WILDCARD_QUERY}) {
+        FieldReaderBinding binding;
+        binding.logical_field_name = "a";
+        binding.stored_field_name = "a";
+        binding.stored_field_wstr = L"a";
+        binding.index_source = clucene_index_source(reader, L"a", nullptr);
+        binding.leaf_compiler = std::make_shared<LazyLeafCompiler>(
+                L"a", resolver.binding_key_for("a", type), binding.index_source);
+        binding.inverted_reader = physical_reader;
+        binding.binding_key = resolver.binding_key_for("a", type);
+        resolver._cache[binding.binding_key] = binding;
+        resolver._binding_sources[binding.binding_key] = binding.index_source;
+    }
+    auto exists = make_leaf_clause("WILDCARD", "*");
+    exists.field_name = "a";
+    auto term = make_leaf_clause("TERM", "hit");
+    term.field_name = "a";
+    auto boolean = [](const std::string& type, std::vector<TSearchClause> children) {
+        TSearchClause clause;
+        clause.clause_type = type;
+        clause.__set_children(children);
+        return clause;
+    };
+    SearchNullBitmapResolver null_resolver;
+    for (const auto& nulls : {make_bitmap({}), make_bitmap({1, 2})}) {
+        physical_reader->set_null_bitmap(nulls);
+        roaring::Roaring expected_exists = make_bitmap({0, 1, 2, 3}) - nulls;
+        roaring::Roaring expected_term = make_bitmap({0, 1, 3}) - nulls;
+        for (const auto& [clause, expected] :
+             std::vector<std::pair<TSearchClause, roaring::Roaring>> {
+                     {exists, expected_exists},
+                     {boolean("NOT", {exists}), nulls},
+                     {boolean("AND", {exists, term}), expected_term},
+                     {boolean("OR", {exists, term}), expected_exists}}) {
+            for (bool scoring : {false, true}) {
+                QueryPtr query;
+                std::string binding_key;
+                auto status = function_search->build_query_recursive(
+                        clause, context, resolver, &query, &binding_key, "or", -1, 4);
+                ASSERT_TRUE(status.ok()) << status;
+                auto exec_ctx =
+                        build_variant_search_query_execution_context(4, resolver, &null_resolver);
+                auto weight = query->weight(scoring);
+                auto actual = std::make_shared<roaring::Roaring>();
+                auto similarity = std::make_shared<CollectionSimilarity>();
+                collect_multi_segment_doc_set(weight, exec_ctx, binding_key, actual, similarity,
+                                              scoring);
+                EXPECT_TRUE(*actual == expected) << clause.clause_type;
+                for (auto doc : *actual) {
+                    EXPECT_LT(doc, 4);
+                }
+                if (scoring && clause.clause_type == "WILDCARD") {
+                    const auto& scores = similarity->_bm25_scores;
+                    EXPECT_EQ(expected.cardinality(), scores.size());
+                    for (auto doc : expected) {
+                        EXPECT_FLOAT_EQ(1.0F, scores.at(doc));
+                    }
+                }
+                for (bool wand : {false, true}) {
+                    actual = std::make_shared<roaring::Roaring>();
+                    collect_multi_segment_top_k(weight, exec_ctx, binding_key, 20, actual, nullptr,
+                                                wand);
+                    EXPECT_TRUE(*actual == expected);
+                }
+            }
+        }
+    }
+
+    // A nested leaf's element domain can be larger than the active parent domain.
+    // Preserve all four child ordinals before the existing mapper runs.
+    resolver.set_leaf_num_rows_resolver([](const std::string&, uint32_t* count) {
+        *count = 4;
+        return Status::OK();
+    });
+    physical_reader->set_null_bitmap(make_bitmap({}));
+    resolver.set_leaf_query_mapper([&](const std::string&, QueryPtr* child) {
+        QueryExecutionContext child_ctx;
+        child_ctx.segment_num_rows = 2;
+        auto sc = (*child)->weight(false)->scorer(child_ctx);
+        auto parents = std::make_shared<roaring::Roaring>();
+        for (auto doc = sc->doc(); doc != TERMINATED; doc = sc->advance()) {
+            parents->add(doc / 2);
+        }
+        *child = std::make_shared<BitSetQuery>(parents);
+        return Status::OK();
+    });
+    QueryPtr nested;
+    std::string nested_key;
+    ASSERT_TRUE(function_search
+                        ->build_query_recursive(exists, context, resolver, &nested, &nested_key,
+                                                "or", -1, 2)
+                        .ok());
+    QueryExecutionContext parent_ctx;
+    parent_ctx.segment_num_rows = 2;
+    auto sc = nested->weight(false)->scorer(parent_ctx);
+    EXPECT_EQ(0, sc->doc());
+    EXPECT_EQ(1, sc->advance());
+    EXPECT_EQ(TERMINATED, sc->advance());
+}
+
+TEST_F(FunctionSearchTest, SearchTopKAboveCollectorCapacityPreservesAllMatches) {
+    SniiScoringFixture fixture(910902, 30000);
+    roaring::Roaring matches;
+    matches.addRange(0, 15000);
+    fixture.reader->fake_source->add("alpha",
+                                     std::vector<uint32_t>(matches.begin(), matches.end()));
+    fixture.context->collection_statistics = std::make_shared<FixedSearchStatistics>();
+    fixture.context->query_limit = 20000;
+    fixture.context->is_asc = false;
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fixture.reader);
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {
+            {"body", {"body", std::make_shared<DataTypeString>()}}};
+    std::unordered_map<std::string, IndexIterator*> iterators {{"body", &iterator}};
+    TSearchParam param;
+    param.root = make_leaf_clause("MATCH", "alpha");
+    InvertedIndexResultBitmap result;
+    auto status = function_search->evaluate_inverted_index_with_search_param(
+            param, types, iterators, fixture.num_rows, result, false, nullptr, {}, fixture.context);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(nullptr, result.get_data_bitmap());
+    EXPECT_TRUE(*result.get_data_bitmap() == matches);
+    EXPECT_EQ(15000, fixture.context->collection_similarity->_bm25_scores.size());
 }
 
 } // namespace doris
