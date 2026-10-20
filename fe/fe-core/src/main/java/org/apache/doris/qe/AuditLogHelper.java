@@ -246,6 +246,11 @@ public class AuditLogHelper {
         String cluster = Config.isCloudMode() ? cloudCluster : selectionHint.getPreferredKey();
         String stmtType = getStmtType(parsedStmt);
         long queueTimeMs = getQueueTimeMs(ctx);
+        // A forwarded statement's effective result lives in the master's response, not in this
+        // follower's local QueryState, which may still be OK when the master rejects it.
+        boolean forwarded = !Env.getCurrentEnv().isMaster()
+                && ctx.executor != null && ctx.executor.hasForwardedToMaster();
+        String proxyStatus = forwarded ? ctx.executor.getProxyStatus() : null;
 
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
@@ -374,8 +379,7 @@ public class AuditLogHelper {
         // is_query and the query metrics stay unchanged.
         if ((!ctx.getState().isQuery() || MetricRepo.isInit)
                 && !ctx.getState().isInternal()
-                && (ctx.getState().getStateType() == MysqlStateType.OK
-                        || ctx.getState().getStateType() == MysqlStateType.EOF)
+                && isAuditStateSuccessful(forwarded, proxyStatus, ctx.getState().getStateType())
                 && elapseMs > Config.sql_digest_generation_threshold_ms) {
             getSqlDigestForAudit(parsedStmt, ctx.getState().isQuery())
                     .ifPresent(digest -> auditEventBuilder.setSqlDigest(DigestUtils.md5Hex(digest)));
@@ -400,14 +404,12 @@ public class AuditLogHelper {
         }
         auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            if (ctx.executor != null && ctx.executor.hasForwardedToMaster()) {
-                auditEventBuilder.setState(ctx.executor.getProxyStatus());
-                int proxyStatusCode = ctx.executor.getProxyStatusCode();
-                if (proxyStatusCode != 0) {
-                    auditEventBuilder.setErrorCode(proxyStatusCode);
-                    auditEventBuilder.setErrorMessage(ctx.executor.getProxyErrMsg());
-                }
+        if (forwarded) {
+            auditEventBuilder.setState(proxyStatus);
+            int proxyStatusCode = ctx.executor.getProxyStatusCode();
+            if (proxyStatusCode != 0) {
+                auditEventBuilder.setErrorCode(proxyStatusCode);
+                auditEventBuilder.setErrorMessage(ctx.executor.getProxyErrMsg());
             }
         }
         if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && ctx.getState().getErrorCode() == null) {
@@ -549,6 +551,20 @@ public class AuditLogHelper {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Whether the statement should be treated as successful for audit digest purposes. For a
+     * forwarded statement the effective result is the master's response; using the follower's
+     * local state would fingerprint an INSERT that the master already rejected.
+     */
+    static boolean isAuditStateSuccessful(boolean forwarded, String proxyStatus,
+            MysqlStateType localState) {
+        if (forwarded) {
+            return MysqlStateType.OK.name().equals(proxyStatus)
+                    || MysqlStateType.EOF.name().equals(proxyStatus);
+        }
+        return localState == MysqlStateType.OK || localState == MysqlStateType.EOF;
     }
 
     private static String getStmtType(StatementBase stmt) {

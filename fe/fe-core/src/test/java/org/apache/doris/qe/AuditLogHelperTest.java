@@ -119,6 +119,26 @@ public class AuditLogHelperTest {
     }
 
     @Test
+    public void testForwardedFailedInsertIsNotEligibleForDigest() {
+        // A follower's local QueryState may still be OK when the master rejected the forwarded
+        // statement, so the digest gate must follow the master's effective status.
+        Assertions.assertFalse(AuditLogHelper.isAuditStateSuccessful(
+                true, QueryState.MysqlStateType.ERR.name(), QueryState.MysqlStateType.OK));
+        Assertions.assertTrue(AuditLogHelper.isAuditStateSuccessful(
+                true, QueryState.MysqlStateType.OK.name(), QueryState.MysqlStateType.OK));
+        Assertions.assertTrue(AuditLogHelper.isAuditStateSuccessful(
+                true, QueryState.MysqlStateType.EOF.name(), QueryState.MysqlStateType.OK));
+
+        // Non-forwarded statements keep using the local state.
+        Assertions.assertFalse(AuditLogHelper.isAuditStateSuccessful(
+                false, null, QueryState.MysqlStateType.ERR));
+        Assertions.assertTrue(AuditLogHelper.isAuditStateSuccessful(
+                false, null, QueryState.MysqlStateType.OK));
+        Assertions.assertTrue(AuditLogHelper.isAuditStateSuccessful(
+                false, null, QueryState.MysqlStateType.EOF));
+    }
+
+    @Test
     public void testGetSqlDigestForAudit() {
         LogicalPlanAdapter selectAdapter = Mockito.mock(LogicalPlanAdapter.class);
         Mockito.when(selectAdapter.toDigest()).thenReturn("SELECT 1");

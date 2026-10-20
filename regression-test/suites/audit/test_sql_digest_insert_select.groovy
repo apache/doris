@@ -86,6 +86,31 @@ suite("test_sql_digest_insert_select", "nonConcurrent") {
         assertEquals(0, valuesRow[0])
         assertEquals("INSERT", valuesRow[1])
         assertTrue(valuesRow[2] == null || valuesRow[2] == "")
+
+        // A WITH wrapper must not turn a VALUES source into a fingerprintable SELECT.
+        sql "with c as (select * from sql_digest_insert_select_src) insert into sql_digest_insert_select_dst values (4, 'd')"
+        def cteValuesRow = waitForAuditRow("""
+            SELECT CAST(is_query AS INT) AS is_query, stmt_type, sql_digest
+            FROM __internal_schema.audit_log
+            WHERE stmt LIKE 'with c as (select * from sql_digest_insert_select_src) insert into sql_digest_insert_select_dst values (4%'
+            ORDER BY `time` DESC
+            LIMIT 1
+        """)
+        assertEquals(0, cteValuesRow[0])
+        assertEquals("INSERT", cteValuesRow[1])
+        assertTrue(cteValuesRow[2] == null || cteValuesRow[2] == "")
+
+        sql "insert into sql_digest_insert_select_dst with c as (select * from sql_digest_insert_select_src) values (5, 'e')"
+        def localCteValuesRow = waitForAuditRow("""
+            SELECT CAST(is_query AS INT) AS is_query, stmt_type, sql_digest
+            FROM __internal_schema.audit_log
+            WHERE stmt LIKE 'insert into sql_digest_insert_select_dst with c as (select * from sql_digest_insert_select_src) values (5%'
+            ORDER BY `time` DESC
+            LIMIT 1
+        """)
+        assertEquals(0, localCteValuesRow[0])
+        assertEquals("INSERT", localCteValuesRow[1])
+        assertTrue(localCteValuesRow[2] == null || localCteValuesRow[2] == "")
     }
 
     // DML digest generation keeps the same threshold gate as query digest generation.

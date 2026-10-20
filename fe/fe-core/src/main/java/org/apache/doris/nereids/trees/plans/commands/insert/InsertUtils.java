@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
@@ -676,14 +677,21 @@ public class InsertUtils {
      */
     public static Optional<String> getSelectDigestForAudit(LogicalPlan originLogicalQuery,
             Optional<LogicalPlan> cte) {
-        if (cte.isPresent()) {
-            return Optional.of(cte.get().toDigest());
-        }
-        Plan query = originLogicalQuery.child(0);
-        if (query instanceof InlineTable) {
+        LogicalPlan source = cte.orElseGet(() -> (LogicalPlan) originLogicalQuery.child(0));
+        // A WITH clause is transparent for the source type: both `WITH c AS (...) INSERT ... VALUES`
+        // and `INSERT INTO ... WITH c AS (...) VALUES` keep the InlineTable below a LogicalCTE.
+        if (unwrapCte(source) instanceof InlineTable) {
             return Optional.empty();
         }
-        return Optional.of(((LogicalPlan) query).toDigest());
+        return Optional.of(source.toDigest());
+    }
+
+    private static Plan unwrapCte(Plan plan) {
+        Plan source = plan;
+        while (source instanceof LogicalCTE) {
+            source = ((LogicalCTE<?>) source).child();
+        }
+        return source;
     }
 
     /**

@@ -359,5 +359,14 @@ public class NereidsParserDigestTest extends ParserTestBase {
         sql = "INSERT INTO test VALUES (1, 2);";
         logicalPlanList = nereidsParser.parseMultiple(sql);
         assertNoAuditDigest(logicalPlanList.get(0).first);
+
+        // a WITH wrapper must not turn a VALUES source into a fingerprintable SELECT
+        sql = "WITH cte AS (SELECT * FROM test2) INSERT INTO test VALUES (4);";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertNoAuditDigest(logicalPlanList.get(0).first);
+
+        sql = "INSERT INTO test WITH cte AS (SELECT * FROM test2) VALUES (4);";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertNoAuditDigest(logicalPlanList.get(0).first);
     }
 }
