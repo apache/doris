@@ -51,16 +51,6 @@ public:
                            segment_v2::inverted_index::query_v2::QueryPtr* out) = 0;
 };
 
-// UNKNOWN for every row: no row matches and every row counts as NULL.
-inline segment_v2::inverted_index::query_v2::QueryPtr make_unknown_leaf_query(uint32_t num_rows) {
-    auto null_bitmap = std::make_shared<roaring::Roaring>();
-    if (num_rows > 0) {
-        null_bitmap->addRange(0, num_rows);
-    }
-    return std::make_shared<segment_v2::inverted_index::query_v2::BitSetQuery>(
-            std::make_shared<roaring::Roaring>(), std::move(null_bitmap));
-}
-
 // Compiles a leaf into the lazy query_v2 query the engine evaluates on the field's bound source,
 // after the source resolved the leaf's terms in one dictionary batch.
 class LazyLeafCompiler final : public SearchLeafCompiler {
@@ -78,7 +68,7 @@ private:
 };
 
 // Answers a comparison leaf from a scalar (BKD) index through its iterator.
-// Every other leaf on such an index is UNKNOWN.
+// Unsupported leaves and invalid values fail the query.
 class ScalarLeafCompiler final : public SearchLeafCompiler {
 public:
     ScalarLeafCompiler(segment_v2::IndexIterator* iterator, DataTypePtr column_type,
