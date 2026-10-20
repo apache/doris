@@ -71,6 +71,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 class ConstantPropagationTest {
 
@@ -448,6 +449,35 @@ class ConstantPropagationTest {
         // nothing below the project has the column any more, so the kept exprId is defined exactly once
         Assertions.assertFalse(rewrittenProject.child().getOutput().stream()
                 .anyMatch(slot -> slot.getExprId().equals(studentId.getExprId())));
+    }
+
+    @Test
+    public void testProjectItemShadowingAChildSlotGetsFreshExprId() {
+        // a project item which re-defines a column which its child still outputs describes another value, so it
+        // must be materialized with a fresh exprId, and the sink above has to follow that exprId
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(5))), student);
+        LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(ImmutableList.of(
+                new Alias(studentId.getExprId(), new Add(studentId, new IntegerLiteral(0)), studentId.getName()),
+                studentGender), filter);
+        List<NamedExpression> sinkOutputExprs = ImmutableList.of(studentId, studentGender);
+        LogicalBlackholeSink<LogicalProject<LogicalFilter<LogicalOlapScan>>> sink
+                = new LogicalBlackholeSink<>(sinkOutputExprs, project);
+
+        LogicalSink<?> rewrittenSink = (LogicalSink<?>) executor.rewriteRoot(sink, jobContext);
+        // the child of the project still outputs studentId, so the constant item got a fresh exprId
+        NamedExpression constantItem = ((LogicalProject<?>) rewrittenSink.child()).getProjects().get(0);
+        Assertions.assertEquals(new IntegerLiteral(5), ((Alias) constantItem).child());
+        Assertions.assertNotEquals(studentId.getExprId(), constantItem.getExprId());
+        // and the sink follows it, otherwise it would reference a slot which its child no longer outputs
+        Assertions.assertEquals(constantItem.getExprId(), rewrittenSink.getOutputExprs().get(0).getExprId());
+        List<ExprId> childOutputIds = rewrittenSink.child().getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toList());
+        for (NamedExpression outputExpr : rewrittenSink.getOutputExprs()) {
+            Assertions.assertTrue(childOutputIds.contains(outputExpr.getExprId()),
+                    "the sink expects " + outputExpr + " which its child does not output: "
+                            + rewrittenSink.child().getOutput());
+        }
     }
 
     @Test
