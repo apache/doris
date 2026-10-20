@@ -284,6 +284,50 @@ TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {
     }
 }
 
+TEST(VIcebergTableWriterTest, VoidPartitionFieldNeedsNoSourceColumn) {
+    // A v1 table keeps void(region) for its dropped partition field after region is dropped too.
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(true, 1, "note", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    columns.emplace_back(true, 3, "category", std::make_unique<iceberg::IntegerType>(),
+                         std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(columns));
+    const std::string spec_json =
+            R"({"spec-id":1,"fields":[{"name":"region","transform":"void","source-id":2,)"
+            R"("field-id":1000},{"name":"category","transform":"identity","source-id":3,)"
+            R"("field-id":1001}]})";
+    auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    VExprContextSPtrs output_exprs {
+            VExprContext::create_shared(VSlotRef::create_shared(0, 0, -1, int_type, "note")),
+            VExprContext::create_shared(VSlotRef::create_shared(1, 1, -1, int_type, "category"))};
+
+    TIcebergTableSink iceberg_sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(iceberg_sink);
+    VIcebergTableWriter writer(data_sink, output_exprs, nullptr, nullptr);
+    writer._schema = schema;
+    writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
+    writer._iceberg_partition_columns = writer._to_iceberg_partition_columns();
+    ASSERT_EQ(writer._iceberg_partition_columns.size(), 2);
+    EXPECT_EQ(writer._iceberg_partition_columns[0].source_idx(), -1);
+    EXPECT_EQ(writer._iceberg_partition_columns[1].source_idx(), 1);
+
+    IcebergPartitionData partition({std::any(), Int32(7)});
+    EXPECT_EQ("region=null/category=7", writer._partition_to_path(partition));
+    EXPECT_EQ(std::vector<std::string>({"null", "7"}), writer._partition_values(partition));
+    auto recording_writer = std::make_shared<RecordingPartitionWriter>();
+    writer._partitions_to_writers[writer._partition_to_writer_key(partition)] = recording_writer;
+    auto note = int_type->create_column();
+    note->insert_many_defaults(2);
+    auto category = int_type->create_column();
+    category->insert(Field::create_field<TYPE_INT>(7));
+    category->insert(Field::create_field<TYPE_INT>(7));
+    Block block({ColumnWithTypeAndName(note->get_ptr(), int_type, "note"),
+                 ColumnWithTypeAndName(category->get_ptr(), int_type, "category")});
+    // Both rows must reach the writer of the partition whose void value is NULL.
+    ASSERT_TRUE(writer._write_prepared_block(block).ok());
+    EXPECT_EQ(2, recording_writer->rows);
+}
+
 TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource) {
     std::vector<iceberg::NestedField> children;
     children.emplace_back(true, 2, "part", std::make_unique<iceberg::IntegerType>(), std::nullopt);
