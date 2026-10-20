@@ -22,7 +22,9 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory> // for unique_ptr
 #include <string>
@@ -177,6 +179,18 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
+    // PK pages are tracked by PKIndexPageCache, but their pinned bytes must also
+    // count toward SegmentCache eviction. Do not add these bytes to metadata tracking.
+    size_t cache_charge() const {
+        return _meta_mem_usage + _pk_index_cache_bytes.load(std::memory_order_relaxed);
+    }
+
+    // Install before publishing this segment in SegmentCache; immutable afterwards.
+    void set_cache_charge_callback(std::function<void(size_t)> callback) {
+        DCHECK(!_cache_charge_callback);
+        _cache_charge_callback = std::move(callback);
+    }
+
     // Get the inner file column's data type.
     // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
     // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
@@ -278,6 +292,8 @@ private:
     // The memory consumed by querying is tracked in segment iterator.
     int64_t _meta_mem_usage;
     int64_t _tracked_meta_mem_usage = 0;
+    std::atomic<size_t> _pk_index_cache_bytes {0};
+    std::function<void(size_t)> _cache_charge_callback;
 
     RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;
