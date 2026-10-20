@@ -400,6 +400,58 @@ TEST_F(AsyncCachedRemoteFileReaderTest, builds_consumed_range_writeback_context)
               CacheWriteMode::NO_WRITE);
 }
 
+TEST_F(AsyncCachedRemoteFileReaderTest, delayed_hole_fill_keeps_cached_reader_open) {
+    create_cache("delayed_hole_fill_reader_lifetime");
+    auto source = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(source);
+    const auto hash = reader->_cache_hash;
+    std::weak_ptr<CachedRemoteFileReader> weak_reader = reader;
+    std::unique_ptr<PartialBlockWritebackManager> partial_manager;
+    ASSERT_TRUE(PartialBlockWritebackManager::create(
+                        {.block_size = 1_mb,
+                         .worker_count = 1,
+                         .merge_delay_ms = 60000,
+                         .max_pending_bytes = 2_mb,
+                         .hole_fill_coalesce = {.max_gap_bytes = 32_kb,
+                                                .max_range_bytes = 1_mb,
+                                                .max_read_amplification_ratio = 1.0}},
+                        &partial_manager)
+                        .ok());
+    auto writeback = reader->make_range_cache_writeback(IOContext {}, partial_manager.get());
+    auto epoch = writeback->capture_write_epoch();
+    ASSERT_TRUE(epoch.has_value());
+    std::string fragment(16, '0');
+    static_cast<void>(writeback->submit_consumed_range({.offset = 0, .size = fragment.size()},
+                                                       Slice(fragment), *epoch));
+    ASSERT_EQ(partial_manager->queued_count(), 1);
+
+    writeback.reset();
+    reader.reset();
+    ASSERT_FALSE(weak_reader.expired());
+    ASSERT_FALSE(source->closed());
+
+    partial_manager->set_merge_delay_ms(0);
+    for (int attempt = 0; attempt < 5000 && !source->closed(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(weak_reader.expired());
+    wait_for_async_writes();
+    EXPECT_TRUE(source->closed());
+    ReadStatistics stats;
+    CacheContext context;
+    context.stats = &stats;
+    FileBlocks blocks;
+    bool covered = false;
+    ASSERT_TRUE(cache()->get_downloaded_blocks_if_fully_covered(hash, 0, 1_mb, context, &blocks,
+                                                                &covered)
+                        .ok());
+    ASSERT_TRUE(covered);
+    ASSERT_EQ(blocks.size(), 1);
+    std::string data(1_mb, '\0');
+    ASSERT_TRUE(blocks.front()->read(Slice(data), 0).ok());
+    EXPECT_EQ(data, std::string(1_mb, '0'));
+}
+
 TEST_F(AsyncCachedRemoteFileReaderTest, read_ahead_requires_async_cache_writes) {
     const auto old_deploy_mode = config::deploy_mode;
     const bool old_read_ahead = config::enable_query_read_ahead;

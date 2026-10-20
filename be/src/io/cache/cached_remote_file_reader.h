@@ -90,8 +90,9 @@ public:
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
     /// Build the immutable cache metadata used to write back consumed query read-ahead ranges.
-    /// The returned object retains the underlying remote reader for background hole fills. A
-    /// no-write request returns nullptr.
+    /// The returned object reads directly from the inner reader while retaining this wrapper,
+    /// keeping its destructor from closing the source before background hole fills finish.
+    /// A no-write request returns nullptr.
     std::shared_ptr<RangeCacheWriteback> make_range_cache_writeback(
             const IOContext& io_context, PartialBlockWritebackManager* partial_block_manager) const;
 
