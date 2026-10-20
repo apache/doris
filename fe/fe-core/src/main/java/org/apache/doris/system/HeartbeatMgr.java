@@ -420,8 +420,6 @@ public class HeartbeatMgr extends MasterDaemon {
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
                     response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
                             && tBackendInfo.isSupportsPaimonRustReader());
-                    response.setSpatialTypesSupported(tBackendInfo.isSetSupportsSpatialTypes()
-                            && tBackendInfo.isSupportsSpatialTypes());
                     return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),

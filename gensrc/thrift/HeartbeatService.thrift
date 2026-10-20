@@ -67,7 +67,6 @@ struct TBackendInfo {
     10: optional i64 be_mem // The physical memory available for use by BE.
     // Reserved for the Paimon Rust reader and aligned with its branch-4.1 forward-port.
     11: optional bool supports_paimon_rust_reader
-    12: optional bool supports_spatial_types
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time
