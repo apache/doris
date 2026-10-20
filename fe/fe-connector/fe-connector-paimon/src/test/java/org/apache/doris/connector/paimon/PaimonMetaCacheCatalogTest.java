@@ -559,7 +559,9 @@ class PaimonMetaCacheCatalogTest {
             Catalog privileged = new PrivilegedCatalog(cached, () -> privilegeManager);
 
             FileStoreTable beforeRevoke = (FileStoreTable) privileged.getTable(TABLE);
-            Assertions.assertDoesNotThrow(beforeRevoke::newScan);
+            Assertions.assertDoesNotThrow(() -> {
+                beforeRevoke.newScan();
+            });
             canSelect.set(false);
             FileStoreTable afterRevoke = (FileStoreTable) privileged.getTable(TABLE);
 

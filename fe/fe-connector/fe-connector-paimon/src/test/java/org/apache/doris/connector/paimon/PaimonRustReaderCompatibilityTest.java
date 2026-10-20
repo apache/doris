@@ -320,10 +320,13 @@ public class PaimonRustReaderCompatibilityTest {
                 if (decimal) {
                     commit(table, GenericRow.of(1, Decimal.fromUnscaledLong(-1, 2, 0), 3));
                 }
-                assertRead(table, false, row -> decimal
-                        ? row.getDecimal(1, 2, 0).toBigDecimal().toPlainString()
-                        : Byte.toString(row.getByte(1)), Collections.singletonList(
-                                decimal ? "99" : override ? "127" : "-128"));
+                if (!decimal && !override) {
+                    assertReadOverflows(table);
+                } else {
+                    assertRead(table, false, row -> decimal
+                            ? row.getDecimal(1, 2, 0).toBigDecimal().toPlainString()
+                            : Byte.toString(row.getByte(1)), Collections.singletonList(decimal ? "99" : "127"));
+                }
             }
         }
     }
@@ -377,12 +380,7 @@ public class PaimonRustReaderCompatibilityTest {
                 FileStoreTable table = table(types[i], aggregate(function));
                 commit(table, GenericRow.of(1, "sum".equals(function) ? maximums[i] : halves[i]));
                 commit(table, GenericRow.of(1, "sum".equals(function) ? ones[i] : twos[i]));
-                InternalRow.FieldGetter getter = InternalRow.createFieldGetter(types[i], 1);
-                Object minimum = i == 0 ? (byte) -128 : i == 1 ? (short) -32768
-                        : i == 2 ? Integer.MIN_VALUE : Long.MIN_VALUE;
-                // Compare decimal strings to avoid Java's conditional numeric promotion.
-                assertRead(table, false, row -> getter.getFieldOrNull(row).toString(),
-                        Collections.singletonList(minimum.toString()));
+                assertReadOverflows(table);
             }
         }
     }
@@ -471,6 +469,13 @@ public class PaimonRustReaderCompatibilityTest {
             }
             commit.commit(write.prepareCommit());
         }
+    }
+
+    private static void assertReadOverflows(FileStoreTable table) {
+        // Paimon 2.0 checks integer sum/product overflow instead of returning wrapped values.
+        ArithmeticException overflow = Assertions.assertThrows(ArithmeticException.class,
+                () -> assertRead(table, false, row -> row.getInt(0), Collections.emptyList()));
+        Assertions.assertTrue(overflow.getMessage().contains("overflow"));
     }
 
     private static <T> void assertRead(FileStoreTable table, boolean rustExpected,

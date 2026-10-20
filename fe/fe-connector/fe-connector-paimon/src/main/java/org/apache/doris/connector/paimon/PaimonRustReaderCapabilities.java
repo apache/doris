@@ -281,8 +281,8 @@ final class PaimonRustReaderCapabilities {
         DataTypeRoot root = type.getTypeRoot();
         switch (function) {
             case "sum":
-                // Java wraps integer arithmetic and retains compact-decimal intermediate
-                // sums beyond declared precision. Rust errors or resets the accumulator.
+                // Keep integer aggregates on the existing JNI path. Java retains compact-decimal
+                // intermediate sums beyond declared precision; Rust errors or resets the accumulator.
                 return root == DataTypeRoot.FLOAT || root == DataTypeRoot.DOUBLE
                         || (type instanceof DecimalType && ((DecimalType) type).getPrecision() > 18);
             case "product":

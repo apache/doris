@@ -325,7 +325,7 @@ public class PaimonCatalogRowCountTest {
         // Deliberately no manifest files: a return to split planning must fail this test.
         Snapshot snapshot = new Snapshot(id, 0L, "unused-base", null, "unused-delta", null,
                 null, null, null, "test", id, Snapshot.CommitKind.APPEND, id * 1000,
-                count, count, null, null, null, null, null);
+                count, count, null, null, null, null, null, Snapshot.Operation.WRITE);
         table.fileIO().mkdirs(table.snapshotManager().snapshotPath(id).getParent());
         table.fileIO().overwriteFileUtf8(table.snapshotManager().snapshotPath(id), snapshot.toJson());
         table.snapshotManager().commitLatestHint(id);

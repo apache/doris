@@ -1032,6 +1032,11 @@ public class PaimonScanPlanProviderTest {
         Files.write(dataDir.resolve("000-empty.csv"), new byte[0]);
         Files.write(dataDir.resolve("999-live.csv"), Collections.singletonList("7"),
                 StandardCharsets.UTF_8);
+        Map<String, String> formatOptions = new HashMap<>();
+        formatOptions.put(CoreOptions.FILE_FORMAT.key(), "csv");
+        // Paimon 2.0 packs small files into one split by default. Keep one file per split so
+        // an unsafe limit based on split count would still discard the live file.
+        formatOptions.put(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key(), "1 mb");
         FormatTable table = FormatTable.builder()
                 .fileIO(new OrderedLocalFileIO())
                 .identifier(Identifier.create("db", "format_limit"))
@@ -1039,13 +1044,13 @@ public class PaimonScanPlanProviderTest {
                 .partitionKeys(Collections.emptyList())
                 .location(dataDir.toUri().toString())
                 .format(FormatTable.Format.CSV)
-                .options(Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "csv"))
+                .options(formatOptions)
                 .build();
         List<Split> plannedSplits = table.newReadBuilder().newScan().plan().splits();
         Assertions.assertTrue(plannedSplits.size() >= 2,
                 "fixture must expose both the empty and live format files");
         Assertions.assertEquals("000-empty.csv",
-                ((FormatDataSplit) plannedSplits.get(0)).filePath().getName(),
+                ((FormatDataSplit) plannedSplits.get(0)).files().get(0).filePath().getName(),
                 "the unsafe file-count limit must encounter the empty file first");
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
