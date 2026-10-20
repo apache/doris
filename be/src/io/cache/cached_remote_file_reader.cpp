@@ -153,7 +153,9 @@ std::shared_ptr<RangeCacheWriteback> CachedRemoteFileReader::make_range_cache_wr
             .inflight_index = config::enable_async_file_cache_write_inflight_write_buffer_index
                                       ? _cache->inflight_write_buffer_index()
                                       : nullptr,
-            .source_reader = _remote_file_reader,
+            // The wrapper closes the inner reader on destruction. Keep the wrapper as the owner
+            // while background hole fills still read directly through the inner reader.
+            .source_reader = FileReaderSPtr(shared_from_this(), _remote_file_reader.get()),
             .cache_hash = _cache_hash,
             .file_size = size(),
             .block_size = static_cast<size_t>(config::file_cache_each_block_size),
