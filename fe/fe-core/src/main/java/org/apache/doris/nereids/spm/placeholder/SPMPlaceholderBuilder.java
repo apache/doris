@@ -390,9 +390,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return children.size() == 3 && children.get(1).isNullLiteral()
                     && children.get(2).isNullLiteral();
         }
-        if (isIfNullConditional(expr)) {
-            // IFNULL / NVL have NO condition argument: every argument is a RESULT, and an
-            // all-NULL call has NullType just like the all-NULL CASE / IF above
+        if (isIfNullConditional(expr) || isNullIfConditional(expr)) {
+            // IFNULL / NVL / NULLIF: every argument contributes to the RESULT vs NULL choice
             if (children.isEmpty()) {
                 return false;
             }
@@ -452,6 +451,24 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
+     * Whether the expression is a {@code NULLIF} call.
+     *
+     * NULLIF is a THIRD all-NULL producer, on its own signature path: {@code NullIf.customSignature}
+     * returns the COMMON type of its two arguments, so {@code nullif(NULL, NULL)} has NullType and a
+     * Boolean consumer ("k > 0 OR nullif(NULL, NULL)") replaces the whole call with a typed constant
+     * NULL - the markers of both arguments disappear and the matching {@code nullif(TRUE, NULL)}
+     * variant has no marker left to substitute with TRUE (round-77 #3). It is not covered by the
+     * IFNULL / NVL branch above: a different function with its own signature rule.
+     *
+     * @param expr the expression to classify
+     * @return whether it is a NULLIF call
+     */
+    private static boolean isNullIfConditional(Expression expr) {
+        return expr instanceof Function
+                && "nullif".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
      * Whether the expression is a {@code COALESCE} call (see isIfConditional).
      *
      * @param expr the expression to classify
@@ -496,8 +513,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return caseWhen.getDefaultValue().isPresent()
                     && childIndex == caseWhen.children().size() - 1;
         }
-        if (isIfNullConditional(parent)) {
-            return true; // every IFNULL / NVL argument is a result, there is no condition
+        if (isIfNullConditional(parent) || isNullIfConditional(parent)) {
+            return true; // every IFNULL / NVL / NULLIF argument is a value, there is no condition
         }
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;

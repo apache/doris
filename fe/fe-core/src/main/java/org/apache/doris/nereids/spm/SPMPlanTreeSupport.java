@@ -243,6 +243,27 @@ public final class SPMPlanTreeSupport {
                 result = ((SubqueryExpr) expression).withSubquery(stripped);
             }
         }
+        if (result instanceof UnboundStar) {
+            // The REPLACE payloads live OUTSIDE children(), so a subquery (with its own
+            // SET_VAR hint) behind one is reached only from here - the same payload omission
+            // the function-identity collector had (round-77 #1).
+            UnboundStar star = (UnboundStar) result;
+            List<NamedExpression> replaced = star.getReplacedAlias();
+            if (!replaced.isEmpty()) {
+                List<NamedExpression> newReplaced = new ArrayList<>(replaced.size());
+                boolean payloadChanged = false;
+                for (NamedExpression payload : replaced) {
+                    Expression newPayload = stripHintsInExpression(payload);
+                    newReplaced.add(newPayload instanceof NamedExpression
+                            ? (NamedExpression) newPayload : payload);
+                    payloadChanged |= newPayload != payload;
+                }
+                if (payloadChanged) {
+                    result = new UnboundStar(star.getQualifier(), star.getExceptedSlots(),
+                            newReplaced, star.getIndexInSqlString());
+                }
+            }
+        }
         List<Expression> children = result.children();
         if (children.isEmpty()) {
             return result;
@@ -3014,12 +3035,16 @@ public final class SPMPlanTreeSupport {
         }
         List<NamedExpression> aligned = new ArrayList<>(rewrittenItems.size());
         boolean changed = false;
+        // The caller's block decides whether a multi-part slot is a RELATION-QUALIFIED column
+        // (drop the qualifier) or a STRUCT FIELD PATH (keep the full name) - see
+        // outputLabelOf (round-77 #2).
+        Set<String> relationQualifiers = collectRelationQualifiers(userNode);
         for (int i = 0; i < rewrittenItems.size(); i++) {
             NamedExpression rewrittenItem = rewrittenItems.get(i);
             NamedExpression userItem = userItems.size() == derivableCount && i < userItems.size()
                     ? userItems.get(i) : null;
             String userLabel = i < derivableCount ? userLabels.get(i) : null;
-            String rewrittenLabel = outputLabelOf(rewrittenItem);
+            String rewrittenLabel = outputLabelOf(rewrittenItem, relationQualifiers);
             if (userLabel == null || rewrittenLabel == null
                     || (userLabel.equals(rewrittenLabel)
                             && headerAlreadyExposes(rewrittenItem, rewrittenLabel))) {
@@ -3280,6 +3305,10 @@ public final class SPMPlanTreeSupport {
     private static List<String> expandedOutputLabels(List<NamedExpression> items, Plan node,
             CteScope scope) {
         List<String> labels = new ArrayList<>(items.size());
+        // The SAME rule the alignment compares against (see outputLabelOf): a multi-part
+        // slot of the caller's own list must resolve exactly like the frozen one, or the two
+        // labels disagree and a CORRECT frozen header is renamed (round-77 #2).
+        Set<String> relationQualifiers = collectRelationQualifiers(node);
         for (int i = 0; i < items.size(); i++) {
             NamedExpression item = items.get(i);
             if (item instanceof UnboundStar && node.children().size() == 1) {
@@ -3327,7 +3356,7 @@ public final class SPMPlanTreeSupport {
                 labels.addAll(expanded.labels);
                 continue;
             }
-            labels.add(outputLabelOf(item));
+            labels.add(outputLabelOf(item, relationQualifiers));
         }
         return labels;
     }
@@ -4466,6 +4495,28 @@ public final class SPMPlanTreeSupport {
      * captured alias as the caller's JDBC column label instead of restoring k.
      */
     private static String outputLabelOf(Expression item) {
+        return outputLabelOf(item, null);
+    }
+
+    /**
+     * The label one output item exposes, resolving a MULTI-part slot against the relations the
+     * caller's block actually names.
+     *
+     * {@link UnboundSlot#getNameParts()} cannot tell a RELATION-QUALIFIED column (`u.k` -> header
+     * `k`) from a FIELD PATH over a STRUCT column (`s.a` -> header `s.a`). Returning the last
+     * component unconditionally renamed a CORRECT frozen header: with t(s STRUCT&lt;a:INT&gt;) the
+     * analyzer binds SELECT s.a to Alias(ElementAt(s,'a'),'s.a'), so ordinary execution and the
+     * frozen sink both expose `s.a`, and the alignment turned it into `a` even for the IDENTICAL
+     * query (round-77 #2). A leading part that names NO relation of the block is a field path
+     * and keeps its full name; only a part that matches a relation alias / table name is a
+     * qualifier to drop.
+     *
+     * @param item                the output item
+     * @param relationQualifiers  the relation aliases / table names of the caller's block, or
+     *                            null to keep the historical "last component" rule
+     * @return the label, or null when the item carries none
+     */
+    private static String outputLabelOf(Expression item, Set<String> relationQualifiers) {
         String explicit = explicitAliasName(item);
         if (explicit != null) {
             return explicit;
@@ -4485,8 +4536,16 @@ public final class SPMPlanTreeSupport {
             // exposes `k` (UnboundSlot#getName renders every name part, which added an
             // explicit `AS s.k` to the frozen projection and changed an identical query's
             // header). A quoted dotted alias is ONE component and must stay verbatim.
+            // A multi-part slot whose leading part names NO relation of the block is a
+            // struct FIELD PATH and keeps its full name (round-77 #2).
             java.util.List<String> parts = ((UnboundSlot) item).getNameParts();
-            if (parts != null && !parts.isEmpty()) {
+            if (parts == null || parts.isEmpty()) {
+                return ((UnboundSlot) item).getName();
+            }
+            if (parts.size() == 1) {
+                return parts.get(0);
+            }
+            if (relationQualifiers == null || isQualifiedByRelation(parts, relationQualifiers)) {
                 return parts.get(parts.size() - 1);
             }
             return ((UnboundSlot) item).getName();
@@ -4495,6 +4554,62 @@ public final class SPMPlanTreeSupport {
             return ((Slot) item).getName();
         }
         return null;
+    }
+
+    /**
+     * Whether a multi-part slot's leading component names a RELATION of the block (see
+     * outputLabelOf): `u.k` / `db.t.k` qualify, `s.a` over a struct column does not.
+     *
+     * @param parts      the slot's name components
+     * @param qualifiers the relation aliases / table names of the block (lower-cased)
+     * @return whether the reference is relation-qualified
+     */
+    private static boolean isQualifiedByRelation(java.util.List<String> parts,
+            Set<String> qualifiers) {
+        if (parts.size() < 2) {
+            return false;
+        }
+        String first = parts.get(0).toLowerCase(Locale.ROOT);
+        if (qualifiers.contains(first)) {
+            return true;
+        }
+        // db.t.k: the relation name is the component right before the column
+        return parts.size() >= 3
+                && qualifiers.contains(parts.get(parts.size() - 2).toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * The RELATION aliases and table names one parse tree exposes (see outputLabelOf). The
+     * per-block precision a resolved plan would give is not needed: a leading component that
+     * matches ANY relation of the statement is treated as a qualifier, and a struct field path
+     * whose first component happens to repeat another relation's alias is the only (harmless)
+     * false positive - the two headers then differ by the qualifier alone, exactly like `u.k`.
+     *
+     * @param plan the caller's tree
+     * @return the lower-cased relation names
+     */
+    private static Set<String> collectRelationQualifiers(Plan plan) {
+        Set<String> qualifiers = new HashSet<>();
+        if (plan == null) {
+            return qualifiers;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            if (node instanceof LogicalSubQueryAlias) {
+                String alias = ((LogicalSubQueryAlias<?>) node).getAlias();
+                if (alias != null && !alias.isEmpty()) {
+                    qualifiers.add(alias.toLowerCase(Locale.ROOT));
+                }
+            }
+            if (node instanceof UnboundRelation) {
+                java.util.List<String> nameParts =
+                        ((UnboundRelation) node).getNameParts();
+                if (nameParts != null && !nameParts.isEmpty()) {
+                    qualifiers.add(nameParts.get(nameParts.size() - 1)
+                            .toLowerCase(Locale.ROOT));
+                }
+            }
+        });
+        return qualifiers;
     }
 
     /** The derived (nameFromChild) alias text of one expression, or null. */
@@ -5740,6 +5855,16 @@ public final class SPMPlanTreeSupport {
             Function function = (Function) expression;
             encodings.add("fn:" + function.getClass().getName() + '.' + function.getName());
         }
+        if (expression instanceof UnboundStar) {
+            // `* REPLACE(db1.f(k) AS x)`: UnboundStar is a LEAF whose replacement aliases live
+            // OUTSIDE children(), and its toSql() renders the bare payload - so a manual plan
+            // replacing with db2.f(k) produced the same output / topology texts as the bind's
+            // db1.f(k) and the frozen replay executed db2 with the caller's values (round-77
+            // #1). The slot collector below already visits this payload for the same reason.
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                collectFunctionIdentities(replaced, encodings);
+            }
+        }
         for (Expression child : expression.children()) {
             collectFunctionIdentities(child, encodings);
         }
@@ -6437,8 +6562,53 @@ public final class SPMPlanTreeSupport {
      */
     public static String schemaFingerprintForCreateFromLockedEntries(ConnectContext ctx,
             Plan bindPlan, String storedPlanSql, Map<String, String> tableFingerprints) {
+        return schemaFingerprintForCreateFromLockedEntries(ctx, bindPlan, storedPlanSql,
+                tableFingerprints, null);
+    }
+
+    /**
+     * CREATE-time fingerprint with the bind-side FUNCTION definitions PINNED at capture time.
+     *
+     * Analysis INLINES an alias-UDF body into the frozen plan (`f(s)` with `f(s)=lower(s)`
+     * freezes `lower(s) AS x`), while the fingerprint derives every function entry from the
+     * LIVE registry. When another session replaces f with `upper(s)` AFTER the expansion and
+     * BEFORE this call, the bind-side entry describes the NEW f and the stored text describes
+     * builtin `lower` - the pair is internally consistent, passes both metadata checks, and the
+     * replay returns lower's 'ab' for s='Ab' although the caller asked for the CURRENT f (round-77
+     * #4). Registry synchronization protects individual lookups, not this capture interval, so
+     * the interval itself is verified: the entries the capture saw before analyzing must still be
+     * what the fingerprint derives.
+     *
+     * @param ctx                  the creating session
+     * @param bindPlan             the parsed (unbound) bind tree
+     * @param storedPlanSql        the planSql text that gets STORED
+     * @param tableFingerprints    the under-lock table entries
+     * @param bindFunctionSnapshot the bind-side function entries captured BEFORE analysis, or
+     *                             null when the caller has no snapshot (no verification)
+     * @return the fingerprint (possibly empty, never null)
+     * @throws IllegalStateException when a function the bind text uses was redefined while the
+     *                               baseline was being captured - nothing is frozen, the CREATE is
+     *                               retryable
+     */
+    public static String schemaFingerprintForCreateFromLockedEntries(ConnectContext ctx,
+            Plan bindPlan, String storedPlanSql, Map<String, String> tableFingerprints,
+            java.util.Set<String> bindFunctionSnapshot) {
         if (bindPlan == null || ctx == null || ctx.getStatementContext() == null) {
             return "";
+        }
+        if (bindFunctionSnapshot != null) {
+            java.util.TreeSet<String> current = bindFunctionDependencyEntries(ctx, bindPlan);
+            if (!current.equals(bindFunctionSnapshot)) {
+                java.util.TreeSet<String> changed = new java.util.TreeSet<>(current);
+                changed.removeAll(bindFunctionSnapshot);
+                java.util.TreeSet<String> gone = new java.util.TreeSet<>(bindFunctionSnapshot);
+                gone.removeAll(current);
+                throw new IllegalStateException("SPM cannot certify the function definitions of"
+                        + " a baseline whose bind text was analyzed under OTHERS: the functions"
+                        + " it uses were redefined while the plan was being captured (now:"
+                        + " " + changed + ", before: " + gone + "); nothing was changed - retry"
+                        + " the CREATE");
+            }
         }
         TreeSet<String> entries = new TreeSet<>();
         if (tableFingerprints != null) {
@@ -6448,6 +6618,38 @@ public final class SPMPlanTreeSupport {
         }
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
+    }
+
+    /**
+     * The FUNCTION dependency entries of one parsed (unbound) bind tree: exactly the `fn:` entries
+     * the CREATE fingerprint derives from the bind side, as a comparable set.
+     *
+     * The capture takes this snapshot BEFORE the bind tree is analyzed (see
+     * schemaFingerprintForCreateFromLockedEntries and SPMOptimizer) and compares it with the
+     * entries derived afterwards: an alias-UDF redefinition inside that window is then detected
+     * instead of being certified with a stale body.
+     *
+     * @param ctx      the creating session
+     * @param bindPlan the parsed (unbound) bind tree
+     * @return the function entries (never null)
+     */
+    public static TreeSet<String> bindFunctionDependencyEntries(ConnectContext ctx,
+            Plan bindPlan) {
+        TreeSet<String> entries = new TreeSet<>();
+        if (bindPlan == null) {
+            return entries;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(bindPlan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                collectFunctionDependencies(ctx, expr, entries);
+            }
+            for (Expression expr : outOfBandExpressions(node)) {
+                collectFunctionDependencies(ctx, expr, entries);
+            }
+        });
+        // the snapshot covers the FUNCTION definitions only
+        entries.removeIf(entry -> !entry.startsWith("fn:"));
+        return entries;
     }
 
     /**
@@ -7012,7 +7214,6 @@ public final class SPMPlanTreeSupport {
 
     /** One fingerprint entry of one resolved table: name + id + base-schema hash. */
     private static String describeTableForFingerprint(TableIf table) {
-        StringBuilder schema = new StringBuilder();
         StringBuilder nullability = new StringBuilder();
         for (Column column : table.getBaseSchema()) {
             // NULLABILITY is part of the replay contract: SPM leaves ELIMINATE_NOT_NULL
@@ -7030,13 +7231,57 @@ public final class SPMPlanTreeSupport {
             // all. The section is a digest of the flag list, so it still separates
             // nullability changes exactly (a section-less pre-upgrade entry is accepted
             // by the comparisons below, two section-carrying entries must agree).
-            schema.append(column.getName()).append(':')
-                    .append(column.getType().toString())
-                    .append(',');
             nullability.append(column.isAllowNull() ? '1' : '0');
         }
-        return table.getName() + "|" + table.getId() + "|" + SPMUtils.hashOf(schema.toString())
+        return table.getName() + "|" + table.getId() + "|"
+                + SPMUtils.hashOf(schemaSectionForFingerprint(table.getBaseSchema()))
                 + "|" + NULLABILITY_SECTION + SPMUtils.hashOf(nullability.toString());
+    }
+
+    /**
+     * The schema section of one table's fingerprint: the legacy `name:type,` concatenation
+     * unless a name makes it AMBIGUOUS, in which case the whole section switches to the marked
+     * length-prefixed form.
+     *
+     * Column names may legally contain ':' and ',' (ordinary characters of a quoted identifier),
+     * and the plain encoding shares both with its own structure: the schemas [k, `a:int,b`, c]
+     * and [k, a, `b:int,c`] both rendered as exactly `k:int,a:int,b:int,c:int,`, so a
+     * light-schema-change RENAME - which preserves the table id - kept the same fingerprint and
+     * an identical caller replayed a projection of REMOVED columns (round-77 #6). Encoding such
+     * tables length-prefixed separates every boundary exactly, and the leading '#' keeps the two
+     * encodings from ever coinciding.
+     *
+     * Tables whose names carry neither separator keep the LEGACY text, so their fingerprint - and
+     * therefore every baseline an earlier version persisted - is unchanged.
+     *
+     * @param columns the table's base schema
+     * @return the schema text that is hashed
+     */
+    static String schemaSectionForFingerprint(List<Column> columns) {
+        boolean lengthPrefixed = false;
+        for (Column column : columns) {
+            String name = column.getName();
+            if (name != null && (name.indexOf(':') >= 0 || name.indexOf(',') >= 0)) {
+                lengthPrefixed = true;
+                break;
+            }
+        }
+        StringBuilder schema = new StringBuilder();
+        if (lengthPrefixed) {
+            schema.append("#L");
+        }
+        for (Column column : columns) {
+            String name = column.getName() == null ? "" : column.getName();
+            String type = String.valueOf(column.getType());
+            if (lengthPrefixed) {
+                schema.append(name.length()).append(':').append(name)
+                        .append(type.length()).append(':').append(type);
+            } else {
+                schema.append(name).append(':').append(type);
+            }
+            schema.append(',');
+        }
+        return schema.toString();
     }
 
     /** Records one function call's dependency entry (see the schemaFingerprint caller). */
