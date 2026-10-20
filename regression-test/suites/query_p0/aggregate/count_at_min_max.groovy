@@ -91,6 +91,29 @@ suite("count_at_min_max") {
         WHERE grp = 'c'
     """
 
+    // The foreach combinator applies the aggregate per array position. An all-NULL
+    // position must return 0, not NULL, for both the default (V2) and old nullable
+    // adapters.
+    order_qt_foreach_all_null_element """
+        SELECT count_at_min_foreach(a) AS min_cnt, count_at_max_foreach(a) AS max_cnt
+        FROM (
+            SELECT CAST([1, NULL] AS ARRAY<INT>) AS a
+            UNION ALL
+            SELECT CAST([2, NULL] AS ARRAY<INT>)
+        ) t
+    """
+
+    sql "set enable_aggregate_function_null_v2 = false"
+    order_qt_foreach_all_null_element_old_adapter """
+        SELECT count_at_min_foreach(a) AS min_cnt, count_at_max_foreach(a) AS max_cnt
+        FROM (
+            SELECT CAST([1, NULL] AS ARRAY<INT>) AS a
+            UNION ALL
+            SELECT CAST([2, NULL] AS ARRAY<INT>)
+        ) t
+    """
+    sql "set enable_aggregate_function_null_v2 = true"
+
     test {
         sql "SELECT count_at_min(DISTINCT i) FROM count_at_min_max_t"
         exception "COUNT_AT_MIN does not support DISTINCT"

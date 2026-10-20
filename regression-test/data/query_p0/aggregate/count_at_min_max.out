@@ -28,3 +28,9 @@ c	0	0
 -- !all_null_group --
 0	0
 
+-- !foreach_all_null_element --
+[1, 0]	[1, 0]
+
+-- !foreach_all_null_element_old_adapter --
+[1, 0]	[1, 0]
+

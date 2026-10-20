@@ -41,101 +41,109 @@ AggregateFunctionPtr create_aggregate_function_count_at_extreme(const String& na
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_JSONB:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataString>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATE:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_DATE>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATETIME:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_DATETIME>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATEV2:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_DATEV2>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATETIMEV2:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(argument_types,
-                                                                     result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TIMESTAMP_NS:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_TIMESTAMP_NS>>>>(argument_types,
-                                                                       result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_TIMESTAMP_NS>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_TIMESTAMPTZ>>>>(argument_types,
-                                                                      result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_TIMESTAMPTZ>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TIMEV2:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_TIMEV2>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_IPV4:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_IPV4>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_IPV6:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_IPV6>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_UUID:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_UUID>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_BOOLEAN>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_TINYINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_SMALLINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_INT:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_INT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_BIGINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_LARGEINT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_FLOAT>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataFixed<TYPE_DOUBLE>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL32:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_DECIMAL32>>>>(argument_types,
-                                                                    result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_DECIMAL32>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL64:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_DECIMAL64>>>>(argument_types,
-                                                                    result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_DECIMAL64>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMALV2:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_DECIMALV2>>>>(argument_types,
-                                                                    result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_DECIMALV2>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL128I:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_DECIMAL128I>>>>(argument_types,
-                                                                      result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_DECIMAL128I>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL256:
-        return creator_without_type::create_unary_arguments<AggregateFunctionsCountAtExtreme<
-                ExtremeData<SingleValueDataFixed<TYPE_DECIMAL256>>>>(argument_types,
-                                                                     result_is_nullable, attr);
+        return creator_without_type::create_unary_arguments_return_not_nullable<
+                AggregateFunctionsCountAtExtreme<
+                        ExtremeData<SingleValueDataFixed<TYPE_DECIMAL256>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:
@@ -143,7 +151,7 @@ AggregateFunctionPtr create_aggregate_function_count_at_extreme(const String& na
     case PrimitiveType::TYPE_BITMAP:
     case PrimitiveType::TYPE_HLL:
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        return creator_without_type::create_unary_arguments<
+        return creator_without_type::create_unary_arguments_return_not_nullable<
                 AggregateFunctionsCountAtExtreme<ExtremeData<SingleValueDataColumn>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_VARBINARY:
