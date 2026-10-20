@@ -221,7 +221,8 @@ private:
                                          size_t* indirect_read_bytes, bool* need_self_heal);
 
     /// Read the planned middle span once and copy only its overlap with the unread user range.
-    /// Peer is tried only when every block in the span is a real cache miss.
+    /// Peer is tried when every block in the span is a real cache miss, or, sparsely, when the
+    /// non-miss blocks between misses are cached or inflight and were first read locally.
     /// @param[in] plan Source plan containing user boundaries.
     /// @param[in] user_offset Original user request offset.
     /// @param[out] result Destination buffer for the complete user request.
@@ -237,6 +238,54 @@ private:
                                     ReadStatistics& stats,
                                     SourceReadBreakdown& source_read_breakdown,
                                     size_t* indirect_read_bytes, AsyncRemoteSpan* span);
+
+    /// Decide whether an eligible remote span is read sparsely from peer, count the decision, and
+    /// start a candidate fetch when the tablet has no candidate.
+    /// @param[in] plan Source plan containing the remote span.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] io_ctx Context deciding peer eligibility and cache admission accounting.
+    /// @param[in,out] stats Local-read timing and counters.
+    /// @param[in] all_misses Whether every block in the span is a real cache miss.
+    /// @param[out] local_bytes User bytes copied locally; meaningful only when true is returned.
+    /// @param[out] need_self_heal Set when a cached block is missing on disk.
+    /// @return true when the span's hits were read locally and peer should get only the misses.
+    bool _prepare_async_sparse_peer(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                    const IOContext* io_ctx, ReadStatistics& stats, bool all_misses,
+                                    size_t* local_bytes, bool* need_self_heal);
+
+    /// Copy the cached/inflight blocks inside the remote span so peer can serve only the misses.
+    /// @param[in] plan Source plan containing the remote span.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] io_ctx Context used for cache admission accounting.
+    /// @param[in,out] stats Local-read timing and counters.
+    /// @param[out] local_bytes User bytes copied; meaningful only when true is returned.
+    /// @param[out] need_self_heal Set when a cached block is missing on disk.
+    /// @return false when the span has a DOWNLOADING block, is the whole-range fallback, or a
+    /// local read fails; the caller then rereads the span from storage.
+    bool _materialize_async_span_hits(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                      const IOContext* io_ctx, ReadStatistics& stats,
+                                      size_t* local_bytes, bool* need_self_heal);
+
+    /// Read only the cache misses of a span whose other blocks were already copied locally: peer
+    /// receives just the miss ranges, while a storage fallback still reads the whole span and
+    /// copies only the misses from it.
+    /// @param[in] plan Source plan containing user boundaries.
+    /// @param[in] user_offset Original user request offset.
+    /// @param[out] result Destination buffer for the complete user request.
+    /// @param[in] io_ctx Context passed to peer and remote storage.
+    /// @param[in,out] stats Remote-read timing and source flags.
+    /// @param[in] local_bytes User bytes already copied from the span's cached/inflight blocks.
+    /// @param[in,out] source_read_breakdown Local, peer or remote user bytes of this span.
+    /// @param[in,out] indirect_read_bytes User bytes copied by the indirect path.
+    /// @param[out] span Span payload retained for async tasks.
+    /// @return OK on success; otherwise the remote-read error.
+    Status _read_async_sparse_peer_span(const AsyncReadPlan& plan, size_t user_offset, Slice result,
+                                        const IOContext* io_ctx, ReadStatistics& stats,
+                                        size_t local_bytes,
+                                        SourceReadBreakdown& source_read_breakdown,
+                                        size_t* indirect_read_bytes, AsyncRemoteSpan* span);
 
     /// Enqueue a per-block write task for each real cache-miss block in the remote span. Storage
     /// data is copied into one fixed cache-block-sized tracked buffer; peer data is wrapped without
@@ -384,6 +433,16 @@ private:
                                          const IOContext* io_ctx,
                                          const std::vector<doris::PeerCandidate>& candidates,
                                          int64_t tablet_id);
+
+    /// Read-only check whether this tablet currently has usable peer candidates; the UT peer
+    /// debug point counts as one. Never refreshes candidate state.
+    /// @return true when a peer read would have a candidate to try.
+    bool _has_peer_candidates() const;
+
+    /// Start a background candidate fetch from FE for this tablet unless it is in peer cooldown.
+    /// Called when a read finds no candidate.
+    /// @return None.
+    void _fetch_peer_candidates_unless_cooldown() const;
 
     /// Execute a remote fetch for the contiguous empty range, trying peer first when enabled.
     /// @param[in] empty_ranges Ranges of the blocks whose data is missing from local cache.

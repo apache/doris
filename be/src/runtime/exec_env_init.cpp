@@ -21,6 +21,7 @@
 #include <simdjson.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cerrno> // IWYU pragma: keep
 #include <cstdint>
 #include <cstdlib>
@@ -302,9 +303,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    // Give every race slot an S3 thread; a smaller pool queues S3 legs behind each other.
+    const int peer_race_s3_max_threads =
+            std::max(config::max_peer_race_s3_thread_num, config::max_concurrent_peer_races);
+    LOG(INFO) << "PeerRaceS3ThreadPool max_threads=" << peer_race_s3_max_threads
+              << ", max_peer_race_s3_thread_num=" << config::max_peer_race_s3_thread_num
+              << ", max_concurrent_peer_races=" << config::max_concurrent_peer_races;
     static_cast<void>(ThreadPoolBuilder("PeerRaceS3ThreadPool")
                               .set_min_threads(config::min_peer_race_s3_thread_num)
-                              .set_max_threads(config::max_peer_race_s3_thread_num)
+                              .set_max_threads(peer_race_s3_max_threads)
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
 

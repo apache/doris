@@ -47,6 +47,27 @@ extern bvar::Adder<uint64_t> g_read_cache_indirect_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_indirect_total_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_self_heal_on_not_found;
 
+// Async-path remote spans that may use peer read (peer read enabled and not bypassed by the
+// caller). Every eligible span ends up in exactly one of:
+// - a span made purely of misses, sent to peer as is (not counted below);
+// - a sparse read: hits inside the span are read locally and peer gets only the misses (not
+//   counted below);
+// - no_candidate: a span with hits whose tablet has no usable candidate (none yet, or in
+//   cooldown). It is reread from storage and a background candidate fetch is started. This takes
+//   precedence over the span shape, so a span with a DOWNLOADING block and no candidate is
+//   no_candidate, not bypass;
+// - bypass: a span with hits that has candidates but gives up peer because of its shape: a
+//   DOWNLOADING block inside the span, the whole-range fallback after a side race, or a failed
+//   local read of a cached/inflight block inside the span.
+// Spans that try peer but end on remote storage (peer miss or failure, S3 winning the race) are
+// in neither counter; for a sparse span the storage read then supplies only the misses.
+bvar::Adder<uint64_t> g_async_peer_eligible_span_count(
+        "cached_remote_file_reader_async_peer_eligible_span_count");
+bvar::Adder<uint64_t> g_async_peer_bypass_span_count(
+        "cached_remote_file_reader_async_peer_bypass_span_count");
+bvar::Adder<uint64_t> g_async_peer_no_candidate_span_count(
+        "cached_remote_file_reader_async_peer_no_candidate_span_count");
+
 namespace {
 
 bvar::Adder<uint64_t> g_cached_remote_reader_probe_total("cached_remote_file_reader_probe_count");
@@ -70,7 +91,7 @@ std::vector<butil::IOBuf> take_peer_span(const PeerFetchResult& peer_result,
     for (const auto& chunk : peer_result.chunks) {
         chunks.push_back(&chunk);
     }
-    std::sort(chunks.begin(), chunks.end(), [](const auto* lhs, const auto* rhs) {
+    std::ranges::sort(chunks, [](const auto* lhs, const auto* rhs) {
         return lhs->block_offset < rhs->block_offset;
     });
     std::vector<butil::IOBuf> peer_blocks(ranges.size());
@@ -152,6 +173,8 @@ struct CachedRemoteFileReader::AsyncReadBlock {
 //
 // `first_remote_block` and `remote_block_count` describe the minimal first-miss-to-last-miss span.
 // It may contain CACHE/INFLIGHT hits between misses so the read path issues at most one remote IO.
+// When peer read applies, those hits are read locally first and peer serves only the misses.
+// `whole_range_fallback` marks the span widened to every block after a side race.
 // `probe_result` is absent only when inflight buffers covered every block and probe was skipped.
 // `write_epoch` fences only later persistence: a cache hash identifies immutable file content, so
 // an inflight payload remains readable after its original write task is invalidated.
@@ -168,6 +191,7 @@ struct CachedRemoteFileReader::AsyncReadPlan {
     std::vector<AsyncReadBlock> blocks;
     size_t first_remote_block {0};
     size_t remote_block_count {0};
+    bool whole_range_fallback {false};
 
     // These are construction-time contracts rather than runtime error handling. Keep them as
     // debug checks so validating every logical block does not add work to each production read.
@@ -500,14 +524,17 @@ bool CachedRemoteFileReader::_materialize_async_cached_sides(
 }
 
 // Payload of the single remote operation: storage returns one contiguous buffer for the span; peer
-// returns one IOBuf per span block, after fetch_blocks() verified exact coverage.
+// returns one IOBuf per span block, after fetch_blocks() verified exact coverage. For a sparse peer
+// read, blocks that were not requested from peer keep an empty IOBuf and are never submitted.
 struct CachedRemoteFileReader::AsyncRemoteSpan {
     std::unique_ptr<char[]> buffer;
     std::vector<butil::IOBuf> peer_blocks;
 };
 
-// Read the single aligned range from the first REMOTE block through the last REMOTE block. Cache
-// hits inside that span are intentionally reread to keep one straightforward remote operation.
+// Read the single aligned range from the first REMOTE block through the last REMOTE block. Without
+// peer, cache hits inside that span are intentionally reread to keep one straightforward remote
+// operation. With peer, a peer fails the whole RPC when it misses any requested block, so hits
+// inside the span are read locally first and peer is asked only for the misses.
 Status CachedRemoteFileReader::_read_async_remote_range(
         const AsyncReadPlan& plan, size_t user_offset, Slice result, bool need_self_heal,
         const IOContext* io_ctx, ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
@@ -527,19 +554,30 @@ Status CachedRemoteFileReader::_read_async_remote_range(
 
     stats.hit_cache = false;
     stats.from_peer_cache = false;
+
+    bool all_misses = true;
+    for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
+        all_misses = all_misses && plan.blocks[index].source == AsyncReadBlock::Source::REMOTE;
+    }
+    size_t sparse_local_bytes = 0;
+    const bool sparse_peer =
+            _prepare_async_sparse_peer(plan, user_offset, result, io_ctx, stats, all_misses,
+                                       &sparse_local_bytes, &need_self_heal);
     if (need_self_heal) {
         _cache->remove_if_cached_async(_cache_hash);
     }
+    if (sparse_peer) {
+        return _read_async_sparse_peer_span(plan, user_offset, result, io_ctx, stats,
+                                            sparse_local_bytes, source_read_breakdown,
+                                            indirect_read_bytes, span);
+    }
 
-    // Peer fails the whole RPC when it misses any requested block, and the client then rotates the
-    // candidate. Only ask it for spans made purely of real misses; a span that rereads local hits
-    // (including the whole-range fallback) stays on direct remote storage.
+    // Peer fails the whole RPC when it misses any requested block, so a span that is not purely
+    // real misses and was not read sparsely above stays on direct remote storage.
     std::vector<FileBlock::Range> remote_ranges;
     remote_ranges.reserve(plan.remote_block_count);
-    bool all_misses = true;
     for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
         remote_ranges.push_back(plan.blocks[index].range);
-        all_misses = all_misses && plan.blocks[index].source == AsyncReadBlock::Source::REMOTE;
     }
     IOContext remote_io_ctx = *io_ctx;
     remote_io_ctx.bypass_peer_read = remote_io_ctx.bypass_peer_read || !all_misses;
@@ -572,6 +610,130 @@ Status CachedRemoteFileReader::_read_async_remote_range(
     size_t copied = 0;
     span->peer_blocks = take_peer_span(peer_result, remote_ranges, copy_left, copy_right,
                                        user_offset, result, &copied);
+    *indirect_read_bytes += copied;
+    source_read_breakdown.peer_bytes += copied;
+    return Status::OK();
+}
+
+// Decide whether an eligible span is read sparsely and count the outcome (see the counters above).
+// Without a candidate the local reads would be wasted before the storage read, so they are skipped
+// and a candidate fetch is started. Candidates may change before the read; that only falls back
+// to storage, as either path already can.
+bool CachedRemoteFileReader::_prepare_async_sparse_peer(const AsyncReadPlan& plan,
+                                                        size_t user_offset, Slice result,
+                                                        const IOContext* io_ctx,
+                                                        ReadStatistics& stats, bool all_misses,
+                                                        size_t* local_bytes, bool* need_self_heal) {
+    if (!_should_read_from_peer(io_ctx)) {
+        return false;
+    }
+    g_async_peer_eligible_span_count << 1;
+    if (all_misses) {
+        return false;
+    }
+    if (!_has_peer_candidates()) {
+        g_async_peer_no_candidate_span_count << 1;
+        _fetch_peer_candidates_unless_cooldown();
+        return false;
+    }
+    if (!_materialize_async_span_hits(plan, user_offset, result, io_ctx, stats, local_bytes,
+                                      need_self_heal)) {
+        g_async_peer_bypass_span_count << 1;
+        return false;
+    }
+    return true;
+}
+
+// Read the cached/inflight blocks inside the remote span so peer can be asked for the misses only.
+// DOWNLOADING blocks keep the span on remote storage so the read never waits on another
+// downloader, and the whole-range fallback has already failed a local read. Return false when the
+// span must instead be reread from storage; bytes copied before a failure are not counted.
+// NOLINTNEXTLINE(readability-make-member-function-const): calls non-const _materialize_async_block
+bool CachedRemoteFileReader::_materialize_async_span_hits(
+        const AsyncReadPlan& plan, size_t user_offset, Slice result, const IOContext* io_ctx,
+        ReadStatistics& stats, size_t* local_bytes, bool* need_self_heal) {
+    const size_t remote_end = plan.first_remote_block + plan.remote_block_count;
+    if (plan.whole_range_fallback ||
+        std::any_of(plan.blocks.begin() + plan.first_remote_block, plan.blocks.begin() + remote_end,
+                    [](const auto& block) {
+                        return block.source == AsyncReadBlock::Source::DOWNLOADING;
+                    })) {
+        return false;
+    }
+    CacheContext cache_context(io_ctx);
+    cache_context.stats = &stats;
+    cache_context.tablet_id = _tablet_id;
+    for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
+        if (plan.blocks[index].source != AsyncReadBlock::Source::REMOTE &&
+            !_materialize_async_block(plan, index, user_offset, result, cache_context, stats,
+                                      local_bytes, need_self_heal)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Peer receives only the misses and fetch_blocks() verifies it covered them exactly. A storage
+// fallback (no candidate, peer failure, or S3 winning the race) still reads the whole span, from
+// which only the misses are copied because the other blocks were already read locally.
+Status CachedRemoteFileReader::_read_async_sparse_peer_span(
+        const AsyncReadPlan& plan, size_t user_offset, Slice result, const IOContext* io_ctx,
+        ReadStatistics& stats, size_t local_bytes, SourceReadBreakdown& source_read_breakdown,
+        size_t* indirect_read_bytes, AsyncRemoteSpan* span) {
+    *indirect_read_bytes += local_bytes;
+    source_read_breakdown.local_bytes += local_bytes;
+    const size_t remote_end = plan.first_remote_block + plan.remote_block_count;
+    const size_t remote_left = plan.blocks[plan.first_remote_block].range.left;
+    const size_t remote_right = plan.blocks[remote_end - 1].range.right;
+    const size_t remote_size = remote_right - remote_left + 1;
+
+    std::vector<FileBlock::Range> miss_ranges;
+    std::vector<size_t> miss_span_indexes;
+    size_t miss_bytes = 0;
+    for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
+        if (plan.blocks[index].source == AsyncReadBlock::Source::REMOTE) {
+            miss_ranges.push_back(plan.blocks[index].range);
+            miss_span_indexes.push_back(index - plan.first_remote_block);
+            miss_bytes += plan.blocks[index].range.size();
+        }
+    }
+
+    PeerFetchResult peer_result;
+    RETURN_IF_ERROR(_execute_remote_read(miss_ranges, remote_left, remote_size, span->buffer,
+                                         &peer_result, stats, io_ctx));
+
+    SCOPED_RAW_TIMER(&stats.async_copy_to_user_timer);
+    const size_t copy_left = std::max(remote_left, plan.user_left);
+    const size_t copy_right = std::min(remote_right, plan.user_right);
+    if (span->buffer != nullptr) {
+        for (const auto& range : miss_ranges) {
+            const size_t block_copy_left = std::max(copy_left, range.left);
+            const size_t block_copy_right = std::min(copy_right, range.right);
+            if (block_copy_left > block_copy_right) {
+                continue;
+            }
+            const size_t copy_size = block_copy_right - block_copy_left + 1;
+            const size_t result_offset = block_copy_left - user_offset;
+            DORIS_CHECK(copy_size <= result.size - result_offset);
+            DORIS_CHECK(copy_size <= remote_size - (block_copy_left - remote_left));
+            memcpy(result.data + result_offset,
+                   span->buffer.get() + (block_copy_left - remote_left), copy_size);
+            *indirect_read_bytes += copy_size;
+            source_read_breakdown.remote_bytes += copy_size;
+        }
+        return Status::OK();
+    }
+
+    DORIS_CHECK(stats.from_peer_cache);
+    DORIS_CHECK(peer_result.bytes_read == miss_bytes);
+    size_t copied = 0;
+    auto miss_blocks = take_peer_span(peer_result, miss_ranges, copy_left, copy_right, user_offset,
+                                      result, &copied);
+    span->peer_blocks.resize(plan.remote_block_count);
+    for (size_t index = 0; index < miss_blocks.size(); ++index) {
+        // butil::IOBuf has no move assignment; swap hands over the block refs without copying.
+        span->peer_blocks[miss_span_indexes[index]].swap(miss_blocks[index]);
+    }
     *indirect_read_bytes += copied;
     source_read_breakdown.peer_bytes += copied;
     return Status::OK();
@@ -713,6 +875,7 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
         // published as async writes.
         plan.first_remote_block = 0;
         plan.remote_block_count = plan.blocks.size();
+        plan.whole_range_fallback = true;
     }
     if (plan.remote_block_count > 0) {
         AsyncRemoteSpan remote_span;
