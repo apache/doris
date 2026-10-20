@@ -19,6 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -34,6 +37,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 class CheckScoreUsageTest extends TestWithFeService {
@@ -250,6 +255,33 @@ class CheckScoreUsageTest extends TestWithFeService {
     }
 
     @Test
+    void testScoreFilterAboveRowChangingOperatorIsRejected() {
+        String error = "score() filter must be in the WHERE clause of a query on one table";
+        // Pushed below the window, the filter would change row_number() of the remaining rows.
+        assertScoreUsageError("SELECT * FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple') w WHERE score() > 0.00001", error);
+        assertScoreUsageError("SELECT * FROM (SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple' LIMIT 1) l"
+                + " WHERE score() > 0.00001", error);
+        // PushDownFilterThroughGenerate keeps predicates without input slots above a lateral view.
+        assertScoreUsageError("SELECT id, e FROM score_usage_V2 LATERAL VIEW explode(array(1, 2)) t AS e"
+                + " WHERE c1 MATCH 'apple' AND score() > 0.00001", error);
+    }
+
+    @Test
+    void testScoreFilterIsPushedIntoUnionBranches() {
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT id FROM (SELECT id, c1 FROM score_usage_V2 UNION ALL SELECT id, c1 FROM score_usage_V3) u"
+                        + " WHERE c1 MATCH 'apple' AND score() > 0.00001",
+                planner -> {
+                    Assertions.assertEquals(2, planner.getScanNodes().size());
+                    for (ScanNode scanNode : planner.getScanNodes()) {
+                        Assertions.assertTrue(scanNode.treeToThrift().getNodes().get(0)
+                                .olap_scan_node.isSetScoreRangeInfo());
+                    }
+                });
+    }
+
+    @Test
     void testScoredSubqueryCanBeJoined() {
         PlanChecker.from(connectContext).checkPlannerResult(
                 "SELECT a.id, b.c2 FROM (SELECT id FROM score_usage_V2"
@@ -290,6 +322,28 @@ class CheckScoreUsageTest extends TestWithFeService {
         // The hidden score slot must not become an output column.
         assertScoreRangeWithoutTopN("SELECT * FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple' AND score() > 0.00001", 3);
+    }
+
+    @Test
+    void testCseVirtualColumnsLeaveScoreToTheBinding() {
+        boolean enableCse = connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse;
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
+        try {
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT id, sin(abs(score()) + 1) AS a, cos(abs(score()) + 1) AS b"
+                            + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001")
+                    .rewrite();
+            LogicalOlapScan scan = (LogicalOlapScan) checker.getCascadesContext().getRewritePlan()
+                    .collectFirst(plan -> plan instanceof LogicalOlapScan).get();
+            // Only the score binding may contain score(); a CSE column would evaluate it as zero.
+            List<NamedExpression> scoreColumns = scan.getVirtualColumns().stream()
+                    .filter(column -> column.containsType(Score.class))
+                    .collect(Collectors.toList());
+            Assertions.assertEquals(1, scoreColumns.size(), scan.getVirtualColumns().toString());
+            Assertions.assertTrue(((Alias) scoreColumns.get(0)).child() instanceof Score);
+        } finally {
+            connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = enableCse;
+        }
     }
 
     @Test

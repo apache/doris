@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressIn
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -373,6 +374,13 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         // Skip simple slots and literals as they don't benefit from being pushed down
         if (expr instanceof Slot || expr.isConstant()) {
             return SkipResult.TERMINATE;
+        }
+
+        // PushDownScoreTopNIntoOlapScan binds score() to a scan slot later, but only where it
+        // appears in the project or filter. Inside a virtual column it would keep the scalar
+        // placeholder, which always returns zero. Sub-expressions without score() still count.
+        if (expr.containsType(Score.class)) {
+            return SkipResult.SKIP_NOT_BENEFICIAL;
         }
 
         // Skip CAST and WhenClause expressions - they shouldn't be optimized as common sub-expressions

@@ -23,6 +23,7 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -134,6 +135,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
+                    CheckScoreUsage.checkScoreFilterContext(plan);
                     return null;
                 })
             ),

@@ -22,11 +22,24 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -45,9 +58,57 @@ public class CheckScoreUsage implements RewriteRuleFactory {
                     + "or a supported minimum score filter with MATCH or SEARCH";
     private static final String SCORE_FILTER_CONTEXT_ERROR =
             "score() filter must be in the WHERE clause of a query on one table with a MATCH or SEARCH "
-                    + "predicate. It cannot filter the result of an inner, cross or full join, an aggregation "
-                    + "or another operator; put the MATCH or SEARCH predicate and the score() filter in a "
-                    + "subquery on that table";
+                    + "predicate. It cannot filter the result of an inner, cross or full join, an aggregation, "
+                    + "a window or another operator; put the MATCH or SEARCH predicate and the score() filter "
+                    + "in a subquery on that table";
+
+    /**
+     * Fail a score() filter whose input combines or recomputes rows. score() has no input slot, so
+     * predicate pushdown would treat it as a constant and move it below a window, an aggregation
+     * or an inner join, changing the result or filtering another scan. Called after analysis,
+     * before any pushdown.
+     */
+    public static void checkScoreFilterContext(Plan plan) {
+        if (!(plan instanceof LogicalFilter || plan instanceof LogicalHaving || plan instanceof LogicalQualify)) {
+            return;
+        }
+        if (plan.getExpressions().stream().noneMatch(expr -> expr.containsType(Score.class))) {
+            return;
+        }
+        if (!producesScanRows(plan.child(0))) {
+            throw new AnalysisException(SCORE_FILTER_CONTEXT_ERROR);
+        }
+    }
+
+    // Whether every output row is a row of one scan, so that a filter above can move down to it.
+    // Outer, semi and anti joins keep every row of one side.
+    private static boolean producesScanRows(Plan plan) {
+        if (plan instanceof LogicalRelation) {
+            return true;
+        }
+        if (plan instanceof LogicalJoin) {
+            JoinType joinType = ((LogicalJoin<?, ?>) plan).getJoinType();
+            if (joinType.isLeftJoin()) {
+                return producesScanRows(plan.child(0));
+            }
+            return joinType.isRightJoin() && producesScanRows(plan.child(1));
+        }
+        if (plan instanceof LogicalUnion) {
+            return plan.children().stream().allMatch(CheckScoreUsage::producesScanRows);
+        }
+        if (plan instanceof LogicalProject) {
+            // Analysis keeps window functions in the project; they depend on the other rows.
+            return ((LogicalProject<?>) plan).getProjects().stream()
+                    .noneMatch(project -> project.containsType(WindowExpression.class))
+                    && producesScanRows(plan.child(0));
+        }
+        if (plan instanceof LogicalFilter || plan instanceof LogicalSort || plan instanceof LogicalSubQueryAlias
+                || plan instanceof LogicalView || plan instanceof LogicalCheckPolicy
+                || plan instanceof LogicalSelectHint) {
+            return producesScanRows(plan.child(0));
+        }
+        return false;
+    }
 
     @Override
     public List<Rule> buildRules() {

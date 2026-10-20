@@ -51,3 +51,18 @@
 1	sweet
 2	sour
 
+-- !union_all_score_range --
+1
+1
+2
+
+-- !projected_match_above_score --
+
+-- !projected_match_score --
+1	0.4700036	true
+2	0.4700036	true
+
+-- !cse_score_expressions --
+1	0.9949247125157072	0.1006221467945171
+2	0.9949247125157072	0.1006221467945171
+

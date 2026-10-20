@@ -156,4 +156,40 @@ suite("test_score_filter_usage", "p0") {
         """
         exception "can not contains Score expression"
     }
+
+    // Each UNION ALL branch filters by the score of its own scan.
+    order_qt_union_all_score_range """
+        SELECT id FROM (
+            SELECT id, c1 FROM test_score_filter_usage
+            UNION ALL
+            SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
+        ) u WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+    // Below a window, the filter would change row_number(); it must be rejected instead.
+    test {
+        sql """
+            SELECT * FROM (
+                SELECT id, row_number() OVER (ORDER BY id) AS rn FROM test_score_filter_usage
+                WHERE c1 MATCH 'apple'
+            ) w WHERE score() > 0.00001
+        """
+        exception "score() filter must be in the WHERE clause of a query on one table"
+    }
+
+    // A projected MATCH must not add its BM25 score to the one the filter compares (0.4700036).
+    order_qt_projected_match_above_score """
+        SELECT id, c1 MATCH_PHRASE 'apple' AS flag FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.6
+    """
+    order_qt_projected_match_score """
+        SELECT id, score() AS s, c1 MATCH_PHRASE 'apple' AS flag FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+
+    // A common sub-expression virtual column must not keep score() away from its binding.
+    order_qt_cse_score_expressions """
+        SELECT /*+ SET_VAR(experimental_enable_virtual_slot_for_cse=true) */ id,
+            sin(abs(score()) + 1) AS a, cos(abs(score()) + 1) AS b
+        FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
 }
