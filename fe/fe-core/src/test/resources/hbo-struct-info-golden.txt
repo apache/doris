@@ -95,9 +95,9 @@ skipReason =
 WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
 WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
 WITH_LITERAL.fingerprint = 8111ff4ab69f45665ef070e4aecd948b52e50fab0addd1d4f9ed93cf1baa0ca6
-NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
-NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
-NO_LITERAL.fingerprint = 610c60be55d01eb020344227f5ec6adfeb8ef1f141781b009ad57b32748f031c
+NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8111ff4ab69f45665ef070e4aecd948b52e50fab0addd1d4f9ed93cf1baa0ca6
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_grouping_by_another_computed_project]
@@ -107,9 +107,9 @@ skipReason =
 WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1#ti:0,v1,r0})
 WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1#ti:0})
 WITH_LITERAL.fingerprint = 72dd50a2dadcb8210dfee4aaa0bb6f68b85ccef48726c026a748c03074bc9b56
-NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
-NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
-NO_LITERAL.fingerprint = 610c60be55d01eb020344227f5ec6adfeb8ef1f141781b009ad57b32748f031c
+NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(3:INT))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 72dd50a2dadcb8210dfee4aaa0bb6f68b85ccef48726c026a748c03074bc9b56
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_grouping_by_the_same_expression_directly]
@@ -119,9 +119,9 @@ skipReason =
 WITH_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
 WITH_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
 WITH_LITERAL.fingerprint = 8111ff4ab69f45665ef070e4aecd948b52e50fab0addd1d4f9ed93cf1baa0ca6
-NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0,v1,r0})
-NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(*))}(S{null.null.t1#ti:0})
-NO_LITERAL.fingerprint = 610c60be55d01eb020344227f5ec6adfeb8ef1f141781b009ad57b32748f031c
+NO_LITERAL.canonical = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = A{gb:Mod(col(db.t1.id),lit(2:INT))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 8111ff4ab69f45665ef070e4aecd948b52e50fab0addd1d4f9ed93cf1baa0ca6
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN aggregate_no_keys]

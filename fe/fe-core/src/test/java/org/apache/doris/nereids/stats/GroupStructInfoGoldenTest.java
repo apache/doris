@@ -495,6 +495,19 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAGroupingDefinitionKeepsItsLiteralsInTheConstantAgnosticKey() {
+        // the learned (constant agnostic) key of `GROUP BY a % 2` and of `GROUP BY a % 3` describe a
+        // different number of groups: folding the literal of the definition would publish one count for
+        // both queries
+        GroupStructInfo byTwo = built("aggregate_grouping_by_a_computed_project");
+        GroupStructInfo byThree = built("aggregate_grouping_by_another_computed_project");
+        Assertions.assertNotEquals(byTwo.getFingerprint(NO_LITERAL), byThree.getFingerprint(NO_LITERAL),
+                "two grouping definitions share a learned key");
+        Assertions.assertTrue(byTwo.getCanonical(NO_LITERAL).contains("A{gb:Mod("),
+                "the grouping definition is not in the key: " + byTwo.getCanonical(NO_LITERAL));
+    }
+
+    @Test
     void testAComputedBranchOfASetOperationIsResolvedInItsMapping() {
         // the mapping of the second branch names its output slot, and the project which computes it is
         // inside the branch: the definition has to be resolved before the mapping is rendered

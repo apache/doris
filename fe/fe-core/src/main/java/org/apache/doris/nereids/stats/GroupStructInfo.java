@@ -1018,7 +1018,10 @@ public class GroupStructInfo {
         FILE_SCAN("", false),
         STORAGE_AGGREGATE("A", false),
         FILTER("F", false),
-        AGGREGATE("A", false),
+        // a grouping key can name a definition of the sub tree (the output of a computed project), and the
+        // literals of that definition decide the number of groups: folding them would let the learned count
+        // of `GROUP BY a % 2` (two groups) be reused for `GROUP BY a % 1000` (a thousand groups)
+        AGGREGATE("A", true),
         // a join's residual conditions decide which rows the join keeps (a range bound, a function of both
         // sides), so their literals are identity: the published and learned keys of a join must not fold
         // `t.b > u.b + 1000` and `t.b > u.b + 1` into one entry
@@ -1630,7 +1633,7 @@ public class GroupStructInfo {
                 out.append(')');
                 return;
             case AGGREGATE:
-                out.append("A{gb:").append(sortedConditions(node.conditions, mode)).append("}(");
+                out.append("A{gb:").append(sortedIdentityConditions(node.conditions)).append("}(");
                 appendChildren(out, node, mode, shape);
                 out.append(')');
                 return;
@@ -1712,6 +1715,21 @@ public class GroupStructInfo {
         for (Expression condition : conditions) {
             rendered.add(renderExpression(condition, mode));
         }
+        return String.join(SEP, rendered);
+    }
+
+    /**
+     * The grouping keys of an aggregation, rendered with their literals in both modes (see
+     * {@link Kind#AGGREGATE}): a key which names a definition of the sub tree carries the literals of that
+     * definition, and they decide the number of groups. Sorted like every other condition collection,
+     * duplicates kept (a key repeated in the group by is a different plan).
+     */
+    private static String sortedIdentityConditions(List<Expression> conditions) {
+        List<String> rendered = new ArrayList<>(conditions.size());
+        for (Expression condition : conditions) {
+            rendered.add(identityText(condition));
+        }
+        rendered.sort(String::compareTo);
         return String.join(SEP, rendered);
     }
 
