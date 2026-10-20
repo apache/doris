@@ -18,13 +18,18 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
@@ -60,6 +65,40 @@ public class HboJoinConditionsTest {
                         ImmutableList.<Expression>of(equal), ImmutableList.<Expression>of(), a, b, null)),
                 HboJoinConditions.canonicalOf(new LogicalJoin<LogicalOlapScan, LogicalOlapScan>(JoinType.INNER_JOIN,
                         ImmutableList.<Expression>of(equal), ImmutableList.<Expression>of(), b, a, null)));
+    }
+
+    @Test
+    public void testTheAliasBindingOfAnInnerExpansionIsPartOfTheKey() {
+        // `t AS x, u AS y` and `u AS x, t AS y` render the same `x.a = y.a`, while the two queries join
+        // other tables under those aliases and keep a different number of rows
+        LogicalOlapScan t = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalOlapScan u = PlanConstructor.newLogicalOlapScan(1, "u", 0);
+        SlotReference x = new SlotReference("id", IntegerType.INSTANCE, false, ImmutableList.of("x"));
+        SlotReference y = new SlotReference("id", IntegerType.INSTANCE, false, ImmutableList.of("y"));
+        String first = HboJoinConditions.canonicalOf(joinOver(x, y,
+                project(t.withTableAlias("x"), x), project(u.withTableAlias("y"), y))).get();
+        String swapped = HboJoinConditions.canonicalOf(joinOver(x, y,
+                project(u.withTableAlias("x"), x), project(t.withTableAlias("y"), y))).get();
+        Assertions.assertTrue(first.contains("bindings:[x=0,y=1]"), first);
+        Assertions.assertNotEquals(first, swapped, "two alias bindings share an expansion key");
+        // the operands themselves render one text in both plans
+        Assertions.assertTrue(first.contains("EqualTo(col(x.id),col(y.id))"), first);
+        Assertions.assertTrue(swapped.contains("EqualTo(col(x.id),col(y.id))"), swapped);
+    }
+
+    /** The project an alias-bearing relation instance of the test is bound to. */
+    private static LogicalProject<LogicalOlapScan> project(LogicalOlapScan scan, SlotReference output) {
+        return new LogicalProject<>(ImmutableList.<NamedExpression>of(
+                new Alias(output.getExprId(), scan.getOutput().get(0), "id")), scan);
+    }
+
+    /** An inner join over two alias-bearing project outputs with one equality pair. */
+    private static LogicalJoin<LogicalProject<LogicalOlapScan>, LogicalProject<LogicalOlapScan>> joinOver(
+            SlotReference x, SlotReference y, LogicalProject<LogicalOlapScan> left,
+            LogicalProject<LogicalOlapScan> right) {
+        return new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.<Expression>of(new EqualTo(x, y)), ImmutableList.<Expression>of(),
+                left, right, null);
     }
 
     @Test

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -24,7 +26,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 
 import com.google.common.hash.Hashing;
 
@@ -96,13 +101,16 @@ public class HboJoinConditions {
         StringBuilder canonical = new StringBuilder(PREFIX).append(join.getJoinType());
         pairs.forEach(pair -> canonical.append(SEP).append(pair));
         residuals.forEach(residual -> canonical.append(SEP).append(residual));
-        if (join.getJoinType() != JoinType.INNER_JOIN) {
-            // `A LEFT JOIN B` and `B LEFT JOIN A` keep the same join type and the same (sorted) equality
-            // pairs, but they preserve different rows and expand a different side, so the side each
-            // relation is on is part of the key of an outer join. An inner join is commutative and keeps
-            // the side insensitive form.
-            // a join node is a plan: the algebra interface only adds the join conditions
-            Plan joinPlan = (Plan) join;
+        // the operands of the join name the alias a query gave a relation (`t AS x, u AS y` against
+        // `u AS x, t AS y` render the same `x.a = y.a`), and the alias is bound to a table per plan: the
+        // table each relation names is part of the key. An inner join is commutative, so the bindings of
+        // both sides are one set for it; an outer join preserves a side, so each side keeps its own.
+        // a join node is a plan: the algebra interface only adds the join conditions
+        Plan joinPlan = (Plan) join;
+        if (join.getJoinType() == JoinType.INNER_JOIN) {
+            canonical.append(SEP).append("bindings:[").append(String.join(",",
+                    bindingsOf(joinPlan))).append(']');
+        } else {
             canonical.append(SEP).append("sides:[").append(relationsOf(joinPlan.child(0))).append('|')
                     .append(relationsOf(joinPlan.child(1))).append(']');
         }
@@ -110,8 +118,10 @@ public class HboJoinConditions {
     }
 
     /**
-     * The relations a side of a join reads, as the qualifiers of its output slots (sorted and
-     * de-duplicated). Empty when the side projects nothing, which cannot happen for a join input.
+     * The relations of one side of a join: the qualifiers its output carries and, for every relation
+     * below it, the table that relation's alias is bound to. The operands of the join name the alias the
+     * query gave a relation, and the same operands are produced by the other binding of the aliases
+     * (`t AS x, u AS y` against `u AS x, t AS y`), which keeps a different number of rows.
      */
     private static String relationsOf(Plan plan) {
         Set<String> qualifiers = new TreeSet<>();
@@ -120,7 +130,33 @@ public class HboJoinConditions {
                 qualifiers.add(String.join(".", ((SlotReference) slot).getQualifier()));
             }
         }
-        return String.join(",", qualifiers);
+        return String.join(",", qualifiers) + ';' + String.join(",", bindingsOf(plan));
+    }
+
+    /** The alias a query gave a relation, empty when it has none. */
+    private static String aliasOf(CatalogRelation relation) {
+        if (relation instanceof LogicalCatalogRelation) {
+            return ((LogicalCatalogRelation) relation).getTableAlias();
+        }
+        if (relation instanceof PhysicalCatalogRelation) {
+            return ((PhysicalCatalogRelation) relation).getTableAlias();
+        }
+        return String.join(".", relation.getQualifier());
+    }
+
+    /** The table each relation of a plan is bound to, as the alias the plan names it by. */
+    private static Set<String> bindingsOf(Plan plan) {
+        Set<String> bindings = new TreeSet<>();
+        List<Plan> relations = plan.collectToList(planNode -> planNode instanceof CatalogRelation);
+        for (Plan node : relations) {
+            CatalogRelation relation = (CatalogRelation) node;
+            TableIf table = relation.getTable();
+            String identity = table instanceof OlapTable
+                    ? String.valueOf(((OlapTable) table).getId())
+                    : HboScanDescriptor.qualifiedNameOf(table);
+            bindings.add(aliasOf(relation) + '=' + identity);
+        }
+        return bindings;
     }
 
     /** sha256 of the canonical string, empty when there is no equality condition. */
