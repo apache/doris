@@ -151,7 +151,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws UserException {
+    private long validate(ConnectContext ctx, long statementStartMs) throws Exception {
         Preconditions.checkState(lanceIndexOps.isEmpty(),
                 "AlterTableCommand.validate() must run exactly once per command object");
         if (tbl == null) {
@@ -176,8 +176,19 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         catalog = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(ctlName, catalogName -> new DdlException("Unknown catalog " + catalogName));
         validateLanceIndexOperationsBeforeResolution(catalog);
-        dbIf = catalog.getDbOrDdlException(dbName);
-        tableIf = dbIf.getTableOrDdlException(tableName);
+        boolean lanceIndexStatement = catalog instanceof LanceExternalCatalog && ops.stream().anyMatch(op ->
+                (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter())
+                        || (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()));
+        long deadlineMs = lanceIndexStatement
+                ? LanceIndexMutationExecutor.budgetDeadlineMs(statementStartMs) : Long.MAX_VALUE;
+        // Cold catalog/table resolution may call the namespace. Keep all native resources
+        // with the read worker even when the statement stops waiting for that worker.
+        dbIf = lanceIndexStatement
+                ? LanceIndexAdmission.readMetadata(deadlineMs, () -> catalog.getDbOrDdlException(dbName))
+                : catalog.getDbOrDdlException(dbName);
+        tableIf = lanceIndexStatement
+                ? LanceIndexAdmission.readMetadata(deadlineMs, () -> dbIf.getTableOrDdlException(tableName))
+                : dbIf.getTableOrDdlException(tableName);
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
@@ -185,14 +196,17 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         if (tableIf instanceof LanceExternalTable) {
             // Top-level CREATE/DROP INDEX on Lance catalog tables: static-validate, then either
             // reject with the mutation-disabled error while the admission gate stays off (the
-            // default; no metadata read, no id allocation), or hand the op to run() for
+            // default; no admission snapshot read, no id allocation), or hand the op to run() for
             // admission. ALTER TABLE ADD/DROP INDEX (alter = true) falls through to the existing
             // generic external-table rejection below.
             for (AlterTableOp op : ops) {
                 if (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter()) {
                     IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
-                    LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
-                            (LanceExternalTable) tableIf, indexDef);
+                    LanceIndexAdmission.readMetadata(deadlineMs, () -> {
+                        LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
+                                (LanceExternalTable) tableIf, indexDef);
+                        return null;
+                    });
                     if (!Config.enable_lance_index_mutation) {
                         LanceIndexMutationValidator.rejectMutationDisabled(
                                 indexDef.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX");
@@ -212,7 +226,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 // the alterTable call below. CreateIndexOp.validate() would otherwise hit the
                 // internal Lance guards and, for ANN (null internal IndexType), even allocate an
                 // internal index id before the generic external-table rejection.
-                return;
+                return deadlineMs;
             }
             // Non-index ops (rename etc.) on a Lance table continue on the generic path exactly
             // as before.
@@ -226,6 +240,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         } else {
             checkExternalTableOperationAllow(tableIf);
         }
+        return Long.MAX_VALUE;
     }
 
     /**
@@ -558,9 +573,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         // The Lance mutation budget starts at statement entry and is shared by admission
         // (the snapshot read below), the executor's admission queue, the dispatch and the wait.
         long statementStartMs = System.currentTimeMillis();
-        validate(ctx);
+        long deadlineMs = validate(ctx, statementStartMs);
         if (!lanceIndexOps.isEmpty()) {
-            long deadlineMs = LanceIndexMutationExecutor.budgetDeadlineMs(statementStartMs);
             // A top-level CREATE/DROP INDEX statement carries exactly one operation.
             Preconditions.checkState(lanceIndexOps.size() == 1,
                     "a top-level Lance index statement must carry exactly one operation");

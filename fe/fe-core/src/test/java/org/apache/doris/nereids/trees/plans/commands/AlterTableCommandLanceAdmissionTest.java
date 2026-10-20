@@ -54,6 +54,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.lance.schema.LanceField;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -64,10 +66,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Command rewiring coverage for Lance index admission: with the gate off the typed rejection is
- * 5102 from {@code validate()} without any metadata read or id allocation; with the gate on the
+ * 5102 from {@code validate()} without an admission snapshot read or id allocation; with the gate on the
  * top-level CREATE/DROP INDEX op bypasses the generic op loop and {@code alterTable}, runs
  * admission in {@code run()}, completes an IF preflight no-op as a plain success, and hands an
  * admitted mutation to the synchronous executor outside the admission critical section — the
@@ -321,6 +324,66 @@ public class AlterTableCommandLanceAdmissionTest {
             Assertions.assertEquals(0L, started.getCount());
             Assertions.assertTrue(System.currentTimeMillis() - start < 3_000L);
             Mockito.verify(fixture.extMetaCacheMgr, Mockito.never()).invalidateTableCache(Mockito.any());
+        } finally {
+            release.countDown();
+            Config.lance_index_mutation_budget_cap_seconds = originalCap;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"database", "table", "schema"})
+    public void mutationCapBoundsColdValidationReads(String phase) throws Exception {
+        int originalCap = Config.lance_index_mutation_budget_cap_seconds;
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean();
+        try (LanceFixture fixture = new LanceFixture(false)) {
+            Config.enable_lance_index_mutation = true;
+            Config.lance_index_mutation_budget_cap_seconds = 1;
+            connectContext.setUserQueryTimeout(10);
+            org.mockito.stubbing.Answer<Object> coldRead = call -> {
+                started.countDown();
+                try {
+                    release.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    interrupted.set(true);
+                    throw e;
+                } finally {
+                    finished.countDown();
+                }
+                if ("database".equals(phase)) {
+                    return fixture.database;
+                }
+                if ("table".equals(phase)) {
+                    return fixture.table;
+                }
+                return new Column("v", new ArrayType(Type.FLOAT), false, null, false, null, "");
+            };
+            if ("database".equals(phase)) {
+                Mockito.doAnswer(coldRead).when(fixture.catalog).getDbOrDdlException(DB);
+            } else if ("table".equals(phase)) {
+                Mockito.doAnswer(coldRead).when(fixture.database).getTableOrDdlException(TBL);
+            } else {
+                Mockito.doAnswer(coldRead).when(fixture.table).getColumn(Mockito.anyString());
+            }
+            try {
+                long start = System.currentTimeMillis();
+                AnalysisException failure = runAndGetCommonAnalysisException(fixture.executor,
+                        "CREATE INDEX idx ON " + CTL + "." + DB + "." + TBL
+                                + " (v) USING ANN " + VALID_ANN_PROPERTIES);
+                Assertions.assertEquals(ErrorCode.ERR_LANCE_INDEX_MUTATION_REJECTED, failure.getMysqlErrorCode());
+                Assertions.assertEquals(0L, started.getCount());
+                Assertions.assertEquals(1L, finished.getCount(), "the read worker must still own cleanup");
+                Assertions.assertFalse(interrupted.get());
+                Assertions.assertTrue(System.currentTimeMillis() - start < 3_000L);
+                Mockito.verify(fixture.catalog, Mockito.never())
+                        .loadTableIndexAdmissionSnapshot(Mockito.anyString(), Mockito.anyString());
+                Mockito.verifyNoInteractions(fixture.executor);
+            } finally {
+                release.countDown();
+                Assertions.assertTrue(finished.await(5, TimeUnit.SECONDS));
+            }
         } finally {
             release.countDown();
             Config.lance_index_mutation_budget_cap_seconds = originalCap;

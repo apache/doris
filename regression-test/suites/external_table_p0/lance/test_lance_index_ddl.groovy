@@ -139,9 +139,9 @@ suite("test_lance_index_ddl", "p0,external") {
             exception "is not exist"
         }
 
-        // Lance-only index syntax never reaches internal-table index code: the
-        // IndexDefinition guards reject the Lance index types and CREATE OR REPLACE for
-        // any non-Lance table before internal validation runs.
+        // Internal ANN remains supported and rejects Lance-specific properties through
+        // its own checker. BTREE/BITMAP and CREATE OR REPLACE are Lance-only and must
+        // fail before internal index validation.
         sql """DROP TABLE IF EXISTS `${internalTableName}`"""
         sql """
             CREATE TABLE `${internalTableName}` (
@@ -153,8 +153,15 @@ suite("test_lance_index_ddl", "p0,external") {
 
         test {
             sql """CREATE INDEX idx ON `${internalTableName}` (label) USING ANN
-                   PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
-            exception "USING ANN is only supported for Lance catalog tables"
+                   PROPERTIES("num_partitions"="256")"""
+            exception "unknown ann index property: num_partitions"
+        }
+
+        ["BTREE", "BITMAP"].each { indexType ->
+            test {
+                sql """CREATE INDEX idx ON `${internalTableName}` (label) USING ${indexType}"""
+                exception "USING ${indexType} is only supported for Lance catalog tables"
+            }
         }
 
         test {

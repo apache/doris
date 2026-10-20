@@ -160,7 +160,7 @@ public final class LanceIndexInspectionExecutor {
     }
 
     public static final class MetadataReadTimeoutException extends RuntimeException {
-        MetadataReadTimeoutException(String message) {
+        public MetadataReadTimeoutException(String message) {
             super(message);
         }
     }
