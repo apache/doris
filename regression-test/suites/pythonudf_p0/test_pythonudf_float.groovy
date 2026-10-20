@@ -53,6 +53,8 @@ suite("test_pythonudf_float") {
             "file"="file://${pyPath}",
             "symbol"="float_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true",
             "volatility" = "immutable"
@@ -73,6 +75,8 @@ suite("test_pythonudf_float") {
             "file"="file://${pyPath}",
             "symbol"="double_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
         ); """

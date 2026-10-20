@@ -62,6 +62,8 @@ suite("test_pythonudf_schema_check") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_add_int_sc",
             "runtime_version" = "${runtime_version}"
         )
@@ -106,6 +108,8 @@ def py_add_int_sc(a, b):
         RETURNS BIGINT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_add_bigint",
             "runtime_version" = "${runtime_version}"
         )
@@ -134,6 +138,8 @@ def py_add_bigint(a, b):
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_add_double",
             "runtime_version" = "${runtime_version}"
         )
@@ -162,6 +168,8 @@ def py_add_double(a, b):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_sum_three",
             "runtime_version" = "${runtime_version}"
         )
@@ -191,6 +199,8 @@ def py_sum_three(a, b, c):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_multiply",
             "runtime_version" = "${runtime_version}",
             "vectorized" = "true"
@@ -223,6 +233,8 @@ def py_vec_multiply(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_divide",
             "runtime_version" = "${runtime_version}",
             "vectorized" = "true"
@@ -255,6 +267,8 @@ def py_vec_divide(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_calc",
             "runtime_version" = "${runtime_version}",
             "vectorized" = "true"
@@ -287,6 +301,8 @@ def py_vec_calc(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_string_upper",
             "runtime_version" = "${runtime_version}"
         )
@@ -314,6 +330,8 @@ def py_string_upper(s):
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_bool_not",
             "runtime_version" = "${runtime_version}"
         )
@@ -354,6 +372,8 @@ def py_bool_not(b):
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_scale",
             "runtime_version" = "${runtime_version}",
             "vectorized" = "true"
@@ -411,6 +431,8 @@ def py_vec_scale(values: pd.Series, factor: float) -> pd.Series:
         RETURNS FLOAT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_add_float",
             "runtime_version" = "${runtime_version}"
         )

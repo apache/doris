@@ -60,6 +60,8 @@ suite("test_pythonudaf_basic") {
             "file"="file://${pyPath}",
             "symbol"="sum_int.SumInt",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """
@@ -101,6 +103,8 @@ suite("test_pythonudaf_basic") {
             "file"="file://${pyPath}",
             "symbol"="sum_int.AvgDouble",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """
@@ -148,6 +152,8 @@ suite("test_pythonudaf_basic") {
             "file"="file://${pyPath}",
             "symbol"="sum_int.SumInt",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """

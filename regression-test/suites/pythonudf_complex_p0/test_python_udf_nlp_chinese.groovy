@@ -37,6 +37,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.chinese_word_segment",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -78,6 +80,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.chinese_word_segment_json",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -100,6 +104,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.chinese_word_count",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -121,6 +127,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.extract_keywords_tfidf",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -159,6 +167,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.pos_tagging",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -181,6 +191,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.extract_nouns",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -203,6 +215,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.extract_verbs",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -225,6 +239,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.extract_all_entities",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -264,6 +280,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.chinese_text_similarity",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -305,6 +323,8 @@ suite("test_python_udf_nlp_chinese") {
             "file" = "file://${pyPath}",
             "symbol" = "nlp_chinese.split_sentences",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """

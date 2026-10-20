@@ -17,15 +17,24 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionName;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.GenericPool;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.master.ReportHandler;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
@@ -188,11 +197,59 @@ public class CleanUDFCacheTaskTest {
     }
 
     @Test
-    public void ordinaryDropKeepsTheOneShotTaskSignature() {
+    public void legacyTaskKeepsTheOneShotTaskSignature() {
         CleanUDFCacheTask task = new CleanUDFCacheTask(BACKEND_ID, "sum(INT)", FUNCTION_ID);
         Assertions.assertEquals(-1L, task.getSignature());
         Assertions.assertEquals(FUNCTION_ID, task.toThrift().getFunctionId());
         Assertions.assertEquals(-1L, new AgentBatchTask().toAgentTaskRequest(task).getSignature());
+    }
+
+    @Test
+    public void localDropRetriesAfterBackendRecovery() throws Exception {
+        dropAndRetry(SetType.DEFAULT);
+    }
+
+    @Test
+    public void globalDropRetriesAfterBackendRecovery() throws Exception {
+        dropAndRetry(SetType.GLOBAL);
+    }
+
+    private void dropAndRetry(SetType scope) throws Exception {
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        envMock.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAccessManager().checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN))).thenReturn(true);
+        List<Long> functionIds = List.of(FUNCTION_ID, FUNCTION_ID + 1);
+        if (scope == SetType.GLOBAL) {
+            Mockito.when(env.getGlobalFunctionMgr().dropFunction(
+                    Mockito.any(FunctionSearchDesc.class), Mockito.eq(false))).thenReturn(functionIds);
+        } else {
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            envMock.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Database database = Mockito.mock(Database.class);
+            Mockito.when(catalog.getDbNullable("cleanup_db")).thenReturn(database);
+            Mockito.when(database.dropFunction(Mockito.any(FunctionSearchDesc.class), Mockito.eq(false)))
+                    .thenReturn(functionIds);
+        }
+        DropFunctionCommand command = new DropFunctionCommand(scope, false,
+                new FunctionName("cleanup_db", "sum"),
+                new FunctionArgTypesInfo(List.of(IntegerType.INSTANCE), false));
+        command.run(new ConnectContext(), null);
+        Assertions.assertEquals(1, submissions.size());
+        submissions.get(0).run();
+        for (long functionId : functionIds) {
+            AgentTask task = AgentTaskQueue.getTask(BACKEND_ID, TTaskType.CLEAN_UDF_CACHE, functionId);
+            Assertions.assertNotNull(task);
+            Assertions.assertEquals(1, task.getFailedTimes());
+            Assertions.assertEquals(functionId, ((CleanUDFCacheTask) task).toThrift().getFunctionId());
+        }
+        backend.setAlive(true);
+        reportTasks();
+        Assertions.assertEquals(2, submissions.get(1).getTaskNum());
+        for (long functionId : functionIds) {
+            Assertions.assertEquals(TStatusCode.OK, finish(functionId, TStatusCode.OK));
+            Assertions.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.CLEAN_UDF_CACHE, functionId));
+        }
     }
 
     private void reportTasks() throws Exception {

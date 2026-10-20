@@ -71,6 +71,8 @@ suite("test_pythonudaf_window_functions") {
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RunningSumUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -104,6 +106,8 @@ class RunningSumUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RunningCountUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -137,6 +141,8 @@ class RunningCountUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RunningAvgUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -407,6 +413,8 @@ class RunningAvgUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "WindowFirstUDAF",
             "runtime_version" = "${runtime_version}"
         )

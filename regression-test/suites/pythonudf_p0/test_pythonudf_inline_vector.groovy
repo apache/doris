@@ -54,6 +54,8 @@ suite("test_pythonudf_inline_vector") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "add",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -83,6 +85,8 @@ def add(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "multiply",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -112,6 +116,8 @@ def multiply(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "concat",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -141,6 +147,8 @@ def concat(s1: pd.Series, s2: pd.Series) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "get_max",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -171,6 +179,8 @@ def get_max(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "sqrt",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -200,6 +210,8 @@ def sqrt(x: pd.Series) -> pd.Series:
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "to_upper",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -228,6 +240,8 @@ def to_upper(s: pd.Series) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "weighted_sum",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -257,6 +271,8 @@ def weighted_sum(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "negate",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -285,6 +301,8 @@ def negate(b: pd.Series) -> pd.Series:
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "greater",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -314,6 +332,8 @@ def greater(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "str_len",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -342,6 +362,8 @@ def str_len(s: pd.Series) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "fill_null",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -370,6 +392,8 @@ def fill_null(x: pd.Series) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "cumsum",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"

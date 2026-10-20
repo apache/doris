@@ -63,6 +63,8 @@ suite("test_pythonudaf_data_types") {
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumTinyIntUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -98,6 +100,8 @@ class SumTinyIntUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumSmallIntUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -133,6 +137,8 @@ class SumSmallIntUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumBigIntUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -168,6 +174,8 @@ class SumBigIntUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumFloatUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -203,6 +211,8 @@ class SumFloatUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumDecimalUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -238,6 +248,8 @@ class SumDecimalUDAF:
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "ConcatStrUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -276,6 +288,8 @@ class ConcatStrUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountTrueUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -326,6 +340,8 @@ class CountTrueUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "IntToDoubleSumUDAF",
             "runtime_version" = "${runtime_version}"
         )

@@ -57,6 +57,8 @@ suite("test_pythonudtf_drop", "nonConcurrent") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udtf.process",
                 "runtime_version" = "${runtime_version}"
@@ -87,6 +89,8 @@ suite("test_pythonudtf_drop", "nonConcurrent") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udtf.process",
                 "runtime_version" = "${runtime_version}"
@@ -97,6 +101,8 @@ suite("test_pythonudtf_drop", "nonConcurrent") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipB}",
                 "symbol" = "drop_udtf.process",
                 "runtime_version" = "${runtime_version}"
@@ -145,6 +151,8 @@ suite("test_pythonudtf_drop", "nonConcurrent") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udtf.process",
                 "runtime_version" = "${runtime_version}"

@@ -32,7 +32,7 @@ suite("test_python_arrow_convertor_timezone") {
             sql "DROP FUNCTION IF EXISTS ${name}(DATETIME(6))"
         }
         sql """CREATE FUNCTION ${scalar}(DATETIME(6)) RETURNS STRING
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     return None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f')
@@ -40,13 +40,13 @@ def evaluate(value):
         // Declare the yielded string as the array element; ARRAY<STRUCT<...>> emits a struct.
         sql """CREATE TABLES FUNCTION ${tableFunction}(DATETIME(6))
             RETURNS ARRAY<STRING>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
     yield (None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f'),)
 \$\$"""
         sql """CREATE AGGREGATE FUNCTION ${aggregate}(DATETIME(6)) RETURNS DATETIME(6)
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="Maximum",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="Maximum",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 class Maximum:
     def __init__(self):

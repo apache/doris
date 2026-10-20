@@ -67,6 +67,8 @@ suite("test_pythonudf_ret_map") {
             "file"="file://${pyPath}",
             "symbol"="map_ret_int_int_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); 
@@ -79,6 +81,8 @@ suite("test_pythonudf_ret_map") {
                     "file"="file://${pyPath}",
                     "symbol"="map_ret_string_string_test.evaluate",
                     "type"="PYTHON_UDF",
+                    "auto_suspend" = "0",
+                    "pool_size" = "1",
                     "always_nullable" = "true",
                     "runtime_version" = "${runtime_version}"
         ); 
@@ -92,6 +96,8 @@ suite("test_pythonudf_ret_map") {
                         "file"="file://${pyPath}",
                         "symbol"="map_ret_int_double_test.evaluate",
                         "type"="PYTHON_UDF",
+                        "auto_suspend" = "0",
+                        "pool_size" = "1",
                         "always_nullable" = "true",
                         "runtime_version" = "${runtime_version}"
             ); 
@@ -104,6 +110,8 @@ suite("test_pythonudf_ret_map") {
                     "file"="file://${pyPath}",
                     "symbol"="map_int_double_ret_string_string_test.evaluate",
                     "type"="PYTHON_UDF",
+                    "auto_suspend" = "0",
+                    "pool_size" = "1",
                     "always_nullable" = "true",
                     "runtime_version" = "${runtime_version}"
         ); 

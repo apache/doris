@@ -56,6 +56,8 @@ suite("test_pythonudf_array") {
             "file"="file://${pyPath}",
             "symbol"="array_int_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """
@@ -68,6 +70,8 @@ suite("test_pythonudf_array") {
             "file"="file://${pyPath}",
             "symbol"="array_return_array_int_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """
@@ -81,6 +85,8 @@ suite("test_pythonudf_array") {
             "file"="file://${pyPath}",
             "symbol"="array_return_array_string_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """
@@ -93,6 +99,8 @@ suite("test_pythonudf_array") {
             "file"="file://${pyPath}",
             "symbol"="array_string_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """

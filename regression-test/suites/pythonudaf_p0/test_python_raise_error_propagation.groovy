@@ -57,6 +57,8 @@ suite("test_python_raise_error_propagation") {
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -77,6 +79,8 @@ def evaluate(x):
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${udfPath}",
             "symbol" = "udf_errors.raise_in_module",
             "runtime_version" = "${runtime_version}",
@@ -95,6 +99,8 @@ def evaluate(x):
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "InlineFinishErrorUDAF",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -130,6 +136,8 @@ class InlineFinishErrorUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "InlineAccumulateErrorUDAF",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -166,6 +174,8 @@ class InlineAccumulateErrorUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "InlineMergeErrorUDAF",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -202,6 +212,8 @@ class InlineMergeErrorUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${udafPath}",
             "symbol" = "udaf_errors.ModuleFinishErrorUDAF",
             "runtime_version" = "${runtime_version}",
@@ -220,6 +232,8 @@ class InlineMergeErrorUDAF:
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "inline_raise_udtf",
             "runtime_version" = "${runtime_version}"
         ) AS \$\$
@@ -245,6 +259,8 @@ def inline_raise_udtf(x):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${udtfPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.raise_in_module_udtf",
             "runtime_version" = "${runtime_version}"

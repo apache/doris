@@ -40,6 +40,8 @@ CREATE FUNCTION array_to_csv(
 RETURNS STRING
 PROPERTIES (
     "type" = "PYTHON_UDF",
+    "auto_suspend" = "0",
+    "pool_size" = "1",
     "symbol" = "array_to_csv_impl",
     "always_nullable" = "true",
     "runtime_version" = "${runtime_version}"
@@ -117,6 +119,8 @@ def array_to_csv_impl(int_arr, str_arr, nested_arr):
             RETURNS STRING
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file"="file://${pyPath}",
                 "symbol" = "python_udf_array_type.array_to_csv_impl",
                 "always_nullable" = "true",
@@ -172,6 +176,8 @@ CREATE FUNCTION map_to_csv(
 RETURNS STRING
 PROPERTIES (
     "type" = "PYTHON_UDF",
+    "auto_suspend" = "0",
+    "pool_size" = "1",
     "symbol" = "map_to_csv_impl",
     "always_nullable" = "true",
     "runtime_version" = "${runtime_version}"
@@ -237,6 +243,8 @@ def map_to_csv_impl(map1, map2):
             RETURNS STRING
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file"="file://${pyPath}",
                 "symbol" = "python_udf_map_type.map_to_csv_impl",
                 "always_nullable" = "true",
@@ -289,6 +297,8 @@ CREATE FUNCTION struct_to_csv(
 RETURNS STRING
 PROPERTIES (
     "type" = "PYTHON_UDF",
+    "auto_suspend" = "0",
+    "pool_size" = "1",
     "symbol" = "struct_to_csv_impl",
     "always_nullable" = "true",
     "runtime_version" = "${runtime_version}"
@@ -371,6 +381,8 @@ def struct_to_csv_impl(person, point):
             RETURNS STRING
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file"="file://${pyPath}",
                 "symbol" = "python_udf_struct_type.struct_to_csv_impl",
                 "always_nullable" = "true",

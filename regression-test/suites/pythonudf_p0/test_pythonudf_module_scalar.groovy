@@ -66,6 +66,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.add_three_numbers",
             "runtime_version" = "${runtime_version}",
@@ -89,6 +91,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.safe_divide_with_precision",
             "runtime_version" = "${runtime_version}",
@@ -112,6 +116,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.calculate_discount_price",
             "runtime_version" = "${runtime_version}",
@@ -136,6 +142,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.compound_interest",
             "runtime_version" = "${runtime_version}",
@@ -159,6 +167,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.calculate_bmi",
             "runtime_version" = "${runtime_version}",
@@ -182,6 +192,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.fibonacci",
             "runtime_version" = "${runtime_version}",
@@ -206,6 +218,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.is_prime",
             "runtime_version" = "${runtime_version}",
@@ -231,6 +245,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.gcd",
             "runtime_version" = "${runtime_version}",
@@ -254,6 +270,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.lcm",
             "runtime_version" = "${runtime_version}",
@@ -279,6 +297,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.reverse_string",
             "runtime_version" = "${runtime_version}",
@@ -302,6 +322,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.count_vowels",
             "runtime_version" = "${runtime_version}",
@@ -325,6 +347,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.count_words",
             "runtime_version" = "${runtime_version}",
@@ -348,6 +372,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.capitalize_words",
             "runtime_version" = "${runtime_version}",
@@ -371,6 +397,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.is_palindrome",
             "runtime_version" = "${runtime_version}",
@@ -394,6 +422,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.string_similarity",
             "runtime_version" = "${runtime_version}",
@@ -417,6 +447,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.mask_email",
             "runtime_version" = "${runtime_version}",
@@ -440,6 +472,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.extract_domain",
             "runtime_version" = "${runtime_version}",
@@ -463,6 +497,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.levenshtein_distance",
             "runtime_version" = "${runtime_version}",
@@ -488,6 +524,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.days_between_dates",
             "runtime_version" = "${runtime_version}",
@@ -511,6 +549,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.is_weekend",
             "runtime_version" = "${runtime_version}",
@@ -534,6 +574,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.get_quarter",
             "runtime_version" = "${runtime_version}",
@@ -557,6 +599,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.age_in_years",
             "runtime_version" = "${runtime_version}",
@@ -581,6 +625,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.is_in_range",
             "runtime_version" = "${runtime_version}",
@@ -604,6 +650,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.xor_operation",
             "runtime_version" = "${runtime_version}",
@@ -629,6 +677,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.calculate_grade",
             "runtime_version" = "${runtime_version}",
@@ -652,6 +702,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.categorize_age",
             "runtime_version" = "${runtime_version}",
@@ -675,6 +727,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.calculate_tax",
             "runtime_version" = "${runtime_version}",
@@ -698,6 +752,8 @@ suite("test_pythonudf_module_scalar") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_scalar_ops.truncate_string",
             "runtime_version" = "${runtime_version}",

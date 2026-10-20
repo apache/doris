@@ -43,6 +43,7 @@ suite('test_pythonudaf_pkg_isolation') {
         sql """
             CREATE AGGREGATE FUNCTION py_pkg_a_sum_x(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_x.SumAgg",
                 "runtime_version" = "${runtime_version}",
@@ -52,6 +53,7 @@ suite('test_pythonudaf_pkg_isolation') {
         sql """
             CREATE AGGREGATE FUNCTION py_pkg_b_sum_x(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_x.SumAgg",
                 "runtime_version" = "${runtime_version}",
@@ -66,6 +68,7 @@ suite('test_pythonudaf_pkg_isolation') {
         sql """
             CREATE AGGREGATE FUNCTION py_pkg_a_sum_y(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_y.SumAgg",
                 "runtime_version" = "${runtime_version}",
@@ -80,6 +83,7 @@ suite('test_pythonudaf_pkg_isolation') {
         sql """
             CREATE AGGREGATE FUNCTION py_pkg_b_sum_y(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_y.SumAgg",
                 "runtime_version" = "${runtime_version}",

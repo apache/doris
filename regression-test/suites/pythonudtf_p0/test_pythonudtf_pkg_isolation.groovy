@@ -45,6 +45,7 @@ suite("test_pythonudtf_pkg_isolation") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_x.process",
                 "runtime_version" = "${runtime_version}",
@@ -56,6 +57,7 @@ suite("test_pythonudtf_pkg_isolation") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_x.process",
                 "runtime_version" = "${runtime_version}",
@@ -78,6 +80,7 @@ suite("test_pythonudtf_pkg_isolation") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_y.process",
                 "runtime_version" = "${runtime_version}",
@@ -100,6 +103,7 @@ suite("test_pythonudtf_pkg_isolation") {
             RETURNS ARRAY<INT>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_y.process",
                 "runtime_version" = "${runtime_version}",

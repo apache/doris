@@ -32,6 +32,7 @@ suite("test_pythonudf_pkg_isolation") {
         sql """
             CREATE FUNCTION py_pkg_a_mod_x(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_x.evaluate",
                 "runtime_version" = "${runtime_version}",
@@ -41,6 +42,7 @@ suite("test_pythonudf_pkg_isolation") {
         sql """
             CREATE FUNCTION py_pkg_b_mod_x(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_x.evaluate",
                 "runtime_version" = "${runtime_version}",
@@ -55,6 +57,7 @@ suite("test_pythonudf_pkg_isolation") {
         sql """
             CREATE FUNCTION py_pkg_a_mod_y(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipA}",
                 "symbol" = "mypkg.mod_y.evaluate",
                 "runtime_version" = "${runtime_version}",
@@ -69,6 +72,7 @@ suite("test_pythonudf_pkg_isolation") {
         sql """
             CREATE FUNCTION py_pkg_b_mod_y(INT) RETURNS INT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
                 "file" = "file://${zipB}",
                 "symbol" = "mypkg.mod_y.evaluate",
                 "runtime_version" = "${runtime_version}",

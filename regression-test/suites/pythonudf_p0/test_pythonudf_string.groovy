@@ -61,6 +61,8 @@ suite("test_pythonudf_string") {
             "file"="file://${pyPath}",
             "symbol"="string_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """

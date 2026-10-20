@@ -82,6 +82,8 @@ suite("test_pythonudf_nested_complex_type") {
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -198,6 +200,8 @@ def evaluate(array_map, map_array_map, struct_nested, map_struct_nested):
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -296,6 +300,8 @@ def evaluate(array_maps: list, map_array_maps: list, struct_nesteds: list, map_s
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -394,6 +400,8 @@ def evaluate(array_maps: pd.Series, map_array_maps: pd.Series, struct_nesteds: p
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
