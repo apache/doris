@@ -96,6 +96,41 @@ suite("test_file_scanner_v2_load", "p0") {
                          sql("SELECT k, v FROM ${tableName} ORDER BY k"))
         }
 
+        ["0", "1"].each { ratio ->
+            sql "TRUNCATE TABLE ${tableName}"
+            streamLoad {
+                table tableName
+                set 'format', 'json'
+                set 'read_json_by_line', 'true'
+                set 'strip_outer_array', 'true'
+                set 'json_root', '$.payload'
+                set 'jsonpaths', '["$.k"]'
+                set 'columns', 'k'
+                set 'max_filter_ratio', ratio
+                file 'file_scanner_v2_load_invalid_roots.json'
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    def response = parseJson(result)
+                    assertEquals(3, response.NumberTotalRows as int)
+                    assertEquals(2, response.NumberFilteredRows as int)
+                    assertEquals(0, response.NumberUnselectedRows as int)
+                    if (ratio == "0") {
+                        // Missing and non-object roots must each count against the quality gate.
+                        assertEquals("Fail", response.Status)
+                        assertEquals(0, response.NumberLoadedRows as int)
+                        assertTrue(response.Message.contains("too many filtered rows"))
+                    } else {
+                        checkRows(result, exception, 1, 2, 0)
+                    }
+                }
+            }
+            sql "sync"
+            assertEquals(ratio == "0" ? [] : [[2, 7]],
+                         sql("SELECT k, v FROM ${tableName} ORDER BY k"))
+        }
+
         sql "DROP TABLE ${tableName}"
         sql """CREATE TABLE ${tableName} (k INT NOT NULL, v INT NULL)
                UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1

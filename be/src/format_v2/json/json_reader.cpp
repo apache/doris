@@ -754,27 +754,36 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
     _array = _json_value.get_array();
     _array_iter = _array.begin();
     while (_array_iter != _array.end()) {
+        const size_t row_start = block->rows();
         simdjson::ondemand::object object_value = (*_array_iter).get_object();
         if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
-            // For strip_outer_array, json_root is evaluated against each element. Elements without
-            // the requested root do not produce rows, matching the load reader behavior.
+            // Reject roots per element for loads, preserving earlier siblings and their presence
+            // masks while counting each invalid element against the load quality gate.
             simdjson::ondemand::value rooted_value;
             Status st = JsonFunctions::extract_from_object(object_value, _parsed_json_root,
                                                            &rooted_value);
             if (!st.ok()) {
                 if (st.is<ErrorCode::NOT_FOUND>()) {
+                    if (_request->reject_invalid_rows) {
+                        RETURN_IF_ERROR(
+                                _handle_json_error(Status::DataQualityError("{}", st.to_string()),
+                                                   block, row_start, is_empty_row));
+                    }
                     ++_array_iter;
                     continue;
                 }
                 return st;
             }
             if (rooted_value.type().value() != simdjson::ondemand::json_type::object) {
+                if (_request->reject_invalid_rows) {
+                    RETURN_IF_ERROR(_handle_json_error(Status::DataQualityError("Not object item"),
+                                                       block, row_start, is_empty_row));
+                }
                 ++_array_iter;
                 continue;
             }
             object_value = rooted_value.get_object();
         }
-        const size_t row_start = block->rows();
         const auto status = _write_columns_by_jsonpath(&object_value, block, &valid);
         if (!status.ok()) {
             if (!_request->reject_invalid_rows) {

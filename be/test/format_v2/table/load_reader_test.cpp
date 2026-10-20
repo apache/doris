@@ -581,6 +581,71 @@ TEST_F(LoadJsonPipeTest, EmptyOuterArrayIsRejectedBeforeFollowingMessage) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST_F(LoadJsonPipeTest, ConfiguredRootCountsMissingAndNullElements) {
+    params.file_attributes.__set_strip_outer_array(true);
+    params.file_attributes.__set_json_root("$.payload");
+    params.file_attributes.__set_jsonpaths(R"(["$.k"])");
+    append(R"([{"other":1},{"payload":null},{"payload":{"k":2}}])");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "2");
+    EXPECT_EQ(io->load_filtered_rows, 2);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(io->load_filtered_rows, 2);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, RootRejectionPreservesEarlierAndLaterSiblings) {
+    params.file_attributes.__set_strip_outer_array(true);
+    params.file_attributes.__set_json_root("$.payload");
+    params.file_attributes.__set_jsonpaths(R"(["$.k"])");
+    append(R"([{"payload":{"k":1}},{"other":1},{"payload":null},
+               {"payload":3},{"payload":[]},{"payload":{"k":2}}])");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "1");
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(1).to_string(), "2");
+    EXPECT_EQ(io->load_filtered_rows, 4);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, RejectedRootsDoNotHideFollowingMessage) {
+    params.file_attributes.__set_strip_outer_array(true);
+    params.file_attributes.__set_json_root("$.payload");
+    params.file_attributes.__set_jsonpaths(R"(["$.k"])");
+    append(R"([{"other":1},{"payload":null}])");
+    append(R"([{"payload":{"k":2}}])");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "2");
+    EXPECT_EQ(io->load_filtered_rows, 2);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST_F(LoadReaderTest, SourceSlotsAreConvertedBeforeDestinationFiltering) {
     auto child = std::make_unique<SourceReader>();
     auto* input = child.get();
