@@ -1838,6 +1838,9 @@ protected:
         request_.set_is_2pc(false);
         request_.set_enable_txn_lazy_commit(false);
         request_.set_num_partitions(2);
+        auto* counts = request_.mutable_tablet_commit_counts()->mutable_partition_tablet_counts();
+        (*counts)[PARTITION_ID] = TABLETS_PER_PARTITION;
+        (*counts)[PARTITION_ID + 1] = TABLETS_PER_PARTITION;
 
         add_partition(0);
         add_partition(1);
@@ -1913,7 +1916,30 @@ protected:
             auto* sub_txn = request_.add_sub_txn_infos();
             sub_txn->set_sub_txn_id(id);
             sub_txn->set_table_id(TABLE_ID);
+            auto* counts =
+                    sub_txn->mutable_tablet_commit_counts()->mutable_partition_tablet_counts();
+            (*counts)[PARTITION_ID] = TABLETS_PER_PARTITION;
+            if (id == request_.txn_id()) {
+                (*counts)[PARTITION_ID + 1] = TABLETS_PER_PARTITION;
+            }
         }
+        request_.clear_tablet_commit_counts();
+    }
+
+    std::map<std::string, std::string> metadata() {
+        // Include versions, statistics, txn state and tmp rowsets to detect any
+        // persistent side effect of a rejected commit, including lazy's first phase.
+        std::map<std::string, std::string> result;
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        FullRangeGetOptions options;
+        options.snapshot = true;
+        auto iter = txn->full_range_get("\x00", "\xfe", std::move(options));
+        for (auto kv = iter->next(); kv.has_value(); kv = iter->next()) {
+            result.emplace(kv->first, kv->second);
+        }
+        EXPECT_TRUE(iter->is_valid()) << iter->error_code();
+        return result;
     }
 
     CommitTxnResponse commit(const CommitTxnRequest& request) {
@@ -2038,6 +2064,9 @@ TEST_F(CommitTxnCountTest, EmptyRowsetsKeepCompletePartitionVersions) {
 
     add_partition(3);
     request_.set_num_partitions(3);
+    auto* counts = request_.mutable_tablet_commit_counts()->mutable_partition_tablet_counts();
+    (*counts)[PARTITION_ID] = 2;
+    (*counts)[PARTITION_ID + 2] = TABLETS_PER_PARTITION;
     auto response = commit();
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
     EXPECT_FALSE(response.is_lazy_commit());
@@ -2064,8 +2093,9 @@ TEST_F(CommitTxnCountTest, EmptyRowsetsKeepCompletePartitionVersions) {
 TEST_F(CommitTxnCountTest, PartitionCountMismatchClearsImmediateVersions) {
     write_data_rowsets(0);
     write_data_rowsets(1);
-    // BE can report an entirely filtered partition even though it skipped all
-    // three rowsets. FE's partition count conservatively includes this partition.
+    // An old BE can report an entirely filtered partition without telling FE
+    // that it skipped all three rowsets. The partition count remains conservative.
+    request_.clear_tablet_commit_counts();
     add_partition(2);
     const auto empty_partition_key =
             partition_version_key({mock_instance, DB_ID, TABLE_ID, PARTITION_ID + 2});
@@ -2186,8 +2216,8 @@ TEST_F(CommitTxnCountTest, ImmediateRetryAfterPartialCleanupReturnsVisible) {
     }
 
     // A has been published and its tmp keys removed; B is still pending.
-    // The retry scans only B, waits for its pending transaction and then reads
-    // VISIBLE. Its empty response must make FE invalidate both partitions.
+    // The retry retains the full FE counts, but reads COMMITTED and must wait
+    // for B instead of treating A's absent tmp metadata as a failed load.
     CommitTxnRequest retry = request_;
     retry.set_enable_txn_lazy_commit(false);
     int attempts = 0;
@@ -2255,6 +2285,49 @@ TEST_F(CommitTxnCountTest, SubTxnCountMismatchClearsVersions) {
     check_partition_version(1, 2);
     check_rowsets(rowsets_, 2);
     check_rowsets(sub_txn_rowsets_, 3);
+}
+
+TEST_F(CommitTxnCountTest, TabletCountMismatchAbortsImmediateCommit) {
+    // The total is five on both sides, but A has an unexpected tablet and B
+    // lacks one. A global tablet count would miss the partition-level mismatch.
+    write_data_rowsets(0);
+    write_data_rowsets(1, 2);
+    (*request_.mutable_tablet_commit_counts()->mutable_partition_tablet_counts())[PARTITION_ID] = 2;
+    const auto before = metadata();
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(response.status().msg().find("tablet count mismatch"), std::string::npos);
+    EXPECT_EQ(metadata(), before);
+}
+
+TEST_F(CommitTxnCountTest, MissingPartitionTabletsAbortLazyCommit) {
+    // No metadata exists for B at all. Compare expected partitions too, before
+    // writing COMMITTED/pending: checking only partitions found by the scan misses B.
+    write_data_rowsets(0);
+    config::txn_lazy_commit_rowsets_thresold = 0;
+    request_.set_enable_txn_lazy_commit(true);
+    const auto before = metadata();
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(response.status().msg().find("tablet count mismatch"), std::string::npos);
+    EXPECT_NE(response.status().msg().find("actual_tablets=0"), std::string::npos);
+    EXPECT_EQ(metadata(), before);
+}
+
+TEST_F(CommitTxnCountTest, MissingSubTxnTabletAbortsCommit) {
+    // The first sub-transaction lacks A's third tablet; the second writes all
+    // three A tablets. Their union still has all six tablets, so each sub-txn
+    // must be checked separately before publishing either one's rowsets.
+    write_data_rowsets(0, 2);
+    write_data_rowsets(1);
+    add_sub_txn();
+    const auto before = metadata();
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(response.status().msg().find("tablet count mismatch"), std::string::npos);
+    EXPECT_NE(response.status().msg().find("sub_txn_id=" + std::to_string(request_.txn_id())),
+              std::string::npos);
+    EXPECT_EQ(metadata(), before);
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {

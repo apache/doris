@@ -1076,6 +1076,12 @@ message PrecommitTxnResponse {
     // TODO: There may be more fields TBD
 }
 
+// Expected persisted tmp rowsets for one transaction (or one sub-transaction).
+// Presence with an empty map means no tablet should have rowset metadata.
+message TabletCommitCounts {
+    map<int64, int64> partition_tablet_counts = 1;
+}
+
 message CommitTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -1094,16 +1100,19 @@ message CommitTxnRequest {
     repeated TableStreamUpdatePB table_stream_updates = 14;
     // Whether Meta Service should reject commit_tso values at or below its current fence.
     optional bool enable_check_commit_tso_fence = 15;
-    // Distinct partitions reported across all sub-transactions.
-    // Omit if a reported tablet no longer maps to a partition.
+    // Distinct partitions across all sub-transactions, excluding explicitly skipped
+    // empty rowsets. Omit if a reported tablet no longer maps to a partition.
     // MS omits version results on mismatch so FE invalidates its version caches.
     optional int64 num_partitions = 16;
+    // Omit if any BE cannot report metadata presence, or a persisted tablet cannot be mapped.
+    optional TabletCommitCounts tablet_commit_counts = 17;
 }
 
 message SubTxnInfo {
     optional int64 sub_txn_id = 1;
     optional int64 table_id = 2;
     repeated int64 base_tablet_ids= 3;
+    optional TabletCommitCounts tablet_commit_counts = 4;
 }
 
 // corresponding to TabletStats in meta_service.h and FrontendServiceImpl.java
