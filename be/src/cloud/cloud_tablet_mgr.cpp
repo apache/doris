@@ -333,19 +333,28 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
             .tag("num_tablets", tablets_to_vacuum.size());
 
     {
-        LOG_INFO("begin to remove unused rowsets");
+        LOG_INFO("begin to remove unused rowsets and orphaned warmup states");
         std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_unused_rowsets;
         tablets_to_remove_unused_rowsets.reserve(_tablet_map->size());
+        // A tablet can have orphaned warmup states without any stale/unused Rowset.
         _tablet_map->traverse([&tablets_to_remove_unused_rowsets](auto&& t) {
-            if (t->need_remove_unused_rowsets()) {
-                tablets_to_remove_unused_rowsets.push_back(t);
-            }
+            tablets_to_remove_unused_rowsets.push_back(t);
         });
+        size_t removed_warmup_states = 0;
         for (auto& t : tablets_to_remove_unused_rowsets) {
-            t->remove_unused_rowsets();
+            // Stop can arrive during a long sweep over tablets with large state maps.
+            if (stop_latch.count() <= 0) {
+                break;
+            }
+            if (t->need_remove_unused_rowsets()) {
+                t->remove_unused_rowsets();
+            }
+            removed_warmup_states += t->gc_rowset_warmup_states(
+                    std::chrono::seconds(config::warm_up_rowset_state_gc_grace_period_seconds));
         }
-        LOG_INFO("finish remove unused rowsets")
-                .tag("num_tablets", tablets_to_remove_unused_rowsets.size());
+        LOG_INFO("finish remove unused rowsets and orphaned warmup states")
+                .tag("num_tablets", tablets_to_remove_unused_rowsets.size())
+                .tag("removed_warmup_states", removed_warmup_states);
         if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
             int64_t max_useless_rowset_count = 0;
             int64_t tablet_id_with_max_useless_rowset_count = 0;
