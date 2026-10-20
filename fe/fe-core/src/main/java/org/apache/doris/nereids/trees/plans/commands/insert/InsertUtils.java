@@ -665,6 +665,28 @@ public class InsertUtils {
     }
 
     /**
+     * Build the SELECT-only digest recorded by the audit log for {@code INSERT ... SELECT}.
+     * <p>
+     * The digest must come from the original parse tree: {@code originLogicalQuery} is the
+     * un-analyzed sink built by the parser, so its child has none of the casts, default columns or
+     * other rewrites introduced while planning the write. When the statement carries a WITH
+     * clause, {@code cte} wraps that same child and its digest already contains the WITH list.
+     *
+     * @return the digest, or empty when the source is a VALUES inline table rather than a query
+     */
+    public static Optional<String> getSelectDigestForAudit(LogicalPlan originLogicalQuery,
+            Optional<LogicalPlan> cte) {
+        if (cte.isPresent()) {
+            return Optional.of(cte.get().toDigest());
+        }
+        Plan query = originLogicalQuery.child(0);
+        if (query instanceof InlineTable) {
+            return Optional.empty();
+        }
+        return Optional.of(((LogicalPlan) query).toDigest());
+    }
+
+    /**
      * get target table from names.
      */
     public static List<String> getTargetTableQualified(Plan plan, ConnectContext ctx) {

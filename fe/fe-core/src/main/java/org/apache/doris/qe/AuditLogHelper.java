@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.commands.AuditDigestProvider;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -363,18 +364,21 @@ public class AuditLogHelper {
 
         if (ctx.getState().isQuery()) {
             updateMetricsImpl(ctx);
-            if (MetricRepo.isInit && !ctx.getState().isInternal()) {
-                if ((ctx.getState().getStateType() == MysqlStateType.OK
-                        || ctx.getState().getStateType() == MysqlStateType.EOF)
-                        && elapseMs > Config.sql_digest_generation_threshold_ms) {
-                    String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
-                    auditEventBuilder.setSqlDigest(sqlDigest);
-                }
-            }
             auditEventBuilder.setScanBytesFromLocalStorage(
                             statistics == null ? 0 : statistics.getScanBytesFromLocalStorage())
                     .setScanBytesFromRemoteStorage(
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
+        }
+        // DML statements such as INSERT INTO ... SELECT are not classified as queries, but the audit
+        // log still needs their sql_digest. Keep this independent from updateMetricsImpl so that
+        // is_query and the query metrics stay unchanged.
+        if ((!ctx.getState().isQuery() || MetricRepo.isInit)
+                && !ctx.getState().isInternal()
+                && (ctx.getState().getStateType() == MysqlStateType.OK
+                        || ctx.getState().getStateType() == MysqlStateType.EOF)
+                && elapseMs > Config.sql_digest_generation_threshold_ms) {
+            getSqlDigestForAudit(parsedStmt, ctx.getState().isQuery())
+                    .ifPresent(digest -> auditEventBuilder.setSqlDigest(DigestUtils.md5Hex(digest)));
         }
 
         boolean isSyntaxErr = ctx.getState().getStateType() == MysqlStateType.ERR
@@ -524,6 +528,27 @@ public class AuditLogHelper {
                 }
             }
         }
+    }
+
+    /**
+     * Resolve the digest recorded in the audit log's sql_digest field. Queries keep using
+     * {@link Queriable#toDigest()}. Non-query DML reports its own audit digest through
+     * {@link AuditDigestProvider}, so INSERT ... SELECT can be fingerprinted without being
+     * reclassified as a query.
+     */
+    static Optional<String> getSqlDigestForAudit(StatementBase parsedStmt, boolean isQuery) {
+        if (isQuery) {
+            return parsedStmt instanceof Queriable
+                    ? Optional.of(((Queriable) parsedStmt).toDigest())
+                    : Optional.empty();
+        }
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if (plan instanceof AuditDigestProvider) {
+                return ((AuditDigestProvider) plan).getAuditDigest();
+            }
+        }
+        return Optional.empty();
     }
 
     private static String getStmtType(StatementBase stmt) {

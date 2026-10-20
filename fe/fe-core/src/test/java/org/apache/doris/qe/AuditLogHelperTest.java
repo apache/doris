@@ -17,14 +17,21 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Optional;
 
 public class AuditLogHelperTest {
 
@@ -109,5 +116,27 @@ public class AuditLogHelperTest {
         ctx.setEffectiveCloudCluster("hint_cluster");
 
         Assertions.assertEquals("hint_cluster", AuditLogHelper.getCloudClusterForAudit(ctx));
+    }
+
+    @Test
+    public void testGetSqlDigestForAudit() {
+        LogicalPlanAdapter selectAdapter = Mockito.mock(LogicalPlanAdapter.class);
+        Mockito.when(selectAdapter.toDigest()).thenReturn("SELECT 1");
+        Assertions.assertEquals(Optional.of("SELECT 1"),
+                AuditLogHelper.getSqlDigestForAudit(selectAdapter, true));
+
+        InsertIntoTableCommand insertCommand = Mockito.mock(InsertIntoTableCommand.class);
+        Mockito.when(insertCommand.getAuditDigest()).thenReturn(Optional.of("SELECT 2"));
+        LogicalPlanAdapter insertAdapter = Mockito.mock(LogicalPlanAdapter.class);
+        Mockito.when(insertAdapter.getLogicalPlan()).thenReturn(insertCommand);
+        Assertions.assertEquals(Optional.of("SELECT 2"),
+                AuditLogHelper.getSqlDigestForAudit(insertAdapter, false));
+
+        LogicalPlanAdapter otherAdapter = Mockito.mock(LogicalPlanAdapter.class);
+        Mockito.when(otherAdapter.getLogicalPlan()).thenReturn(Mockito.mock(LogicalPlan.class));
+        Assertions.assertFalse(AuditLogHelper.getSqlDigestForAudit(otherAdapter, false).isPresent());
+
+        Assertions.assertFalse(AuditLogHelper.getSqlDigestForAudit(Mockito.mock(StatementBase.class), false)
+                .isPresent());
     }
 }

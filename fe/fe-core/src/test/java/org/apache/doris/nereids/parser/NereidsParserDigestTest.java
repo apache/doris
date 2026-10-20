@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.AuditDigestProvider;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -35,6 +36,16 @@ public class NereidsParserDigestTest extends ParserTestBase {
             List<Pair<LogicalPlan, StatementContext>> logicalPlanList) {
         String digest = logicalPlanList.get(0).first.toDigest();
         Assertions.assertEquals(expected, digest);
+    }
+
+    private void assertAuditDigestEquals(String expected, LogicalPlan plan) {
+        Assertions.assertTrue(plan instanceof AuditDigestProvider);
+        Assertions.assertEquals(expected, ((AuditDigestProvider) plan).getAuditDigest().orElse(null));
+    }
+
+    private void assertNoAuditDigest(LogicalPlan plan) {
+        Assertions.assertTrue(plan instanceof AuditDigestProvider);
+        Assertions.assertFalse(((AuditDigestProvider) plan).getAuditDigest().isPresent());
     }
 
     @Test
@@ -296,5 +307,57 @@ public class NereidsParserDigestTest extends ParserTestBase {
         logicalPlanList = nereidsParser.parseMultiple(sql);
         // special for insert overwrite
         assertDigestEquals("OVERWRITE TABLE INSERT INTO test (c1, c2) SELECT * FROM test2", logicalPlanList);
+
+        // the audit digest of INSERT ... SELECT is SELECT-only and comes from the original parse tree
+        sql = "INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertAuditDigestEquals("SELECT * FROM test2", logicalPlanList.get(0).first);
+
+        sql = "INSERT INTO test SELECT a, 1 FROM test2 WHERE b > 10;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        List<Pair<LogicalPlan, StatementContext>> selectPlanList
+                = nereidsParser.parseMultiple("SELECT a, 1 FROM test2 WHERE b > 10;");
+        assertAuditDigestEquals(selectPlanList.get(0).first.toDigest(), logicalPlanList.get(0).first);
+        String insertSelectDigest = ((AuditDigestProvider) logicalPlanList.get(0).first)
+                .getAuditDigest().orElse(null);
+
+        // changing only literals or write options must keep the same SELECT-only digest
+        sql = "INSERT INTO test SELECT a, 2 FROM test2 WHERE b > 20;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertAuditDigestEquals(insertSelectDigest, logicalPlanList.get(0).first);
+
+        sql = "INSERT INTO test (c1) SELECT a, 1 FROM test2 WHERE b > 10;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertAuditDigestEquals(insertSelectDigest, logicalPlanList.get(0).first);
+
+        // changing the source or predicate shape must distinguish the fingerprint
+        sql = "INSERT INTO test SELECT a, 1 FROM test3 WHERE b > 10;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        Assertions.assertNotEquals(insertSelectDigest,
+                ((AuditDigestProvider) logicalPlanList.get(0).first).getAuditDigest().orElse(null));
+
+        sql = "INSERT INTO test SELECT a, 1 FROM test2 WHERE b > 10 AND c = 1;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        Assertions.assertNotEquals(insertSelectDigest,
+                ((AuditDigestProvider) logicalPlanList.get(0).first).getAuditDigest().orElse(null));
+
+        // nested SELECT is part of the SELECT-only digest
+        sql = "INSERT INTO test SELECT a, 1 FROM (SELECT * FROM test2 WHERE b > 10) t;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        selectPlanList = nereidsParser.parseMultiple("SELECT a, 1 FROM (SELECT * FROM test2 WHERE b > 10) t;");
+        assertAuditDigestEquals(selectPlanList.get(0).first.toDigest(), logicalPlanList.get(0).first);
+
+        sql = "WITH cte AS (SELECT * FROM test2) INSERT INTO test SELECT * FROM cte;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        selectPlanList = nereidsParser.parseMultiple("WITH cte AS (SELECT * FROM test2) SELECT * FROM cte;");
+        assertAuditDigestEquals(selectPlanList.get(0).first.toDigest(), logicalPlanList.get(0).first);
+
+        sql = "INSERT INTO test WITH cte AS (SELECT * FROM test2) SELECT * FROM cte;";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertAuditDigestEquals(selectPlanList.get(0).first.toDigest(), logicalPlanList.get(0).first);
+
+        sql = "INSERT INTO test VALUES (1, 2);";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertNoAuditDigest(logicalPlanList.get(0).first);
     }
 }
