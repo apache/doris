@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -36,6 +38,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         // Create test table with inverted index
         createTable("CREATE TABLE test_search_table (\n"
@@ -160,7 +163,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
-    public void testSearchWithJoinRejected() {
+    public void testSearchWithJoinAllowed() {
         // Create second table for join test
         try {
             createTable("CREATE TABLE test_search_table2 (\n"
@@ -179,14 +182,10 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
                 + "JOIN test_search_table2 t2 ON t1.id = t2.id "
                 + "WHERE search('title:hello')";
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
-            PlanChecker.from(connectContext).analyze(sql);
-        });
-
-        Assertions.assertTrue(
-                exception.getMessage().contains("search()")
-                        && exception.getMessage().contains("single"),
-                "Expected error about single table, got: " + exception.getMessage());
+        PlanChecker.from(connectContext).analyze(sql).rewrite()
+                .matches(logicalFilter(logicalOlapScan())
+                        .when(filter -> filter.getExpressions().stream()
+                                .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression))));
     }
 
     @Test
@@ -280,6 +279,44 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
         Assertions.assertDoesNotThrow(() -> {
             PlanChecker.from(connectContext).analyze(sql);
         });
+    }
+
+    @Test
+    public void testSearchWithCteAndNotIn() {
+        String sql = "WITH eligible AS (SELECT id FROM test_search_table "
+                + "WHERE (search('title:hello') OR category = 'tech') "
+                + "AND id NOT IN (SELECT id FROM test_search_table WHERE category = 'excluded')) "
+                + "SELECT * FROM eligible";
+        for (int threshold : new int[] {0, 1}) {
+            connectContext.getSessionVariable().inlineCTEReferencedThreshold = threshold;
+            try {
+                PlanChecker.from(connectContext).analyze(sql).rewrite()
+                        .matches(logicalFilter(logicalOlapScan())
+                                .when(filter -> filter.getExpressions().stream()
+                                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression))))
+                        .nonMatch(any().when(plan -> plan.getExpressions().stream()
+                                .anyMatch(expr -> expr.anyMatch(e -> e instanceof Search))));
+            } finally {
+                connectContext.getSessionVariable().inlineCTEReferencedThreshold = 1;
+            }
+        }
+    }
+
+    @Test
+    public void testSearchCannotCrossLimit() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                PlanChecker.from(connectContext).analyze("SELECT * FROM "
+                        + "(SELECT * FROM test_search_table ORDER BY id LIMIT 2) t "
+                        + "WHERE search('title:hello')").rewrite());
+        Assertions.assertTrue(exception.getMessage().contains("search()"));
+    }
+
+    @Test
+    public void testAmbiguousSearchFieldRejected() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                PlanChecker.from(connectContext).analyze("SELECT t1.id FROM test_search_table t1 "
+                        + "JOIN test_search_table t2 ON t1.id = t2.id WHERE search('title:hello')"));
+        Assertions.assertTrue(exception.getMessage().contains("exactly one input column"));
     }
 
     @Test
