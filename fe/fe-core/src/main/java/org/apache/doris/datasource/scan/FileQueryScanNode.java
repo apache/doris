@@ -571,12 +571,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 || locationType == TFileType.FILE_HTTP)
                 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
-            if (locationType == TFileType.FILE_S3) {
-                // Typed native Azure access; BE prefers it over the S3-style keys in the map,
-                // which is what lets SAS and OAuth2 reach the BE Azure client.
-                AzureThriftAdapter.fromBackendProperties(locationProperties)
-                        .ifPresent(params::setAzureClientConfig);
-            }
+        }
+
+        // JNI scans may set properties before a split selects native IO. Bind typed Azure
+        // access independently of that map, once for the shared scan parameters.
+        if (locationType == TFileType.FILE_S3 && !params.isSetAzureClientConfig()) {
+            AzureThriftAdapter.fromBackendProperties(locationProperties)
+                    .ifPresent(params::setAzureClientConfig);
         }
 
         if (!params.isSetFileType()) {
