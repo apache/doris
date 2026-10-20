@@ -89,12 +89,13 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean); major 20 adds
-        // deleteUsingMetadata to the connector write surface.
+        // deleteUsingMetadata to the connector write surface and the scan task scheduler.
         Assertions.assertEquals("20.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            ConnectorTaskScheduler.class,
             DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorContext.class,
@@ -115,11 +116,12 @@ public class ConnectorPluginSurfaceTest {
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
-            org.apache.doris.extension.spi.PluginContext.class);
+            org.apache.doris.extension.spi.PluginContext.class,
+            org.apache.doris.connector.spi.scan.ConnectorSplitSource.class);
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class,
+            Arrays.asList(ConnectorCapability.class, ConnectorTaskScheduler.Stage.class,
                     org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
                     org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);

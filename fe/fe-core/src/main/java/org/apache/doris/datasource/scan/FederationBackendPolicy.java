@@ -329,8 +329,10 @@ public class FederationBackendPolicy {
                                 candidateNodes = candidateCount >= backends.size() ? backends
                                         : consistentHash.getNode(split, candidateCount);
                             } else {
-                                candidateNodes = consistentHash.getNode(
-                                        split, Config.split_assigner_min_consistent_hash_candidate_num);
+                                // The ring cannot find more candidates than eligible physical backends.
+                                candidateNodes = consistentHash.getNode(split,
+                                        Math.min(Config.split_assigner_min_consistent_hash_candidate_num,
+                                                backends.size()));
                             }
                         }
                         break;
@@ -378,6 +380,13 @@ public class FederationBackendPolicy {
      */
     private void equateDistribution(ListMultimap<Backend, Split> assignment) {
         if (assignment.isEmpty()) {
+            return;
+        }
+
+        // Small streaming batches usually keep the accumulated weights within the allowed variance.
+        // Avoid rebuilding both priority queues when their first comparison would already stop redistribution.
+        if (assignedWeightCounts.lastKey() - assignedWeightCounts.firstKey()
+                <= SplitWeight.rawValueForStandardSplitCount(Config.split_assigner_max_split_num_variance)) {
             return;
         }
 

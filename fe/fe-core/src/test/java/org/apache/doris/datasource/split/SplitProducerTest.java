@@ -18,10 +18,17 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -48,8 +55,164 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 class SplitProducerTest {
+    private ConnectorTaskScheduler scheduler(FairTaskExecutor.Group group) {
+        return new ConnectorTaskScheduler() {
+            @Override
+            public boolean tryExecute(Runnable task, java.util.function.Consumer<Throwable> onFailure,
+                    Runnable onSpace) {
+                return group.tryExecute(task, onFailure, onSpace);
+            }
+
+            @Override
+            public boolean tryExecuteContinuation(Runnable task, java.util.function.Consumer<Throwable> onFailure,
+                    Runnable onSpace) {
+                return group.tryExecuteContinuation(task, onFailure, onSpace);
+            }
+
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+                group.removeSpaceListener(onSpace);
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                group.execute(task);
+            }
+        };
+    }
+
+    @Test
+    void producersFillConfiguredBufferBeforeAnyBackendFetch() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0, 2, 4, 6, 8);
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        Assertions.assertEquals(3, fixture.assignment.getAssignedSplits(fixture.backend).size());
+        Assertions.assertEquals(0, fixture.completions.get());
+        SplitSource consumer = fixture.source();
+        List<Long> actual = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            actual.addAll(identities(consumer.getNextBatch(1)));
+            executor.runUntilIdle();
+        }
+        Assertions.assertEquals(Arrays.asList(0L, 2L, 4L, 6L, 8L), actual);
+        Assertions.assertTrue(consumer.getNextBatch(1).isEmpty());
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void queryCloseReleasesAProducerWaitingForTaskQueueCapacity() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        RecordingSource source = new RecordingSource(1, 0, 2, 4);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+            FairTaskExecutor.Group group = pool.newGroup(1);
+            group.execute(() -> {
+                entered.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            try {
+                Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+                group.execute(() -> { });
+                fixture.start(scheduler(group), source);
+                fixture.assignment.stop();
+                group.close();
+                Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+                Assertions.assertEquals(1, source.closeCalls.get());
+                Assertions.assertEquals(1, fixture.completions.get());
+            } finally {
+                release.countDown();
+                pool.close();
+                Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    void fairExecutorRetainsBackendBackpressureAndProducesEverySplitOnce() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        RecordingSource source = new RecordingSource(1, 0, 2, 4, 6, 8);
+        try (FairTaskExecutor pool = new FairTaskExecutor(2, Thread::new)) {
+            fixture.start(scheduler(pool.newGroup(1)), source);
+            Assertions.assertEquals(Arrays.asList(0L, 2L, 4L, 6L, 8L), drain(fixture.source(), 1));
+            Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, fixture.completions.get());
+            pool.close();
+            Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+        } finally {
+            fixture.assignment.stop();
+        }
+    }
+
+    @Test
+    void fairContinuationYieldsToAnotherQueryAndPreservesAllSplits() throws Exception {
+        Fixture first = new Fixture(1, 512);
+        Fixture second = new Fixture(1, 512);
+        long[] ids = new long[200];
+        List<Long> expected = new ArrayList<>();
+        for (int i = 0; i < ids.length; i++) {
+            ids[i] = i * 2L;
+            expected.add(ids[i]);
+        }
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RecordingSource firstSource = new RecordingSource(1, ids) {
+            boolean firstRead = true;
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                if (firstRead) {
+                    firstRead = false;
+                    started.countDown();
+                    try {
+                        Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException(e);
+                    }
+                }
+                return super.getNextBatch();
+            }
+        };
+        AtomicInteger firstReadsWhenSecondStarts = new AtomicInteger();
+        RecordingSource secondSource = new RecordingSource(1, 1000) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                firstReadsWhenSecondStarts.compareAndSet(0, firstSource.next);
+                return super.getNextBatch();
+            }
+        };
+        try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+            first.start(scheduler(pool.newGroup(1)), firstSource, () -> 0L);
+            try {
+                Assertions.assertTrue(started.await(5, TimeUnit.SECONDS));
+                second.start(scheduler(pool.newGroup(1)), secondSource);
+            } finally {
+                release.countDown();
+            }
+            Assertions.assertTrue(firstSource.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(secondSource.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(SplitProducer.MAX_BATCHES_PER_TASK, firstReadsWhenSecondStarts.get());
+            Assertions.assertEquals(expected, drain(first.source(), 1));
+            Assertions.assertEquals(Collections.singletonList(1000L), drain(second.source(), 1));
+            Assertions.assertEquals(1, firstSource.closeCalls.get());
+            Assertions.assertEquals(1, secondSource.closeCalls.get());
+        } finally {
+            first.assignment.stop();
+            second.assignment.stop();
+        }
+    }
+
     @Test
     void twoScansInitializeOnOneWorkerBeforeAnyConsumerStarts() throws Exception {
         Fixture first = new Fixture(1, 1);
@@ -188,6 +351,7 @@ class SplitProducerTest {
             Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
             Assertions.assertEquals(1, source.closeCalls.get());
             Assertions.assertEquals(1, fixture.completions.get());
+            Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
         } finally {
             release.countDown();
             executor.shutdownNow();
@@ -291,6 +455,70 @@ class SplitProducerTest {
         }
     }
 
+    @Test
+    void productiveTaskYieldsToAnotherQueryBeforeFinishing() throws Exception {
+        Fixture first = new Fixture(1, 1000);
+        Fixture second = new Fixture(1, 1000);
+        ManualExecutor executor = new ManualExecutor();
+        long[] ids = new long[200];
+        List<Long> expected = new ArrayList<>();
+        for (int i = 0; i < ids.length; i++) {
+            ids[i] = i * 2L;
+            expected.add(ids[i]);
+        }
+        RecordingSource source = new RecordingSource(1, ids);
+        first.start(executor, source, () -> 0L);
+        second.start(executor, new RecordingSource(1, 1000));
+        executor.runNext();
+        Assertions.assertEquals(SplitProducer.MAX_BATCHES_PER_TASK, source.next);
+        Assertions.assertEquals(0, first.completions.get());
+        executor.runNext();
+        Assertions.assertEquals(1, second.assignment.getAssignedSplits(second.backend).size());
+        executor.runUntilIdle();
+        Assertions.assertEquals(expected, drain(first.source(), 1));
+        Assertions.assertEquals(1, source.closeCalls.get());
+    }
+
+    @Test
+    void slowBatchYieldsEvenBeforeBatchBudgetIsExhausted() throws Exception {
+        Fixture fixture = new Fixture(1, 100);
+        ManualExecutor executor = new ManualExecutor();
+        AtomicLong clock = new AtomicLong();
+        RecordingSource source = new RecordingSource(1, 0, 2) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                clock.addAndGet(SplitProducer.MAX_TASK_NANOS);
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source, clock::get);
+        executor.runNext();
+        Assertions.assertEquals(1, source.next);
+        Assertions.assertEquals(1, executor.tasks.size());
+        fixture.assignment.stop();
+        executor.runUntilIdle();
+        Assertions.assertEquals(1, source.next);
+        Assertions.assertEquals(1, source.closeCalls.get());
+    }
+
+    @Test
+    void cancellationBetweenInlineBatchesStopsFurtherReads() throws Exception {
+        Fixture fixture = new Fixture(1, 100);
+        fixture.assignment = Mockito.spy(fixture.assignment);
+        Mockito.doAnswer(call -> {
+            boolean result = (boolean) call.callRealMethod();
+            fixture.assignment.stop();
+            return result;
+        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+        ManualExecutor executor = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0, 2, 4);
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        Assertions.assertEquals(1, source.next);
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
     private static List<Long> drain(SplitSource source, int batchSize) throws Exception {
         List<Long> result = new ArrayList<>();
         while (true) {
@@ -389,19 +617,27 @@ class SplitProducerTest {
             });
             assignment = new SplitAssignment(policy, generator, (be, properties, split, keys, admission) -> {
                 conversions.merge(split.getStart(), 1, Integer::sum);
-                return new TScanRangeLocations().setLocations(Collections.singletonList(
-                        new TScanRangeLocation().setBackendId(split.getStart())));
+                TFileScanRange range = new TFileScanRange().setParams(new TFileScanRangeParams())
+                        .setRanges(Collections.singletonList(new TFileRangeDesc()));
+                return new TScanRangeLocations().setScanRange(new TScanRange().setExtScanRange(
+                        new TExternalScanRange().setFileScanRange(range)))
+                        .setLocations(Collections.singletonList(
+                                new TScanRangeLocation().setBackendId(split.getStart())));
             }, Collections.emptyMap(), Collections.emptyList(), true, batchSize, queueCapacity);
         }
 
         void start(Executor executor, RecordingSource source) {
+            start(executor, source, System::nanoTime);
+        }
+
+        void start(Executor executor, RecordingSource source, LongSupplier nanoTime) {
             new SplitProducer(assignment, executor, source, failure -> {
                 if (failure != null) {
                     assignment.setException(new UserException(failure.getMessage(), failure));
                 }
                 completions.incrementAndGet();
                 assignment.finishSchedule();
-            }).start();
+            }, nanoTime).start();
         }
 
         SplitSource source() {
