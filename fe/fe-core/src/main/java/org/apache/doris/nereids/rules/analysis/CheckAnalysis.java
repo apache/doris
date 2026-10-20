@@ -135,7 +135,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
-                    CheckScoreUsage.checkScoreFilterContext(plan);
+                    CheckScoreUsage.checkScoreFilterContext(plan, ctx.statementContext);
                     return null;
                 })
             ),

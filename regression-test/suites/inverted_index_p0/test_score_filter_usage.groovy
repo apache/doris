@@ -175,6 +175,20 @@ suite("test_score_filter_usage", "p0") {
         """
         exception "score() filter must be in the WHERE clause of a query on one table"
     }
+    test {
+        sql """
+            WITH w AS (
+                SELECT id, row_number() OVER (ORDER BY id) AS rn FROM test_score_filter_usage
+                WHERE c1 MATCH 'apple'
+            ) SELECT * FROM w WHERE score() > 0.00001
+        """
+        exception "score() filter must be in the WHERE clause of a query on one table"
+    }
+    // A CTE over one scan keeps its rows, so the outer filter binds to that scan.
+    order_qt_cte_score_range """
+        WITH c AS (SELECT id, c1 FROM test_score_filter_usage WHERE c1 MATCH 'apple')
+        SELECT id FROM c WHERE score() > 0.00001
+    """
 
     // A projected MATCH must not add its BM25 score to the one the filter compares (0.4700036).
     order_qt_projected_match_above_score """

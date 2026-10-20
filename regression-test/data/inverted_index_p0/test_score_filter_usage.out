@@ -56,6 +56,10 @@
 1
 2
 
+-- !cte_score_range --
+1
+2
+
 -- !projected_match_above_score --
 
 -- !projected_match_score --

@@ -265,6 +265,15 @@ class CheckScoreUsageTest extends TestWithFeService {
         // PushDownFilterThroughGenerate keeps predicates without input slots above a lateral view.
         assertScoreUsageError("SELECT id, e FROM score_usage_V2 LATERAL VIEW explode(array(1, 2)) t AS e"
                 + " WHERE c1 MATCH 'apple' AND score() > 0.00001", error);
+        // The CTE is inlined after analysis, exposing the window to the outer filter.
+        assertScoreUsageError("WITH w AS (SELECT id, row_number() OVER (ORDER BY id) AS rn FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple') SELECT * FROM w WHERE score() > 0.00001", error);
+    }
+
+    @Test
+    void testScoreFilterOnCteOfOneScan() {
+        assertScoreRangeWithoutTopN("WITH c AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')"
+                + " SELECT id FROM c WHERE score() > 0.00001");
     }
 
     @Test

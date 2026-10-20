@@ -17,16 +17,20 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -41,11 +45,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Reject score() calls outside a supported scan scoring context.
@@ -66,46 +73,61 @@ public class CheckScoreUsage implements RewriteRuleFactory {
      * Fail a score() filter whose input combines or recomputes rows. score() has no input slot, so
      * predicate pushdown would treat it as a constant and move it below a window, an aggregation
      * or an inner join, changing the result or filtering another scan. Called after analysis,
-     * before any pushdown.
+     * before any pushdown or CTE inlining.
      */
-    public static void checkScoreFilterContext(Plan plan) {
+    public static void checkScoreFilterContext(Plan plan, StatementContext statementContext) {
         if (!(plan instanceof LogicalFilter || plan instanceof LogicalHaving || plan instanceof LogicalQualify)) {
             return;
         }
         if (plan.getExpressions().stream().noneMatch(expr -> expr.containsType(Score.class))) {
             return;
         }
-        if (!producesScanRows(plan.child(0))) {
+        if (!producesScanRows(plan.child(0), statementContext, new HashSet<>())) {
             throw new AnalysisException(SCORE_FILTER_CONTEXT_ERROR);
         }
     }
 
     // Whether every output row is a row of one scan, so that a filter above can move down to it.
     // Outer, semi and anti joins keep every row of one side.
-    private static boolean producesScanRows(Plan plan) {
+    private static boolean producesScanRows(Plan plan, StatementContext statementContext,
+            Set<CTEId> visitingCtes) {
+        if (plan instanceof LogicalCTEConsumer) {
+            // The producer decides the rows: a single-use CTE is inlined into its consumer later.
+            CTEId cteId = ((LogicalCTEConsumer) plan).getCteId();
+            LogicalCTEProducer<? extends Plan> producer = statementContext.getCteProducerByCteId(cteId);
+            Preconditions.checkState(producer != null, "CTE producer %s is not analyzed", cteId);
+            // A recursive CTE reads itself and has no single scan behind its rows.
+            if (!visitingCtes.add(cteId)) {
+                return false;
+            }
+            boolean result = producesScanRows(producer.child(), statementContext, visitingCtes);
+            visitingCtes.remove(cteId);
+            return result;
+        }
         if (plan instanceof LogicalRelation) {
             return true;
         }
         if (plan instanceof LogicalJoin) {
             JoinType joinType = ((LogicalJoin<?, ?>) plan).getJoinType();
             if (joinType.isLeftJoin()) {
-                return producesScanRows(plan.child(0));
+                return producesScanRows(plan.child(0), statementContext, visitingCtes);
             }
-            return joinType.isRightJoin() && producesScanRows(plan.child(1));
+            return joinType.isRightJoin() && producesScanRows(plan.child(1), statementContext, visitingCtes);
         }
         if (plan instanceof LogicalUnion) {
-            return plan.children().stream().allMatch(CheckScoreUsage::producesScanRows);
+            return plan.children().stream()
+                    .allMatch(child -> producesScanRows(child, statementContext, visitingCtes));
         }
         if (plan instanceof LogicalProject) {
             // Analysis keeps window functions in the project; they depend on the other rows.
             return ((LogicalProject<?>) plan).getProjects().stream()
                     .noneMatch(project -> project.containsType(WindowExpression.class))
-                    && producesScanRows(plan.child(0));
+                    && producesScanRows(plan.child(0), statementContext, visitingCtes);
         }
         if (plan instanceof LogicalFilter || plan instanceof LogicalSort || plan instanceof LogicalSubQueryAlias
                 || plan instanceof LogicalView || plan instanceof LogicalCheckPolicy
                 || plan instanceof LogicalSelectHint) {
-            return producesScanRows(plan.child(0));
+            return producesScanRows(plan.child(0), statementContext, visitingCtes);
         }
         return false;
     }
