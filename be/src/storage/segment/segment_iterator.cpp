@@ -405,7 +405,11 @@ Status SegmentIterator::_init_query_read_ahead() {
                 << "failed to initialize query read-ahead; use the original read path: " << status;
         return Status::OK();
     }
-    DORIS_CHECK(_segment_read_ahead != nullptr);
+    // Both enable switches are mutable. If one was disabled after the entry check,
+    // create_for_query() leaves the context empty and the original reader remains in use.
+    if (_segment_read_ahead == nullptr) {
+        return Status::OK();
+    }
     _column_read_ahead_context =
             std::make_unique<ColumnReadAheadContext>(_segment_read_ahead->column_context());
     return Status::OK();

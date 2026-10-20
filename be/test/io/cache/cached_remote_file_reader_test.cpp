@@ -400,6 +400,45 @@ TEST_F(AsyncCachedRemoteFileReaderTest, builds_consumed_range_writeback_context)
               CacheWriteMode::NO_WRITE);
 }
 
+TEST_F(AsyncCachedRemoteFileReaderTest, read_ahead_requires_async_cache_writes) {
+    const auto old_deploy_mode = config::deploy_mode;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    Defer restore {[&]() {
+        config::deploy_mode = old_deploy_mode;
+        config::enable_query_read_ahead = old_read_ahead;
+    }};
+    config::deploy_mode = "cloud";
+    config::enable_query_read_ahead = true;
+    config::enable_async_file_cache_write = false;
+    create_cache("read_ahead_requires_async_cache_writes");
+    ASSERT_FALSE(cache()->async_write_manager()->accepting());
+    ASSERT_FALSE(segment_v2::SegmentReadAhead::enabled());
+
+    auto source = std::make_shared<CountingFileReader>(open_remote_file());
+    auto reader = create_reader(source);
+    OlapReaderStatistics statistics;
+    StorageReadOptions read_options(statistics);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
+    ASSERT_TRUE(segment_v2::SegmentReadAhead::create_for_query(reader, ExecEnv::GetInstance(),
+                                                               nullptr, read_options, &read_ahead)
+                        .ok());
+    EXPECT_EQ(read_ahead, nullptr);
+
+    std::string data(16, '\0');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(1024, Slice(data), &bytes_read).ok());
+    EXPECT_EQ(data, std::string(16, '0'));
+    ASSERT_EQ(source->read_count(), 1);
+    ASSERT_TRUE(reader->read_at(1024, Slice(data), &bytes_read).ok());
+    EXPECT_EQ(source->read_count(), 1);
+
+    config::enable_async_file_cache_write = true;
+    EXPECT_TRUE(segment_v2::SegmentReadAhead::enabled());
+    config::enable_query_read_ahead = false;
+    EXPECT_FALSE(segment_v2::SegmentReadAhead::enabled());
+}
+
 TEST_F(AsyncCachedRemoteFileReaderTest, cached_read_ahead_does_not_submit_writeback) {
     create_cache("cached_read_ahead_no_writeback");
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
