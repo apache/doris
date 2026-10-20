@@ -171,6 +171,11 @@ public class HboScanDescriptor {
         return selectedIndexId == scan.getTable().getBaseIndexId() ? "" : String.valueOf(selectedIndexId);
     }
 
+    /** The identity of a relation from the alias a query gave it (empty when it has none). */
+    static String relationIdentityOf(String tableAlias) {
+        return escapeNamePart(tableAlias == null ? "" : tableAlias);
+    }
+
     /**
      * The alias the query gave the relation this scan reads, empty when it has none. The alias is what a
      * join predicate names when it is bound to one relation instance ({@code t AS x}), and the leaves of a
@@ -297,7 +302,16 @@ public class HboScanDescriptor {
      * reports that it cannot compare this scan instead of judging it stale.
      */
     public static HboScanDescriptor ofUnreadableState(TableIf table) {
-        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, "", UNKNOWN, UNKNOWN,
+        return ofUnreadableState(table, "");
+    }
+
+    /**
+     * A scan whose data state cannot be read (a file scan), with the alias the query gave its relation:
+     * the alias binds the predicates of the plan to the table they name, and an external scan has no
+     * other identity to do it with.
+     */
+    public static HboScanDescriptor ofUnreadableState(TableIf table, String relationIdentity) {
+        return new HboScanDescriptor(qualifiedNameOf(table), UNKNOWN, relationIdentity, UNKNOWN, UNKNOWN,
                 RowsKind.UNKNOWN, UNKNOWN, UNKNOWN, "", "", "");
     }
 

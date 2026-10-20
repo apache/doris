@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.OlapTable;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -52,6 +55,17 @@ public class HboScanDescriptorIdentityTest {
     private static HboScanDescriptor rollupDescriptor(String table, long indexId) {
         return new HboScanDescriptor(table, HboScanDescriptor.UNKNOWN, "", 3, 1000,
                 HboScanDescriptor.RowsKind.MEASURED, 2, 2, "", "", String.valueOf(indexId));
+    }
+
+    @Test
+    public void testTheAliasOfAnExternalScanIsPartOfItsIdentity() {
+        // an external scan has no data state to describe, so the alias which binds its predicates to the
+        // relation is the only identity it can name
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        HboScanDescriptor aliased = HboScanDescriptor.ofUnreadableState(table, "x");
+        Assertions.assertEquals("null.null.t#ra:x", aliased.getShapeIdentity());
+        Assertions.assertEquals("", HboScanDescriptor.ofUnreadableState(table).getRelationIdentity());
     }
 
     @Test

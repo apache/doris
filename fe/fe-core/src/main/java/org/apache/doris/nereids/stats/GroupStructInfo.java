@@ -1206,13 +1206,14 @@ public class GroupStructInfo {
         }
         if (plan instanceof LogicalFileScan) {
             LogicalFileScan fileScan = (LogicalFileScan) plan;
-            return fileScanNode(fileScan.getTable(), fileScan.getTableSnapshot().isPresent()
-                    || fileScan.getScanParams().isPresent() || fileScan.getTableSample().isPresent(), ctx);
+            return fileScanNode(fileScan.getTable(), HboScanDescriptor.relationIdentityOf(fileScan.getTableAlias()),
+                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent()
+                            || fileScan.getTableSample().isPresent(), ctx);
         }
         if (plan instanceof PhysicalFileScan) {
             PhysicalFileScan fileScan = (PhysicalFileScan) plan;
-            return fileScanNode(fileScan.getTable(), fileScan.getTableSnapshot().isPresent()
-                    || fileScan.getScanParams().isPresent(), ctx);
+            return fileScanNode(fileScan.getTable(), HboScanDescriptor.relationIdentityOf(fileScan.getTableAlias()),
+                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
             // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
@@ -1523,7 +1524,8 @@ public class GroupStructInfo {
      * explicit snapshot or a sampled part of one would share it although it holds different rows: such a
      * scan is not described until the selector is part of the identity.
      */
-    private static Node fileScanNode(TableIf table, boolean explicitlyVersioned, Ctx ctx) {
+    private static Node fileScanNode(TableIf table, String relationIdentity, boolean explicitlyVersioned,
+            Ctx ctx) {
         String name = HboScanDescriptor.qualifiedNameOf(table);
         if (name.indexOf(',') >= 0 || name.indexOf('}') >= 0) {
             // the token delimiters cannot appear in a table name: the printed struct info could not be
@@ -1533,7 +1535,7 @@ public class GroupStructInfo {
         if (explicitlyVersioned) {
             return invalidNode("selected file scan " + name, ctx);
         }
-        return scanRecord(Kind.FILE_SCAN, HboScanDescriptor.ofUnreadableState(table));
+        return scanRecord(Kind.FILE_SCAN, HboScanDescriptor.ofUnreadableState(table, relationIdentity));
     }
 
     /** Both scan kinds carry exactly one descriptor and nothing else. */
