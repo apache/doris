@@ -24,13 +24,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.NameMapping;
-import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HivePartition;
-import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -38,7 +35,6 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 
 import com.google.common.collect.ImmutableMap;
@@ -54,7 +50,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveScanNodeTest {
@@ -345,49 +340,6 @@ public class HiveScanNodeTest {
     }
 
     @Test
-    public void testTransactionalListingBypassesStatementCachePath() throws Exception {
-        ConnectContext previousContext = ConnectContext.get();
-        ConnectContext context = new ConnectContext();
-        StatementContext statementContext = new StatementContext(context, null);
-        context.setStatementContext(statementContext);
-        context.setThreadLocalInfo();
-        try {
-            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
-            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
-            Mockito.when(table.getCatalog()).thenReturn(catalog);
-            Mockito.when(catalog.bindBrokerName()).thenReturn("");
-            Mockito.when(catalog.getClient()).thenReturn(Mockito.mock(HMSCachedClient.class));
-            HiveScanNode node = createHiveScanNode(0, table);
-            HiveTransaction transaction = Mockito.mock(HiveTransaction.class);
-            Map<String, String> validWriteIds =
-                    Collections.singletonMap("db.table", "valid-write-ids");
-            Mockito.when(transaction.getValidWriteIds(Mockito.any())).thenReturn(validWriteIds);
-            Mockito.when(transaction.isFullAcid()).thenReturn(true);
-            Field transactionField = HiveScanNode.class.getDeclaredField("hiveTransaction");
-            transactionField.setAccessible(true);
-            transactionField.set(node, transaction);
-
-            HiveExternalMetaCache cache = Mockito.mock(HiveExternalMetaCache.class);
-            Mockito.when(cache.getFilesByTransaction(
-                    Collections.emptyList(), validWriteIds, true, null))
-                    .thenReturn(Collections.emptyList());
-
-            invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
-            invokeGetFileSplitByPartitions(node, cache, Collections.emptyList());
-
-            Mockito.verify(cache, Mockito.times(2)).getFilesByTransaction(
-                    Collections.emptyList(), validWriteIds, true, null);
-            Mockito.verifyNoMoreInteractions(cache);
-        } finally {
-            statementContext.close();
-            ConnectContext.remove();
-            if (previousContext != null) {
-                previousContext.setThreadLocalInfo();
-            }
-        }
-    }
-
-    @Test
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
         SessionVariable sv = new SessionVariable();
         sv.setMaxFileSplitNum(100);
@@ -487,20 +439,6 @@ public class HiveScanNodeTest {
         method.setAccessible(true);
         long target = (long) method.invoke(node, Collections.singletonList(fileCacheValue), false);
         Assert.assertEquals(512 * MB, target);
-
-        Mockito.when(table.isHiveTransactionalTable()).thenReturn(true);
-        target = (long) method.invoke(node, Collections.singletonList(fileCacheValue), false);
-        Assert.assertEquals(31 * MB, target);
-    }
-
-    @Test
-    public void testMarkTransactionalHiveScanParams() {
-        TFileScanRangeParams scanParams = new TFileScanRangeParams();
-        HiveScanNode.markTransactionalHiveScanParams(scanParams);
-
-        Assert.assertTrue(scanParams.isSetTableFormatParams());
-        Assert.assertEquals(TableFormatType.TRANSACTIONAL_HIVE.value(),
-                scanParams.getTableFormatParams().getTableFormatType());
     }
 
     @Test
@@ -547,9 +485,9 @@ public class HiveScanNodeTest {
             boolean isBatchMode) throws Exception {
         Method method = HiveScanNode.class.getDeclaredMethod(
                 "getFileSplitByPartitions", HiveExternalMetaCache.class, List.class,
-                List.class, String.class, int.class, boolean.class);
+                List.class, int.class, boolean.class);
         method.setAccessible(true);
-        method.invoke(node, cache, partitions, new ArrayList<>(), null, 1, isBatchMode);
+        method.invoke(node, cache, partitions, new ArrayList<>(), 1, isBatchMode);
     }
 
     private Object newHiveFileScanTaskCacheKey(

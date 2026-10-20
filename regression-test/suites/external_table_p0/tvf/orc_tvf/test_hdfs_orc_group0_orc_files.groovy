@@ -215,12 +215,6 @@ suite("test_hdfs_orc_group0_orc_files","external,hive,tvf,external_docker") {
                         "format" = "orc") order by _col0 limit 100; """
 
 
-            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/acid5k.orc"
-            order_qt_test_32 """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc") order by rowid limit 100; """
-
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/orc_index_int_string.orc"
             order_qt_test_34 """ select * from HDFS(
                         "uri" = "${uri}",

@@ -129,7 +129,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
     public static final Set<String> SUPPORTED_HIVE_TOPN_LAZY_FILE_FORMATS;
 
-    public static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
     public static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
 
     private static final Map<StatsType, String> MAP_SPARK_STATS_TO_DORIS;
@@ -159,9 +158,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // So add to SUPPORTED_HIVE_FILE_FORMATS and treat is as a hive table.
         // Then Doris will just list the files from location and read parquet files directly.
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
-
-        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
-        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
 
         SUPPORTED_HIVE_TOPN_LAZY_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_TOPN_LAZY_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
@@ -317,6 +313,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
+        // Reading ACID directories as ordinary files can expose deleted or uncommitted rows.
+        if (AcidUtils.isTransactionalTable(remoteTable)) {
+            throw new NotSupportedException("Hive transactional table reads are no longer supported");
+        }
         // we will return false if null, which means that the table type maybe unsupported.
         if (remoteTable.getSd() == null) {
             throw new NotSupportedException("remote table's storage descriptor is null");
@@ -522,23 +522,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public boolean isHiveTransactionalTable() {
         return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
-    }
-
-    private boolean isSupportedFullAcidTransactionalFileFormat() {
-        // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
-        // So we need to check the input format for transactional table.
-        String inputFormatName = remoteTable.getSd().getInputFormat();
-        return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
-    }
-
-    public boolean isFullAcidTable() throws UserException {
-        if (dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable)) {
-            if (!isSupportedFullAcidTransactionalFileFormat()) {
-                throw new UserException("This table is full Acid Table, but no Orc Format.");
-            }
-            return true;
-        }
-        return false;
     }
 
     @Override

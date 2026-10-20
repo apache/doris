@@ -28,9 +28,6 @@ under the License.
         <module>jdbc-scanner</module>
         <module>paimon-connector</module>
         <module>max-compute-connector</module>
-        <module>avro-scanner</module>
-        <!-- lakesoul-scanner module has been deprecated -->
-        <!-- <module>lakesoul-scanner</module> -->
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>

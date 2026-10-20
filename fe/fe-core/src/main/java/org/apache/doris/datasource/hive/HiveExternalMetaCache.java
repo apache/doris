@@ -29,8 +29,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
@@ -987,42 +985,6 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         partitionValuesEntry.get(key.getNameMapping().getCtlId()).put(key, values);
     }
 
-    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions,
-            Map<String, String> txnValidIds,
-            boolean isFullAcid,
-            String bindBrokerName) {
-        List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        try {
-            if (partitions.isEmpty()) {
-                return fileCacheValues;
-            }
-            for (HivePartition partition : partitions) {
-                HMSExternalCatalog catalog = hmsCatalog(partition.getNameMapping().getCtlId());
-                LocationPath locationPath = LocationPath.of(partition.getPath(),
-                        catalog.getCatalogProperty().getStoragePropertiesMap());
-                RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                        .getRemoteFileSystem(new FileSystemCache.FileSystemCacheKey(
-                                locationPath.getNormalizedLocation(),
-                                locationPath.getStorageProperties()));
-                AuthenticationConfig authenticationConfig = AuthenticationConfig
-                        .getKerberosConfig(locationPath.getStorageProperties().getBackendConfigProperties());
-                HadoopAuthenticator hadoopAuthenticator =
-                        HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
-
-                fileCacheValues.add(
-                        hadoopAuthenticator.doAs(() -> AcidUtil.getAcidState(
-                                fileSystem,
-                                partition,
-                                txnValidIds,
-                                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                                isFullAcid)));
-            }
-        } catch (Exception e) {
-            throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());
-        }
-        return fileCacheValues;
-    }
-
     /**
      * The key of hive partition values cache.
      */
@@ -1177,7 +1139,6 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private long cacheGeneration;
         private boolean isSplittable;
         protected List<String> partitionValues;
-        private AcidInfo acidInfo;
 
         public void addFile(RemoteFile file, LocationPath locationPath) {
             if (isFileVisible(file.getPath())) {
@@ -1229,7 +1190,6 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         long modificationTime;
         boolean splittable;
         List<String> partitionValues;
-        AcidInfo acidInfo;
     }
 
     @Getter

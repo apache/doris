@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
@@ -85,15 +84,6 @@ public interface HMSCachedClient {
     NotificationEventResponse getNextNotification(long lastEventId,
             int maxEvents,
             IMetaStoreClient.NotificationFilter filter) throws MetastoreNotificationFetchException;
-
-    long openTxn(String user);
-
-    void commitTxn(long txnId);
-
-    Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId);
-
-    void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
-            List<String> partitionNames, long timeoutMs);
 
     String getCatalogLocation(String catalogName);
 

@@ -395,6 +395,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
 
 Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
                                            const TFileRangeDesc& range) {
+    RETURN_IF_ERROR(validate_file_scan_support(params, &range));
     if (!is_supported(params, range)) {
         return Status::NotSupported(
                 "FileScannerV2 does not support table format {} with file format {}",

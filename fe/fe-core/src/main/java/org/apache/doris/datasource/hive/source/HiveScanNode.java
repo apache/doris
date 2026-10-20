@@ -28,24 +28,18 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.hive.AcidInfo;
-import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
-import org.apache.doris.datasource.hive.HiveTransaction;
-import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.StatementContext;
@@ -60,11 +54,8 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
-import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -93,7 +84,6 @@ public class HiveScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
     protected final HMSExternalTable hmsTable;
-    private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
     protected SelectedPartitions selectedPartitions = null;
@@ -105,8 +95,6 @@ public class HiveScanNode extends FileQueryScanNode {
     private List<HivePartition> prunedPartitions;
     private final Semaphore splittersOnFlight = new Semaphore(NUM_SPLITTERS_ON_FLIGHT);
     private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
-
-    private boolean skipCheckingAcidVersionFile = false;
 
     /**
      * * External file scan node for Query Hive table
@@ -136,23 +124,10 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected void doInitialize() throws UserException {
-        super.doInitialize();
-
         if (hmsTable.isHiveTransactionalTable()) {
-            markTransactionalHiveScanParams(params);
-            this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
-                    ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
-            Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
-            skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
+            throw new UserException("Hive transactional table reads are no longer supported");
         }
-    }
-
-    static void markTransactionalHiveScanParams(TFileScanRangeParams scanParams) {
-        // BE selects the scanner before remote batch splits are fetched, so expose the table format
-        // in scan-level params as well as in each range.
-        TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
-        tableFormatParams.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE.value());
-        scanParams.setTableFormatParams(tableFormatParams);
+        super.doInitialize();
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
@@ -213,9 +188,8 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .hive(hmsTable.getCatalog().getId());
-            String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends, false);
+            getFileSplitByPartitions(cache, prunedPartitions, allFiles, numBackends, false);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
             }
@@ -242,7 +216,6 @@ public class HiveScanNode extends FileQueryScanNode {
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(hmsTable.getCatalog().getId());
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
         long startTime = System.currentTimeMillis();
         CompletableFuture.runAsync(() -> {
@@ -256,7 +229,7 @@ public class HiveScanNode extends FileQueryScanNode {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
                             getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName,
+                                    cache, Collections.singletonList(partition), allFiles,
                                     numBackends, true);
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
@@ -312,45 +285,34 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void getFileSplitByPartitions(HiveExternalMetaCache cache, List<HivePartition> partitions,
-            List<Split> allFiles, String bindBrokerName, int numBackends,
+            List<Split> allFiles, int numBackends,
             boolean isBatchMode) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         long startTime = System.currentTimeMillis();
-        if (hiveTransaction != null) {
-            try {
-                fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
-            } catch (Exception e) {
-                // Release shared load (getValidWriteIds acquire Lock).
-                // If no exception is throw, the lock will be released when `finalizeQuery()`.
-                Env.getCurrentHiveTransactionMgr().deregister(hiveTransaction.getQueryId());
-                throw e;
-            }
+        boolean withCache = Config.max_external_file_cache_num > 0;
+        if (isBatchMode || !withCache) {
+            // Batch mode bounds FE memory by retaining only the partitions currently in flight.
+            // Keeping every completed partition in the statement cache would materialize the
+            // full scan again and defeat that bound. When the global file cache is disabled,
+            // statement retention must not become an uncapped replacement for that memory fence.
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
+                    directoryLister, hmsTable);
         } else {
-            boolean withCache = Config.max_external_file_cache_num > 0;
-            if (isBatchMode || !withCache) {
-                // Batch mode bounds FE memory by retaining only the partitions currently in flight.
-                // Keeping every completed partition in the statement cache would materialize the
-                // full scan again and defeat that bound. When the global file cache is disabled,
-                // statement retention must not become an uncapped replacement for that memory fence.
-                fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
-                        directoryLister, hmsTable);
-            } else {
-                List<FileCacheValue> currentFileCaches = cache.getFilesByPartitions(partitions, true,
-                        partitions.size() > 1, directoryLister, hmsTable);
-                HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
-                        hmsTable.getCatalog().getId(), hmsTable.getId(), partitions,
-                        cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()), currentFileCaches);
-                try {
-                    fileCaches = getOrLoadExternalScanTasks(cacheKey,
-                            ignored -> currentFileCaches,
-                            this::retainedHiveFileCount,
-                            StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
-                            maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
-                } catch (IOException | UserException e) {
-                    throw e;
-                } catch (Exception e) {
-                    throw new IOException("Failed to list Hive files", e);
-                }
+            List<FileCacheValue> currentFileCaches = cache.getFilesByPartitions(partitions, true,
+                    partitions.size() > 1, directoryLister, hmsTable);
+            HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
+                    hmsTable.getCatalog().getId(), hmsTable.getId(), partitions,
+                    cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()), currentFileCaches);
+            try {
+                fileCaches = getOrLoadExternalScanTasks(cacheKey,
+                        ignored -> currentFileCaches,
+                        this::retainedHiveFileCount,
+                        StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
+                        maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
+            } catch (IOException | UserException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException("Failed to list Hive files", e);
             }
         }
         if (!isBatchMode && getSummaryProfile() != null) {
@@ -369,12 +331,10 @@ public class HiveScanNode extends FileQueryScanNode {
          * we don't need to split the file because for parquet/orc format, only metadata is read.
          * If we split the file, we will read metadata of a file multiple times, which is not efficient.
          *
-         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
-        if (isTableLevelCountStarPushdown()
-                && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
+        if (isTableLevelCountStarPushdown()) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {
@@ -400,7 +360,7 @@ public class HiveScanNode extends FileQueryScanNode {
                         status.getModificationTime(),
                         isSplittable && needSplit,
                         fileCacheValue.getPartitionValues(),
-                        new HiveSplitCreator(fileCacheValue.getAcidInfo())));
+                        FileSplit.FileSplitCreator.DEFAULT));
             }
         }
     }
@@ -446,7 +406,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     ? sessionVariable.getMaxSplitSize() : sessionVariable.getMaxInitialSplitSize();
             fallbackSize = applyMaxFileSplitNumLimit(fallbackSize, totalFileSize);
         }
-        boolean supportsBeSplit = !hmsTable.isHiveTransactionalTable() && !isTableLevelCountStarPushdown();
+        boolean supportsBeSplit = !isTableLevelCountStarPushdown();
         return selectFeSplitSizeForBe(fallbackSize, getFileFormatType(), supportsBeSplit);
     }
 
@@ -462,7 +422,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     status.getModificationTime(),
                     status.isSplittable(),
                     status.getPartitionValues(),
-                    new HiveSplitCreator(status.getAcidInfo())));
+                    FileSplit.FileSplitCreator.DEFAULT));
         }
     }
 
@@ -511,7 +471,6 @@ public class HiveScanNode extends FileQueryScanNode {
         copy.setModificationTime(file.getModificationTime());
         copy.setSplittable(cacheValue.isSplittable());
         copy.setPartitionValues(cacheValue.getPartitionValues());
-        copy.setAcidInfo(cacheValue.getAcidInfo());
         return copy;
     }
 
@@ -591,21 +550,6 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
-    private List<FileCacheValue> getFileSplitByTransaction(HiveExternalMetaCache cache, List<HivePartition> partitions,
-                                                           String bindBrokerName) {
-        for (HivePartition partition : partitions) {
-            if (partition.getPartitionValues() == null || partition.getPartitionValues().isEmpty()) {
-                // this is unpartitioned table.
-                continue;
-            }
-            hiveTransaction.addPartition(partition.getPartitionName(hmsTable.getPartitionColumns()));
-        }
-        Map<String, String> txnValidIds = hiveTransaction.getValidWriteIds(
-                ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-
-        return cache.getFilesByTransaction(partitions, txnValidIds, hiveTransaction.isFullAcid(), bindBrokerName);
-    }
-
     @Override
     public List<String> getPathPartitionKeys() {
         return hmsTable.getRemoteTable().getPartitionKeys().stream()
@@ -625,64 +569,10 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
-        if (split instanceof  HiveSplit) {
-            HiveSplit hiveSplit = (HiveSplit) split;
-            if (hiveSplit.isACID()) {
-                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
-                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
-                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
-                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
-                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
-                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
-                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
-                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
-                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
-                    deleteDeltaDescs.add(deleteDeltaDesc);
-                }
-                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
-                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
-                tableFormatFileDesc.setTableLevelRowCount(-1);
-                rangeDesc.setTableFormatParams(tableFormatFileDesc);
-            } else {
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
-                tableFormatFileDesc.setTableLevelRowCount(-1);
-                rangeDesc.setTableFormatParams(tableFormatFileDesc);
-            }
-        }
-    }
-
-    @Override
-    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
-        List<String> deleteFiles = new ArrayList<>();
-        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
-            return deleteFiles;
-        }
-        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
-        if (tableFormatParams == null || !tableFormatParams.isSetTransactionalHiveParams()) {
-            return deleteFiles;
-        }
-        TTransactionalHiveDesc hiveParams = tableFormatParams.getTransactionalHiveParams();
-        if (hiveParams == null || !hiveParams.isSetDeleteDeltas()) {
-            return deleteFiles;
-        }
-        List<TTransactionalHiveDeleteDeltaDesc> deleteDeltas = hiveParams.getDeleteDeltas();
-        if (deleteDeltas == null) {
-            return deleteFiles;
-        }
-        // Format: {directory_location}/{file_name}
-        for (TTransactionalHiveDeleteDeltaDesc deleteDelta : deleteDeltas) {
-            if (deleteDelta != null && deleteDelta.isSetDirectoryLocation()
-                    && deleteDelta.isSetFileNames() && deleteDelta.getFileNames() != null) {
-                String directoryLocation = deleteDelta.getDirectoryLocation();
-                for (String fileName : deleteDelta.getFileNames()) {
-                    deleteFiles.add(directoryLocation + "/" + fileName);
-                }
-            }
-        }
-        return deleteFiles;
+        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+        tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
+        tableFormatFileDesc.setTableLevelRowCount(-1);
+        rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
     @Override

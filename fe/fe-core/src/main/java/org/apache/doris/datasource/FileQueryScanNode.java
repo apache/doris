@@ -38,7 +38,6 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -572,15 +571,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
         // Otherwise, use the values in file path.
-        boolean isACID = false;
-        if (fileSplit instanceof HiveSplit) {
-            HiveSplit hiveSplit = (HiveSplit) fileSplit;
-            isACID = hiveSplit.isACID();
-        }
         BrokerUtil.ParsedColumnsFromPath partitionValues =
                 fileSplit.getPartitionValues() == null
                         ? BrokerUtil.parseColumnsFromPathWithNullInfo(
-                                fileSplit.getPathString(), pathPartitionKeys, false, isACID)
+                                fileSplit.getPathString(), pathPartitionKeys, false)
                         : BrokerUtil.normalizeColumnsFromPath(fileSplit.getPartitionValues());
 
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValues.getValues(),
@@ -644,10 +638,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         if (rangeDesc.getTableFormatParams().isSetTableLevelRowCount()
                 && rangeDesc.getTableFormatParams().getTableLevelRowCount() >= 0) {
-            return false;
-        }
-        if (TableFormatType.TRANSACTIONAL_HIVE.value().equals(
-                rangeDesc.getTableFormatParams().getTableFormatType())) {
             return false;
         }
         return !rangeDesc.getTableFormatParams().isSetIcebergParams()

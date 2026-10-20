@@ -803,7 +803,6 @@ TFileRangeDesc RowIdStorageReader::build_external_fetch_range(const TFileRangeDe
     // needed by virtual columns, and do not mutate the FileMapping shared by other fetches.
     auto range = source_range;
     range.table_format_params.iceberg_params.__set_delete_files({});
-    range.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
     return range;
 }
 

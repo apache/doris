@@ -164,21 +164,15 @@ public class BrokerUtilTest {
         BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
                 "hdfs://host/table/Region=cn/Dt=" + HiveExternalMetaCache.HIVE_DEFAULT_PARTITION
                         + "/data.parquet",
-                partitionKeys, false, false);
+                partitionKeys, false);
 
         Assert.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
         Assert.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
         Assert.assertEquals(Lists.newArrayList("region", "dt"), partitionKeys);
 
         parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
-                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true);
         Assert.assertEquals(Collections.singletonList("\\N"), parsed.getValues());
-        Assert.assertEquals(Collections.singletonList(false), parsed.getIsNull());
-
-        parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
-                "hdfs://host/table/p=value/delta_1_1/bucket_00000",
-                Collections.singletonList("p"), true, true);
-        Assert.assertEquals(Collections.singletonList("value"), parsed.getValues());
         Assert.assertEquals(Collections.singletonList(false), parsed.getIsNull());
     }
 
@@ -195,7 +189,7 @@ public class BrokerUtilTest {
     @Test
     public void parseColumnsFromPathForLoadKeepsLegacyNullSemantics() throws Exception {
         BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.parseColumnsFromPathWithNullInfoForLoad(
-                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true);
 
         Assert.assertEquals(Collections.singletonList(""), parsed.getValues());
         Assert.assertEquals(Collections.singletonList(true), parsed.getIsNull());

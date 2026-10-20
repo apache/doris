@@ -91,7 +91,7 @@ Status HiveOrcReader::init_reader(
     const auto& column_ids = column_id_result.column_ids;
     const auto& filter_column_ids = column_id_result.filter_column_ids;
 
-    return orc_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts, false,
+    return orc_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts,
                                    tuple_descriptor, row_descriptor,
                                    not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
                                    table_info_node_ptr, column_ids, filter_column_ids);

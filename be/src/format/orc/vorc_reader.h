@@ -43,7 +43,6 @@
 #include "format/format_common.h"
 #include "format/generic_reader.h"
 #include "format/table/table_format_reader.h"
-#include "format/table/transactional_hive_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -166,8 +165,8 @@ public:
     Status init_reader(
             const std::vector<std::string>* column_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, bool is_acid,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
@@ -204,10 +203,6 @@ public:
         _position_delete_ordered_rowids = delete_rows;
     }
 
-    void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
-        _delete_rows = delete_rows;
-    }
-
     Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
 
     Status fill_dict_filter_column_names(
@@ -241,7 +236,6 @@ public:
         }
         return true;
     }
-    static const orc::Type& remove_acid(const orc::Type& type);
 
     bool count_read_rows() override { return true; }
 
@@ -324,8 +318,6 @@ private:
     void _init_profile();
     Status _init_read_columns();
 
-    static bool _check_acid_schema(const orc::Type& type);
-
     // functions for building search argument until _init_search_argument
     std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
             const VSlotRef* slot_ref, const VLiteral* literal);
@@ -350,7 +342,6 @@ private:
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
-    void _build_delete_row_filter(const Block* block, size_t rows);
     Status _get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
     Status _fill_partition_columns(
             Block* block, uint64_t rows,
@@ -736,11 +727,8 @@ private:
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
-    bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;
-    const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
-    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
 
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;

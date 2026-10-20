@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner_context.h"
@@ -145,9 +146,6 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
-    const bool is_transactional_hive =
-            scan_params.__isset.table_format_params &&
-            scan_params.table_format_params.table_format_type == "transactional_hive";
     // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
     // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
     const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
@@ -167,7 +165,7 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     // after scanner construction. Keep versioned Iceberg scans on V2 without eagerly listing
     // every file.
     return scanner_v2_requested && !is_load &&
-           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP && !is_transactional_hive;
+           scan_params.format_type != TFileFormatType::FORMAT_ES_HTTP;
 }
 
 bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& query_options,
@@ -224,6 +222,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     } else {
         scan_params = _split_source->get_params();
     }
+    RETURN_IF_ERROR(validate_file_scan_support(*scan_params));
     const bool is_load =
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.

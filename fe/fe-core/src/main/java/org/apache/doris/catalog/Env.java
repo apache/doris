@@ -106,7 +106,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsRepository;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
@@ -560,8 +559,6 @@ public class Env {
 
     private FollowerColumnSender followerColumnSender;
 
-    private HiveTransactionMgr hiveTransactionMgr;
-
     private TopicPublisherThread topicPublisherThread;
 
     private WorkloadGroupChecker workloadGroupCheckerThread;
@@ -844,7 +841,6 @@ public class Env {
         this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.admissionControl = new AdmissionControl(systemInfo);
         this.queryStats = new QueryStats();
-        this.hiveTransactionMgr = new HiveTransactionMgr();
         this.plsqlManager = new PlsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
@@ -1079,14 +1075,6 @@ public class Env {
     // For unit test only
     public Checkpoint getCheckpointer() {
         return checkpointer;
-    }
-
-    public HiveTransactionMgr getHiveTransactionMgr() {
-        return hiveTransactionMgr;
-    }
-
-    public static HiveTransactionMgr getCurrentHiveTransactionMgr() {
-        return getCurrentEnv().getHiveTransactionMgr();
     }
 
     public DNSCache getDnsCache() {
