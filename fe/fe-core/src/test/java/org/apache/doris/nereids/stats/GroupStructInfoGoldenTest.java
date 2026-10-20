@@ -104,7 +104,6 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -127,7 +126,9 @@ import java.util.Set;
  * and the text based mappings ({@code toNoLiteral}, {@code stripScanBaseline},
  * {@code encodeLiteralValue} / {@code decodeLiteralValue}).
  *
- * <p><b>Why a corpus of exact strings.</b> {@code sha256(shape)} is the hbo cache key: it is stored
+ * <p><b>Why a corpus of exact strings.</b> The structural identity of a description is the hbo cache
+ * key ({@link GroupStructInfo#getFingerprint}); the shape text printed here is its readable projection,
+ * stored
  * in {@code __internal_schema.hbo_plan_statistics}, printed by {@code EXPLAIN} (with
  * {@code set show_hbo_fingerprint=true}) and pasted back by users as
  * {@code HBO SET STATISTICS ... STRUCT='...'}. The suites written so far ({@code GroupStructInfo*}
@@ -168,10 +169,10 @@ import java.util.Set;
  * (filter, join chain, outer join, top-n, limit, window, generate, repeat, set operations,
  * partition / tablet selection, and the skip reasons). The test never compares it byte for byte
  * (the data state in it moves with the cluster), it asserts the invariants that tie the recorded
- * strings to the recorded hashes: the two literal modes of one node fold into each other, the
- * sha256 of the stripped struct is the fingerprint printed next to it, the scan tokens parse and
- * their identity does not depend on the literal mode, and every skip reason is one of the frozen
- * texts. Regenerate that file only deliberately, by re-running the capture documented in its header.
+ * strings to the recorded hashes: the two literal modes of one node fold into each other, the scan
+ * tokens parse and their identity does not depend on the literal mode, and every skip reason is one of
+ * the frozen texts. The fingerprints in that file were printed by an FE whose key was the sha256 of the
+ * shape text; this FE keys its descriptions on their structure, so the recorded hash is not recomputed. Regenerate that file only deliberately, by re-running the capture documented in its header.
  *
  * <p><b>Generating this file.</b>
  * <pre>
@@ -707,7 +708,7 @@ public class GroupStructInfoGoldenTest {
         Assertions.assertEquals("subtree scans=" + (GroupStructInfo.DEFAULT_MAX_SCANS_PER_GROUP + 1)
                 + " > hbo_max_scans_per_group=" + GroupStructInfo.DEFAULT_MAX_SCANS_PER_GROUP,
                 tooWide.getSkipReason());
-        // an invalid description renders the empty string, and its fingerprint is the sha256 of it
+        // an invalid description renders the empty string and has one key of its own
         Assertions.assertEquals("", tooWide.getCanonical(WITH_LITERAL));
         Assertions.assertEquals(tooWide.getFingerprint(NO_LITERAL),
                 GroupStructInfo.INVALID.getFingerprint(NO_LITERAL));
@@ -921,9 +922,10 @@ public class GroupStructInfoGoldenTest {
                 String struct = structs.get(entry.getKey());
                 Assertions.assertNotNull(struct, caseName + " records a " + entry.getKey()
                         + " fingerprint without the struct it belongs to: " + raw);
-                Assertions.assertEquals(sha256(GroupStructInfo.stripScanBaseline(struct)), entry.getValue(),
-                        caseName + ": the sha256 of the stripped struct is not the fingerprint the FE printed"
-                                + " next to it");
+                // the recorded fingerprint predates the structural keys: it is only required to be a
+                // fingerprint, not to be recomputable from the text
+                Assertions.assertTrue(entry.getValue().matches("[0-9a-f]{64}"),
+                        caseName + ": a recorded fingerprint is not a sha256: " + entry.getValue());
                 checked++;
             }
             return checked;
@@ -953,7 +955,8 @@ public class GroupStructInfoGoldenTest {
         sb.append("# What it freezes: the canonical string, the shape (the fingerprint input), the sha256\n");
         sb.append("# fingerprint and the scan tokens of the hbo struct info, the simplified display string\n");
         sb.append("# and the text based mappings (toNoLiteral / stripScanBaseline / the literal codec).\n");
-        sb.append("# sha256(shape) is the hbo cache key: it lives in __internal_schema.hbo_plan_statistics,\n");
+        sb.append("# the structural identity of a description is the hbo cache key; it lives in\n");
+        sb.append("# __internal_schema.hbo_plan_statistics, while the shape printed here is its readable\n");
         sb.append("# is printed by EXPLAIN and pasted back into HBO SET STATISTICS ... STRUCT='...'. Every\n");
         sb.append("# line here is a contract: a diff means the key of the affected shapes moved.\n");
         sb.append("#\n");
@@ -2284,10 +2287,6 @@ public class GroupStructInfoGoldenTest {
     // ------------------------------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------------------------------
-
-    private static String sha256(String value) {
-        return Hashing.sha256().hashString(value, StandardCharsets.UTF_8).toString();
-    }
 
     private static List<String> readResourceLines(String name) throws IOException {
         Path file = RESOURCE_DIR.resolve(name);

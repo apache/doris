@@ -85,6 +85,10 @@ import com.google.common.hash.Hashing;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -95,6 +99,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -401,14 +406,21 @@ public class GroupStructInfo {
         return materialized;
     }
 
-    /** The sha256 of {@link #getShape(LiteralMode)}: the key an hbo entry is registered under. */
+    /**
+     * The sha256 of {@link #shapeKey(LiteralMode)}: the key an hbo entry is registered under.
+     *
+     * <p>The preimage is the structural form of this description, not the canonical string: every field
+     * is written with its length, so a table name, an alias or a literal which contains a character of
+     * the printed grammar cannot change which field it belongs to. The canonical string is the readable
+     * projection of the same tree ({@link #getCanonical}), and a pasted struct info is never hashed.
+     */
     public String getFingerprint(LiteralMode mode) {
         boolean noLiteral = mode == LiteralMode.NO_LITERAL;
         String materialized = noLiteral ? fingerprintNoLiteral : fingerprintWithLiteral;
         if (materialized != null) {
             return materialized;
         }
-        materialized = sha256(getShape(mode));
+        materialized = sha256(shapeKey(mode));
         if (noLiteral) {
             fingerprintNoLiteral = materialized;
         } else {
@@ -417,8 +429,190 @@ public class GroupStructInfo {
         return materialized;
     }
 
-    private static String sha256(String value) {
-        return Hashing.sha256().hashString(value, StandardCharsets.UTF_8).toString();
+    private static String sha256(byte[] value) {
+        return Hashing.sha256().hashBytes(value).toString();
+    }
+
+    /** The structural identity of this description in one literal mode (see {@link #getFingerprint}). */
+    private byte[] shapeKey(LiteralMode mode) {
+        ShapeKeyWriter out = new ShapeKeyWriter();
+        if (root == null) {
+            // an invalid description has no tree: its key is a marker of its own
+            out.tag(-1);
+            return out.toByteArray();
+        }
+        out.tag(0);
+        appendShapeKey(out, root, mode);
+        return out.toByteArray();
+    }
+
+    /**
+     * Write one node of the structural identity: the kind, the fields the canonical string prints for it
+     * (each as one length prefixed text) and the children. A field is never split by the text of another
+     * one, which the printed grammar cannot promise for a value which carries its characters.
+     */
+    private static void appendShapeKey(ShapeKeyWriter out, Node node, LiteralMode mode) {
+        if (node.kind == Kind.PASSTHROUGH && node.children.size() == 1) {
+            // a node which only composes its child renders no text of its own, so a plan which keeps such
+            // a node and the same plan with it inlined are one description: the identity must not name
+            // the node, otherwise the two forms of one plan would be keyed apart
+            appendShapeKey(out, node.children.get(0).node, mode);
+            return;
+        }
+        out.tag(node.kind.ordinal());
+        switch (node.kind) {
+            case SCAN:
+            case FILE_SCAN:
+                appendScanKey(out, node.scan);
+                return;
+            case STORAGE_AGGREGATE:
+                out.text(String.valueOf(node.storageAggregate.getAggOp()));
+                out.flag(node.scan != null);
+                if (node.scan != null) {
+                    appendScanKey(out, node.scan);
+                }
+                return;
+            case FILTER:
+                out.text(sortedConditions(node.conditions, mode));
+                break;
+            case AGGREGATE:
+                out.text(sortedIdentityConditions(node.conditions));
+                break;
+            case JOIN:
+                out.text(node.flattenable ? "inner" : String.valueOf(node.joinType));
+                out.text(distinctIdentityConditions(node.conditions));
+                break;
+            case TOPN: {
+                StringBuilder header = new StringBuilder();
+                appendTopNHeader(header, node, mode);
+                out.text(header.toString());
+                break;
+            }
+            case LIMIT:
+                out.text(bound("L", node.limit, node.offset));
+                break;
+            case WINDOW: {
+                StringBuilder header = new StringBuilder();
+                appendWindowHeader(header, node);
+                out.text(header.toString());
+                break;
+            }
+            case GENERATE: {
+                StringBuilder header = new StringBuilder();
+                appendGenerateHeader(header, node);
+                out.text(header.toString());
+                break;
+            }
+            case REPEAT: {
+                StringBuilder header = new StringBuilder();
+                appendRepeatHeader(header, node, mode);
+                out.text(header.toString());
+                break;
+            }
+            case SET_OPERATION:
+                appendSetOperationKey(out, node);
+                break;
+            case PASSTHROUGH:
+                break;
+            default:
+                throw new IllegalStateException("unknown node kind " + node.kind);
+        }
+        out.count(node.children.size());
+        for (Child child : node.children) {
+            // a child which is referenced more than once renders the text of the first reference, so the
+            // identity names the sub tree only, not how often the plan references it
+            out.count(child.mapping.size());
+            for (Expression mapped : child.mapping) {
+                out.text(renderExpression(mapped, mode));
+            }
+            appendShapeKey(out, child.node, mode);
+        }
+    }
+
+    /**
+     * The identity of a scan, one field at a time: a table name which carries the characters of the
+     * printed token ({@code #ti:}, a comma) cannot stand for another field because each field has its own
+     * length here.
+     */
+    private static void appendScanKey(ShapeKeyWriter out, HboScanDescriptor descriptor) {
+        out.text(descriptor.getTable());
+        out.number(descriptor.getTableId());
+        out.text(descriptor.getRelationIdentity());
+        out.text(descriptor.getPartitionIdentity());
+        out.text(descriptor.getTabletIdentity());
+        out.text(descriptor.getIndexIdentity());
+    }
+
+    /** The header fields of a set operation, which decide which rows its branches combine. */
+    private static void appendSetOperationKey(ShapeKeyWriter out, Node node) {
+        SetOperation setOperation = node.setOperation;
+        out.text(node.setOperationPlan instanceof Union ? "U"
+                : node.setOperationPlan instanceof Intersect ? "I" : "E");
+        out.text(String.valueOf(setOperation.getQualifier()).toLowerCase(Locale.ROOT));
+        out.count(setOperation.getOutputs().size());
+        for (NamedExpression output : setOperation.getOutputs()) {
+            out.text(identityText(output));
+        }
+        List<List<NamedExpression>> constantExprsList = setOperation instanceof Union
+                ? ((Union) setOperation).getConstantExprsList() : Collections.emptyList();
+        out.count(constantExprsList.size());
+        for (List<NamedExpression> branch : constantExprsList) {
+            out.count(branch.size());
+            for (NamedExpression constant : branch) {
+                out.text(identityText(constant));
+            }
+        }
+    }
+
+    /**
+     * Writes the structural identity: every value is length prefixed and every number is written in a
+     * fixed width, so the byte stream is injective over the tree by construction.
+     */
+    private static final class ShapeKeyWriter {
+        private final ByteArrayOutputStream bytes = new ByteArrayOutputStream(512);
+        private final DataOutputStream data = new DataOutputStream(bytes);
+
+        private void tag(int value) {
+            writeInt(value);
+        }
+
+        private void flag(boolean value) {
+            writeInt(value ? 1 : 0);
+        }
+
+        private void count(int value) {
+            writeInt(value);
+        }
+
+        private void number(long value) {
+            try {
+                data.writeLong(value);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        private void text(String value) {
+            byte[] raw = value.getBytes(StandardCharsets.UTF_8);
+            writeInt(raw.length);
+            try {
+                data.write(raw);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+
+        private byte[] toByteArray() {
+            return bytes.toByteArray();
+        }
+
+        private void writeInt(int value) {
+            try {
+                data.writeInt(value);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
     }
 
     /**

@@ -119,15 +119,19 @@ public class GroupStructInfoCompositionTest {
     }
 
     @Test
-    void testTheFingerprintIsTheSha256OfTheShape() {
+    void testTheFingerprintIsKeyedOnTheStructureNotOnTheText() {
         Memo memo = joinChainMemo();
         GroupStructInfo root = GroupStructInfo.describeGroup(memo.getRoot());
         Assertions.assertTrue(root.isValid(), root.getSkipReason());
         String shape = root.getShape(NO_LITERAL);
         Assertions.assertFalse(shape.isEmpty(), "the shape of the root is empty");
-        Assertions.assertEquals(Hashing.sha256().hashString(shape, StandardCharsets.UTF_8).toString(),
+        // the key is the structural identity of the description: the shape text is its readable
+        // projection, and a table name which carries a character of the printed grammar moves the text
+        // but not the key (see HboScanDescriptorIdentityTest)
+        Assertions.assertEquals(64, root.getFingerprint(NO_LITERAL).length());
+        Assertions.assertNotEquals(Hashing.sha256().hashString(shape, StandardCharsets.UTF_8).toString(),
                 root.getFingerprint(NO_LITERAL),
-                "the fingerprint of a group is not the sha256 of its shape");
+                "the fingerprint is still the sha256 of the shape text");
         // the canonical string carries the data state of the scans, the shape does not: the token of the
         // shape is the table alone (the fingerprint must not move when rows are loaded)
         Assertions.assertTrue(root.getCanonical(NO_LITERAL).contains("S{"),
