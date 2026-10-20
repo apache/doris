@@ -208,16 +208,7 @@ public final class SPMPlanTreeSupport {
     }
 
     /** Re-descends into expression subquery plans so their hints are stripped as well. */
-    private static final ExprTransform HINT_STRIP_EXPR = expr -> {
-        if (expr instanceof SubqueryExpr) {
-            LogicalPlan subPlan = ((SubqueryExpr) expr).getQueryPlan();
-            LogicalPlan stripped = stripSelectHints(subPlan);
-            if (stripped != subPlan) {
-                return ((SubqueryExpr) expr).withSubquery(stripped);
-            }
-        }
-        return expr;
-    };
+    private static final ExprTransform HINT_STRIP_EXPR = SPMPlanTreeSupport::stripHintsInExpression;
 
     /**
      * Expression transform of stripCheckPolicy: strips the policy markers from
@@ -228,6 +219,42 @@ public final class SPMPlanTreeSupport {
             SPMPlanTreeSupport::stripPolicyOfExpression;
 
     private SPMPlanTreeSupport() {
+    }
+
+    /**
+     * Strips the SET_VAR hints of every plan one expression owns, recursing through the
+     * expression tree.
+     *
+     * The recursion is what makes the peel reach a subquery NESTED inside an item: a
+     * projection item is an {@code UnboundAlias} (or an arithmetic / function call around one),
+     * so testing only the expression handed to the transform left a scalar subquery carrying a
+     * SET_VAR hint inside it untouched - and the replayed analysis then applied the CREATOR's
+     * session variable to a caller that carried no hint at all (round-76 #4).
+     *
+     * @param expression the expression to peel
+     * @return the expression with every owned subquery plan stripped
+     */
+    private static Expression stripHintsInExpression(Expression expression) {
+        Expression result = expression;
+        if (expression instanceof SubqueryExpr) {
+            LogicalPlan subPlan = ((SubqueryExpr) expression).getQueryPlan();
+            LogicalPlan stripped = stripSelectHints(subPlan);
+            if (stripped != null && stripped != subPlan) {
+                result = ((SubqueryExpr) expression).withSubquery(stripped);
+            }
+        }
+        List<Expression> children = result.children();
+        if (children.isEmpty()) {
+            return result;
+        }
+        List<Expression> newChildren = new ArrayList<>(children.size());
+        boolean changed = false;
+        for (Expression child : children) {
+            Expression newChild = stripHintsInExpression(child);
+            newChildren.add(newChild);
+            changed |= newChild != child;
+        }
+        return changed ? result.withChildren(newChildren) : result;
     }
 
     /**
@@ -1815,7 +1842,17 @@ public final class SPMPlanTreeSupport {
             return null;
         }
         Plan result = plan.accept(new HintStripper(), HINT_STRIP_EXPR);
-        return result instanceof LogicalPlan ? (LogicalPlan) result : plan;
+        LogicalPlan stripped = result instanceof LogicalPlan ? (LogicalPlan) result : plan;
+        // The plan-level stripper above rebuilds only PLAN children, and an expression-owned
+        // scalar subquery (a projection item, a HAVING / filter predicate, a * REPLACE
+        // payload) keeps its own query plan OUTSIDE children(): the SET_VAR hint inside it
+        // survived the peel, and the ordinary replay analysis then applied the BASELINE's
+        // time_zone on top of a caller that came with no hint at all - from_unixtime
+        // returned the captured zone's values (round-76 #4). HINT_STRIP_EXPR re-enters
+        // those subquery plans (see its declaration), so one more rebuild pass reaches every
+        // expression-owned plan. Both passes keep every NON-SET_VAR hint (INDEX / BROADCAST
+        // / SHUFFLE), which is what the frozen replay exists for.
+        return transform(stripped, HINT_STRIP_EXPR);
     }
 
     /**
@@ -5666,11 +5703,46 @@ public final class SPMPlanTreeSupport {
         StringBuilder text = new StringBuilder(expression.toSql());
         List<String> slots = new ArrayList<>();
         collectSlotEncodings(expression, slots);
+        collectFunctionIdentities(expression, slots);
         text.append('\u0002');
         for (String slot : slots) {
             text.append(slot).append('\u0003');
         }
         return text.toString();
+    }
+
+    /**
+     * The QUALIFIED identity of every function call inside one expression, depth-first
+     * (see boundaryPreservingDeepText).
+     *
+     * {@link UnboundFunction#computeToSql()} renders ONLY the bare name: `db1.f(k)` and
+     * `db2.f(k)` produce the identical text `f(k)`, so a manual plan that calls a
+     * same-named function from ANOTHER database passed every output / filter / topology
+     * comparison and the replay executed the wrong implementation - running with the
+     * caller's values (round-76 #3). The database qualifier is part of the function's
+     * IDENTITY, exactly like a slot's component boundaries, so it is encoded next to the
+     * slot encodings and compared with them.
+     *
+     * BOUND functions (an already analyzed tree) are fingerprinted by their class as well:
+     * two overloads of the same name are different call targets, and the rendered text only
+     * carries the name they share.
+     *
+     * @param expression the expression to scan
+     * @param encodings  the encoding list to append to
+     */
+    private static void collectFunctionIdentities(Expression expression,
+            List<String> encodings) {
+        if (expression instanceof UnboundFunction) {
+            UnboundFunction function = (UnboundFunction) expression;
+            encodings.add("fn:" + (function.getDbName() == null ? "" : function.getDbName())
+                    + '.' + function.getName());
+        } else if (expression instanceof Function) {
+            Function function = (Function) expression;
+            encodings.add("fn:" + function.getClass().getName() + '.' + function.getName());
+        }
+        for (Expression child : expression.children()) {
+            collectFunctionIdentities(child, encodings);
+        }
     }
 
     /** The component encodings of every slot inside one expression, depth-first (see

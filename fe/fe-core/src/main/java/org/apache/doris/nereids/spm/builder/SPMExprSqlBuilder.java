@@ -115,21 +115,6 @@ import java.util.stream.Collectors;
 public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     /**
-     * Depth of the AGGREGATE argument list currently being rendered (see
-     * visitBoundFunction / visitAggregateExpression / visitWindow).
-     *
-     * Only INSIDE an aggregate's argument does an analyzer-inserted integral -> LARGEINT
-     * widening carry the LOWERING's accumulator semantics
-     * (see preservesLoweredAccumulator). Anywhere else - an operand of ordinary arithmetic -
-     * the same shape is an ordinary coercion, and freezing it pins the CAPTURED operand type:
-     * `k + 9223372036854775808` (BIGINT k, LARGEINT literal) freezes
-     * `CAST(k AS LARGEINT) + _spm_const_var(1)`, so the `+ 0.25` variant re-analyzes against a
-     * LARGEINT operand, derives DECIMAL(38,0) and truncates the substituted value to 1 instead
-     * of the original expression's DECIMAL(23,2) 1.25.
-     */
-    private int aggregateArgumentDepth;
-
-    /**
      * Prints a single expression.
      *
      * @param expr     the expression to print
@@ -141,22 +126,45 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     /**
-     * Renders one function's argument list, with the ACCUMULATOR frame active for an
-     * aggregate (see aggregateArgumentDepth).
+     * Renders one function's argument list.
+     *
+     * @param aggregate whether the arguments belong to an AGGREGATE call
+     * @param arguments the arguments to render
+     * @param context   the relation of the enclosing scope
+     * @return the comma separated argument text
      */
     private String renderArguments(boolean aggregate, List<Expression> arguments,
             SQLRelation context) {
-        if (!aggregate) {
-            return arguments.stream().map(argument -> argument.accept(this, context))
-                    .collect(Collectors.joining(", "));
+        return arguments.stream()
+                .map(argument -> renderArgument(argument, context, aggregate))
+                .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Renders ONE aggregate argument, preserving the LOWERING's accumulator widening only
+     * when THIS argument IS that widening cast.
+     *
+     * The accumulator guarantee belongs to the argument's ROOT: the AVG lowering writes
+     * {@code sum(CAST((k + 1) AS LARGEINT))}, and the root cast IS the LARGEINT accumulator
+     * AVG computes in. A cast nested DEEPER inside the same argument
+     * ({@code sum(CAST(k AS LARGEINT) + ph)}) is an ordinary operand coercion of that
+     * arithmetic: keeping it pins the CAPTURED operand type, so substituting a fractional
+     * literal re-analyzes against a LARGEINT operand, derives DECIMAL(38,0) and truncates the
+     * value (k = 1 with {@code + 0.25} yielded 1 instead of 1.25 - round-76 #6). The frame-wide
+     * depth test that kept both shapes is exactly what this root test replaces.
+     *
+     * @param argument  one argument of the call
+     * @param context   the relation of the enclosing scope
+     * @param aggregate whether the argument belongs to an AGGREGATE call
+     * @return the rendered argument
+     */
+    private String renderArgument(Expression argument, SQLRelation context, boolean aggregate) {
+        if (aggregate && argument instanceof Cast && preservesLoweredAccumulator((Cast) argument)) {
+            Cast cast = (Cast) argument;
+            return "CAST(" + cast.child().accept(this, context) + " AS "
+                    + cast.getDataType().toSql() + ")";
         }
-        aggregateArgumentDepth++;
-        try {
-            return arguments.stream().map(argument -> argument.accept(this, context))
-                    .collect(Collectors.joining(", "));
-        } finally {
-            aggregateArgumentDepth--;
-        }
+        return argument.accept(this, context);
     }
 
     @Override
@@ -612,15 +620,16 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitCast(Cast cast, SQLRelation context) {
-        if (!cast.isExplicitType() && !preservesLoweredAccumulator(cast)
-                && !preservesTypeConstructorFallback(cast)) {
+        if (!cast.isExplicitType() && !preservesTypeConstructorFallback(cast)) {
             // analyzer / optimizer inserted coercion CAST (type alignment, DECIMAL scale
             // adjustment for division, placeholder typing, ...) - an execution
             // detail that would otherwise pin the result type/scale in the frozen planSql.
             // Strip it so the replayed SQL analyzes the user-level expression and derives the
             // same types/coercions as the original query (e.g. DECIMAL division keeps its full
             // scale: "0.0286487413" instead of the coerced "0.02864874"). Explicit user
-            // CAST (isExplicitType = true) is preserved verbatim.
+            // CAST (isExplicitType = true) is preserved verbatim. The LOWERING's accumulator
+            // widening is preserved by renderArgument, which is the only place that knows the
+            // cast is the ROOT of an aggregate argument (see preservesLoweredAccumulator).
             return cast.child().accept(this, context);
         }
         return "CAST(" + cast.child().accept(this, context) + " AS " + cast.getDataType().toSql() + ")";
@@ -637,11 +646,11 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * the original AVG averages to 5.5e18 - overflowed the frozen replay's sum, even for the
      * identical SQL (the CREATE probe only RE-PLANS the text, it never executes it).
      *
-     * The accumulator guarantee only exists INSIDE an aggregate's argument list (see
-     * aggregateArgumentDepth): an operand of ordinary arithmetic (`k + 9223372036854775808`)
-     * carries the same shape, but there it is plain type coercion - keeping it pins the
-     * CAPTURED operand type and makes a literal of another type replay under the wrong
-     * coercion (the `+ 0.25` variant truncated to an integer).
+     * The accumulator guarantee only exists at the ROOT of an aggregate's argument
+     * (see renderArgument): an operand of ordinary arithmetic
+     * (`k + 9223372036854775808`) carries the same shape, but there it is plain type
+     * coercion - keeping it pins the CAPTURED operand type and makes a literal of another type
+     * replay under the wrong coercion (the `+ 0.25` variant truncated to an integer).
      *
      * Only an integral WIDENING over a REAL value qualifies: a cast over a substituted
      * placeholder / literal is exactly the type pinning the stripping exists to avoid, and a
@@ -651,9 +660,6 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * @return true when the cast must survive into the frozen SQL
      */
     private boolean preservesLoweredAccumulator(Cast cast) {
-        if (aggregateArgumentDepth <= 0) {
-            return false;
-        }
         Expression child = cast.child();
         try {
             DataType childType = child.getDataType();
