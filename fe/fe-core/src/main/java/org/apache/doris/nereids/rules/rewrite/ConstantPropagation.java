@@ -74,6 +74,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * constant propagation, like: a = 10 and a + b > 30 => a = 10 and 10 + b > 30,
@@ -160,9 +161,11 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                 getChildEqualSetAndConstants(project, rewriteContext);
         ImmutableList.Builder<NamedExpression> newProjectsBuilder
                 = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+        Set<ExprId> childOutputExprIds = project.child().getOutput().stream()
+                .map(Slot::getExprId).collect(Collectors.toSet());
         for (NamedExpression expr : project.getProjects()) {
             newProjectsBuilder.add(replaceNameExpressionConstants(
-                    expr, rewriteContext, childEqualTrait.first, childEqualTrait.second));
+                    expr, rewriteContext, childEqualTrait.first, childEqualTrait.second, childOutputExprIds));
         }
 
         List<NamedExpression> newProjects = newProjectsBuilder.build();
@@ -251,14 +254,22 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
             }
 
             if (replacedExpr.isConstant() && !replacedExpr.equals(expr)) {
-                // A constant output describes another value than the output slot of the aggregate: its nullable
-                // and data type may differ, so it must be materialized with a fresh exprId instead of reusing
-                // the exprId of the aggregate output. Otherwise the plan would contain two definitions for one
-                // exprId, and rules which compare exprIds only, e.g. EliminateUnnecessaryProject, would treat the
-                // constant project as a pass-through project of the aggregate and remove it.
-                ExprId freshExprId = StatementScopeIdGenerator.newExprId();
-                projectBuilder.add(new Alias(freshExprId, replacedExpr, expr.getName()));
-                freshExprIds.add(Pair.of(expr.getExprId(), freshExprId));
+                // The constant project above the aggregate describes another value than the aggregate output: its
+                // nullable and data type may differ, so the exprId of the aggregate output can not be reused when
+                // the aggregate still outputs that column, otherwise one exprId would have two definitions and
+                // rules which compare exprIds only, e.g. EliminateUnnecessaryProject, would treat the constant
+                // project as a pass-through project of the aggregate and remove it.
+                if (newGroupByExprSet.contains(expr)) {
+                    // the aggregate keeps the column, so the project would shadow it
+                    ExprId freshExprId = StatementScopeIdGenerator.newExprId();
+                    projectBuilder.add(new Alias(freshExprId, replacedExpr, expr.getName()));
+                    freshExprIds.add(Pair.of(expr.getExprId(), freshExprId));
+                } else {
+                    // the constant grouping key is removed from the aggregate, so the project item is the only
+                    // definition of this exprId and nothing below references it: keep the exprId, several rules
+                    // and consumers, e.g. the materialized view matching, rely on the identity of the column
+                    projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
+                }
                 containsConstantOutput = true;
             } else {
                 Preconditions.checkArgument(newOutputExpr instanceof NamedExpression, newOutputExpr);
@@ -408,7 +419,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
 
     // process NameExpression
     private NamedExpression replaceNameExpressionConstants(NamedExpression expr, ExpressionRewriteContext context,
-            ImmutableEqualSet<Slot> equalSet, Map<Slot, Literal> constants) {
+            ImmutableEqualSet<Slot> equalSet, Map<Slot, Literal> constants, Set<ExprId> childOutputExprIds) {
         // if a project item is a slot reference, and the slot equals to a constant value, don't rewrite it.
         // because rule `EliminateUnnecessaryProject ` can eliminate a project when the project's output slots equal to
         // its child's output slots.
@@ -429,8 +440,20 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         }
 
         // the item is an Alias which is not a plain slot and not a cast of one: replacing the constants of an
-        // Alias always yields an Alias again, so only its expression may change and it keeps its exprId
-        return (NamedExpression) replaceConstants(expr, false, context, equalSet, constants);
+        // Alias always yields an Alias again, so only its expression may change
+        Expression newExpr = replaceConstants(expr, false, context, equalSet, constants);
+        if (!(newExpr instanceof Alias) || newExpr.equals(expr)
+                || !childOutputExprIds.contains(expr.getExprId())) {
+            // unchanged, or the child does not produce the column any more, then this project item is the only
+            // definition of the exprId and it is kept
+            return (NamedExpression) newExpr;
+        }
+        // the child still produces this column, so the project item would shadow it: materialize the constant with
+        // a fresh exprId and refresh the references above, see replacedExprIds
+        Alias replacedAlias = (Alias) newExpr;
+        ExprId freshExprId = StatementScopeIdGenerator.newExprId();
+        replacedExprIds.put(expr.getExprId(), freshExprId);
+        return new Alias(freshExprId, replacedAlias.child(0), replacedAlias.getName());
     }
 
     private Expression replaceConstants(Expression expression, boolean useInnerInfer, ExpressionRewriteContext context,

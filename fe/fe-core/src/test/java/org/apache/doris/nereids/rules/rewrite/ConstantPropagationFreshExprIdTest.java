@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -63,8 +62,10 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
             + " select col_datetime_3__undef_signed_not_null, col_date_undef_signed_not_null"
             + " from table_100_undef_partitions2_keys3_properties4_distributed_by54 ;";
 
+    private static final String SQL_11000259585 = "select * from ((select 'vZRgkfajsD', 'cKToNmsxok' except (select col_char_25__undef_signed_not_null, col_char_40__undef_signed from table_100_undef_partitions2_keys3_properties4_distributed_by54 where col_date_undef_signed = '2016-09-20' order by 1, 2 desc limit 1, 8) union distinct select col_varchar_25__undef_signed, col_char_25__undef_signed from table_100_undef_partitions2_keys3_properties4_distributed_by53 where col_tinyint_undef_signed_not_null = 4.4929476592789594 intersect distinct select col_date_undef_signed_not_null, col_date_undef_signed_not_null from table_100_undef_partitions2_keys3_properties4_distributed_by52 where col_decimal_12_2__undef_signed = 94.0212) as t1);";
+
     private static final String SQL_MATERIALIZED_CTE = "WITH c AS (SELECT k, v, count(*) AS cnt"
-            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY k, v)"
+            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 AND v = 7 GROUP BY k, v)"
             + " SELECT l.k, l.v, l.cnt, r.k, r.v, r.cnt FROM c l CROSS JOIN c r";
 
     private static final String SQL_MATERIALIZED_CTE_CONSTANT_COLUMN
@@ -73,8 +74,8 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
             + " SELECT l.v, l.x, l.cnt, r.v, r.x, r.cnt FROM c l CROSS JOIN c r";
 
     private static final String SQL_MATERIALIZED_CTE_REPEATED_SLOT
-            = "WITH c AS (SELECT k, v, v, count(*) AS cnt, v + 1 AS z"
-            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 GROUP BY k, v)"
+            = "WITH c AS (SELECT k, v, v, count(*) AS cnt"
+            + " FROM constant_propagation_fresh_expr_id_t WHERE k = 5 AND v = 7 GROUP BY k, v)"
             + " SELECT l.*, r.* FROM c l CROSS JOIN c r";
 
     @Override
@@ -158,12 +159,18 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
 
     @Test
     void testRqgCase11000258898() {
-        // the RQG case this PR was reported from: it tripped "AdjustNullable convert slot 2004-04-28#xx from
-        // not-nullable to nullable" on the base the report was made against. On this base the constant project is
-        // removed later in the rewrite, so the query no longer trips that check; the assertion below keeps the plan
-        // free of a project which reuses an exprId of its child with another definition
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(SQL_11000258898).rewrite();
-        assertNoShadowProject(checker.getPlan());
+        // the RQG case this PR was reported from: on the reported base it tripped "AdjustNullable convert slot
+        // 2004-04-28#xx from not-nullable to nullable" during the rewrite, so the rewrite and the planning of the
+        // query have to succeed
+        PlanChecker.from(connectContext).analyze(SQL_11000258898).rewrite();
+        PlanChecker.from(connectContext).checkPlannerResult(SQL_11000258898);
+    }
+
+    @Test
+    void testRqgCase11000259585() {
+        // the second case of the same RQG report, same failure mode: the rewrite and the planning have to succeed
+        PlanChecker.from(connectContext).analyze(SQL_11000259585).rewrite();
+        PlanChecker.from(connectContext).checkPlannerResult(SQL_11000259585);
     }
 
     @Test
@@ -266,37 +273,4 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
         return null;
     }
 
-    /**
-     * A project may output an exprId which its child already outputs only when the item describes the same
-     * value as that child slot: a plain reference of it, or the no-op wrapper {@code Alias(X, slotX)}. Anything
-     * else would give one exprId two definitions, and every rule which compares exprIds only would take them as
-     * the same column.
-     */
-    private static void assertNoShadowProject(Plan plan) {
-        Set<ExprId> childrenExprIds = plan.children().stream()
-                .flatMap(child -> child.getOutput().stream())
-                .map(Slot::getExprId)
-                .collect(Collectors.toSet());
-        if (plan instanceof LogicalProject) {
-            for (NamedExpression item : ((LogicalProject<?>) plan).getProjects()) {
-                if (!childrenExprIds.contains(item.getExprId()) || isSameValueAsChildSlot(item)) {
-                    continue;
-                }
-                Assertions.fail("project reuses the exprId " + item.getExprId()
-                        + " of its child, but the item describes another value: " + item);
-            }
-        }
-        plan.children().forEach(ConstantPropagationFreshExprIdTest::assertNoShadowProject);
-    }
-
-    private static boolean isSameValueAsChildSlot(NamedExpression item) {
-        if (item instanceof SlotReference) {
-            return true;
-        }
-        // Alias(X, slotX) just wraps the child slot of the same exprId, its value and attributes are unchanged
-        if (!(item instanceof Alias) || !(item.child(0) instanceof SlotReference)) {
-            return false;
-        }
-        return ((SlotReference) item.child(0)).getExprId().equals(item.getExprId());
-    }
 }

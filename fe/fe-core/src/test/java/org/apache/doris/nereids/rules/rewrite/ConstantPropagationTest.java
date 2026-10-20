@@ -369,10 +369,12 @@ class ConstantPropagationTest {
         // does not describe both the output slot of the aggregate and the constant
         List<NamedExpression> actualProjects1 = rewrittenProject1.getProjects();
         Assertions.assertEquals(expectProjection1.subList(0, 5), actualProjects1.subList(0, 5));
-        assertConstantProjectItem(actualProjects1.get(5), aggOutput.get(5).getExprId(),
+        // the aggregate removes these two constant grouping keys from its outputs, so the project item is the only
+        // definition of their exprIds and the ids are kept
+        assertKeptConstantProjectItem(actualProjects1.get(5), aggOutput.get(5).getExprId(),
                 new IntegerLiteral(1), aggOutput.get(5).getName());
         Assertions.assertEquals(expectProjection1.get(6), actualProjects1.get(6));
-        assertConstantProjectItem(actualProjects1.get(7), aggOutput.get(7).getExprId(),
+        assertKeptConstantProjectItem(actualProjects1.get(7), aggOutput.get(7).getExprId(),
                 new IntegerLiteral(11), aggOutput.get(7).getName());
         Assertions.assertEquals(expectProjection1.subList(8, 10), actualProjects1.subList(8, 10));
 
@@ -411,16 +413,42 @@ class ConstantPropagationTest {
         Assertions.assertEquals(expectAggOutput2, rewrittenAgg2.getOutputs());
         List<NamedExpression> actualProjects2 = rewrittenProject2.getProjects();
         Assertions.assertEquals(expectProjection2.subList(0, 5), actualProjects2.subList(0, 5));
-        assertConstantProjectItem(actualProjects2.get(5), expectAggOutput2.get(5).getExprId(),
+        // all grouping keys are constant, so the aggregate keeps the first one: the project would shadow it,
+        // therefore that constant gets a fresh exprId
+        assertFreshConstantProjectItem(actualProjects2.get(5), expectAggOutput2.get(5).getExprId(),
                 new IntegerLiteral(3), null);
-        assertConstantProjectItem(actualProjects2.get(6), aggOutput.get(6).getExprId(),
+        // the other keys are removed from the aggregate, their exprIds are kept
+        assertKeptConstantProjectItem(actualProjects2.get(6), aggOutput.get(6).getExprId(),
                 new IntegerLiteral(3), aggOutput.get(6).getName());
-        assertConstantProjectItem(actualProjects2.get(7), aggOutput.get(7).getExprId(),
+        assertKeptConstantProjectItem(actualProjects2.get(7), aggOutput.get(7).getExprId(),
                 new IntegerLiteral(13), aggOutput.get(7).getName());
-        assertConstantProjectItem(actualProjects2.get(8), aggOutput.get(8).getExprId(),
+        assertKeptConstantProjectItem(actualProjects2.get(8), aggOutput.get(8).getExprId(),
                 new IntegerLiteral(13), aggOutput.get(8).getName());
-        assertConstantProjectItem(actualProjects2.get(9), aggOutput.get(9).getExprId(),
+        assertKeptConstantProjectItem(actualProjects2.get(9), aggOutput.get(9).getExprId(),
                 new IntegerLiteral(6), aggOutput.get(9).getName());
+    }
+
+    @Test
+    void testConstantGroupByKeyKeepsExprIdWhenTheAggregateDropsIt() {
+        // positive gate for the materialized view shape which this PR must not change: the aggregate removes the
+        // constant grouping key from its outputs, so the constant project item is the only definition of the
+        // column and its exprId is kept (the MV matching relies on that identity)
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(5))), student);
+        List<Expression> groupby = ImmutableList.of(studentId, studentGender);
+        List<NamedExpression> aggOutput = ImmutableList.of(
+                new Alias(new Sum(studentAge), "sum_age"),
+                studentGender,
+                studentId);
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate
+                = new LogicalAggregate<>(groupby, aggOutput, filter);
+
+        LogicalProject<?> rewrittenProject = (LogicalProject<?>) executor.rewriteRoot(aggregate, jobContext);
+        NamedExpression constantItem = rewrittenProject.getProjects().get(2);
+        assertKeptConstantProjectItem(constantItem, studentId.getExprId(), new IntegerLiteral(5), studentId.getName());
+        // nothing below the project has the column any more, so the kept exprId is defined exactly once
+        Assertions.assertFalse(rewrittenProject.child().getOutput().stream()
+                .anyMatch(slot -> slot.getExprId().equals(studentId.getExprId())));
     }
 
     @Test
@@ -429,12 +457,15 @@ class ConstantPropagationTest {
         // the sink has to follow the fresh exprIds of the constants materialized below it, otherwise it expects a
         // slot which the rewritten child does not output any more
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(
-                new EqualTo(studentId, new IntegerLiteral(5))), student);
+                new EqualTo(studentId, new IntegerLiteral(5)),
+                new EqualTo(studentGender, new StringLiteral("F"))), student);
+        // all grouping keys are constant, so the aggregate keeps the first one (and drops the other), the constant
+        // above the kept key shadows it and must get a fresh exprId
         List<Expression> groupby = ImmutableList.of(studentId, studentGender);
         List<NamedExpression> aggOutput = ImmutableList.of(
                 new Alias(new Sum(studentAge), "sum_age"),
-                studentGender,
-                studentId);
+                studentId,
+                studentGender);
         LogicalAggregate<LogicalFilter<LogicalOlapScan>> aggregate
                 = new LogicalAggregate<>(groupby, aggOutput, filter);
         List<NamedExpression> sinkOutputExprs = ImmutableList.copyOf(aggregate.getOutput());
@@ -451,23 +482,40 @@ class ConstantPropagationTest {
         }
         // the constant column of the sink is refreshed to the fresh exprId of the constant project
         Assertions.assertNotEquals(studentId.getExprId(),
-                rewrittenSink.getOutputExprs().get(2).getExprId());
+                rewrittenSink.getOutputExprs().get(1).getExprId());
     }
 
     /**
-     * A constant output above the aggregate describes another value than the replaced output slot, so it must
-     * be materialized with a fresh exprId instead of reusing the exprId of the replaced slot.
+     * The aggregate still outputs the replaced column, so the constant project item would shadow it and must be
+     * materialized with a fresh exprId.
      */
-    private static void assertConstantProjectItem(NamedExpression actual, ExprId replacedExprId,
+    private static void assertFreshConstantProjectItem(NamedExpression actual, ExprId replacedExprId,
             Expression expectedExpr, String expectedName) {
+        Alias alias = assertConstantProjectItem(actual, expectedExpr, expectedName);
+        Assertions.assertNotEquals(replacedExprId, alias.getExprId(),
+                "the constant project item must not reuse the exprId of an output which the aggregate still has");
+    }
+
+    /**
+     * The aggregate removed the constant grouping key from its outputs, so the project item is the only definition
+     * of the column: its exprId is kept, rules and consumers such as the materialized view matching rely on it.
+     */
+    private static void assertKeptConstantProjectItem(NamedExpression actual, ExprId replacedExprId,
+            Expression expectedExpr, String expectedName) {
+        Alias alias = assertConstantProjectItem(actual, expectedExpr, expectedName);
+        Assertions.assertEquals(replacedExprId, alias.getExprId(),
+                "the constant project item is the only definition, it must keep the exprId of the column");
+    }
+
+    private static Alias assertConstantProjectItem(NamedExpression actual, Expression expectedExpr,
+            String expectedName) {
         Assertions.assertTrue(actual instanceof Alias, actual.toString());
         Alias alias = (Alias) actual;
         Assertions.assertEquals(expectedExpr, alias.child());
         if (expectedName != null) {
             Assertions.assertEquals(expectedName, alias.getName());
         }
-        Assertions.assertNotEquals(replacedExprId, alias.getExprId(),
-                "the constant project item must not reuse the exprId of the replaced output slot");
+        return alias;
     }
 
     @Test
