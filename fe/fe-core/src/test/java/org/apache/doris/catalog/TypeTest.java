@@ -116,8 +116,22 @@ public class TypeTest {
                 new StructField("x", Type.INT, null, true),
                 new StructField("y", new ArrayType(Type.INT, true), null, true)
         );
-        // names are ignored by matchExactType recursion; matchesType requires containsNull equal
-        Assertions.assertTrue(Type.matchExactType(s1, s2, false));
+        // field names take part in the match: a rename-only struct cast is not a no-op because
+        // name based field access resolves against the cast result's field names at runtime
+        Assertions.assertFalse(Type.matchExactType(s1, s2, false));
+
+        // identical names and positional types match
+        StructType s1SameNames = new StructType(
+                new StructField("f1", Type.INT, null, true),
+                new StructField("f2", new ArrayType(Type.INT, true), null, true)
+        );
+        Assertions.assertTrue(Type.matchExactType(s1, s1SameNames, false));
+
+        // a renamed field nested inside an array is not a no-op either
+        Assertions.assertFalse(Type.matchExactType(
+                new ArrayType(s1, true), new ArrayType(s2, true), false));
+        Assertions.assertTrue(Type.matchExactType(
+                new ArrayType(s1, true), new ArrayType(s1SameNames, true), false));
 
         // inner element type differs
         StructType s3 = new StructType(
