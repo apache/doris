@@ -327,6 +327,10 @@ public class RestBaseController extends BaseController {
     }
 
     public Object forwardToMaster(HttpServletRequest request, @Nullable Object body) {
+        return forwardToMaster(request, body, request.getMethod());
+    }
+
+    protected Object forwardToMaster(HttpServletRequest request, @Nullable Object body, String method) {
         try {
             Env env = Env.getCurrentEnv();
             String redirectUrl = null;
@@ -337,8 +341,6 @@ public class RestBaseController extends BaseController {
                 redirectUrl = HttpURLUtil.buildInternalFeUrl(
                         env.getMasterHost(), request.getRequestURI(), request.getQueryString());
             }
-            String method = request.getMethod();
-
             HttpHeaders headers = new HttpHeaders();
             for (String headerName : Collections.list(request.getHeaderNames())) {
                 // remove Content-Length because RestTemplate will recalculate Content-Length for request body
