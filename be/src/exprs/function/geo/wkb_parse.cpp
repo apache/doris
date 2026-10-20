@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <istream>
@@ -44,7 +45,7 @@ constexpr const char* wkb_names[] = {
         "",           "POINT",           "LINESTRING",   "POLYGON",
         "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON", "GEOMETRYCOLLECTION"};
 
-GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
+GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type, uint32_t* dimensions = nullptr) {
     if (ctx.dis.size() < 5) {
         return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
@@ -57,10 +58,9 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
                              : ByteOrderValues::EndianType::ENDIAN_BIG);
     auto encoded = ctx.dis.readUnsigned();
     constexpr uint32_t ewkb_metadata_flags = 0x80000000 | 0x40000000 | WKB_SRID_FLAG;
-    // Typed XY rejects dimension/SRID metadata; e.g. EWKB SRID 4326 is legacy-only.
+    // CRS belongs to the typed schema; PostGIS EWKB flags/SRID remain legacy-only.
     // Historical STRING constructors retain their EWKB XY interpretation.
-    if (!ctx.allow_ewkb_srid &&
-        ((encoded & ewkb_metadata_flags) != 0 || (encoded >= 1000 && encoded < 4000))) {
+    if (!ctx.allow_ewkb_srid && (encoded & ewkb_metadata_flags) != 0) {
         return GeoParseStatus::GEO_PARSE_WKB_UNSUPPORTED_METADATA;
     }
     if ((encoded & WKB_SRID_FLAG) != 0) {
@@ -72,10 +72,23 @@ GeoParseStatus read_wkb_type(WkbParseContext& ctx, uint32_t* type) {
     }
     if (ctx.allow_ewkb_srid) {
         // Preserve the legacy parser: ignore EWKB dimension flags and read XY coordinates.
-        // Typed constructors keep rejecting these flags above.
+        // Typed constructors keep rejecting these EWKB flags above.
         encoded &= 0xFF;
     }
-    // Typed values carry CRS in their schema and support only the XY base types.
+    const uint32_t dimension = encoded / 1000;
+    // Raw access preserves ISO XYZ/XYM/XYZM. The S2 parser does not request dimensions,
+    // so POINT Z (1 2 3) is rejected before it can be read as an XY calculation point.
+    if (dimension != 0 && dimensions == nullptr && !ctx.allow_ewkb_srid) {
+        return GeoParseStatus::GEO_PARSE_WKB_UNSUPPORTED_METADATA;
+    }
+    if (dimensions != nullptr) {
+        *dimensions = dimension;
+    }
+    encoded %= 1000;
+    // ISO adds 1000/2000/3000 to the base type; higher dimensional codes are not defined.
+    if (dimension > 3) {
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+    }
     if (encoded < static_cast<uint32_t>(wkbType::wkbPoint) ||
         encoded > static_cast<uint32_t>(wkbType::wkbGeometryCollection)) {
         return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
@@ -94,7 +107,7 @@ public:
     GeoParseStatus read() {
         do {
             uint32_t type;
-            const auto status = read_wkb_type(_ctx, &type);
+            const auto status = read_wkb_type(_ctx, &type, &_dimensions);
             if (status != GeoParseStatus::GEO_PARSE_OK) {
                 return status;
             }
@@ -108,6 +121,8 @@ public:
                 _frames.back().type == static_cast<uint32_t>(wkbType::wkbGeometryCollection)) {
                 emit(wkb_names[type]);
                 emit(" ");
+                constexpr std::string_view dimension_names[] = {"", "Z ", "M ", "ZM "};
+                emit(dimension_names[_dimensions]);
             }
             if (type <= static_cast<uint32_t>(wkbType::wkbPolygon)) {
                 if (!read_primitive(type)) {
@@ -120,7 +135,7 @@ public:
                 }
                 if (count != 0) {
                     emit("(");
-                    _frames.push_back({type, count});
+                    _frames.push_back({type, count, _dimensions});
                     continue;
                 }
                 emit("EMPTY");
@@ -137,14 +152,18 @@ private:
     struct Frame {
         uint32_t type;
         uint32_t remaining;
+        uint32_t dimensions;
     };
 
     bool matches_parent(uint32_t type) const {
-        if (_frames.empty() ||
-            _frames.back().type == static_cast<uint32_t>(wkbType::wkbGeometryCollection)) {
+        if (_frames.empty()) {
             return true;
         }
-        return type == _frames.back().type - 3;
+        // ISO WKB collections contain members of the same coordinate type (Z/M/ZM),
+        // e.g. WKBGeometryCollectionZ contains WKBGeometryZ, not an XY child.
+        return _dimensions == _frames.back().dimensions &&
+               (_frames.back().type == static_cast<uint32_t>(wkbType::wkbGeometryCollection) ||
+                type == _frames.back().type - 3);
     }
 
     void finish_member() {
@@ -172,13 +191,20 @@ private:
         return true;
     }
 
-    bool read_xy(double* x, double* y) {
-        if (_ctx.dis.size() < 2 * sizeof(double)) {
+    uint32_t ordinates() const { return 2 + (_dimensions != 0) + (_dimensions == 3); }
+
+    bool read_coordinate() {
+        if (_ctx.dis.size() < ordinates() * sizeof(double)) {
             return false;
         }
-        *x = _ctx.dis.readDouble();
-        *y = _ctx.dis.readDouble();
-        return true;
+        for (uint32_t i = 0; i < ordinates(); ++i) {
+            _coordinate[i] = _ctx.dis.readDouble();
+            // Infinity is invalid in any ordinate, including the retained Z/M payload.
+            if (std::isinf(_coordinate[i])) {
+                return false;
+            }
+        }
+        return valid_xy(_coordinate[0], _coordinate[1]);
     }
 
     bool valid_xy(double x, double y) const {
@@ -187,35 +213,35 @@ private:
                                  (std::isnan(y) || (y >= -90 && y <= 90))));
     }
 
-    void emit_xy(double x, double y) {
+    void emit_coordinate() {
         if (_output != nullptr) {
-            *_output << (std::isnan(x) ? "NaN" : fmt::format("{}", x)) << " "
-                     << (std::isnan(y) ? "NaN" : fmt::format("{}", y));
+            for (uint32_t i = 0; i < ordinates(); ++i) {
+                if (i != 0) {
+                    *_output << " ";
+                }
+                const auto value = _coordinate[i];
+                *_output << (std::isnan(value) ? "NaN" : fmt::format("{}", value));
+            }
         }
     }
 
     bool read_point() {
-        double x;
-        double y;
-        if (!read_xy(&x, &y)) {
+        if (!read_coordinate()) {
             return false;
         }
         // NaN/NaN is the interoperable EMPTY Point convention, distinct from NULL.
-        if (std::isnan(x) && std::isnan(y)) {
+        if (std::isnan(_coordinate[0]) && std::isnan(_coordinate[1])) {
             emit("EMPTY");
             return true;
         }
-        if (!valid_xy(x, y)) {
-            return false;
-        }
         emit("(");
-        emit_xy(x, y);
+        emit_coordinate();
         emit(")");
         return true;
     }
 
     bool read_coordinates(uint32_t count, bool ring) {
-        if (count > _ctx.dis.size() / (2 * sizeof(double))) {
+        if (count > _ctx.dis.size() / (ordinates() * sizeof(double))) {
             return false;
         }
         double first_x = 0;
@@ -223,16 +249,18 @@ private:
         double x = 0;
         double y = 0;
         for (uint32_t i = 0; i < count; ++i) {
-            if (!read_xy(&x, &y) || !valid_xy(x, y)) {
+            if (!read_coordinate()) {
                 return false;
             }
+            x = _coordinate[0];
+            y = _coordinate[1];
             if (i == 0) {
                 first_x = x;
                 first_y = y;
             } else {
                 emit(", ");
             }
-            emit_xy(x, y);
+            emit_coordinate();
         }
         return !ring || ((first_x == x || (std::isnan(first_x) && std::isnan(x))) &&
                          (first_y == y || (std::isnan(first_y) && std::isnan(y))));
@@ -300,6 +328,8 @@ private:
     const bool _geographic;
     std::ostream* const _output;
     uint32_t _root_type = 0;
+    uint32_t _dimensions = 0;
+    std::array<double, 4> _coordinate {};
     DorisVector<Frame> _frames;
 };
 
@@ -420,15 +450,23 @@ GeoParseStatus WkbParse::point_coordinates(const char* data, size_t size, double
         return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     uint32_t type;
-    const auto status = read_geometry_type(ctx, &type);
+    uint32_t dimensions;
+    const auto status = read_wkb_type(ctx, &type, &dimensions);
     if (status != GeoParseStatus::GEO_PARSE_OK) {
         return status;
     }
-    if (type != static_cast<uint32_t>(wkbType::wkbPoint) || ctx.dis.size() != 2 * sizeof(double)) {
+    const uint32_t ordinates = 2 + (dimensions != 0) + (dimensions == 3);
+    if (type != static_cast<uint32_t>(wkbType::wkbPoint) ||
+        ctx.dis.size() != ordinates * sizeof(double)) {
         return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     *x = ctx.dis.readDouble();
     *y = ctx.dis.readDouble();
+    for (uint32_t i = 2; i < ordinates; ++i) {
+        if (std::isinf(ctx.dis.readDouble())) {
+            return GeoParseStatus::GEO_PARSE_COORD_INVALID;
+        }
+    }
     return std::isinf(*x) || std::isinf(*y) || (std::isnan(*x) && std::isnan(*y))
                    ? GeoParseStatus::GEO_PARSE_COORD_INVALID
                    : GeoParseStatus::GEO_PARSE_OK;

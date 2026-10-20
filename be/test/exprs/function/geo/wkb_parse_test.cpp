@@ -416,8 +416,7 @@ TEST_F(WkbParseTest, LegacyEwkbDimensionsKeepHistoricalXYInterpretation) {
 
 TEST_F(WkbParseTest, UnsupportedMetadataHasTheSameStatusAtEveryDepth) {
     const auto coordinates = raw_wkb_cases().front().first.substr(5);
-    const std::vector<std::string> headers = {"01E9030000", "0101000080", "0101000040",
-                                              "0101000020E6100000"};
+    const std::vector<std::string> headers = {"0101000080", "0101000040", "0101000020E6100000"};
     for (const auto& hex : headers) {
         const auto root = raw_wkb_from_hex(hex) + coordinates;
         const auto nested = raw_wkb_from_hex("010700000001000000") + root;
@@ -431,6 +430,132 @@ TEST_F(WkbParseTest, UnsupportedMetadataHasTheSameStatusAtEveryDepth) {
 TEST_F(WkbParseTest, InfiniteCoordinatesRemainInvalid) {
     const auto wkb = raw_wkb_from_hex("0101000000000000000000F07F000000000000F03F");
     EXPECT_NE(WkbParse::validate_wkb_bytes(wkb.data(), wkb.size()), GeoParseStatus::GEO_PARSE_OK);
+}
+
+static std::string iso_wkb(uint32_t type, const std::string& payload, bool little = true) {
+    std::string result(1, little ? '\x01' : '\x00');
+    for (int i = 0; i < 4; ++i) {
+        result.push_back(static_cast<char>(type >> (8 * (little ? i : 3 - i))));
+    }
+    return result + payload;
+}
+
+static std::string iso_coordinate(uint32_t dimensions, double x, double y, bool little = true) {
+    std::string result;
+    const double values[] = {x, y, 3, 4};
+    const auto ordinates = 2 + (dimensions != 0) + (dimensions == 3);
+    for (int i = 0; i < ordinates; ++i) {
+        const auto bits = std::bit_cast<uint64_t>(values[i]);
+        for (int j = 0; j < 8; ++j) {
+            result.push_back(static_cast<char>(bits >> (8 * (little ? j : 7 - j))));
+        }
+    }
+    return result;
+}
+
+static std::vector<std::pair<std::string, std::string>> iso_wkb_cases(uint32_t dimensions) {
+    const auto base = dimensions * 1000;
+    const std::string tags[] = {"", "Z ", "M ", "ZM "};
+    const auto& tag = tags[dimensions];
+    const std::string extra = dimensions == 3 ? " 3 4" : " 3";
+    const auto point = iso_wkb(base + 1, iso_coordinate(dimensions, 1, 2));
+    const auto big_point = iso_wkb(base + 1, iso_coordinate(dimensions, 1, 2, false), false);
+    const auto coordinates = iso_coordinate(dimensions, 0, 0) + iso_coordinate(dimensions, 1, 0);
+    const auto line = iso_wkb(base + 2, raw_wkb_from_hex("02000000") + coordinates);
+    const auto polygon = iso_wkb(base + 3, raw_wkb_from_hex("0100000004000000") + coordinates +
+                                                   iso_coordinate(dimensions, 0, 1) +
+                                                   iso_coordinate(dimensions, 0, 0));
+    const std::string p = "(1 2" + extra + ")";
+    const std::string l = "(0 0" + extra + ", 1 0" + extra + ")";
+    const std::string r =
+            "((0 0" + extra + ", 1 0" + extra + ", 0 1" + extra + ", 0 0" + extra + "))";
+    return {{point, "POINT " + tag + p},
+            {line, "LINESTRING " + tag + l},
+            {polygon, "POLYGON " + tag + r},
+            {iso_wkb(base + 4, raw_wkb_from_hex("02000000") + point + big_point),
+             "MULTIPOINT " + tag + "(" + p + ", " + p + ")"},
+            {iso_wkb(base + 5, raw_wkb_from_hex("01000000") + line),
+             "MULTILINESTRING " + tag + "(" + l + ")"},
+            {iso_wkb(base + 6, raw_wkb_from_hex("01000000") + polygon),
+             "MULTIPOLYGON " + tag + "(" + r + ")"},
+            {iso_wkb(base + 7, raw_wkb_from_hex("02000000") + point + big_point),
+             "GEOMETRYCOLLECTION " + tag + "(POINT " + tag + p + ", POINT " + tag + p + ")"}};
+}
+
+static void expect_iso_wkb(const std::string& wkb, const std::string& expected) {
+    EXPECT_EQ(WkbParse::validate_wkb_bytes(wkb.data(), wkb.size()), GeoParseStatus::GEO_PARSE_OK);
+    EXPECT_EQ(WkbParse::validate_wkb_bytes(wkb.data(), wkb.size(), true),
+              GeoParseStatus::GEO_PARSE_OK);
+    std::string text;
+    ASSERT_EQ(WkbParse::wkb_to_wkt(wkb.data(), wkb.size(), &text), GeoParseStatus::GEO_PARSE_OK);
+    EXPECT_EQ(text, expected);
+    std::string type;
+    EXPECT_EQ(WkbParse::geometry_type(wkb.data(), wkb.size(), &type), GeoParseStatus::GEO_PARSE_OK);
+    EXPECT_EQ(type, "ST_" + expected.substr(0, expected.find(' ')));
+    EXPECT_NE(WkbParse::validate_wkb_bytes(wkb.data(), wkb.size() - 1),
+              GeoParseStatus::GEO_PARSE_OK);
+}
+
+TEST_F(WkbParseTest, IsoDimensionsPreserveAllSevenShapesAndMixedEndianMembers) {
+    for (uint32_t dimensions = 1; dimensions <= 3; ++dimensions) {
+        for (const auto& [wkb, expected] : iso_wkb_cases(dimensions)) {
+            expect_iso_wkb(wkb, expected);
+        }
+    }
+}
+
+TEST_F(WkbParseTest, IsoPointAccessPreservesXyAndRejectsCalculations) {
+    for (uint32_t dimensions = 1; dimensions <= 3; ++dimensions) {
+        const auto big_point =
+                iso_wkb(1000 * dimensions + 1, iso_coordinate(dimensions, 1, 2, false), false);
+        double x;
+        double y;
+        ASSERT_EQ(WkbParse::point_coordinates(big_point.data(), big_point.size(), &x, &y),
+                  GeoParseStatus::GEO_PARSE_OK);
+        EXPECT_DOUBLE_EQ(x, 1);
+        EXPECT_DOUBLE_EQ(y, 2);
+        std::unique_ptr<GeoShape> shape;
+        EXPECT_NE(WkbParse::parse_wkb_bytes(big_point.data(), big_point.size(), shape),
+                  GeoParseStatus::GEO_PARSE_OK);
+    }
+}
+
+TEST_F(WkbParseTest, IsoDimensionsKeepEmpty) {
+    for (uint32_t dimensions = 1; dimensions <= 3; ++dimensions) {
+        for (uint32_t type = 2; type <= 7; ++type) {
+            const auto empty = iso_wkb(1000 * dimensions + type, raw_wkb_from_hex("00000000"));
+            EXPECT_EQ(WkbParse::validate_wkb_bytes(empty.data(), empty.size()),
+                      GeoParseStatus::GEO_PARSE_OK);
+            std::string text;
+            ASSERT_EQ(WkbParse::wkb_to_wkt(empty.data(), empty.size(), &text),
+                      GeoParseStatus::GEO_PARSE_OK);
+            EXPECT_TRUE(text.ends_with("EMPTY"));
+        }
+        const auto point = iso_wkb(1000 * dimensions + 1, iso_coordinate(dimensions, NAN, NAN));
+        EXPECT_EQ(WkbParse::validate_wkb_bytes(point.data(), point.size()),
+                  GeoParseStatus::GEO_PARSE_OK);
+    }
+}
+
+TEST_F(WkbParseTest, IsoDimensionsRejectInvalidPayloads) {
+    const auto bad_count = iso_wkb(1002, raw_wkb_from_hex("FFFFFFFF"));
+    EXPECT_NE(WkbParse::validate_wkb_bytes(bad_count.data(), bad_count.size()),
+              GeoParseStatus::GEO_PARSE_OK);
+    const auto truncated = iso_wkb(3001, iso_coordinate(1, 1, 2));
+    EXPECT_NE(WkbParse::validate_wkb_bytes(truncated.data(), truncated.size()),
+              GeoParseStatus::GEO_PARSE_OK);
+    const auto mismatched =
+            iso_wkb(1004, raw_wkb_from_hex("01000000") + iso_wkb(2001, iso_coordinate(2, 1, 2)));
+    EXPECT_NE(WkbParse::validate_wkb_bytes(mismatched.data(), mismatched.size()),
+              GeoParseStatus::GEO_PARSE_OK);
+    const auto mixed_collection =
+            iso_wkb(1007, raw_wkb_from_hex("01000000") + iso_wkb(1, iso_coordinate(0, 1, 2)));
+    EXPECT_NE(WkbParse::validate_wkb_bytes(mixed_collection.data(), mixed_collection.size()),
+              GeoParseStatus::GEO_PARSE_OK);
+    auto infinity = iso_wkb(1001, iso_coordinate(1, 1, 2));
+    infinity.replace(infinity.size() - 8, 8, raw_wkb_from_hex("000000000000F07F"));
+    EXPECT_NE(WkbParse::validate_wkb_bytes(infinity.data(), infinity.size()),
+              GeoParseStatus::GEO_PARSE_OK);
 }
 
 } // namespace doris

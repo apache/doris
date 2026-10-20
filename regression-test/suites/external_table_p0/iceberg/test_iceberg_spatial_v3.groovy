@@ -671,8 +671,38 @@ public class CreateIcebergSpatialV3Table {
             geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
             from projected_values order by id""")
     }
+    sql """drop table if exists spatial_zm_values"""
+    sql """create table spatial_zm_values (id int, geom geometry, geog geography)
+        engine=iceberg properties ('format-version' = '3')"""
+    sql """insert into spatial_zm_values values
+        (1, ST_GeometryFromWKBTyped('01E9030000000000000000F03F00000000000000400000000000000840'),
+            ST_GeogFromWKB('01E9030000000000000000F03F00000000000000400000000000000840')),
+        (2, ST_GeometryFromWKBTyped('01D1070000000000000000F03F00000000000000400000000000000840'),
+            ST_GeogFromWKB('01D1070000000000000000F03F00000000000000400000000000000840')),
+        (3, ST_GeometryFromWKBTyped('01B90B0000000000000000F03F000000000000004000000000000008400000000000001040'),
+            ST_GeogFromWKB('01B90B0000000000000000F03F000000000000004000000000000008400000000000001040')),
+        (4, NULL, NULL),
+        (5, ST_GeometryFromWKBTyped('01EB03000000000000'), ST_GeogFromWKB('01EB03000000000000'))"""
+    sql """drop table if exists spatial_zm_copy"""
+    sql """create table spatial_zm_copy (id int, geom geometry, geog geography)
+        engine=iceberg properties ('format-version' = '3')"""
+    sql """insert into spatial_zm_copy select id, geom, geog from spatial_zm_values"""
+    for (boolean scanV2 : [false, true]) {
+        "qt_spatial_zm_payload_${scanV2}"("""select /*+ SET_VAR(enable_file_scanner_v2=${scanV2}) */
+            id, ST_AsText(geom), ST_AsText(geog), ST_X(geom), ST_Y(geog),
+            hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)), ST_GeometryType(geom)
+            from spatial_zm_copy order by id""")
+    }
+    for (String query : ["ST_Length(geog)", "ST_Distance(geog, geog)", "ST_Azimuth(geog, geog)"]) {
+        test {
+            sql """select ${query} from spatial_zm_values where id = 1"""
+            exception "does not support this Geography WKB shape"
+        }
+    }
     // Recreate the catalog so the second read resolves schema and files from external metadata.
     createCatalog()
+    order_qt_spatial_zm_reread """select id, ST_AsText(geom), ST_AsText(geog),
+        hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)) from spatial_zm_copy"""
     order_qt_spatial_dml_reread """
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from spatial_dml_values

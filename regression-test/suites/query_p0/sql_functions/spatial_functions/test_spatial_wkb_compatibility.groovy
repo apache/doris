@@ -17,7 +17,7 @@
 
 suite("test_spatial_wkb_compatibility") {
     // Legacy STRING functions keep their historical XY interpretation of EWKB dimension flags.
-    // The new typed functions continue to reject Z/M and embedded SRID metadata.
+    // Typed functions reject PostGIS EWKB flags/SRID; ISO Z/M is retained separately.
     ["0101000080", "0101000040", "01010000C0", "01010000A0E6100000",
      "0101000060E6100000", "01010000E0E6100000"].eachWithIndex { header, index ->
         def ewkb = header + "000000000000F03F0000000000000040" + "00000000000008400000000000001040"

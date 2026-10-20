@@ -18,7 +18,7 @@ POINT (1 2)	POINT (1 2)	true	true
 POINT (1 2)	POINT (1 2)	true	true
 
 -- !iso_dimensions --
-true	true
+true	false
 
 -- !spherical_dateline --
 true	false	0	false	true

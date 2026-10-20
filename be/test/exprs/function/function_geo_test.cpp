@@ -300,6 +300,40 @@ static Status execute_geography_test(const std::string& name, const Strings& val
     return function->execute(nullptr, *block, numbers, result, 1);
 }
 
+TEST(VGeoFunctionsTest, IsoDimensionsAreStoredButNotCalculated) {
+    const Strings points {
+            "01E9030000000000000000F03F00000000000000400000000000000840",
+            "01D1070000000000000000F03F00000000000000400000000000000840",
+            "01B90B0000000000000000F03F000000000000004000000000000008400000000000001040"};
+    for (const auto& point : points) {
+        for (const auto& [name, count] :
+             std::vector<std::pair<std::string, size_t>> {{"st_length", 1},
+                                                          {"st_area_square_meters", 1},
+                                                          {"st_angle", 3},
+                                                          {"st_azimuth", 2},
+                                                          {"st_distance", 2},
+                                                          {"st_intersects", 2}}) {
+            Block block;
+            Strings values(count, point);
+            DataTypePtr result = name == "st_intersects"
+                                         ? DataTypePtr(std::make_shared<DataTypeUInt8>())
+                                         : DataTypePtr(std::make_shared<DataTypeFloat64>());
+            const auto status = execute_geography_test(name, values, make_nullable(result), &block);
+            EXPECT_FALSE(status.ok()) << name;
+            EXPECT_NE(status.to_string().find("does not support this Geography WKB shape"),
+                      std::string::npos)
+                    << status.to_string();
+        }
+        Block block;
+        ASSERT_TRUE(execute_geography_test("st_asbinary", {point},
+                                           make_nullable(std::make_shared<DataTypeVarbinary>()),
+                                           &block)
+                            .ok());
+        EXPECT_EQ(block.get_by_position(1).column->get_data_at(0).to_string(),
+                  spatial_test_wkb(point));
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyRelationsUseCompleteSphericalEdgesAndAliases) {
     struct Case {
         std::string left;
