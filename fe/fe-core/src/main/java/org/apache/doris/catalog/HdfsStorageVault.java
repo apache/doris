@@ -103,6 +103,9 @@ public class HdfsStorageVault extends StorageVault {
         for (Map.Entry<String, String> kv : newProperties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        // Reject object-storage properties before they can select a different filesystem
+        // during the connectivity check, even when that check is disabled.
+        generateHdfsParam(this.properties);
         checkConnectivity(this.properties);
     }
 
