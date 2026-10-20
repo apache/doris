@@ -88,7 +88,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -494,23 +493,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-            List<String> tableNames = metadata.listTableNames(session, dbName);
-            // Deliberately the raw field, NOT hasConnectorCapability(): this already runs inside an initialized
-            // catalog, so re-entering makeSureInitialized() here would be pointless work on a listing path.
-            if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
-                return tableNames;
+            if (connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
+                return metadata.listRelationNames(session, dbName);
             }
-            // Mirror legacy IcebergExternalCatalog.listTableNamesFromRemote: for a view-exposing connector
-            // (iceberg) SHOW TABLES includes both tables AND views, because the connector's listTableNames
-            // subtracts the view names. Re-merge the connector's view names here (the two sets are disjoint
-            // by construction, so a plain addAll cannot introduce duplicates).
-            List<String> viewNames = metadata.listViewNames(session, dbName);
-            if (viewNames.isEmpty()) {
-                return tableNames;
-            }
-            List<String> merged = new ArrayList<>(tableNames);
-            merged.addAll(viewNames);
-            return merged;
+            return metadata.listTableNames(session, dbName);
         } finally {
             session.getStatementScope().closeAll();
         }
@@ -520,7 +506,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         ConnectorSession session = buildConnectorSession();
         return PluginDrivenMetadata.get(session, connector)
-                .getTableHandle(session, dbName, tblName).isPresent();
+                .tableExists(session, dbName, tblName);
     }
 
     @Override
@@ -664,8 +650,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         // Both views matter: name folding can expose a local conflict that the remote lookup does not see.
-        boolean remoteExists = metadata.getTableHandle(session, db.getRemoteName(),
-                createTableInfo.getTableName()).isPresent();
+        boolean remoteExists = metadata.tableExists(session, db.getRemoteName(),
+                createTableInfo.getTableName());
         boolean localExists = db.getTableNullable(localTableName) != null;
         if (remoteExists || localExists) {
             if (createTableInfo.isIfNotExists()) {
@@ -690,8 +676,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             // The probe and create are not atomic. A successful re-probe turns a lost IF NOT EXISTS race into
             // the same CTAS-short-circuit result as an initially existing table.
             if (createTableInfo.isIfNotExists()
-                    && metadata.getTableHandle(session, db.getRemoteName(),
-                            createTableInfo.getTableName()).isPresent()) {
+                    && metadata.tableExists(session, db.getRemoteName(),
+                            createTableInfo.getTableName())) {
                 LOG.info("create table[{}.{}.{}] lost the race to a concurrent creator; "
                                 + "treating as an IF NOT EXISTS no-op", getName(),
                         createTableInfo.getDbName(), createTableInfo.getTableName());
@@ -857,8 +843,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
             return;
         }
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        // A query handle may refer to cached read metadata after an out-of-band drop. DDL must
+        // first check current existence so IF EXISTS still performs local cleanup in that case.
+        Optional<ConnectorTableHandle> handle = metadata.tableExists(
+                session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+                ? metadata.getTableHandle(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+                : Optional.empty();
         // The table is present in the FE cache but may have been dropped out-of-band on the remote
         // side; preserve the existing IF EXISTS handling for that case.
         if (!handle.isPresent()) {

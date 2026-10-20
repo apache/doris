@@ -55,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -96,6 +97,13 @@ public interface IcebergCatalogOps {
 
     /** Lists the view names in {@code dbName}; empty when the catalog is not a (view-enabled) ViewCatalog. */
     List<String> listViewNames(String dbName);
+
+    /** Lists relations without requiring callers to subtract and then re-add view names. */
+    default List<String> listRelationNames(String dbName) {
+        LinkedHashSet<String> names = new LinkedHashSet<>(listTableNames(dbName));
+        names.addAll(listViewNames(dbName));
+        return new ArrayList<>(names);
+    }
 
     /** Returns {@code true} iff {@code dbName.tableName} exists. */
     boolean tableExists(String dbName, String tableName);
@@ -398,6 +406,15 @@ public interface IcebergCatalogOps {
             return probeViews(() -> resolveViewCatalog().listViews(toNamespace(dbName)).stream()
                     .map(TableIdentifier::name)
                     .collect(Collectors.toList()), Collections.emptyList());
+        }
+
+        @Override
+        public List<String> listRelationNames(String dbName) {
+            LinkedHashSet<String> names = catalog.listTables(toNamespace(dbName)).stream()
+                    .map(TableIdentifier::name)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            names.addAll(listViewNames(dbName));
+            return new ArrayList<>(names);
         }
 
         @Override

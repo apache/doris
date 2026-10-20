@@ -876,10 +876,15 @@ final class IcebergPartitionUtils {
     /** Cache-aware overload (PERF-02): see {@link #buildMvccPartitionView(Table, long, TableIdentifier,
      * IcebergPartitionCache)}. Keyed by the table's CURRENT snapshot id. */
     static List<ConnectorPartitionInfo> listPartitions(Table table, TableIdentifier id, IcebergPartitionCache cache) {
+        return listPartitions(table, -1L, id, cache);
+    }
+
+    static List<ConnectorPartitionInfo> listPartitions(Table table, long pinnedSnapshotId,
+            TableIdentifier id, IcebergPartitionCache cache) {
         if (table.spec().isUnpartitioned()) {
             return Collections.emptyList();
         }
-        Snapshot current = table.currentSnapshot();
+        Snapshot current = pinnedSnapshotId >= 0 ? table.snapshot(pinnedSnapshotId) : table.currentSnapshot();
         if (current == null) {
             return Collections.emptyList();
         }

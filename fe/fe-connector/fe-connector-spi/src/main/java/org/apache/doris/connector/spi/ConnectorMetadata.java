@@ -20,12 +20,15 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,6 +60,17 @@ public interface ConnectorMetadata extends
         ConnectorIdentifierOps,
         Closeable {
 
+    /**
+     * Lists tables and views for the engine's relation-name cache. The default combines the two domains;
+     * connectors with a shared remote listing may override it to avoid fetching either listing twice.
+     * The engine calls this only for connectors declaring SUPPORTS_VIEW.
+     */
+    default List<String> listRelationNames(ConnectorSession session, String dbName) {
+        LinkedHashSet<String> names = new LinkedHashSet<>(listTableNames(session, dbName));
+        names.addAll(listViewNames(session, dbName));
+        return new ArrayList<>(names);
+    }
+
     // ──────────────────── MVCC Snapshots ────────────────────
 
     /**
@@ -69,6 +83,27 @@ public interface ConnectorMetadata extends
     default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
+    }
+
+    /**
+     * A lightweight SQL result-cache version for the supplied snapshot-pinned handle.
+     * Empty keeps the engine's legacy freshness path. An implementation that cannot identify a generation
+     * reliably must throw to disable caching for that query, rather than return an unsafe constant.
+     * Implementations must use the statement's frozen metadata and must not enumerate files or partitions.
+     */
+    default Optional<ConnectorSqlCacheVersion> getSqlCacheVersion(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Whether ordinary scans can plan files from predicates without enumerating engine partitions.
+     * Opting in permits the engine to defer the pinned partition view until a partition-aware consumer
+     * requests it. The connector must honor the pinned handle independently of an engine partition selection.
+     * Materialized-view planning and partition-based query limits may still request the complete view.
+     */
+    default boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return false;
     }
 
     /** Whether relation-level options need the statement's latest snapshot as their version fence. */
