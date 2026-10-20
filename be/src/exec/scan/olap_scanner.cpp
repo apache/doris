@@ -108,6 +108,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _end_tso(params.end_tso),
           _bucket_seq(params.bucket_seq),
           _bucket_num(params.bucket_num),
+          _tablet_collection_statistics(std::move(params.tablet_collection_statistics)),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
@@ -286,9 +287,16 @@ Status OlapScanner::_prepare_impl() {
                 _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        if (_tablet_collection_statistics != nullptr) {
+            RETURN_IF_ERROR(_tablet_collection_statistics->copy_to(
+                    _state, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx,
+                    _tablet_reader_params.collection_statistics.get()));
+        } else {
+            RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                    _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        }
     }
 
     _has_prepared = true;
