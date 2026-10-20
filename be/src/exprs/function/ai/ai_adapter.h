@@ -21,7 +21,9 @@
 #include <rapidjson/rapidjson.h>
 
 #include <cctype>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -38,6 +40,13 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+// Missing counts remain unknown; totals are never inferred from other fields.
+struct AIUsage {
+    std::optional<int64_t> prompt_tokens;
+    std::optional<int64_t> completion_tokens;
+    std::optional<int64_t> total_tokens;
+};
 
 struct AIResource {
     AIResource() = default;
@@ -133,6 +142,13 @@ class AIAdapter {
 public:
     virtual ~AIAdapter() = default;
 
+    // Usage is independent of result parsing and may also be present in error responses.
+    // OpenAI-compatible providers use either chat or Responses API field names.
+    virtual AIUsage parse_usage(const std::string& response_body) const {
+        return parse_usage_fields(response_body, "usage", "prompt_tokens", "completion_tokens",
+                                  "total_tokens", "input_tokens", "output_tokens");
+    }
+
     // Set authentication headers for the HTTP client
     virtual Status set_authentication(HttpClient* client) const = 0;
 
@@ -185,6 +201,41 @@ public:
     }
 
 protected:
+    static std::optional<int64_t> usage_count(const rapidjson::Value& object, const char* field,
+                                              const char* fallback = nullptr) {
+        if (field == nullptr) {
+            return std::nullopt;
+        }
+        auto member = object.FindMember(field);
+        if (member == object.MemberEnd() && fallback != nullptr) {
+            member = object.FindMember(fallback);
+        }
+        if (member == object.MemberEnd() || !member->value.IsInt64() ||
+            member->value.GetInt64() < 0) {
+            return std::nullopt;
+        }
+        return member->value.GetInt64();
+    }
+
+    static AIUsage parse_usage_fields(const std::string& response_body, const char* envelope,
+                                      const char* prompt, const char* completion, const char* total,
+                                      const char* prompt_fallback = nullptr,
+                                      const char* completion_fallback = nullptr) {
+        rapidjson::Document doc;
+        doc.Parse(response_body.data(), response_body.size());
+        if (doc.HasParseError() || !doc.IsObject()) {
+            return {};
+        }
+        const auto member = doc.FindMember(envelope);
+        if (member == doc.MemberEnd() || !member->value.IsObject()) {
+            return {};
+        }
+        const auto& usage = member->value;
+        return {.prompt_tokens = usage_count(usage, prompt, prompt_fallback),
+                .completion_tokens = usage_count(usage, completion, completion_fallback),
+                .total_tokens = usage_count(usage, total)};
+    }
+
     TAIResource _config;
 
     Status embed_not_supported_status() const {
@@ -321,6 +372,10 @@ protected:
 // The following adapters inherit from VoyageAIAdapter to directly reuse its embedding logic.
 class VoyageAIAdapter : public AIAdapter {
 public:
+    AIUsage parse_usage(const std::string& response_body) const override {
+        return parse_usage_fields(response_body, "usage", nullptr, nullptr, "total_tokens");
+    }
+
     Status set_authentication(HttpClient* client) const override {
         client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
         client->set_content_type("application/json");
@@ -479,6 +534,27 @@ protected:
 // Local AI adapter for locally hosted models (Ollama, LLaMA, etc.)
 class LocalAdapter : public AIAdapter {
 public:
+    AIUsage parse_usage(const std::string& response_body) const override {
+        rapidjson::Document doc;
+        doc.Parse(response_body.data(), response_body.size());
+        if (doc.HasParseError() || !doc.IsObject()) {
+            return {};
+        }
+        if (doc.HasMember("prompt_eval_count") || doc.HasMember("eval_count")) {
+            return {.prompt_tokens = usage_count(doc, "prompt_eval_count"),
+                    .completion_tokens = usage_count(doc, "eval_count"),
+                    .total_tokens = std::nullopt};
+        }
+        const auto member = doc.FindMember("usage");
+        if (member == doc.MemberEnd() || !member->value.IsObject()) {
+            return {};
+        }
+        const auto& usage = member->value;
+        return {.prompt_tokens = usage_count(usage, "prompt_tokens", "input_tokens"),
+                .completion_tokens = usage_count(usage, "completion_tokens", "output_tokens"),
+                .total_tokens = usage_count(usage, "total_tokens")};
+    }
+
     // Local deployments typically don't need authentication
     Status set_authentication(HttpClient* client) const override {
         client->set_content_type("application/json");
@@ -771,6 +847,10 @@ private:
 // The OpenAI API format can be reused with some compatible AIs.
 class OpenAIAdapter : public VoyageAIAdapter {
 public:
+    AIUsage parse_usage(const std::string& response_body) const override {
+        return AIAdapter::parse_usage(response_body);
+    }
+
     Status set_authentication(HttpClient* client) const override {
         client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
         client->set_content_type("application/json");
@@ -1269,6 +1349,11 @@ protected:
 // Gemini's embedding format is different from VoyageAI, so it requires a separate adapter
 class GeminiAdapter : public AIAdapter {
 public:
+    AIUsage parse_usage(const std::string& response_body) const override {
+        return parse_usage_fields(response_body, "usageMetadata", "promptTokenCount",
+                                  "candidatesTokenCount", "totalTokenCount");
+    }
+
     Status set_authentication(HttpClient* client) const override {
         client->set_header("x-goog-api-key", _config.api_key);
         client->set_content_type("application/json");
@@ -1608,6 +1693,10 @@ protected:
 
 class AnthropicAdapter : public VoyageAIAdapter {
 public:
+    AIUsage parse_usage(const std::string& response_body) const override {
+        return parse_usage_fields(response_body, "usage", "input_tokens", "output_tokens", nullptr);
+    }
+
     Status set_authentication(HttpClient* client) const override {
         client->set_header("x-api-key", _config.api_key);
         client->set_header("anthropic-version", _config.anthropic_version);

@@ -46,8 +46,10 @@
 #include "exprs/function/function.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/string_util.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -97,7 +99,11 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        auto* executor = get_executor(context);
         if (block.get_by_position(arguments[0]).column->only_null()) {
+            if (executor->statistics()) {
+                executor->statistics()->record_input(input_rows_count, input_rows_count);
+            }
             block.get_by_position(result).column =
                     block.get_by_position(result).type->create_column_const(input_rows_count,
                                                                             Field());
@@ -177,19 +183,40 @@ protected:
         }
     }
 
-    Status send_request_to_llm(const std::string& request_body, std::string& response,
-                               const AIResource& config, std::shared_ptr<AIAdapter>& adapter,
-                               FunctionContext* context) const {
-        // Retain the cache across batches/Blocks.
+    static AIRequestExecutor* get_executor(FunctionContext* context) {
+        // Retain the cache across batches/Blocks, including Blocks with only NULL inputs.
         auto* executor = static_cast<AIRequestExecutor*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         if (executor == nullptr) {
-            auto state = std::make_shared<AIRequestExecutor>();
+            auto* runtime_state = context->state();
+            // Disabled profiles need the connection cache, but no statistics owner.
+            auto statistics = runtime_state->enable_profile()
+                                      ? runtime_state->get_query_ctx()->get_ai_statistics(
+                                                runtime_state->fragment_id())
+                                      : nullptr;
+            auto state = std::make_shared<AIRequestExecutor>(std::move(statistics));
             executor = state.get();
             context->set_function_state(FunctionContext::THREAD_LOCAL, std::move(state));
         }
-        return executor->execute(request_body, response, config, *adapter,
-                                 context->state()->get_query_ctx());
+        return executor;
+    }
+
+    static void record_input(FunctionContext* context, size_t rows,
+                             const ColumnUInt8::MutablePtr& null_map) {
+        if (const auto& statistics = get_executor(context)->statistics()) {
+            const int64_t skipped = null_map ? std::count_if(null_map->get_data().begin(),
+                                                             null_map->get_data().end(),
+                                                             [](UInt8 value) { return value != 0; })
+                                             : 0;
+            statistics->record_input(rows, skipped);
+        }
+    }
+
+    Status send_request_to_llm(const std::string& request_body, std::string& response,
+                               const AIResource& config, std::shared_ptr<AIAdapter>& adapter,
+                               FunctionContext* context) const {
+        return get_executor(context)->execute(request_body, response, config, *adapter,
+                                              context->state()->get_query_ctx());
     }
 
     // Provider-reusable helper for string-returning functions.
@@ -208,6 +235,14 @@ protected:
 #ifdef BE_TEST
         const char* test_result = std::getenv("AI_TEST_RESULT");
         if (test_result != nullptr) {
+            const auto& statistics = get_executor(context)->statistics();
+            const auto parse_start = statistics ? MonotonicNanos() : 0;
+            bool parse_failed = true;
+            Defer record_parse([&] {
+                if (statistics) {
+                    statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+                }
+            });
             std::vector<std::string> parsed_test_response;
             RETURN_IF_ERROR(
                     adapter->parse_response(std::string(test_result), parsed_test_response));
@@ -220,6 +255,7 @@ protected:
                         batch_prompts.size(), parsed_test_response.size());
             }
             results = std::move(parsed_test_response);
+            parse_failed = false;
             return Status::OK();
         }
         if (config.provider_type == "MOCK") {
@@ -244,6 +280,14 @@ protected:
 
         std::string response;
         RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        bool parse_failed = true;
+        Defer record_parse([&] {
+            if (statistics) {
+                statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+            }
+        });
         RETURN_IF_ERROR(adapter->parse_response(response, parsed_response));
         if (parsed_response.empty()) {
             return Status::InternalError("AI returned empty result");
@@ -259,7 +303,20 @@ protected:
                     batch_prompts.size(), parsed_response.size());
         }
         results = std::move(parsed_response);
+        parse_failed = false;
         return Status::OK();
+    }
+
+    Status append_results_with_statistics(FunctionContext* context,
+                                          const std::vector<std::string>& results,
+                                          IColumn& column) const {
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        Status status = assert_cast<const Derived&>(*this).append_batch_results(results, column);
+        if (statistics) {
+            statistics->record_parse(MonotonicNanos() - parse_start, !status.ok());
+        }
+        return status;
     }
 
     // Provider-reusable helper for string-returning functions.
@@ -285,6 +342,8 @@ protected:
             }
             prompt_columns.emplace_back(argument.unnest_nullable().column);
         }
+
+        record_input(context, input_rows_count, result_null_map);
 
         if (result_null_map &&
             !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
@@ -316,8 +375,8 @@ protected:
                     std::vector<std::string> batch_results;
                     RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results,
                                                                 config, adapter, context));
-                    RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                            batch_results, *col_result));
+                    RETURN_IF_ERROR(
+                            append_results_with_statistics(context, batch_results, *col_result));
                     batch_prompts.clear();
                     current_batch_size = 2;
                 }
@@ -327,8 +386,8 @@ protected:
                 std::vector<std::string> single_results;
                 RETURN_IF_ERROR(this->execute_batch_request(single_prompts, single_results, config,
                                                             adapter, context));
-                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        single_results, *col_result));
+                RETURN_IF_ERROR(
+                        append_results_with_statistics(context, single_results, *col_result));
                 continue;
             }
 
@@ -338,8 +397,8 @@ protected:
                 std::vector<std::string> batch_results;
                 RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
                                                             adapter, context));
-                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        batch_results, *col_result));
+                RETURN_IF_ERROR(
+                        append_results_with_statistics(context, batch_results, *col_result));
                 batch_prompts.clear();
                 current_batch_size = 2;
                 additional_size = entry_size;
@@ -353,8 +412,7 @@ protected:
             std::vector<std::string> batch_results;
             RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
                                                         adapter, context));
-            RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(batch_results,
-                                                                                    *col_result));
+            RETURN_IF_ERROR(append_results_with_statistics(context, batch_results, *col_result));
         }
 
         if (!result_null_map) {
