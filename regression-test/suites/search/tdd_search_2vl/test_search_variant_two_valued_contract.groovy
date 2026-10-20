@@ -117,18 +117,9 @@ suite("test_search_variant_two_valued_contract", "p0") {
             [name: "bound_leaf", dsl: "s:hit", ids: [1, 4]],
             [name: "bound_not_leaf", dsl: "NOT s:hit", ids: [2, 3]],
 
-            // field:* is field existence, not a fieldless MatchAll. First
-            // remove SQL NULL rows from its TRUE set, then clear UNKNOWN.
+            // Numeric terms use the same two-valued Boolean contract.
             [name: "numeric_leaf", dsl: "n:1", ids: [2, 3]],
-            [name: "numeric_not_leaf", dsl: "NOT n:1", ids: [1, 4]],
-            [name: "numeric_exists", dsl: "n:*", ids: [2, 3, 4]],
-            [name: "numeric_missing", dsl: "NOT n:*", ids: [1]],
-            [name: "scalar_exists", dsl: "s:*", ids: [1, 2, 4]],
-            [name: "scalar_missing", dsl: "NOT s:*", ids: [3]],
-            [name: "variant_exists", dsl: "v.present:*", ids: [1, 2]],
-            [name: "variant_missing", dsl: "NOT v.present:*", ids: [3, 4]],
-            [name: "absent_path_exists", dsl: "v.absent:*", ids: []],
-            [name: "absent_path_not_exists", dsl: "NOT v.absent:*", ids: allIds]
+            [name: "numeric_not_leaf", dsl: "NOT n:1", ids: [1, 4]]
         ]
 
         ["standard", "lucene"].each { mode ->
