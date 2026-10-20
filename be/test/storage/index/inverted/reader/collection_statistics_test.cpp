@@ -439,7 +439,7 @@ protected:
     }
 
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
-                                   const std::string& segment_path) {
+                                   const std::string& segment_path, size_t column_ordinal = 0) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -458,13 +458,14 @@ protected:
         segment_v2::IndexFileWriter file_writer(fs, index_path_prefix, "legacy_v3", 0,
                                                 InvertedIndexStorageFormatPB::V3,
                                                 std::move(compound_file));
-        const auto index_metas = tablet_schema->inverted_indexs(1);
+        const auto& column = tablet_schema->column(column_ordinal);
+        const auto index_metas = tablet_schema->inverted_indexs(column.unique_id());
         DORIS_CHECK(index_metas.size() == 1);
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
-        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
-                &tablet_schema->column(0), &column_writer, &file_writer, index_metas[0]));
+        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
+                                                              index_metas[0]));
         std::vector<Slice> values {Slice("alpha beta")};
-        RETURN_IF_ERROR(column_writer->add_values("content", values.data(), values.size()));
+        RETURN_IF_ERROR(column_writer->add_values(column.name(), values.data(), values.size()));
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
         return file_writer.finish_close();
@@ -872,6 +873,48 @@ TEST_F(CollectionStatisticsTest, LegacyV3SegmentsUsePhysicalScoringStatistics) {
     ASSERT_TRUE(status.ok()) << status;
     expect_collected_stats(L"1", 2, 4);
     expect_collected_term(L"1", L"alpha", 2);
+}
+
+TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics) {
+    auto schema = create_legacy_v3_schema();
+    TabletColumn other = schema->column(0);
+    other.set_unique_id(2);
+    other.set_name("other");
+    schema->append_column(other);
+    TabletIndex other_index = *schema->inverted_indexs(1).front();
+    other_index._index_id = 2;
+    other_index._col_unique_ids = {2};
+    schema->append_index(std::move(other_index));
+    const std::string first = test_dir_ + "/only_content.dat";
+    const std::string second = test_dir_ + "/only_other.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(schema, first, 0).ok());
+    ASSERT_TRUE(write_legacy_v3_segment(schema, second, 1).ok());
+
+    auto meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(schema, meta);
+    rowset->set_num_segments(2);
+    rowset->set_segment_path(0, first);
+    rowset->set_segment_path(1, second);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+    TSearchClause content;
+    content.__set_clause_type("TERM");
+    content.__set_field_name("content");
+    content.__set_value("alpha");
+    TSearchClause other_clause = content;
+    other_clause.__set_field_name("other");
+    TSearchClause root;
+    root.__set_clause_type("OR");
+    root.__set_children({content, other_clause});
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, schema, create_search_contexts(root),
+                                nullptr)
+                        .ok());
+    // Neither segment contains both indexes. Both existing fields must contribute exactly once,
+    // regardless of which missing index the unordered field iteration encounters first.
+    expect_collected_stats(L"1", 2, 2);
+    expect_collected_stats(L"2", 2, 2);
+    expect_collected_term(L"1", L"alpha", 1);
+    expect_collected_term(L"2", L"alpha", 1);
 }
 
 TEST_F(CollectionStatisticsTest, LegacyV3SkipsMissingSegmentAfterCollectingAvailableStatistics) {
@@ -2774,6 +2817,35 @@ TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyCompone
 
     const std::map<std::string, std::string> valid = {{"parser", "english"}};
     EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
+}
+
+TEST(SearchPredicateCollectorTest, MatchAllDoesNotRequireFieldStatistics) {
+    TSearchClause clause;
+    clause.clause_type = "MATCH_ALL_DOCS";
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(clause, nullptr, nullptr, {}, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, LucenePureExclusionAllowsFieldlessMatchAll) {
+    TSearchClause all;
+    all.clause_type = "MATCH_ALL_DOCS";
+    all.__set_occur(TSearchOccur::SHOULD);
+    TSearchClause excluded;
+    excluded.clause_type = "WILDCARD";
+    excluded.__set_field_name("body");
+    excluded.__set_value("hit*");
+    excluded.__set_occur(TSearchOccur::MUST_NOT);
+    TSearchClause root;
+    root.clause_type = "OCCUR_BOOLEAN";
+    root.__set_children({all, excluded});
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(root, nullptr, nullptr, {}, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
 }
 
 } // namespace doris
