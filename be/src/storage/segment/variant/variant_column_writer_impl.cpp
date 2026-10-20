@@ -602,6 +602,12 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
     DORIS_CHECK(outer_nulls.empty() || outer_nulls.size() == num_rows);
     if (_v2_builder == nullptr) {
         RETURN_IF_ERROR(_initialize_v2_builder());
+        if (_running_type != nullptr) {
+            // Continue from the type inferred by the sealed chunks. Appending a value that the
+            // previous chunks' type cannot hold (for example a bool after integers) then takes
+            // the builder's own JSONB fallback inside this chunk instead of being merged away.
+            RETURN_IF_ERROR(_v2_builder->convert_to(_running_type));
+        }
         _chunk_row_begin = _num_rows;
         _chunk_rows = 0;
     }
@@ -656,6 +662,7 @@ Status VariantSubcolumnWriter::_seal_chunk() {
         return Status::OK();
     }
     RETURN_IF_ERROR(_v2_builder->complete_rows(_chunk_rows));
+    _running_type = _v2_builder->type();
     _chunks.push_back(ValueChunk {
             .builder = std::move(_v2_builder), .row_begin = _chunk_row_begin, .rows = _chunk_rows});
     _v2_builder.reset();
@@ -803,18 +810,17 @@ Status VariantSubcolumnWriter::finalize() {
             _indexes, &opts, non_null_value_size, need_record_none_null_value_size));
 
     _opts = opts;
+    // One convertor for the whole column. The ARRAY convertor carries its accumulated item offset
+    // across calls, so flushing chunk by chunk keeps the absolute array offsets correct; a fresh
+    // convertor per chunk would restart them at zero and corrupt the column.
+    OlapBlockDataConvertor converter;
     if (!publish_builder) {
-        OlapBlockDataConvertor converter;
         MutableColumnPtr defaults = flush_type->create_column();
         RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
                 flush_column, _writer.get(), &converter, 0, flush_type, std::move(defaults), {},
                 _num_rows));
     } else {
         for (auto& chunk : _chunks) {
-            // Each chunk owns one contiguous row range, so flushing it needs its own converter
-            // slot. Reuse is not possible: append_sparse_converted_column registers a convertor
-            // per call.
-            OlapBlockDataConvertor converter;
             if (chunk.builder->non_null_rows() == 0) {
                 MutableColumnPtr empty = flush_type->create_column();
                 RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(

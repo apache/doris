@@ -678,6 +678,9 @@ private:
     std::vector<ValueChunk> _chunks;
     size_t _chunk_row_begin = 0;
     size_t _chunk_rows = 0;
+    // Type accumulated by the sealed chunks. A new chunk starts from it so appends follow the
+    // exact same inference and JSONB-fallback sequence as one uninterrupted builder.
+    DataTypePtr _running_type;
     size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;

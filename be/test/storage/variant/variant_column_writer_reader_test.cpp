@@ -47,6 +47,7 @@
 #include "core/value/uuid_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "exec/common/variant_util.h"
 #include "exprs/function/search/function_search.h"
 #include "exprs/function/search/variant_inverted_index_search.h"
 #include "exprs/vectorized_fn_call.h"
@@ -79,6 +80,7 @@
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
 #include "storage/segment/variant/variant_doc_snpashot_compact_iterator.h"
+#include "storage/segment/variant/variant_writer_helpers.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "testutil/variant_util.h"
@@ -1872,9 +1874,13 @@ protected:
         RETURN_IF_ERROR(ColumnReader::create(reader_options, footer.columns(0), footer.num_rows(),
                                              file_reader, &reader));
 
-        TabletColumn read_column = _tablet_schema->column(1);
-        read_column.set_type(static_cast<FieldType>(footer.columns(0).type()));
-        auto read_type = DataTypeFactory::instance().create_data_type(read_column, false);
+        // Build the read type and the matching tablet column from the footer meta so nested types
+        // (ARRAY/MAP/STRUCT) keep their child type information; the schema column only carries the
+        // top-level type and the array iterator needs the element sub-column.
+        auto read_type = DataTypeFactory::instance().create_data_type(footer.columns(0));
+        TabletColumn read_column = variant_util::get_column_by_type(
+                read_type, _tablet_schema->column(1).name(),
+                variant_util::ExtraInfo {.unique_id = -1, .parent_unique_id = 1});
         ColumnIteratorUPtr iterator;
         RETURN_IF_ERROR(reader->new_iterator(&iterator, &read_column));
         OlapReaderStatistics stats;
@@ -2489,8 +2495,9 @@ TEST_F(VariantColumnWriterReaderTest, test_variant_root_writer_streams_per_batch
         converter.clear_source_content(0);
         max_buffered_bytes = std::max<uint64_t>(max_buffered_bytes, writer->estimate_buffer_size());
     }
-    // The buffering writer retained the whole segment (kRows * kValueBytes ~ 16 MiB); the
-    // streaming writer holds at most the current page plus the outer-null map.
+    // The buffering writer retained the whole segment (kRows * kValueBytes ~ 16 MiB). The
+    // streaming writer flushes the root column batch by batch, so its own retained raw buffer is
+    // about one batch; encoded pages and the other variant column writers are separate.
     EXPECT_LT(max_buffered_bytes, 2 * kBatchRows * kValueBytes);
 
     ASSERT_TRUE(writer->finish().ok());
@@ -9250,6 +9257,102 @@ TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_by_by
     std::vector<std::string> chunked_rows;
     ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
     EXPECT_EQ(chunked_rows, ref_rows);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_int_then_bool) {
+    // The single builder falls back to JSONB when a bool follows integers: appending `true` into
+    // an Int64 column is not a representable promotion. Chunks must carry the inferred type across
+    // their boundary so the same value sequence keeps the JSONB fallback instead of coercing
+    // true/false to 1/0 through the least-common-type merge.
+    init_extracted_variant_schema(11406);
+    const std::vector<std::string> jsons {"7", "true", "false", "8"};
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {}, &source,
+                                             &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_bool_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(1); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+    } guard;
+    size_t max_chunks = 0;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "subcolumn_bool_chunked", &chunked_footer,
+                        &chunked_path, 0, 1,
+                        [&](ColumnWriter* writer) {
+                            auto* subcolumn = dynamic_cast<VariantSubcolumnWriter*>(writer);
+                            ASSERT_NE(subcolumn, nullptr);
+                            max_chunks = std::max(max_chunks, subcolumn->num_chunks_for_test());
+                        })
+                        .ok());
+    EXPECT_GE(max_chunks, 2);
+
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
+    EXPECT_EQ(chunked_rows, (std::vector<std::string> {"7", "true", "false", "8"}));
+    EXPECT_EQ(static_cast<FieldType>(ref_footer.columns(0).type()),
+              FieldType::OLAP_FIELD_TYPE_JSONB);
+    EXPECT_EQ(static_cast<FieldType>(chunked_footer.columns(0).type()),
+              FieldType::OLAP_FIELD_TYPE_JSONB);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_array_all_null_tail) {
+    // An all-NULL tail chunk of an ARRAY subcolumn must be flushed through the array writer (which
+    // updates offsets, nulls and the inverted index together), not through append_nulls.
+    init_extracted_variant_schema(11407);
+    const std::vector<std::string> jsons {"[1,2]", "[\"a\",\"b\"]", "null", "null"};
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 0, false, {}, &source,
+                                             &source_type)
+                        .ok());
+
+    SegmentFooterPB ref_footer;
+    std::string ref_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type, "subcolumn_array_ref",
+                                                &ref_footer, &ref_path)
+                        .ok());
+    std::vector<std::string> ref_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+
+    struct ChunkGuard {
+        ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(2); }
+        ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+    } guard;
+    segment_v2::variant_writer_helpers::reset_array_all_null_chunks_for_test();
+    size_t max_chunks = 0;
+    SegmentFooterPB chunked_footer;
+    std::string chunked_path;
+    ASSERT_TRUE(write_extracted_variant_segment(
+                        source, source_type, "subcolumn_array_chunked", &chunked_footer,
+                        &chunked_path, 0, 1,
+                        [&](ColumnWriter* writer) {
+                            auto* subcolumn = dynamic_cast<VariantSubcolumnWriter*>(writer);
+                            ASSERT_NE(subcolumn, nullptr);
+                            max_chunks = std::max(max_chunks, subcolumn->num_chunks_for_test());
+                        })
+                        .ok());
+    EXPECT_GE(max_chunks, 2);
+    EXPECT_EQ(segment_v2::variant_writer_helpers::array_all_null_chunks_for_test(), 1u);
+
+    std::vector<std::string> chunked_rows;
+    ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+    EXPECT_EQ(chunked_rows, ref_rows);
+    ASSERT_EQ(chunked_rows.size(), 4);
+    EXPECT_EQ(chunked_rows[2], "NULL");
+    EXPECT_EQ(chunked_rows[3], "NULL");
 }
 
 } // namespace doris
