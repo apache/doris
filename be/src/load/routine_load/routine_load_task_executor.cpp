@@ -47,6 +47,7 @@
 #include "load/message_body_sink.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/routine_load/data_consumer_group.h"
+#include "load/routine_load/kafka_reader_telemetry.h"
 #include "load/routine_load/kafka_share_consumer.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
@@ -549,8 +550,14 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
                 "consuming failed");
     }
 
+    KafkaReaderTelemetry telemetry(ctx->job_id, ctx->id,
+                                   ctx->kafka_info && ctx->kafka_info->use_share_consumer,
+                                   ctx->load_src_type == TLoadSourceType::KAFKA);
+    const int64_t pipeline_wait_start = MonotonicNanos();
     // wait for all consumers finished
     HANDLE_ERROR(ctx->load_status_future.get(), "consume failed");
+    telemetry.timing("task_pipeline_wait", MonotonicNanos() - pipeline_wait_start,
+                     ctx->number_loaded_rows);
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
@@ -565,9 +572,14 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
     g_routine_load_commit_and_publish_latency_ms
             << (MonotonicNanos() - commit_and_publish_start_time) / 1000000;
+    telemetry.timing("task_commit", MonotonicNanos() - commit_and_publish_start_time,
+                     ctx->number_loaded_rows);
     if (share_consumer) {
         DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.before_share_ack", DBUG_BLOCK);
+        const int64_t ack_start = MonotonicNanos();
         Status st = share_consumer->acknowledge_committed();
+        telemetry.timing(st.ok() ? "task_ack_ok" : "task_ack_failed", MonotonicNanos() - ack_start,
+                         ctx->number_loaded_rows);
         if (st.ok()) {
             consumer_pool->return_consumer(share_consumer);
         } else {
@@ -598,7 +610,10 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             topic_partitions.push_back(tp1);
         }
 
+        const int64_t offset_submit_start = MonotonicNanos();
         st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->commit(topic_partitions);
+        telemetry.timing("task_offset_submit", MonotonicNanos() - offset_submit_start,
+                         ctx->number_loaded_rows);
         if (!st.ok()) {
             // Kafka Offset Commit is idempotent, Failure should not block the normal process
             // So just print a warning

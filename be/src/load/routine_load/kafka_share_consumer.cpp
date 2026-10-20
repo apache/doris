@@ -25,6 +25,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/routine_load/consumer_group_helpers.h"
+#include "load/routine_load/kafka_reader_telemetry.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
@@ -118,6 +119,7 @@ Status KafkaShareConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 
 Status KafkaShareConsumer::consume(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(_records.empty());
+    KafkaReaderTelemetry telemetry(ctx->job_id, _id, true);
     rd_kafka_messages_t* batch = nullptr;
     Defer destroy_batch {[&] { rd_kafka_messages_destroy(batch); }};
     auto pipe = std::static_pointer_cast<io::StreamLoadPipe>(ctx->body_sink);
@@ -131,6 +133,7 @@ Status KafkaShareConsumer::consume(std::shared_ptr<StreamLoadContext> ctx) {
                 _consumer, static_cast<int>(std::min<int64_t>(remaining_ms, 1000)), &batch)));
         remaining_ms = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000000;
     }
+    telemetry.timing("poll", watch.elapsed_time());
     auto append = FormatAppender::get_append_function<io::StreamLoadPipe>(ctx->format);
     int64_t bytes = 0;
     size_t count = batch == nullptr ? 0 : rd_kafka_messages_count(batch);
@@ -139,7 +142,12 @@ Status KafkaShareConsumer::consume(std::shared_ptr<StreamLoadContext> ctx) {
     for (size_t i = 0; i < count; ++i) {
         auto* message = rd_kafka_messages_get(batch, i);
         _records.emplace_back(message->partition, message->offset);
+        if (telemetry.enabled() && message->err == RD_KAFKA_RESP_ERR_NO_ERROR) {
+            telemetry.received(message->partition, UnixMillis());
+        }
     }
+    telemetry.flush();
+    const int64_t append_start = MonotonicNanos();
     for (size_t i = 0; i < count; ++i) {
         if (std::cmp_greater_equal(_processed, ctx->max_batch_rows) ||
             bytes >= ctx->max_batch_size) {
@@ -157,6 +165,7 @@ Status KafkaShareConsumer::consume(std::shared_ptr<StreamLoadContext> ctx) {
         ++_processed;
         bytes += message->len;
     }
+    telemetry.timing("append", MonotonicNanos() - append_start);
     ctx->receive_bytes = bytes;
     DorisMetrics::instance()->routine_load_consume_rows->increment(_processed);
     DorisMetrics::instance()->routine_load_consume_bytes->increment(bytes);

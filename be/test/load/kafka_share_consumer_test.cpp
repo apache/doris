@@ -23,6 +23,7 @@
 #include <tuple>
 #include <vector>
 
+#include "load/routine_load/kafka_reader_telemetry.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
@@ -142,6 +143,47 @@ TEST(KafkaShareConsumerTest, BufferMemoryFollowsConsumerAcrossThreads) {
     cleanup.join();
     EXPECT_EQ(tracker->consumption(), 0);
     EXPECT_EQ(caller_tracker->consumption(), 0);
+}
+
+TEST(KafkaReaderTelemetryTest, DisabledDoesNotRetainRecords) {
+    KafkaReaderTelemetry telemetry(42, UniqueId::gen_uid(), true);
+    telemetry._enabled = false;
+    telemetry.received(0, 1000);
+    EXPECT_EQ(telemetry._windows[0].records, 0);
+}
+
+TEST(KafkaReaderTelemetryTest, AggregatesPartitionsIndependently) {
+    KafkaReaderTelemetry telemetry(42, UniqueId::gen_uid(), true);
+    telemetry._enabled = true;
+    telemetry.received(0, 1000);
+    telemetry.received(1, 1010);
+    telemetry.received(0, 1020);
+    EXPECT_EQ(telemetry._windows[0].records, 2);
+    EXPECT_EQ(telemetry._windows[0].first_ms, 1000);
+    EXPECT_EQ(telemetry._windows[0].last_ms, 1020);
+    EXPECT_EQ(telemetry._windows[1].records, 1);
+    telemetry.flush();
+    EXPECT_EQ(telemetry._windows[0].records, 0);
+    EXPECT_EQ(telemetry._windows[1].records, 0);
+}
+
+TEST(KafkaReaderTelemetryTest, TimeBoundaryStartsNewWindow) {
+    KafkaReaderTelemetry telemetry(42, UniqueId::gen_uid(), false);
+    telemetry._enabled = true;
+    telemetry.received(0, 1000);
+    telemetry.received(0, 1250);
+    EXPECT_EQ(telemetry._windows[0].records, 1);
+    EXPECT_EQ(telemetry._windows[0].first_ms, 1250);
+}
+
+TEST(KafkaReaderTelemetryTest, HashCollisionFlushesOldPartition) {
+    KafkaReaderTelemetry telemetry(42, UniqueId::gen_uid(), false);
+    telemetry._enabled = true;
+    telemetry.received(0, 1000);
+    telemetry.received(64, 1010);
+    EXPECT_EQ(telemetry._windows[0].partition, 64);
+    EXPECT_EQ(telemetry._windows[0].records, 1);
+    EXPECT_EQ(telemetry._windows[0].first_ms, 1010);
 }
 
 } // namespace doris
