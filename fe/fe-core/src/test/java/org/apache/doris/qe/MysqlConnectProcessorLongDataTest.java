@@ -62,6 +62,28 @@ public class MysqlConnectProcessorLongDataTest {
     }
 
     @Test
+    public void testExecuteReleasesNormalizedUploadAfterResponse() throws Exception {
+        Harness h = new Harness(MysqlColType.MYSQL_TYPE_BLOB);
+        h.upload(7, 0, new byte[] {0, (byte) 0xff, (byte) 0x80, 65});
+        try (MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class,
+                (executor, construction) -> Mockito.doAnswer(invocation -> {
+                    // The complete upload must remain available while execution can forward it.
+                    Assertions.assertArrayEquals(new byte[] {0, 1, (byte) 252, 0, 4, 0, (byte) 0xff, (byte) 0x80, 65},
+                            h.context.getPrepareExecuteBuffer().array());
+                    return null;
+                }).when(executor).execute());
+                MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class)) {
+            h.command(ByteBuffer.wrap(new byte[] {0x17, 7, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, (byte) 252, 0}));
+            Assertions.assertEquals(QueryState.MysqlStateType.OK, h.context.getState().getStateType(),
+                    h.context.getState().getErrorMessage());
+            Mockito.verify(executors.constructed().get(0)).execute();
+            Mockito.verify(h.channel).sendAndFlush(Mockito.any());
+            Assertions.assertFalse(h.prepared.hasLongData());
+            Assertions.assertNull(h.context.getPrepareExecuteBuffer());
+        }
+    }
+
+    @Test
     public void testMixedParametersAndForwardingWithCachedTypes() throws Exception {
         Harness h = new Harness(MysqlColType.MYSQL_TYPE_BLOB, MysqlColType.MYSQL_TYPE_LONG,
                 MysqlColType.MYSQL_TYPE_VARSTRING, MysqlColType.MYSQL_TYPE_VARSTRING);

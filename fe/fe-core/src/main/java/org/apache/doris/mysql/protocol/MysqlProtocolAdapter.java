@@ -341,6 +341,7 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
 
     @Override
     public void afterStatement(ConnectContext ctx) {
+        prepareExecuteBuffer = null;
         cursorFetchRequested = false;
         executingPreparedStatement = null;
     }
