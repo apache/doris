@@ -120,20 +120,6 @@ static std::string _serialize_variant_row(const ColumnVariant& variant, size_t r
     return value;
 }
 
-class ScopedDuplicateJsonPathCheck {
-public:
-    explicit ScopedDuplicateJsonPathCheck(bool value)
-            : _old_value(config::variant_enable_duplicate_json_path_check) {
-        config::variant_enable_duplicate_json_path_check = value;
-    }
-    ~ScopedDuplicateJsonPathCheck() {
-        config::variant_enable_duplicate_json_path_check = _old_value;
-    }
-
-private:
-    bool _old_value;
-};
-
 class ScopedVariantStorageParseMode {
 public:
     explicit ScopedVariantStorageParseMode(int32_t value)
@@ -365,7 +351,6 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
 }
 
 TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstValue) {
-    ScopedDuplicateJsonPathCheck check_guard(true);
     const std::vector<std::string_view> jsons = {
             R"({"a":42,"a":{"b":42}})", R"({"a":123,"a":"123"})",       R"({"a.b":1,"a":{"b":2}})",
             R"({"a":{"b":3},"a.b":4})", R"({"a":{"b":5},"a":{"c":6}})",
@@ -417,7 +402,6 @@ TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstValue) {
 }
 
 TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstArrayOrScalarValue) {
-    ScopedDuplicateJsonPathCheck check_guard(true);
     const std::vector<std::string_view> jsons = {
             R"({"a":[1],"a":2})",
             R"({"a":2,"a":[1]})",
@@ -449,7 +433,6 @@ TEST(VariantUtilTest, ParseDuplicateJsonPathsKeepsFirstArrayOrScalarValue) {
 }
 
 TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstValue) {
-    ScopedDuplicateJsonPathCheck check_guard(true);
     const std::vector<std::string_view> jsons = {
             R"({"a":42,"a":{"b":42}})", R"({"a":123,"a":"123"})",       R"({"a.b":1,"a":{"b":2}})",
             R"({"a":{"b":3},"a.b":4})", R"({"a":{"b":5},"a":{"c":6}})",
@@ -506,7 +489,6 @@ TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstValue) {
 }
 
 TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstArrayOrScalarValue) {
-    ScopedDuplicateJsonPathCheck check_guard(true);
     const std::vector<std::string_view> jsons = {
             R"({"a":[1],"a":2})",
             R"({"a":2,"a":[1]})",
@@ -538,20 +520,6 @@ TEST(VariantUtilTest, ParseDuplicateJsonPathsInDocModeKeepsFirstArrayOrScalarVal
     ASSERT_EQ(f.field.get_type(), PrimitiveType::TYPE_JSONB);
     const auto& second = f.field.get<TYPE_JSONB>();
     EXPECT_EQ(JsonbToJson::jsonb_to_json_string(second.get_value(), second.get_size()), "2");
-}
-
-TEST(VariantUtilTest, ParseDuplicateJsonPathsCheckDisabledByDefault) {
-    ScopedDuplicateJsonPathCheck check_guard(false);
-    const std::vector<std::string_view> jsons = {
-            R"({"a":123,"a":"123"})",
-    };
-
-    auto variant = ColumnVariant::create(0, false);
-    auto json_col = _make_json_column(jsons);
-
-    ParseConfig cfg;
-    cfg.deprecated_enable_flatten_nested = false;
-    EXPECT_THROW(parse_json_to_variant(*variant, *json_col, cfg), Exception);
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocScalarJsonToDocValueKv) {

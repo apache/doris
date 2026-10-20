@@ -105,20 +105,6 @@ static std::string variant_writer_test_name(
     return variant_writer_input_name(info.param);
 }
 
-class ScopedDuplicateJsonPathCheck {
-public:
-    explicit ScopedDuplicateJsonPathCheck(bool enabled)
-            : _old_value(config::variant_enable_duplicate_json_path_check) {
-        config::variant_enable_duplicate_json_path_check = enabled;
-    }
-    ~ScopedDuplicateJsonPathCheck() {
-        config::variant_enable_duplicate_json_path_check = _old_value;
-    }
-
-private:
-    bool _old_value;
-};
-
 static Status create_variant_writer_source(VariantWriterInput input,
                                            const std::vector<std::string>& jsons,
                                            int max_subcolumns_count, bool enable_doc_mode,
@@ -138,7 +124,6 @@ static Status create_variant_writer_source(VariantWriterInput input,
         ParseConfig parse_config;
         parse_config.parse_to = enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn
                                                 : ParseConfig::ParseTo::OnlySubcolumns;
-        parse_config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
         variant_util::parse_json_to_variant(*variant, *json_column, parse_config);
         values = std::move(variant);
         type = std::make_shared<DataTypeVariant>(max_subcolumns_count, enable_doc_mode);
@@ -2299,7 +2284,6 @@ TEST_P(VariantWriterCompatibilityTest, materialized_array_preserves_middle_row_g
 }
 
 TEST_P(VariantWriterCompatibilityTest, dotted_and_nested_paths_follow_writer_semantics) {
-    ScopedDuplicateJsonPathCheck duplicate_path_check(false);
     init_variant_tablet(10015 + static_cast<int>(GetParam()), 2);
 
     const std::vector<std::string> jsons {
@@ -2318,14 +2302,6 @@ TEST_P(VariantWriterCompatibilityTest, dotted_and_nested_paths_follow_writer_sem
             "shared_cross_row_dotted_" + variant_writer_input_name(GetParam());
     const Status write_status =
             write_variant_segment(source, source_type, rowset_id, &footer, &file_path);
-    if (GetParam() == VariantWriterInput::V1) {
-        // Preserve the legacy behavior when duplicate-path checking is disabled: V1 does not
-        // canonicalize the plain dotted key during parse and rejects the conflicting paths later.
-        EXPECT_EQ(write_status.code(), ErrorCode::INVALID_JSON_PATH) << write_status;
-        EXPECT_NE(write_status.to_string().find("duplicated entry : a.b"), std::string::npos)
-                << write_status;
-        return;
-    }
     ASSERT_TRUE(write_status.ok()) << write_status;
     VariantStorageParseWriteResult footer_stats;
     collect_variant_footer_stats(footer, 0, &footer_stats);
@@ -2340,11 +2316,15 @@ TEST_P(VariantWriterCompatibilityTest, dotted_and_nested_paths_follow_writer_sem
                       }));
 }
 
-TEST_P(VariantWriterCompatibilityTest, dotted_null_path_is_first_when_duplicate_check_enabled) {
-    ScopedDuplicateJsonPathCheck duplicate_path_check(true);
+TEST_P(VariantWriterCompatibilityTest, dotted_and_nested_paths_without_collision_are_written) {
     init_variant_tablet(10019 + static_cast<int>(GetParam()), 2);
 
-    const std::vector<std::string> jsons {R"({"a":{"b":null},"a.b":5})"};
+    // A null member occupies no path, and a dotted key whose children differ from the nested
+    // object's children reaches different paths, so neither row collides.
+    const std::vector<std::string> jsons {
+            R"({"a.b":null,"a":{"b":5}})",
+            R"({"a.b":{"c":8},"a":{"b":{"d":9}}})",
+    };
     ColumnPtr source;
     DataTypePtr source_type;
     ASSERT_TRUE(create_variant_writer_source(GetParam(), jsons, 2, false, {}, &source, &source_type)
@@ -2353,12 +2333,17 @@ TEST_P(VariantWriterCompatibilityTest, dotted_null_path_is_first_when_duplicate_
     SegmentFooterPB footer;
     std::string file_path;
     const std::string rowset_id =
-            "shared_dotted_null_first_" + variant_writer_input_name(GetParam());
-    ASSERT_TRUE(write_variant_segment(source, source_type, rowset_id, &footer, &file_path).ok());
+            "shared_dotted_without_collision_" + variant_writer_input_name(GetParam());
+    const Status write_status =
+            write_variant_segment(source, source_type, rowset_id, &footer, &file_path);
+    ASSERT_TRUE(write_status.ok()) << write_status;
 
     std::vector<std::optional<std::string>> actual;
     ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
-    EXPECT_EQ(actual, (std::vector<std::optional<std::string>> {"{}"}));
+    EXPECT_EQ(actual, (std::vector<std::optional<std::string>> {
+                              R"({"a":{"b":5}})",
+                              R"({"a":{"b":{"c":8,"d":9}}})",
+                      }));
 }
 
 TEST_P(VariantWriterCompatibilityTest, nullable_round_trip) {
@@ -2440,47 +2425,7 @@ TEST_P(VariantWriterCompatibilityTest, doc_mode_round_trip) {
     }
 }
 
-TEST_F(VariantColumnWriterReaderTest, test_write_column_variant_v2_duplicate_dotted_paths) {
-    ScopedDuplicateJsonPathCheck duplicate_path_check(true);
-    init_variant_tablet(10003, 2);
-
-    const std::vector<std::string> jsons {
-            R"({"a.b":1,"a":{"b":2}})",
-            R"({"a":{"b":3},"a.b":4})",
-            R"({"a.b":null,"a":{"b":5}})",
-            R"({"a.b":6})",
-            R"({"a":{"b":7}})",
-            R"({"a.b":{"c":8},"a":{"b":{"d":9}}})",
-    };
-    auto source = ColumnVariantV2::create();
-    DataTypeVariantV2SerDe serde;
-    DataTypeSerDe::FormatOptions serde_options;
-    for (const auto& json : jsons) {
-        Slice slice(json.data(), json.size());
-        ASSERT_TRUE(serde.deserialize_one_cell_from_json(*source, slice, serde_options).ok());
-    }
-
-    SegmentFooterPB footer;
-    std::string file_path;
-    const auto source_type = std::make_shared<DataTypeVariantV2>(2, false);
-    const Status write_status = write_variant_segment(source->get_ptr(), source_type,
-                                                      "v2_duplicate_paths", &footer, &file_path, 3);
-    ASSERT_TRUE(write_status.ok()) << write_status;
-
-    std::vector<std::optional<std::string>> actual;
-    ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
-    // ColumnVariantV2 stores object entries in metadata field-id order, so the nested form is the
-    // first canonical leaf for a dotted-path collision regardless of the source JSON key order.
-    const std::vector<std::optional<std::string>> expected {
-            R"({"a":{"b":2}})", R"({"a":{"b":3}})", R"({"a":{"b":5}})",
-            R"({"a":{"b":6}})", R"({"a":{"b":7}})", R"({"a":{"b":{"c":8,"d":9}}})",
-    };
-    EXPECT_EQ(actual, expected);
-}
-
-TEST_F(VariantColumnWriterReaderTest,
-       test_write_column_variant_v2_rejects_duplicate_dotted_paths_without_check) {
-    ScopedDuplicateJsonPathCheck duplicate_path_check(false);
+TEST_F(VariantColumnWriterReaderTest, test_write_column_variant_v2_rejects_duplicate_dotted_paths) {
     init_variant_tablet(10008, 2);
 
     auto source = ColumnVariantV2::create();
@@ -3322,7 +3267,6 @@ TEST_F(VariantColumnWriterReaderTest, v2_shredder_uses_only_rows_in_requested_ra
     segment_v2::VariantShredder shredder({
             .max_subcolumns_count = 1,
             .sparse_bucket_count = 1,
-            .check_duplicate_json_path = config::variant_enable_duplicate_json_path_check,
     });
     ASSERT_TRUE(shredder.append(combined->read_view(), 1, 1).ok());
     segment_v2::VariantShreddedColumns shredded;
@@ -3399,7 +3343,6 @@ TEST_F(VariantColumnWriterReaderTest, v2_shredder_drops_typed_cast_null_from_spa
             .max_subcolumns_count = 1,
             .typed_paths_to_sparse = true,
             .sparse_bucket_count = 1,
-            .check_duplicate_json_path = config::variant_enable_duplicate_json_path_check,
     });
     ASSERT_TRUE(shredder.append(source->read_view(), 0, source->size()).ok());
     segment_v2::VariantShreddedColumns shredded;

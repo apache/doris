@@ -50,9 +50,8 @@ TEST(VariantV2ExecutionTest, TypePropertiesDoNotAffectEquality) {
 
 TEST(VariantV2ExecutionTest, CanonicalComparison) {
     auto parse = [](std::initializer_list<std::string_view> rows) {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         for (auto json : rows) {
             encoder.add_json({json.data(), json.size()});
         }

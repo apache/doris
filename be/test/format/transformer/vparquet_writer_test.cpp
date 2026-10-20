@@ -91,9 +91,8 @@ TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
                                       options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
     for (std::string_view json : {std::string_view {R"({"name":"doris","n":1})"},
                                   std::string_view {"null"}, std::string_view {R"([1,2,3])"}}) {
         encoder.add_json({json.data(), json.size()});
@@ -178,9 +177,8 @@ TEST_F(VParquetWriterTest, WritesNestedIcebergVariant) {
                                       options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
     for (std::string_view json :
          {std::string_view {R"({"kind":"nested"})"}, std::string_view {"null"},
           std::string_view {"{}"}, std::string_view {"7"}}) {

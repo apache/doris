@@ -93,7 +93,9 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::appendValueIfNotDuplicate(ParseContext& ctx,
                                                            const PathInData::Parts& path,
                                                            Field&& value) {
-    if (ctx.check_duplicate_json_path) {
+    // A JSON null occupies no path, so it neither hides nor is hidden by a later value: the
+    // first non-null value of a path wins.
+    if (ctx.check_duplicate_json_path && !value.is_null()) {
         PathInData path_in_data(path);
         if (!ctx.visited_path_names.emplace(path_in_data.get_path()).second) {
             return;
