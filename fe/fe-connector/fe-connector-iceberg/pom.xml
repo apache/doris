@@ -147,6 +147,26 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
 
+        <!-- ResolvingFileIO loads ADLSFileIO by name for Azure manifests. Iceberg declares the
+             Azure SDK as compile-only, so this isolated plugin must ship those clients too.
+             Use the SDK modules managed by the Azure BOM; the bundle duplicates reactive-streams. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-file-datalake</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- The hms-flavor org.apache.iceberg.hive.HiveCatalog is NOT a direct dependency here: it is
              bundled (with the shared relocated thrift shade.doris.hive.org.apache.thrift) inside
              fe-connector-hms-hive-shade and reaches this plugin transitively via fe-connector-hms above —
