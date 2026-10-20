@@ -341,22 +341,29 @@ flowchart LR
 ## File Load Adapter
 
 Traditional `FileLoadScanNode` plans keep their existing FE and Thrift representation.
-`LoadTableReader` wraps a source table reader and consumes `src_tuple_id`, `required_slots`,
+`LoadTableReader` derives from `TableReader` and consumes `src_tuple_id`, `required_slots`,
 source defaults, pre-filters, destination expressions and strict-mode metadata. It returns the
 original destination tuple, so Scanner continues to apply destination conjuncts before its
 ordinary output projections.
 
-The source reader receives no destination predicates, aggregate pushdown or condition-cache
-snapshot. It reads the source schema, including path columns, and performs physical-to-source
-mapping. The adapter then applies per-record defaults or flexible-update missing-column marks,
-source pre-filters, destination expressions and strict/nullability checks. Rejected and unselected rows are counted separately through scanner-local IOContext
-counters. Physical text decoders report malformed records through the same rejected-row channel.
+The base reader receives no destination predicates, aggregate pushdown or condition-cache
+snapshot. `LoadTableReader::finalize_chunk()` invokes base finalization to materialize and validate
+the source schema, including path columns, then applies per-record defaults or flexible-update
+missing-column marks, source pre-filters, destination expressions and strict/nullability checks.
+The base read loop owns file opening, batch progression and EOF, without any load-specific state
+or branches. Source schema checks run before the finalization hook changes columns or row counts.
+`LoadTableReader::customize_file_scan_request()` enables malformed-record rejection before the
+physical reader opens. Rejected and unselected rows are counted separately through scanner-local
+IOContext counters. Physical text decoders report malformed records through the same rejected-row
+channel.
 
 JSON field-presence metadata is separate from NULL values and from the immutable read request.
-FileReader reports masks keyed by physical column identity; TableReader translates them using
-TableColumnMapper before the adapter handles defaults and partial updates. Missing keys in a
+FileReader reports masks keyed by physical column identity; LoadTableReader translates them using
+TableColumnMapper during finalization, before the physical reader closes. Missing keys in a
 flexible update are rejected, while omitted values and an omitted sequence-map column retain the
 corresponding skip-bitmap marks. A fully rejected batch is not EOF.
+Non-line JSON pipes read successive messages until pipe EOF; chunked HTTP buffers are still
+combined into one document. File ranges in non-line mode remain single-document inputs.
 
 Supported traditional file loads select V2 even when their planner omits query session options.
 `enable_file_scanner_v2` continues to control query scans; Thrift does not distinguish an omitted

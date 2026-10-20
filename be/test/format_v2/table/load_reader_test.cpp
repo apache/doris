@@ -30,7 +30,11 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "io/fs/kafka_consumer_pipe.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_context.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format {
@@ -47,28 +51,47 @@ TTypeDesc scalar_type(const DataTypePtr& type) {
     return result;
 }
 
-class SourceReader final : public TableReader {
+struct SourceReader {
+    std::vector<ColumnDefinition> columns;
+    bool all_null = false;
+    bool missing_first = false;
+    bool eof_with_rows = false;
+    int opens = 0;
+    int closes = 0;
+};
+
+class SourceFileReader final : public FileReader {
 public:
-    Status init(TableReadOptions&& options) override {
-        columns = options.projected_columns;
-        EXPECT_TRUE(options.conjuncts.empty());
-        EXPECT_EQ(options.push_down_agg_type, TPushAggOp::NONE);
+    SourceFileReader(std::shared_ptr<io::FileSystemProperties>& properties,
+                     std::unique_ptr<io::FileDescription>& file, std::shared_ptr<io::IOContext> io,
+                     RuntimeProfile* profile, SourceReader& source)
+            : FileReader(properties, file, io, profile), _source(source) {}
+    Status init(RuntimeState*) override { return Status::OK(); }
+    Status get_schema(std::vector<ColumnDefinition>* schema) const override {
+        *schema = _source.columns;
+        for (size_t i = 0; i < schema->size(); ++i) {
+            (*schema)[i].local_id = cast_set<int32_t>(i);
+            (*schema)[i].default_expr.reset();
+        }
         return Status::OK();
     }
-    Status prepare_split(const SplitReadOptions& options) override {
-        EXPECT_TRUE(!options.conjuncts || options.conjuncts->empty());
-        calls = 0;
-        return Status::OK();
+    Status open(std::shared_ptr<FileScanRequest> request) override {
+        EXPECT_TRUE(request->reject_invalid_rows);
+        EXPECT_TRUE(request->conjuncts.empty());
+        ++_source.opens;
+        return FileReader::open(std::move(request));
     }
-    Status get_block(Block* block, bool* eos) override {
+    Status get_block(Block* block, size_t* rows, bool* eos) override {
         block->clear_column_data();
-        *eos = calls++ != 0;
+        _missing_fields.clear();
+        *rows = 0;
+        *eos = _calls++ != 0;
         if (*eos) {
             return Status::OK();
         }
         auto column = IColumn::mutate(block->get_by_position(0).column);
         auto& nullable = assert_cast<ColumnNullable&>(*column);
-        if (all_null) {
+        if (_source.all_null) {
             nullable.insert_default();
         } else {
             nullable.get_nested_column().insert_data("value", 5);
@@ -81,17 +104,53 @@ public:
             other->insert_many_defaults(2);
             block->replace_by_position(i, std::move(other));
         }
-        _missing_values.clear();
-        if (missing_first) {
-            _missing_values.emplace(0, std::vector<uint8_t> {1, 0});
+        if (_source.missing_first) {
+            _missing_fields.emplace(LocalColumnId(0), std::vector<uint8_t> {1, 0});
         }
+        *rows = 2;
+        *eos = _source.eof_with_rows;
         return Status::OK();
     }
-    Status close() override { return Status::OK(); }
-    std::vector<ColumnDefinition> columns;
-    int calls = 0;
-    bool all_null = false;
-    bool missing_first = false;
+    Status close() override {
+        ++_source.closes;
+        return Status::OK();
+    }
+
+private:
+    SourceReader& _source;
+    int _calls = 0;
+};
+
+class TestLoadTableReader final : public LoadTableReader {
+public:
+    TestLoadTableReader(std::unique_ptr<SourceReader> source_reader, TupleDescriptor* source,
+                        TupleDescriptor* destination)
+            : LoadTableReader(source, destination), _input(std::move(source_reader)) {}
+    Status init(TableReadOptions&& options) override {
+        RETURN_IF_ERROR(LoadTableReader::init(std::move(options)));
+        _input->columns = _projected_columns;
+        return Status::OK();
+    }
+    Status prepare_split(const SplitReadOptions& options) override {
+        auto split = options;
+        split.current_range.__set_path("load-reader-test.csv");
+        split.current_range.__set_file_type(TFileType::FILE_LOCAL);
+        split.current_range.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+        split.current_range.__set_size(10);
+        split.current_range.__set_file_size(10);
+        split.current_split_format = FileFormat::CSV;
+        return LoadTableReader::prepare_split(split);
+    }
+
+protected:
+    Status create_file_reader(std::unique_ptr<FileReader>* reader) override {
+        *reader = std::make_unique<SourceFileReader>(_system_properties, _current_task->data_file,
+                                                     _io_ctx, _scanner_profile, *_input);
+        return Status::OK();
+    }
+
+private:
+    std::unique_ptr<SourceReader> _input;
 };
 
 class LoadReaderTest : public testing::Test {
@@ -263,10 +322,174 @@ protected:
     std::unique_ptr<SlotDescriptor> source_slot, destination_slot;
 };
 
+class LoadJsonPipeTest : public LoadReaderTest {
+protected:
+    void SetUp() override {
+        LoadReaderTest::SetUp();
+        auto* env = ExecEnv::GetInstance();
+        if (!env->new_load_stream_mgr()) {
+            env->_new_load_stream_mgr = std::make_unique<NewLoadStreamMgr>();
+            _owns_stream_manager = true;
+        }
+        _context = std::make_shared<StreamLoadContext>(env);
+        _pipe = std::make_shared<io::KafkaConsumerPipe>();
+        _context->pipe = _pipe;
+        ASSERT_TRUE(env->new_load_stream_mgr()->put(_context->id, _context).ok());
+        params.__set_file_type(TFileType::FILE_STREAM);
+        params.__set_format_type(TFileFormatType::FORMAT_JSON);
+        params.__set_compress_type(TFileCompressType::PLAIN);
+        TFileAttributes attributes;
+        attributes.__set_read_json_by_line(false);
+        params.__set_file_attributes(attributes);
+    }
+    void TearDown() override {
+        ExecEnv::GetInstance()->new_load_stream_mgr()->remove(_context->id);
+        _context.reset();
+        _pipe.reset();
+        if (_owns_stream_manager) {
+            ExecEnv::GetInstance()->_new_load_stream_mgr.reset();
+        }
+        LoadReaderTest::TearDown();
+    }
+    Status prepare(LoadTableReader& reader) {
+        RETURN_IF_ERROR(init(reader, FileFormat::JSON));
+        SplitReadOptions split;
+        split.current_split_format = FileFormat::JSON;
+        split.current_range.__set_file_type(TFileType::FILE_STREAM);
+        split.current_range.__set_format_type(TFileFormatType::FORMAT_JSON);
+        split.current_range.__set_load_id(_context->id.to_thrift());
+        split.current_range.__set_size(-1);
+        return reader.prepare_split(split);
+    }
+    void append(const std::string& document) {
+        ASSERT_TRUE(_pipe->append_json(document.data(), document.size()).ok());
+    }
+    std::shared_ptr<io::KafkaConsumerPipe> _pipe;
+    std::shared_ptr<StreamLoadContext> _context;
+    bool _owns_stream_manager = false;
+};
+
+TEST_F(LoadJsonPipeTest, ReadsEveryKafkaMessageBeforePipeEof) {
+    append(R"({"raw_value":"first"})");
+    append(R"({"raw_value":"second"})");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "first");
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(1).to_string(), "second");
+    EXPECT_EQ(_pipe->get_queue_size(), 0);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, MessagesContinueAcrossBatchBoundaries) {
+    auto options = state.query_options();
+    options.__set_batch_size(1);
+    state.set_query_options(options);
+    append(R"({"raw_value":"first"})");
+    append(R"({"raw_value":"second"})");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    for (const auto* expected : {"first", "second"}) {
+        ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+        EXPECT_FALSE(eos);
+        ASSERT_EQ(output.rows(), 1);
+        EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), expected);
+    }
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, FixedLengthStreamEndsAfterItsDocument) {
+    const std::string document = R"({"raw_value":"fixed"})";
+    auto pipe = std::make_shared<io::StreamLoadPipe>(1024, 1024, document.size());
+    _context->pipe = pipe;
+    ASSERT_TRUE(pipe->append_and_flush(document.data(), document.size()).ok());
+    ASSERT_TRUE(pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "fixed");
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, RejectedMessageDoesNotHideLaterMessages) {
+    append(R"({"raw_value":"first"})");
+    append("{");
+    append(R"({"raw_value":"last"})");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(1).to_string(), "last");
+    EXPECT_EQ(io->load_filtered_rows, 1);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, ChunkedTransferRemainsOneDocument) {
+    _pipe->set_is_chunked_transfer(true);
+    append(R"({"raw_)");
+    append(R"(value":"joined"})");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "joined");
+    EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, EmptyFinishedPipeReturnsEof) {
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST_F(LoadReaderTest, SourceSlotsAreConvertedBeforeDestinationFiltering) {
     auto child = std::make_unique<SourceReader>();
     auto* input = child.get();
-    LoadTableReader reader(std::move(child), source.get(), destination.get());
+    TestLoadTableReader reader(std::move(child), source.get(), destination.get());
     auto status = init(reader);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(input->columns.size(), 1);
@@ -288,7 +511,7 @@ TEST_F(LoadReaderTest, SourceSlotsAreConvertedBeforeDestinationFiltering) {
 TEST_F(LoadReaderTest, StrictCastRejectsInvalidNonNullSourceOnly) {
     cast_destination_to_int();
     params.__set_strict_mode(true);
-    LoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
+    TestLoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -307,7 +530,7 @@ TEST_F(LoadReaderTest, StrictCastRejectsInvalidNonNullSourceOnly) {
 TEST_F(LoadReaderTest, NonStrictCastPreservesNullableRows) {
     cast_destination_to_int();
     params.__set_strict_mode(false);
-    LoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
+    TestLoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -335,7 +558,7 @@ TEST_F(LoadReaderTest, PreFilterRunsBeforeStrictConversion) {
     TExpr expression;
     expression.__set_nodes({predicate});
     params.__set_pre_filter_exprs_list({expression});
-    LoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
+    TestLoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -365,7 +588,7 @@ TEST_F(LoadReaderTest, MissingDefaultDoesNotReplaceExplicitNull) {
     params.__set_default_value_of_src_slot({{10, expression}});
     auto child = std::make_unique<SourceReader>();
     child->missing_first = true;
-    LoadTableReader reader(std::move(child), source.get(), destination.get());
+    TestLoadTableReader reader(std::move(child), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -380,7 +603,7 @@ TEST_F(LoadReaderTest, MissingDefaultDoesNotReplaceExplicitNull) {
 
 TEST_F(LoadReaderTest, NonNullableDestinationFiltersNulls) {
     set_destination_type(std::make_shared<DataTypeString>());
-    LoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
+    TestLoadTableReader reader(std::make_unique<SourceReader>(), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -398,7 +621,8 @@ TEST_F(LoadReaderTest, FullyRejectedBatchIsNotEofAndNextSplitStillReads) {
     auto child = std::make_unique<SourceReader>();
     auto* input = child.get();
     input->all_null = true;
-    LoadTableReader reader(std::move(child), source.get(), destination.get());
+    input->eof_with_rows = true;
+    TestLoadTableReader reader(std::move(child), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -408,6 +632,8 @@ TEST_F(LoadReaderTest, FullyRejectedBatchIsNotEofAndNextSplitStillReads) {
     EXPECT_FALSE(eos);
     EXPECT_EQ(output.rows(), 0);
     EXPECT_EQ(io->load_filtered_rows, 2);
+    EXPECT_EQ(input->opens, 1);
+    EXPECT_EQ(input->closes, 1);
     ASSERT_TRUE(reader.get_block(&output, &eos).ok());
     EXPECT_TRUE(eos);
     input->all_null = false;
@@ -417,15 +643,18 @@ TEST_F(LoadReaderTest, FullyRejectedBatchIsNotEofAndNextSplitStillReads) {
     EXPECT_FALSE(eos);
     EXPECT_EQ(output.rows(), 1);
     EXPECT_EQ(io->load_filtered_rows, 3);
+    EXPECT_EQ(input->opens, 2);
+    EXPECT_EQ(input->closes, 2);
     ASSERT_TRUE(reader.close().ok());
     ASSERT_TRUE(reader.close().ok());
+    EXPECT_EQ(input->closes, 2);
 }
 
 TEST_F(LoadReaderTest, FlexibleUpdatePreservesOmittedValueAndSequenceMarks) {
     add_partial_update_columns(false);
     auto child = std::make_unique<SourceReader>();
     child->missing_first = true;
-    LoadTableReader reader(std::move(child), source.get(), destination.get());
+    TestLoadTableReader reader(std::move(child), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -448,7 +677,7 @@ TEST_F(LoadReaderTest, FlexibleUpdateRejectsMissingKeyBeforeExpressions) {
     add_partial_update_columns(true);
     auto child = std::make_unique<SourceReader>();
     child->missing_first = true;
-    LoadTableReader reader(std::move(child), source.get(), destination.get());
+    TestLoadTableReader reader(std::move(child), source.get(), destination.get());
     const auto init_status = init(reader);
     ASSERT_TRUE(init_status.ok()) << init_status;
     ASSERT_TRUE(reader.prepare_split({}).ok());
@@ -487,7 +716,7 @@ TEST_F(LoadReaderTest, NativeReadersPreserveValidRowsAroundMalformedRecords) {
         }
         io->load_filtered_rows = 0;
         const auto format = json ? FileFormat::JSON : FileFormat::CSV;
-        LoadTableReader reader(std::make_unique<TableReader>(), source.get(), destination.get());
+        LoadTableReader reader(source.get(), destination.get());
         auto status = init(reader, format);
         ASSERT_TRUE(status.ok()) << status;
         TFileRangeDesc range;
@@ -565,7 +794,7 @@ TEST_F(LoadReaderTest, NativeJsonMissingFieldUsesDefaultButExplicitNullDoesNot) 
         std::ofstream file(input_path);
         file << "{\"anchor\":\"a\"}\n{\"anchor\":\"b\",\"raw_value\":null}\n";
     }
-    LoadTableReader reader(std::make_unique<TableReader>(), source.get(), destination.get());
+    LoadTableReader reader(source.get(), destination.get());
     auto status = init(reader, FileFormat::JSON);
     ASSERT_TRUE(status.ok()) << status;
     SplitReadOptions split;

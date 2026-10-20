@@ -487,14 +487,14 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     }
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
     if (_first_scan_range) {
-        RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
-        DORIS_CHECK(_table_reader != nullptr);
         if (_is_load) {
             _table_reader = std::make_unique<format::LoadTableReader>(
-                    std::move(_table_reader),
                     state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id),
-                    const_cast<TupleDescriptor*>(_output_tuple_desc));
+                    _output_tuple_desc);
+        } else {
+            RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
         }
+        DORIS_CHECK(_table_reader != nullptr);
         RETURN_IF_ERROR(_init_expr_ctxes());
         RETURN_IF_ERROR(_init_table_reader(_current_range));
         // Refine the first source split before yielding the scanner worker. Other scanners may be

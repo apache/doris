@@ -546,16 +546,19 @@ Status JsonReader::_read_one_document(size_t* size, bool* eof) {
         _document_view = std::string_view(reinterpret_cast<const char*>(line), *size);
         return Status::OK();
     }
-    // Non-line mode treats the split as one JSON document. This supports a single object or an
-    // array with strip_outer_array=true.
+    if (_scan_params->file_type == TFileType::FILE_STREAM) {
+        // A routine-load pipe contains one document per message. Only pipe EOF ends the
+        // stream; treating its first message as a complete file can commit unread offsets.
+        RETURN_IF_ERROR(_read_one_document_from_pipe(size));
+        *eof = *size == 0;
+        return Status::OK();
+    }
+    // Non-line file mode treats the split as one JSON document, optionally an outer array.
     if (_single_document_read) {
         *eof = true;
         return Status::OK();
     }
     _single_document_read = true;
-    if (_scan_params->file_type == TFileType::FILE_STREAM) {
-        return _read_one_document_from_pipe(size);
-    }
 
     auto read_size = _reader_range.size;
     if (read_size <= 0 && _reader_range.__isset.file_size) {
@@ -583,6 +586,11 @@ Status JsonReader::_read_one_document_from_pipe(size_t* read_size) {
     }
     DorisUniqueBufferPtr<uint8_t> file_buf;
     RETURN_IF_ERROR(stream_load_pipe->read_one_message(&file_buf, read_size));
+    if (*read_size == 0) {
+        _document_buffer.clear();
+        _document_view = {};
+        return Status::OK();
+    }
     _document_buffer.assign(reinterpret_cast<const char*>(file_buf.get()), *read_size);
     _document_view = _document_buffer;
     if (!stream_load_pipe->is_chunked_transfer()) {

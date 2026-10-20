@@ -22,27 +22,29 @@
 namespace doris::format {
 
 // Adapts the existing file-load source/destination tuple protocol to a table reader.
-// The child produces source columns; callers always receive the destination schema.
-class LoadTableReader final : public TableReader {
+// Source materialization uses TableReader; finalization returns the destination schema.
+class LoadTableReader : public TableReader {
 public:
-    LoadTableReader(std::unique_ptr<TableReader> child, TupleDescriptor* source,
-                    TupleDescriptor* destination);
+    LoadTableReader(TupleDescriptor* source, const TupleDescriptor* destination);
     ~LoadTableReader() override;
 
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
-    Status get_block(Block* block, bool* eos) override;
     Status refresh_conjuncts(VExprContextSPtrs conjuncts,
                              std::optional<uint64_t> digest = std::nullopt,
                              bool all_runtime_filters_applied = false) override;
     Status build_physical_splits(const FileScanSplit& source, std::vector<FileScanSplit>* splits,
                                  bool* was_split) override;
-    bool current_split_pruned() const override { return _child->current_split_pruned(); }
     bool current_split_uses_metadata_count() const override { return false; }
     Status abort_split() override;
     Status close() override;
-    void set_batch_size(size_t batch_size) override;
     int64_t condition_cache_hit_count() const override { return 0; }
+
+protected:
+    Status finalize_chunk(Block* block, size_t rows) override;
+    Status customize_file_scan_request(FileScanRequest* request) override;
+    Status create_file_reader(std::unique_ptr<FileReader>* reader) override;
+    TableColumnMappingMode mapping_mode() const override;
 
 private:
     Status _init_source_columns();
@@ -50,9 +52,8 @@ private:
     Status _convert(Block* output);
     Status _reject_row(size_t row, const std::string& reason);
 
-    std::unique_ptr<TableReader> _child;
     TupleDescriptor* _source_tuple;
-    TupleDescriptor* _destination_tuple;
+    const TupleDescriptor* _destination_tuple;
     RowDescriptor _source_row;
     Block _source;
     std::vector<ColumnDefinition> _source_columns;

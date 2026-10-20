@@ -24,22 +24,21 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format_v2/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format {
 
-LoadTableReader::LoadTableReader(std::unique_ptr<TableReader> child, TupleDescriptor* source,
-                                 TupleDescriptor* destination)
-        : _child(std::move(child)),
-          _source_tuple(source),
-          _destination_tuple(destination),
-          _source_row(source, false) {}
+LoadTableReader::LoadTableReader(TupleDescriptor* source, const TupleDescriptor* destination)
+        : _source_tuple(source), _destination_tuple(destination), _source_row(source, false) {}
 
 LoadTableReader::~LoadTableReader() = default;
 
 Status LoadTableReader::init(TableReadOptions&& options) {
-    RETURN_IF_ERROR(TableReader::init(std::move(options)));
+    _scan_params = options.scan_params;
+    _runtime_state = options.runtime_state;
+    _format = options.format;
     RETURN_IF_ERROR(_init_source_columns());
     if (_scan_params->__isset.pre_filter_exprs_list) {
         RETURN_IF_ERROR(
@@ -82,17 +81,16 @@ Status LoadTableReader::init(TableReadOptions&& options) {
     }
     // Destination predicates must run after conversions and error accounting. Passing them to
     // the source reader would both bind the wrong slots and change rejected-row statistics.
-    return _child->init({.projected_columns = _source_columns,
-                         .conjuncts = {},
-                         .format = _format,
-                         .scan_params = _scan_params,
-                         .io_ctx = _io_ctx,
-                         .runtime_state = _runtime_state,
-                         .scanner_profile = _scanner_profile,
-                         .file_slot_descs = &_source_file_slots,
-                         .push_down_agg_type = TPushAggOp::NONE,
-                         .condition_cache_digest = 0,
-                         .is_load = true});
+    return TableReader::init({.projected_columns = std::move(_source_columns),
+                              .conjuncts = {},
+                              .format = options.format,
+                              .scan_params = options.scan_params,
+                              .io_ctx = options.io_ctx,
+                              .runtime_state = options.runtime_state,
+                              .scanner_profile = options.scanner_profile,
+                              .file_slot_descs = &_source_file_slots,
+                              .push_down_agg_type = TPushAggOp::NONE,
+                              .condition_cache_digest = 0});
 }
 
 Status LoadTableReader::_init_source_columns() {
@@ -135,7 +133,16 @@ Status LoadTableReader::_init_source_columns() {
         }
         ProjectedColumnBuildContext context {
                 .scan_params = _scan_params, .runtime_state = _runtime_state, .slot_desc = slot};
-        RETURN_IF_ERROR(_child->annotate_projected_column(*required, &context, &column));
+        if (_format == FileFormat::WAL) {
+            if (slot->col_unique_id() < 0) {
+                return Status::InternalError("WAL projected column {} has no valid unique id",
+                                             column.name);
+            }
+            // WAL headers identify columns by stable unique id, including after a rename.
+            column.identifier = Field::create_field<TYPE_INT>(slot->col_unique_id());
+        } else {
+            RETURN_IF_ERROR(annotate_projected_column(*required, &context, &column));
+        }
         _source_columns.push_back(std::move(column));
     }
     return Status::OK();
@@ -172,7 +179,7 @@ Status LoadTableReader::prepare_split(const SplitReadOptions& options) {
         column->get(0, field);
         source_options.partition_values.insert_or_assign(slot->col_name(), std::move(field));
     }
-    return _child->prepare_split(source_options);
+    return TableReader::prepare_split(source_options);
 }
 
 Status LoadTableReader::refresh_conjuncts(VExprContextSPtrs, std::optional<uint64_t>, bool) {
@@ -196,7 +203,17 @@ Status LoadTableReader::_reject_row(size_t row, const std::string& reason) {
 
 Status LoadTableReader::_materialize_missing_values() {
     const size_t rows = _source.rows();
-    const auto& missing = _child->missing_values();
+    std::map<size_t, const std::vector<uint8_t>*> missing;
+    // Translate presence metadata only through the mapper, while the physical reader is alive.
+    const auto& fields = _data_reader.reader->missing_fields();
+    for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+        if (mapping.file_local_id.has_value()) {
+            const auto it = fields.find(LocalColumnId(*mapping.file_local_id));
+            if (it != fields.end()) {
+                missing.emplace(mapping.global_index.value(), &it->second);
+            }
+        }
+    }
     if (_skip_bitmap_position >= 0) {
         auto bitmap =
                 _source_tuple->slots()[_skip_bitmap_position]->get_data_type_ptr()->create_column();
@@ -211,7 +228,7 @@ Status LoadTableReader::_materialize_missing_values() {
                 continue;
             }
             for (size_t row = 0; row < rows; ++row) {
-                if (!mask[row]) {
+                if (!(*mask)[row]) {
                     continue;
                 }
                 if (slot->is_key() && !slot->is_auto_increment()) {
@@ -247,7 +264,7 @@ Status LoadTableReader::_materialize_missing_values() {
                                                        : remove_nullable(default_values);
             auto result = input.type->create_column();
             for (size_t row = 0; row < rows; ++row) {
-                result->insert_from(mask[row] ? *default_values : *input.column, row);
+                result->insert_from((*mask)[row] ? *default_values : *input.column, row);
             }
             _source.replace_by_position(position, std::move(result));
         }
@@ -295,15 +312,9 @@ Status LoadTableReader::_convert(Block* output) {
     return Status::OK();
 }
 
-Status LoadTableReader::get_block(Block* block, bool* eos) {
-    block->clear_column_data();
+Status LoadTableReader::finalize_chunk(Block* block, size_t physical_rows) {
     _source = Block(_source_tuple->slots(), 0);
-    RETURN_IF_ERROR(_child->get_block(&_source, eos));
-    if (_source.rows() == 0) {
-        return Status::OK();
-    }
-    // A nonempty batch must be consumed before EOF, including when its final row is rejected.
-    *eos = false;
+    RETURN_IF_ERROR(TableReader::finalize_chunk(&_source, physical_rows));
     RETURN_IF_ERROR(_materialize_missing_values());
     const auto rows = _source.rows();
     RETURN_IF_ERROR(
@@ -318,18 +329,34 @@ Status LoadTableReader::get_block(Block* block, bool* eos) {
 
 Status LoadTableReader::abort_split() {
     _source.clear();
-    return _child->abort_split();
+    return TableReader::abort_split();
 }
 
-void LoadTableReader::set_batch_size(size_t batch_size) {
-    _child->set_batch_size(batch_size);
+Status LoadTableReader::customize_file_scan_request(FileScanRequest* request) {
+    // Decoders must reject malformed load records before source expressions run.
+    request->reject_invalid_rows = true;
+    return Status::OK();
+}
+
+TableColumnMappingMode LoadTableReader::mapping_mode() const {
+    return _format == FileFormat::WAL ? TableColumnMappingMode::BY_FIELD_ID
+                                      : TableColumnMappingMode::BY_NAME;
+}
+
+Status LoadTableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
+    if (_format == FileFormat::WAL) {
+        *reader = std::make_unique<wal::WalReader>(_system_properties, _current_task->data_file,
+                                                   _io_ctx, _scanner_profile, _projected_columns);
+        return Status::OK();
+    }
+    return TableReader::create_file_reader(reader);
 }
 
 Status LoadTableReader::close() {
     if (_closed) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_child->close());
+    RETURN_IF_ERROR(TableReader::close());
     _pre_filters.clear();
     _destination_exprs.clear();
     _source_defaults.clear();
