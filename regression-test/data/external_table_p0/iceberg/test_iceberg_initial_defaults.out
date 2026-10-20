@@ -82,7 +82,7 @@ default_decimal	decimal(20,4)	Yes	true	\N
 default_date	date	Yes	true	\N	
 default_timestamp	datetime(6)	Yes	true	\N	
 default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
-default_string	text	Yes	true	\N	
+default_string	text	No	true	\N	
 default_uuid	uuid	Yes	true	\N	
 default_fixed	varbinary(4)	Yes	true	\N	
 default_binary	varbinary(2147483647)	Yes	true	\N	
@@ -179,7 +179,7 @@ default_decimal	decimal(20,4)	Yes	true	\N
 default_date	date	Yes	true	\N	
 default_timestamp	datetime(6)	Yes	true	\N	
 default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
-default_string	text	Yes	true	\N	
+default_string	text	No	true	\N	
 default_uuid	uuid	Yes	true	\N	
 default_fixed	varbinary(4)	Yes	true	\N	
 default_binary	varbinary(2147483647)	Yes	true	\N	
@@ -276,7 +276,7 @@ default_decimal	decimal(20,4)	Yes	true	\N
 default_date	date	Yes	true	\N	
 default_timestamp	datetime(6)	Yes	true	\N	
 default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
-default_string	text	Yes	true	\N	
+default_string	text	No	true	\N	
 default_uuid	uuid	Yes	true	\N	
 default_fixed	varbinary(4)	Yes	true	\N	
 default_binary	varbinary(2147483647)	Yes	true	\N	
@@ -373,7 +373,7 @@ default_decimal	decimal(20,4)	Yes	true	\N
 default_date	date	Yes	true	\N	
 default_timestamp	datetime(6)	Yes	true	\N	
 default_timestamptz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
-default_string	text	Yes	true	\N	
+default_string	text	No	true	\N	
 default_uuid	uuid	Yes	true	\N	
 default_fixed	varbinary(4)	Yes	true	\N	
 default_binary	varbinary(2147483647)	Yes	true	\N	

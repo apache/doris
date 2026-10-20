@@ -136,7 +136,6 @@ protected:
         tso->set_length(8);
         tso->set_is_nullable(false);
         tso->set_visible(false);
-        pb.set_binlog_tso_col_idx(2);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);

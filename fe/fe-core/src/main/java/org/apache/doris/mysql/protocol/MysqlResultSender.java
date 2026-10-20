@@ -234,7 +234,9 @@ public class MysqlResultSender implements ResultSender {
         MysqlChannel channel = channel();
         for (Column column : columns) {
             serializer.reset();
-            serializer.writeField(dbName, tableName, column, true);
+            // COM_FIELD_LIST is a metadata statement: carry the display column's declared nullability in the
+            // ColumnDefinition41 NOT_NULL flag, like SHOW COLUMNS does.
+            serializer.writeField(dbName, tableName, column, true, true);
             channel.sendOnePacket(serializer.toByteBuffer());
         }
     }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.tls.server;
 
-import org.springframework.boot.web.embedded.jetty.ConfigurableJettyWebServerFactory;
+import org.springframework.boot.jetty.ConfigurableJettyWebServerFactory;
 
 public interface HttpServerTlsProvider {
     void customize(ConfigurableJettyWebServerFactory factory);

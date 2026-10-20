@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -47,7 +46,7 @@ import org.junit.jupiter.api.function.Executable;
 
 import java.util.List;
 
-class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
+class IvmNormalizeUniqKeysMTMVUnionTest extends IvmDeltaTestBase {
 
     private LogicalOlapScan buildMowScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.UNIQUE_KEYS);
@@ -103,7 +102,7 @@ class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        return new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+        return new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
     }
 
     private IvmRewriteResult getRewriteResult(Plan unionPlan) {
@@ -112,8 +111,8 @@ class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalized = new IvmNormalizeUniqKeysMTMV().normalize(sink, jobContext);
+        return publishNormalizeResult(jobContext, normalized);
     }
 
     private boolean isUnionRowIdDeterministic(Plan unionPlan) {

@@ -409,8 +409,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, is_strict_mode);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
 
@@ -427,8 +427,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         }
     }
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     // 3.0. create expected result column in block
     DataTypePtr result_type_ptr;

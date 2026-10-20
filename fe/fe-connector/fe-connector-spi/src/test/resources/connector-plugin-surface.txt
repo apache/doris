@@ -52,11 +52,13 @@ org.apache.doris.connector.spi.ConnectorColumn#isKey():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isNullable():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isNullableSpecified():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isReservedPassthrough():boolean
+org.apache.doris.connector.spi.ConnectorColumn#isSourceNullable():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isVisible():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isWithTimeZone():boolean
 org.apache.doris.connector.spi.ConnectorColumn#reservedPassthrough():org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#toString():java.lang.String
 org.apache.doris.connector.spi.ConnectorColumn#withDefaultValueSql(java.lang.String):org.apache.doris.connector.spi.ConnectorColumn
+org.apache.doris.connector.spi.ConnectorColumn#withSourceNullable(boolean):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withSpecified(boolean,boolean):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withStringWriteType(org.apache.doris.connector.spi.ConnectorType):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withTimeZone():org.apache.doris.connector.spi.ConnectorColumn
@@ -112,6 +114,8 @@ org.apache.doris.connector.spi.ConnectorTableSchema#getTableName():java.lang.Str
 org.apache.doris.connector.spi.ConnectorTableSchema#getWriteMetadataIdentity():java.lang.String
 org.apache.doris.connector.spi.ConnectorTableSchema#hashCode():int
 org.apache.doris.connector.spi.ConnectorTableSchema#toString():java.lang.String
+org.apache.doris.connector.spi.DiagnosticException#getDiagnosticMessage():java.lang.String
+org.apache.doris.connector.spi.DiagnosticException#getDiagnosticStackTrace(java.lang.Throwable):java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#hashCode():int
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#withProjectedFieldIds(java.util.Set):org.apache.doris.connector.spi.handle.ConnectorColumnHandle

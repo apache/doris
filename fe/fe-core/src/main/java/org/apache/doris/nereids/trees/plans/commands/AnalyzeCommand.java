@@ -146,7 +146,7 @@ public abstract class AnalyzeCommand extends Command implements ForwardWithSync 
             analyzeProperties.check();
         }
         if (analyzeProperties.hasCollectHotValue() && getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE) {
-            throw new AnalysisException("Sample analyze always collects hot value");
+            throw new AnalysisException("Sample analyze does not support WITH HOT VALUE");
         }
     }
 

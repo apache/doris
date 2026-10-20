@@ -657,12 +657,12 @@ private:
             if (data->hasNulls && !data->notNull[i]) {
                 continue;
             }
-            // Check the UTC epoch before packing: ORC permits years outside Doris's 0001-9999 range.
-            static constexpr int64_t MIN_SECONDS = -62135596800LL;
+            // Check the UTC epoch before packing: ORC permits years outside Doris's 0000-9999 range.
+            static constexpr int64_t MIN_SECONDS = -62167219200LL;
             static constexpr int64_t MAX_SECONDS = 253402300799LL;
             if (data->data[i] < MIN_SECONDS || data->data[i] > MAX_SECONDS) {
                 return Status::DataQualityError(
-                        "Decoded TIMESTAMPTZ column '{}' is outside the Doris 0001-9999 range: "
+                        "Decoded TIMESTAMPTZ column '{}' is outside the Doris 0000-9999 range: "
                         "seconds={}",
                         col_name, data->data[i]);
             }

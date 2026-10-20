@@ -19,6 +19,7 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.hudi.common.util.PartitionPathEncodeUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -32,6 +33,34 @@ import java.util.Map;
  * legacy positional/prefixed layouts used for BE-visible partition columns on a snapshot read.
  */
 public class HudiPartitionValuesTest {
+
+    @Test
+    public void timestampDecodingIsPerColumnAndConsumesOnlyOneEscapingLayer() {
+        String timestamp = "2024-01-01 10:00:00";
+        String timestampPath = PartitionPathEncodeUtils.escapePathName(timestamp);
+        for (boolean urlEncoded : Arrays.asList(false, true)) {
+            for (boolean hiveStyle : Arrays.asList(false, true)) {
+                for (String label : Arrays.asList("%3A", "%253A", "a+b", "a%2Fb")) {
+                    String labelPath = urlEncoded ? PartitionPathEncodeUtils.escapePathName(label) : label;
+                    String path = (hiveStyle ? "event_time=" : "") + timestampPath + "/"
+                            + (hiveStyle ? "label=" : "") + labelPath;
+                    Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(path,
+                            Arrays.asList("event_time", "label"), urlEncoded, Collections.singleton("event_time"));
+                    Assertions.assertEquals(timestamp, values.get("event_time"));
+                    Assertions.assertEquals(label, values.get("label"));
+                }
+            }
+        }
+        Assertions.assertEquals("2024-01-01 10%3A00%3A00", HudiScanPlanProvider.parsePartitionValues(
+                "event_time=2024-01-01 10%253A00%253A00", Collections.singletonList("event_time"),
+                false, Collections.singleton("event_time")).get("event_time"));
+        Assertions.assertEquals("2024-01-01 10:00:00", HudiScanPlanProvider.parsePartitionValues(
+                "event_time=" + timestamp, Collections.singletonList("event_time"),
+                false, Collections.singleton("event_time")).get("event_time"));
+        Assertions.assertEquals("__HIVE_DEFAULT_PARTITION__", HudiScanPlanProvider.parsePartitionValues(
+                "event_time=__HIVE_DEFAULT_PARTITION__", Collections.singletonList("event_time"),
+                false, Collections.singleton("event_time")).get("event_time"));
+    }
 
     @Test
     public void rawAndEncodedValuesHaveTheSameLogicalIdentity() {

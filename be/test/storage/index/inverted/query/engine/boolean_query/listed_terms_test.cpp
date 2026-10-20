@@ -23,6 +23,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>
@@ -159,6 +160,13 @@ public:
 
 FakeIndexSource::Posting posting(uint32_t doc, std::vector<uint32_t> positions) {
     return {.doc = doc, .positions = std::move(positions)};
+}
+
+// Every row of a source holding `doc_count` rows.
+std::vector<uint32_t> every_row(uint32_t doc_count) {
+    std::vector<uint32_t> docs(doc_count);
+    std::iota(docs.begin(), docs.end(), 0U);
+    return docs;
 }
 
 // More terms than a source batching its reads reads in one round, and their names in the waves
@@ -476,6 +484,71 @@ TEST_F(ListedTermsTest, AConjunctionChainsItsTermsFromTheCheapest) {
     EXPECT_EQ(listed->fetches, 0U);
 }
 
+// A term held by every row cannot narrow a conjunction, so the chain never reads it.
+TEST_F(ListedTermsTest, AConjunctionSkipsATermHeldByEveryRow) {
+    for (const bool batches : {false, true}) {
+        auto input = source(batches);
+        input->add("every", every_row(input->doc_count()));
+        ListedTerms group(input, nullptr);
+        group.add(0, "a");
+        group.add(1, "every");
+        group.add(2, "b");
+        group.open(/*conjunctive=*/true);
+        EXPECT_EQ(group.conjunction(nullptr).true_rows, roaring::Roaring::bitmapOf(3, 2U, 3U, 8U));
+        EXPECT_TRUE(input->prefetches["every"].empty());
+        EXPECT_EQ(input->prefetches["a"].size(), 1U);
+        EXPECT_EQ(input->prefetches["b"].size(), 1U);
+    }
+}
+
+// A conjunction of terms held by every row holds every row, or every candidate, without reading
+// any of them.
+TEST_F(ListedTermsTest, AConjunctionOfTermsHeldByEveryRowHoldsEveryRow) {
+    auto input = source(true);
+    input->add("every", every_row(input->doc_count()));
+    input->add("each", every_row(input->doc_count()));
+    const auto both = [&] {
+        ListedTerms group(input, nullptr);
+        group.add(0, "every");
+        group.add(1, "each");
+        group.open(/*conjunctive=*/true);
+        return group;
+    };
+    roaring::Roaring all_rows;
+    all_rows.addRange(0, input->doc_count());
+    EXPECT_EQ(both().conjunction(nullptr).true_rows, all_rows);
+    const std::vector<uint32_t> candidates {3, 8, 20};
+    EXPECT_EQ(both().conjunction(&candidates).true_rows,
+              roaring::Roaring::bitmapOf(3, 3U, 8U, 20U));
+    EXPECT_TRUE(input->prefetches["every"].empty());
+    EXPECT_TRUE(input->prefetches["each"].empty());
+}
+
+// The one term left beside a term held by every row lists its own rows, or those among the
+// candidates.
+TEST_F(ListedTermsTest, ALoneTermListsItsRowsOrThoseAmongTheCandidates) {
+    for (const bool batches : {false, true}) {
+        auto input = source(batches);
+        input->add("every", every_row(input->doc_count()));
+        const auto lone = [&] {
+            ListedTerms group(input, nullptr);
+            group.add(0, "every");
+            group.add(1, "c");
+            group.open(/*conjunctive=*/true);
+            return group;
+        };
+        EXPECT_EQ(lone().conjunction(nullptr).true_rows,
+                  roaring::Roaring::bitmapOf(3, 3U, 8U, 20U));
+        const std::vector<uint32_t> candidates {2, 8, 20, 30};
+        EXPECT_EQ(lone().conjunction(&candidates).true_rows,
+                  roaring::Roaring::bitmapOf(2, 8U, 20U));
+        ASSERT_EQ(input->prefetches["c"].size(), 2U);
+        EXPECT_TRUE(input->prefetches["c"][0].whole);
+        EXPECT_EQ(input->prefetches["c"][1].candidates, candidates);
+        EXPECT_TRUE(input->prefetches["every"].empty());
+    }
+}
+
 // Collecting every row of a scored disjunction lists its terms one after another; a TopK on a
 // source that does not batch its reads streams them side by side instead of holding every
 // matching row and score first, and ranks the rows alike.
@@ -576,9 +649,10 @@ TEST_F(ListedTermsTest, OtherClausesRunInCostOrderAroundTheChain) {
     EXPECT_TRUE(listed->prefetches["c"][0].whole);
 }
 
-// An unscored conjunction chains its terms on a source reading them one at a time too: the
-// chain seeks the blocks the cheaper terms' rows fall in, and the source has no round to fetch.
-TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceChainsItsTermsToo) {
+// An unscored conjunction on a source reading its terms one at a time streams them a window of
+// rows at a time, so each term may be asked for any of its rows, and the source has no round to
+// fetch.
+TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceStreamsItsTerms) {
     auto streamed = source(false);
     const auto rows = evaluate(
             [&] {
@@ -588,14 +662,12 @@ TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceChainsItsTermsToo) {
     EXPECT_EQ(rows.true_rows, roaring::Roaring::bitmapOf(2, 3U, 8U));
     EXPECT_EQ(rows.null_rows, roaring::Roaring::bitmapOf(2, 40U, 41U));
     EXPECT_EQ(streamed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b", "c"}}));
-    ASSERT_EQ(streamed->prefetches["c"].size(), 1U);
-    EXPECT_TRUE(streamed->prefetches["c"][0].whole);
-    ASSERT_EQ(streamed->prefetches["b"].size(), 1U);
-    EXPECT_EQ(streamed->prefetches["b"][0].candidates, (std::vector<uint32_t> {3, 8, 20}));
-    ASSERT_EQ(streamed->prefetches["a"].size(), 1U);
-    EXPECT_EQ(streamed->prefetches["a"][0].candidates, (std::vector<uint32_t> {3, 8}));
+    for (const char* term : {"a", "b", "c"}) {
+        ASSERT_EQ(streamed->prefetches[term].size(), 1U);
+        EXPECT_TRUE(streamed->prefetches[term][0].whole);
+    }
     EXPECT_EQ(streamed->fetches, 0U);
-    // A disjunction on it still streams.
+    // A disjunction on it opens its terms one at a time.
     auto any = source(false);
     evaluate([&] { return boolean(OperatorType::OP_OR, {term("a"), term("c")}); }, any);
     EXPECT_TRUE(any->opened_together.empty());
@@ -613,6 +685,32 @@ TEST_F(ListedTermsTest, AScoredConjunctionScoresTheRowsItLists) {
     expect_scores_eq(scored(make, listed), expected);
     EXPECT_EQ(listed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b"}}));
     EXPECT_TRUE(listed->opened.empty());
+}
+
+// A batching keyword source has no positions: its term scorers use frequency and norm 1.
+TEST_F(ListedTermsTest, AScoredDocsOnlyConjunctionUsesUnitFrequencyWithoutPositions) {
+    for (bool batches : {false, true}) {
+        auto keyword = std::make_shared<FakeIndexSource>();
+        keyword->batches = batches;
+        keyword->has_positions = false;
+        keyword->set_doc_count(10);
+        keyword->add("a", std::vector<uint32_t> {1, 2, 3});
+        keyword->add("b", std::vector<uint32_t> {2, 3, 4});
+        auto expected = summed({"a", "b"}, keyword);
+        expected.erase(1);
+        expected.erase(4);
+        keyword->opened.clear();
+        const auto actual = scored(
+                [&] {
+                    return boolean(OperatorType::OP_AND, {term("a"), term("b")});
+                },
+                keyword);
+        expect_scores_eq(actual, expected);
+        EXPECT_EQ(keys(actual), (std::vector<uint32_t> {2, 3}));
+        EXPECT_GT(actual.at(2), 0.0F);
+        EXPECT_EQ(keyword->opened, (std::vector<std::string> {"a", "b"}));
+        EXPECT_TRUE(keyword->opened_together.empty());
+    }
 }
 
 // The chain lists the rarer term whole and the other on its rows; then both read the positions

@@ -578,8 +578,10 @@ public class MTMVPlanUtil {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             statementContext.setIvmRewriteContext(ivmRewriteContext);
             statementContext.setExcludedTriggerTables(excludedTriggerTables);
-            ivmRewriteContext.ifPresent(rewriteContext -> rewriteContext.setUseFullKeys(
-                    MTMVPropertyUtil.isIvmUseFullKeys(mvProperties)));
+            ivmRewriteContext.ifPresent(rewriteContext -> {
+                rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
+                rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+            });
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
             LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
@@ -629,21 +631,23 @@ public class MTMVPlanUtil {
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
+            boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
+            // The table model decides both: only the unique-key model merges on write, and only it has IVM
+            // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.
+            KeysType mvKeysType = isIvm && !appendOnlyDup ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+            final boolean finalEnableMergeOnWrite = isIvm && !appendOnlyDup;
             keys = analyzeKeys(keys, properties, mvProperties, columns, isIvm, mvPartitionInfo, distribution,
                     ivmRewriteResult.orElse(null));
-            properties = CreateTableInfo.addOlapHiddenColumns(
-                    columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
-                    isIvm, properties, false);
+            properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
+                    finalEnableMergeOnWrite, properties, false);
             // A row-binlog table carries hidden columns on top of the OLAP ones above, added by
             // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
             // to carry them too: an MTMV re-validates its schema against it whenever a base table
             // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
             // indistinguishable from a real schema change. Idempotent, so the table still gets one.
-            CreateTableInfo.addRowBinlogHiddenColumns(columns,
-                    isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS, isIvm,
+            CreateTableInfo.addRowBinlogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
                     BinlogConfig.fromProperties(properties));
             // analyze column
-            final boolean finalEnableMergeOnWrite = isIvm;
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
@@ -708,7 +712,9 @@ public class MTMVPlanUtil {
             Map<String, String> mvProperties, List<ColumnDefinition> columns, boolean isIvm,
             MTMVPartitionInfo mvPartitionInfo, DistributionDescriptor distribution,
             IvmRewriteResult ivmRewriteResult) {
-        if (isIvm) {
+        // An append-only detail MV is keyed like any other DUP table: it has no row-id to require, no
+        // identity key to add and no physical layout to reorder, so its key analysis is the ordinary one.
+        if (isIvm && !isAppendOnlyDup(ivmRewriteResult)) {
             return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmRewriteResult, mvProperties);
         }
         boolean enableDuplicateWithoutKeysByDefault = false;
@@ -749,6 +755,16 @@ public class MTMVPlanUtil {
             }
         }
         return keys;
+    }
+
+    /**
+     * Whether the statement being laid out builds an append-only detail MV. A statement whose rewrite
+     * carried no key type is not one: the model is settled before anything is laid out, and its absence
+     * means the statement is one of the unique-key model's own, which is what it was before this model
+     * existed.
+     */
+    private static boolean isAppendOnlyDup(IvmRewriteResult ivmRewriteResult) {
+        return ivmRewriteResult != null && ivmRewriteResult.isAppendOnlyDupTable();
     }
 
     private static List<String> analyzeIvmKeys(List<String> keys, List<ColumnDefinition> columns,
@@ -1130,7 +1146,9 @@ public class MTMVPlanUtil {
         List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        if (mtmv.isIvm()) {
+        if (mtmv.isIvmUniqueKeysTable()) {
+            // Only the unique-key model carries a sequence column, and this reads its type from the MV's
+            // own schema.
             analyzedColumns.add(ColumnDefinition.newSequenceColumnDefinition(
                     DataType.fromCatalogType(mtmv.getColumn(Column.SEQUENCE_COL).getType()),
                     AggregateType.NONE).translateToCatalogStyle());

@@ -103,14 +103,14 @@ static Status run_array_shuffle(const std::vector<TestArray>& arrays, bool const
     FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
     auto result_idx = block.columns() - 1;
     RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result_idx, row_size));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     const auto& result_column = *block.get_by_position(result_idx).column;
     for (size_t i = 0; i < row_size; ++i) {

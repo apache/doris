@@ -97,7 +97,7 @@ Status PythonFunctionCall::open(FunctionContext* context,
         return Status::InternalError("Python UDF client is null");
     }
 
-    context->set_function_state(FunctionContext::THREAD_LOCAL, client);
+    context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL, client);
     LOG(INFO) << fmt::format("Successfully get python UDF client, process: {}",
                              client->print_process());
     return Status::OK();
@@ -107,7 +107,7 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, uint32_t result,
                                         size_t num_rows) const {
     auto client = reinterpret_cast<PythonUDFClient*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     if (!client) {
         LOG(WARNING) << "Python UDF client is null";
         return Status::InternalError("Python UDF client is null");
@@ -177,7 +177,7 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
 Status PythonFunctionCall::close(FunctionContext* context,
                                  FunctionContext::FunctionStateScope scope) {
     auto client = reinterpret_cast<PythonUDFClient*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     if (!client) {
         LOG(WARNING) << "Python UDF client is null";
         return Status::InternalError("Python UDF client is null");

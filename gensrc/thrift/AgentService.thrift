@@ -54,9 +54,6 @@ struct TTabletSchema {
     25: optional list<Types.TColumnGroup> seq_map
     26: optional i32 commit_tso_col_idx = -1
     27: optional i32 row_lsn_col_idx = -1
-    28: optional i32 binlog_tso_idx = -1
-    29: optional i32 binlog_lsn_idx = -1
-    30: optional i32 binlog_op_idx = -1
 }
 
 // this enum stands for different storage format in src_backends

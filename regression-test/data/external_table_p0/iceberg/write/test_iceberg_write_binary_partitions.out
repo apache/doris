@@ -281,11 +281,17 @@
 3132	2500	2	9998
 3133	2500	3	9999
 
+-- !binary_multi_writer_identity_INSERT_INTO_files --
+4
+
 -- !binary_multi_writer_identity_INSERT_OVERWRITE_TABLE --
 3130	2500	0	9996
 3131	2500	1	9997
 3132	2500	2	9998
 3133	2500	3	9999
+
+-- !binary_multi_writer_identity_INSERT_OVERWRITE_TABLE_files --
+4
 
 -- !binary_multi_writer_truncate_INSERT_INTO --
 3130	2500	0	9996
@@ -293,9 +299,35 @@
 3132	2500	2	9998
 3133	2500	3	9999
 
+-- !binary_multi_writer_truncate_INSERT_INTO_files --
+1
+
 -- !binary_multi_writer_truncate_INSERT_OVERWRITE_TABLE --
 3130	2500	0	9996
 3131	2500	1	9997
 3132	2500	2	9998
 3133	2500	3	9999
+
+-- !binary_multi_writer_truncate_INSERT_OVERWRITE_TABLE_files --
+1
+
+-- !binary_merge_identity --
+3130	inserted	2475	100	9996
+3131	inserted	2475	101	9997
+3132	inserted	2475	102	9998
+3133	inserted	2475	103	9999
+3230	updated	25	0	96
+3231	updated	25	1	97
+3232	updated	25	2	98
+3233	updated	25	3	99
+
+-- !binary_merge_truncate --
+3130	inserted	2475	100	9996
+3131	inserted	2475	101	9997
+3132	inserted	2475	102	9998
+3133	inserted	2475	103	9999
+3230	updated	25	0	96
+3231	updated	25	1	97
+3232	updated	25	2	98
+3233	updated	25	3	99
 

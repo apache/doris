@@ -342,9 +342,9 @@ DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
 
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
-DEFINE_Bool(enable_task_executor_in_external_table, "true");
+DEFINE_Bool(enable_task_executor_in_external_table, "false");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
@@ -1211,8 +1211,6 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Int32(blocking_pipeline_executor_size, "0");
 DEFINE_mInt32(variant_max_json_key_length, "255");
-DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
-DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 // NestedGroup, deprecated flatten-nested, and persistent doc mode keep their required paths.

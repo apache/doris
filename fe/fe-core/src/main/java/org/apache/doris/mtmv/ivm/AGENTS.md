@@ -1,5 +1,48 @@
 # AGENTS.md — IVM (Incremental View Maintenance)
 
+## Two Table Models
+
+An IVM MV is built as one of two models, settled once while it is created and read back from the MV's own
+key model on every later statement: `IvmRewriteResult#keysType` while the statement is being built,
+`MTMV#isIvmAppendOnlyDupTable()` once the MV exists.
+
+Which model a query settles on follows from the query and its base tables, and a user can override that one
+way: `PROPERTIES ('ivm_force_mow' = 'true')` builds an MV of the unique-key model where the query would
+qualify for the detail one. It is read while the MV is created (`IvmNormalizeMTMV#judgeKeysType`), and, like
+`ivm_use_full_keys`, it is fixed there -- `ALTER MTMV ... SET` reports it instead of applying it, because an
+MV's key model cannot be altered. Both properties are read back from the MV's own properties, never cached
+in `IvmInfo`.
+
+- **Unique key + merge-on-write** (the default): the MV is maintained through a hidden row-id, its rows are
+  updated and retracted through a delete sign and a sequence column, and the layout its refresh reads is
+  pinned down by a plan signature. `IvmNormalizeUniqKeysMTMV` lays it out; `IvmDeltaRewriter` and the delta
+  handlers maintain it.
+- **Append-only detail** (a plain DUP table): every base table is an append-only detail table -- a DUP table
+  whose row binlog is on, so its rows are only ever appended -- and the query holds no aggregate and no outer
+  join. Such an MV holds the query's own rows: no IVM hidden column, no merge-on-write property, no sequence
+  column, no plan signature, and a refresh that only appends. `IvmNormalizeDupKeysMTMV` checks the query, and
+  `IvmDupDeltaRewriter` builds its delta, which is the query rewritten to read each base table's stream.
+  This is the cheaper model, which is why it is worth judging for: a refresh appends rows instead of
+  upserting them (no merge-on-write deduplication or delete-bitmap probing, and no per-row row-id to compute),
+  the table carries neither the IVM hidden columns nor the merge-on-write ones, and with no layout for a
+  signature to pin down, a refresh cannot fail with `PLAN_SIGNATURE_MISMATCH` because another optimizer rule,
+  or a newer version's rules, reshaped the MV's query plan.
+
+What follows from the detail model, including where a user can see the difference:
+
+- Its refresh cannot retract a row by construction: the delta plan has no place to carry a sign. The premise
+  is therefore checked on the normalize path (`IvmNormalizeDupKeysMTMV#visitLogicalOlapScan`), which CREATE
+  and every refresh mode reach. A base table that stops being an append-only detail table -- replacing it
+  with a merge-on-write one, say -- fails the refresh as an `AnalysisException` rather than being turned into
+  a fallback: the complete refresh a fallback would run normalizes the same way and fails the same way, so a
+  retry would only misdescribe a broken premise.
+- `REFRESH ... INCREMENTAL WITH DRY RUN` returns the MV's own columns only. There is no sequence column and no
+  delete sign for the unique-key model's shape to add.
+- A chained MV over a detail MV needs that upstream MV to carry row binlog (`binlog.enable=true` on the MV
+  itself), which keeps the chain append-only at both levels. The MV then carries its own binlog's hidden
+  columns, which the storage layer fills in as it writes each row.
+- `SHOW CREATE` prints DUPLICATE KEY, and what it prints rebuilds an MV of the same model.
+
 ## Recommended Test Suite
 
 It is strongly recommended to run the following tests before committing IVM changes.
@@ -14,12 +57,29 @@ Run all IVM regression suites under `regression-test/suites/mtmv_p0/ivm/`:
 
 This runs every suite in the `ivm` subdirectory. New IVM suites are added over time — the `-d mtmv_p0/ivm` flag automatically picks them up.
 
+### Disable Transparent Rewrite
+
+A newly added IVM suite must turn both transparent-rewrite paths off before it runs any statement:
+
+```groovy
+sql "SET enable_materialized_view_rewrite = false"
+sql "SET enable_dml_materialized_view_rewrite = false"
+```
+
+Both default to true. The first is what makes an MV-verifying suite meaningful: such a suite checks the MV by
+re-running the MV's own definition SQL over the base tables, and with the rewrite on that query is answered
+from the MV itself, so both sides of the comparison move together and the suite can no longer fail. The second
+stops a base-table `INSERT`/`UPDATE`/`DELETE` from being redirected into the MV, which would leave the
+incremental path the suite exists to exercise unused.
+
+The one exception is a suite whose subject *is* the rewrite: it keeps whatever setting it needs to assert that
+an MV is hit, and says so where it does.
+
 ### FE Unit Tests
 
 Run all IVM-related FE unit tests. The relevant test files are located in:
 
 - `fe/fe-core/src/test/java/org/apache/doris/mtmv/ivm/` — IVM core tests
-- `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/analysis/IvmNormalizeMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/ShowCreateMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/DropMaterializedViewTest.java`
@@ -29,6 +89,13 @@ When running IVM FE unit tests, always include
 it covers MTMV creation paths that can be affected by IVM normalize/metadata changes.
 
 New test classes are added over time — always check the directories above for the current set.
+
+Fixture builders in `IvmDeltaTestBase` reuse base table names across tests, and an IVM stream is named
+after the MV and its base table (`IvmUtil.streamName(mvId, qualifiers)`). Two tests that register a
+stream for the same table name under the same MV id therefore share one db entry, and the second one
+can pick up the first one's stream, whose base table is gone: `getIvmStream` then fails with
+"IVM stream is unavailable or references a different base table". Give each test an MV id of its own
+(`mtmv.setId(...)`), as `IvmDeltaRewriterTest` and `IvmDupDeltaRewriterTest` do.
 
 ## Important: Binlog/Stream Status
 
@@ -63,13 +130,30 @@ materialize a complex subtree separately if the generated refresh plan is too ex
 
 This does not remove the separate row-id correctness requirement for outer joins: the retained
 side row-id must remain deterministic because null-row repair branches use it across the pre/post
-snapshot boundary. Consequently a DUP_KEYS scan (whose `uuid_numeric()` row-id is
-nondeterministic) is still rejected on the retained side; DUP_KEYS on the null-producing side is
-allowed. FULL OUTER JOIN requires deterministic row-ids on both sides.
+snapshot boundary. A DUP_KEYS scan takes its row-id from `__DORIS_ROW_LSN_COL__`
+(`IvmNormalizeUniqKeysMTMV#computeScanRowIdAndKeys`), which is deterministic, so it is allowed on either
+side. Only the legacy fallback for a DUP_KEYS table without row binlog -- the non-deterministic
+`uuid_numeric()` row-id, which `validateBinlogEnabled` rejects unless the table is an excluded
+trigger table -- is still rejected on the retained side. FULL OUTER JOIN requires deterministic
+row-ids on both sides.
+
+## Shared Acceptance Gates
+
+Both normalize paths and the append-only detail delta rewriter accept the same query shapes, and the
+gates that reject the rest live in one place, `IvmNormalizeCommonChecker` (a DISTINCT project, a
+UNION DISTINCT or constant-arm UNION ALL, a reserved output column name, an unsupported node type).
+Add a new acceptance gate there rather than to a single class, or the paths drift apart on what they
+accept -- which is how the join gate below went unshared.
+
+The join gate carries a per-model accepted set (the detail model maintains only inner and cross joins,
+the unique-key model also the outer joins) but is otherwise shared, and it tests the mark-join mark as
+well as the join type. The mark is orthogonal to the type -- an apply rewrite puts one on a LEFT_SEMI,
+a LEFT_ANTI, or a CROSS join -- so a type-only test accepts a mark join whose type happens to be an
+accepted one, and a mark join can stop matching a row the MV already holds.
 
 ## Recursive Delta Rewrite
 
-- `IvmNormalizeMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start
+- `IvmNormalizeUniqKeysMTMV` rejects an input `LogicalOlapTableStreamScan`; normalized MV queries start
   from ordinary `LogicalOlapScan` nodes.
 - `IvmDeltaRewriteVisitor` returns `Optional<IvmDeltaRewriteResult>`. An empty result means the
   subtree has no pending delta.
@@ -97,13 +181,27 @@ metadata commands instead.
 Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name COMPLETE` to inspect the complete MTMV refresh plan
 through the same dry-run path used by normal complete refresh planning.
 
-Typed explain forms continue to work on both refresh modes, for example:
+Typed explain forms work the same way here as they do for `EXPLAIN <SELECT>`: `ANALYZED`, `LOGICAL`
+and `PHYSICAL` decide how much of the plan is shown, and the `PROCESS` variants print the rules that
+ran, one line each. On both refresh modes, for example:
 
 ```sql
 EXPLAIN ANALYZED PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL;
 EXPLAIN LOGICAL PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL WITH ALL STREAMS;
-EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name COMPLETE;
+EXPLAIN PHYSICAL PLAN REFRESH MATERIALIZED VIEW mv_name COMPLETE;
+EXPLAIN ANALYZED PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name INCREMENTAL;
 ```
+
+`EXPLAIN ANALYZED PLAN PROCESS REFRESH ...` is the form to reach for when a refresh plan is not what
+you expected: its rule timeline is where the IVM rules show themselves -- an incremental refresh
+lists `IVM_INCR_REFRESH_MTMV`, the rule that builds the delta plan -- so the log line a rule prints
+can be read next to the rule that produced it. Which IVM rules appear follows from the statement and
+its refresh mode; the timeline covers the statement's own planning, not every rule of the query the
+MV was created from.
+
+Like the plain forms, these go through the dry-run path: no stream offset is consumed and nothing is
+written to the MV, so a refresh that follows one still sees all of its pending delta. (`PHYSICAL PLAN`
+and `PROCESS` are not combinable — `EXPLAIN PHYSICAL PLAN PROCESS` prints nothing.)
 
 `EXPLAIN REFRESH` supports only `INCREMENTAL` and `COMPLETE`; partition-scoped refresh syntax is
 not supported by Explain Refresh. Partition-scoped refresh remains available through ordinary
@@ -145,6 +243,12 @@ where `getInsertedColumnNames()` includes business columns plus all IVM internal
 - `__DORIS_IVM_AGG_COUNT_COL__` — group-level aggregation count
 - Aggregation state columns (`__DORIS_IVM_AGG_{ordinal}_{stateType}_COL__`)
 
+The trailing sequence column and delete sign are the **unique-key model's**, which is the model that
+retracts and updates rows through them: `getInsertedColumnNames()` yields no IVM internal column for
+an append-only detail MV, and `makeDeleteSignProject` adds the two trailing columns to that model's
+sink output alone. A detail MV's dry run therefore returns the MV's own columns and nothing else —
+its delta plan has no place to carry a sign, which is what `IvmDupDeltaRewriter` builds.
+
 For an aggregate MV defined as `SELECT k1, COUNT(*) AS cnt, SUM(v1) FROM t GROUP BY k1`,
 a dry-run result row looks like:
 
@@ -183,7 +287,7 @@ It is derived in `IvmLinearDeltaHandler.buildDmlFactorExpr()`:
 
 The `__DORIS_IVM_ROW_ID_COL__` column uniquely identifies each row/group in the MV. It is used as the join key when merging deltas into the MV's current state.
 
-- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeMTMV`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
+- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeUniqKeysMTMV`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
 - **Aggregate MV (grouped)**: row_id is a **null-safe** hash: `CAST(murmur_hash3_64(ifnull(cast(k1 AS VARCHAR),''), cast(isnull(k1) AS VARCHAR), ...) AS LARGEINT)`. Each group key produces two hash arguments — the coalesced value and an isnull flag — so that NULL keys never propagate NULL into the hash and groups differing only in NULL positions (e.g. `(NULL,'x')` vs `('x',NULL)`) produce distinct row_ids. VARCHAR keys skip the inner `CAST`.
 - **Aggregate MV (scalar, no GROUP BY)**: row_id is the literal `0` (only one output row).
 

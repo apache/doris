@@ -1335,7 +1335,8 @@ Status Compaction::do_inverted_index_compaction() {
                             break;
                         }
                         auto* destination_writer =
-                                inverted_index_file_writers[cast_set<int>(destination_ordinal)]
+                                inverted_index_file_writers
+                                        .at(dest_segment_ids[destination_ordinal])
                                         .get();
                         merge_status = destination_writer->add_snii_index_streamed(
                                 index_meta, dest_segment_num_rows[destination_ordinal],

@@ -40,9 +40,9 @@ TEST_F(WkbParseTest, parse_point_little_endian_ndr) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
     ASSERT_NE(nullptr, shape);
-    EXPECT_EQ(GEO_SHAPE_POINT, shape->type());
+    EXPECT_EQ(GeoShapeType::GEO_SHAPE_POINT, shape->type());
     EXPECT_STREQ("POINT (1 2)", shape->as_wkt().c_str());
 }
 
@@ -53,9 +53,9 @@ TEST_F(WkbParseTest, parse_point_big_endian_xdr) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
     ASSERT_NE(nullptr, shape);
-    EXPECT_EQ(GEO_SHAPE_POINT, shape->type());
+    EXPECT_EQ(GeoShapeType::GEO_SHAPE_POINT, shape->type());
     EXPECT_STREQ("POINT (1 2)", shape->as_wkt().c_str());
 }
 
@@ -66,7 +66,7 @@ TEST_F(WkbParseTest, parse_invalid_byte_order_ff) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -77,7 +77,7 @@ TEST_F(WkbParseTest, parse_invalid_byte_order_02) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -87,7 +87,7 @@ TEST_F(WkbParseTest, parse_empty_stream) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -98,7 +98,7 @@ TEST_F(WkbParseTest, parse_insufficient_data) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -109,7 +109,7 @@ TEST_F(WkbParseTest, parse_odd_length_hex) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -121,7 +121,7 @@ TEST_F(WkbParseTest, parse_linestring_little_endian) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
     ASSERT_NE(nullptr, shape);
 }
 
@@ -135,7 +135,8 @@ TEST_F(WkbParseTest, test_byte_order_coverage_multiple_invalid) {
         std::unique_ptr<GeoShape> shape;
         auto status = WkbParse::parse_wkb(ss, shape);
 
-        EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status) << "Failed for byte order prefix: " << prefix;
+        EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status)
+                << "Failed for byte order prefix: " << prefix;
         EXPECT_EQ(nullptr, shape) << "Failed for byte order prefix: " << prefix;
     }
 }
@@ -147,7 +148,7 @@ TEST_F(WkbParseTest, parse_unsupported_geometry_type) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -158,9 +159,9 @@ TEST_F(WkbParseTest, parse_geometry_with_srid) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
     ASSERT_NE(nullptr, shape);
-    EXPECT_EQ(GEO_SHAPE_POINT, shape->type());
+    EXPECT_EQ(GeoShapeType::GEO_SHAPE_POINT, shape->type());
 }
 
 TEST_F(WkbParseTest, parse_polygon_insufficient_points) {
@@ -172,7 +173,7 @@ TEST_F(WkbParseTest, parse_polygon_insufficient_points) {
     std::unique_ptr<GeoShape> shape;
     auto status = WkbParse::parse_wkb(ss, shape);
 
-    EXPECT_EQ(GEO_PARSE_WKB_SYNTAX_ERROR, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR, status);
     EXPECT_EQ(nullptr, shape);
 }
 

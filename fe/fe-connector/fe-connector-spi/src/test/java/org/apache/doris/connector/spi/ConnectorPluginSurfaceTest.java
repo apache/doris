@@ -88,12 +88,14 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 17 makes the scoped request the canonical streaming entry point.
-        Assertions.assertEquals("17.0", version.getProperty("api.version"));
+        // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean) - the nullability the
+        // source declares, kept separate from the nullability the engine reads the column with.
+        Assertions.assertEquals("19.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorContext.class,
             ConnectorSession.class,

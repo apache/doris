@@ -216,7 +216,7 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key,
                bool short_circuit_for_null, bool with_other_conjuncts) {
         if (null_map) {
