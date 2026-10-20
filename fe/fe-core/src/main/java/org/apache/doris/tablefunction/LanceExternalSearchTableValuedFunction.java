@@ -108,6 +108,16 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
         this.offset = common.offset;
     }
 
+    protected LanceExternalSearchTableValuedFunction(PreparedSearch prepared, byte[] substraitFilter) {
+        this(prepared);
+        // Automatic rewrites must apply the original WHERE before choosing search candidates.
+        searchRequest.setPrefilter(true);
+        if (substraitFilter.length > 0) {
+            searchRequest.setSearchFilter(new TSearchFilter().setFormat(TSearchFilterFormat.SUBSTRAIT)
+                    .setPayload(substraitFilter));
+        }
+    }
+
     public final LanceExternalTable getSourceTable() {
         return sourceTable;
     }
@@ -190,6 +200,15 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
                     + " requires a fixed positive dataset version");
         }
 
+        return prepareCommonForScan(params, displayName, sourceTableName, sourceTable, metadata);
+    }
+
+    protected static CommonSearch prepareCommonForScan(Map<String, String> params, String displayName,
+            TableName sourceTableName, LanceExternalTable sourceTable, LanceTableMetadata metadata)
+            throws AnalysisException {
+        if (metadata.getVersion() <= 0) {
+            throw new AnalysisException("Lance search requires a fixed positive dataset version");
+        }
         long topK = parseLong(params.getOrDefault(TOP_K, "10"), TOP_K, 1, Long.MAX_VALUE);
         long offset = parseLong(params.getOrDefault(OFFSET, "0"), OFFSET, 0, Long.MAX_VALUE);
         if (offset > UINT32_MAX || topK > UINT32_MAX - offset) {

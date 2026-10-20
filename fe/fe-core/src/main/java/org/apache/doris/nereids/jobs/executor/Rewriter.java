@@ -141,6 +141,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
+import org.apache.doris.nereids.rules.rewrite.PushDownSearchTopNIntoLanceScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -790,6 +791,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 )),
                 topDown(DistinctAggregateRewriter.INSTANCE),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+                topDown(new PushDownSearchTopNIntoLanceScan()),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topDown(new PushDownMatchProjectionAsVirtualColumn()),

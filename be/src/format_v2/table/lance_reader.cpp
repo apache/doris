@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/common/endian.h"
+#include "format/format_common.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
 #include "format_v2/lance/lance_session_manager.h"
@@ -591,11 +592,13 @@ Status LanceTableReader::_validate_external_search_request() const {
             return Status::InvalidArgument(
                     "external search filter requires format and non-empty payload");
         }
-        if (filter.format != TSearchFilterFormat::SQL) {
+        if (filter.format != TSearchFilterFormat::SQL &&
+            filter.format != TSearchFilterFormat::SUBSTRAIT) {
             return Status::NotSupported("unsupported external search filter format: {}",
                                         static_cast<int>(filter.format));
         }
-        if (filter.payload.find('\0') != std::string::npos) {
+        if (filter.format == TSearchFilterFormat::SQL &&
+            filter.payload.find('\0') != std::string::npos) {
             return Status::InvalidArgument("Lance SQL search filter contains an embedded NUL byte");
         }
     }
@@ -753,6 +756,14 @@ void LanceTableReader::_init_scanner_profile() {
     _runtime_filter_sql_translation_time =
             add_lance_counter(_scanner_profile, "LanceRuntimeFilterSqlTranslationTime",
                               TUnit::TIME_NS, LANCE_TIMING_PROFILE);
+    _row_id_prefilter_time = add_lance_counter(_scanner_profile, "LanceRowIdPrefilterTime",
+                                               TUnit::TIME_NS, LANCE_TIMING_PROFILE);
+    _row_id_prefilter_rows = add_lance_counter(_scanner_profile, "LanceRowIdPrefilterRows",
+                                               TUnit::UNIT, LANCE_READER_PROFILE);
+    _row_id_prefilter_cache_hits = add_lance_counter(
+            _scanner_profile, "LanceRowIdPrefilterCacheHits", TUnit::UNIT, LANCE_READER_PROFILE);
+    _row_id_prefilter_fallbacks = add_lance_counter(
+            _scanner_profile, "LanceRowIdPrefilterFallbacks", TUnit::UNIT, LANCE_READER_PROFILE);
     _scanner_next_time = add_lance_counter(_scanner_profile, "LanceScannerNextTime", TUnit::TIME_NS,
                                            LANCE_TIMING_PROFILE);
     _execution_iops =
@@ -851,6 +862,19 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         return lance_error("enable Lance row id output");
     }
 
+    bool row_id_prefilter_applied = false;
+    RETURN_IF_ERROR(_apply_row_id_prefilter(scanner, &row_id_prefilter_applied));
+    if (_search_kind != SearchKind::NORMAL && !row_id_prefilter_applied) {
+        const auto& request = lance_scan_params.external_search_request;
+        if (request.__isset.search_filter &&
+            request.search_filter.format == TSearchFilterFormat::SUBSTRAIT &&
+            lance_scanner_set_substrait_filter(
+                    scanner, reinterpret_cast<const uint8_t*>(request.search_filter.payload.data()),
+                    request.search_filter.payload.size()) != 0) {
+            return lance_error("set Lance search Substrait filter");
+        }
+    }
+
     if (lance_scan_params.__isset.lance_substrait_filter &&
         lance_scanner_set_substrait_filter(
                 scanner,
@@ -888,6 +912,125 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     }
     _scanner = scanner_guard.release();
     _scanner_batch_size = batch_size;
+    return Status::OK();
+}
+
+Status LanceTableReader::_read_row_id_prefilter(const std::string& filter, RowIdPrefilter* result) {
+    // A query-local cache shares this list between index-segment readers. Bound it to 512 KiB
+    // of IDs; broader predicates retain Lance's native filtering instead of growing a C++ list.
+    constexpr size_t MAX_ROW_IDS = 64 * 1024;
+    const char* columns[] = {nullptr};
+    std::unique_ptr<LanceScanner, LanceScannerDeleter> scanner(
+            lance_scanner_new(_dataset, columns, nullptr));
+    if (scanner == nullptr) {
+        return lance_error("create Lance row-id prefilter scanner");
+    }
+    if (lance_scanner_with_row_id(scanner.get(), true) != 0 ||
+        lance_scanner_set_substrait_filter(scanner.get(),
+                                           reinterpret_cast<const uint8_t*>(filter.data()),
+                                           filter.size()) != 0 ||
+        lance_scanner_set_limit(scanner.get(), MAX_ROW_IDS + 1) != 0 ||
+        lance_scanner_set_batch_size(scanner.get(), _runtime_state->batch_size()) != 0) {
+        return lance_error("configure Lance row-id prefilter scanner");
+    }
+    RETURN_IF_ERROR(_configure_scan_options(scanner.get()));
+    const auto collect = [](void* ctx, const LanceScanStatistics* statistics) noexcept {
+        try {
+            LanceTableReader::_collect_scan_statistics(ctx, statistics);
+        } catch (...) {
+            // Statistics are best-effort and must not unwind through the C ABI.
+        }
+    };
+    if (lance_scanner_set_statistics_callback(scanner.get(), collect, this) != 0) {
+        return lance_error("set Lance row-id prefilter statistics callback");
+    }
+    ArrowArrayStream stream {};
+    if (lance_scanner_to_arrow_stream(scanner.get(), &stream) != 0) {
+        if (stream.release != nullptr) stream.release(&stream);
+        return lance_error("open Lance row-id prefilter stream");
+    }
+    auto imported = arrow::ImportRecordBatchReader(&stream);
+    if (!imported.ok()) {
+        if (stream.release != nullptr) stream.release(&stream);
+        return Status::InternalError("import Lance row-id prefilter: {}",
+                                     imported.status().message());
+    }
+    auto reader = std::move(imported).ValueUnsafe();
+    std::vector<uint64_t> row_ids;
+    while (true) {
+        RETURN_IF_CANCELLED(_runtime_state);
+        std::shared_ptr<arrow::RecordBatch> batch;
+        auto status = reader->ReadNext(&batch);
+        if (!status.ok()) {
+            return Status::InternalError("read Lance row-id prefilter: {}", status.message());
+        }
+        if (batch == nullptr) {
+            result->row_ids = std::move(row_ids);
+            return Status::OK();
+        }
+        auto column = batch->GetColumnByName("_rowid");
+        if (column == nullptr || column->type_id() != arrow::Type::UINT64 ||
+            column->null_count() != 0) {
+            return Status::InternalError("Lance row-id prefilter requires non-null UINT64 _rowid");
+        }
+        const auto count = static_cast<size_t>(column->length());
+        if (count > MAX_ROW_IDS - row_ids.size()) {
+            // A partial allowlist would drop valid rows. Discard it completely on fallback.
+            return Status::OK();
+        }
+        const auto& ids = static_cast<const arrow::UInt64Array&>(*column);
+        if (count > 0) {
+            row_ids.insert(row_ids.end(), ids.raw_values(), ids.raw_values() + count);
+        }
+    }
+}
+
+Status LanceTableReader::_apply_row_id_prefilter(LanceScanner* scanner, bool* applied) {
+    *applied = false;
+    if (_search_kind == SearchKind::NORMAL) {
+        return Status::OK();
+    }
+    const auto& request = _scan_params->lance_scan_params.external_search_request;
+    // Explicit TVF SQL filters retain their existing path. Automatic SQL rewrites carry a
+    // fully validated Substrait prefilter, whose row source can be shared across search splits.
+    if (!request.__isset.prefilter || !request.prefilter || !request.__isset.search_filter ||
+        request.search_filter.format != TSearchFilterFormat::SUBSTRAIT) {
+        return Status::OK();
+    }
+    SCOPED_TIMER(_row_id_prefilter_time);
+    const auto& filter = request.search_filter.payload;
+    const auto& uri = _opened_dataset_key->uri;
+    const auto key = "lance-row-id-prefilter:" + std::to_string(uri.size()) + ":" + uri + ":" +
+                     std::to_string(_opened_version) + ":" + filter;
+    RowIdPrefilter local;
+    const RowIdPrefilter* result = &local;
+    if (_runtime_filter_cache != nullptr) {
+        bool hit = false;
+        result = _runtime_filter_cache->get<RowIdPrefilter>(
+                key,
+                [&] {
+                    auto value = std::make_unique<RowIdPrefilter>();
+                    value->status = _read_row_id_prefilter(filter, value.get());
+                    return value.release();
+                },
+                &hit);
+        if (hit) COUNTER_UPDATE(_row_id_prefilter_cache_hits, 1);
+    } else {
+        local.status = _read_row_id_prefilter(filter, &local);
+    }
+    RETURN_IF_ERROR(result->status);
+    if (!result->row_ids.has_value()) {
+        COUNTER_UPDATE(_row_id_prefilter_fallbacks, 1);
+        return Status::OK();
+    }
+    const auto& ids = *result->row_ids;
+    // The dataset handle is the same pinned snapshot used to collect these native _rowids.
+    // In particular, an empty list must be installed: it means no rows, not no filtering.
+    if (lance_scanner_set_row_addr_allowlist(scanner, ids.data(), ids.size()) != 0) {
+        return lance_error("set Lance search row-id allowlist");
+    }
+    COUNTER_UPDATE(_row_id_prefilter_rows, ids.size());
+    *applied = true;
     return Status::OK();
 }
 
