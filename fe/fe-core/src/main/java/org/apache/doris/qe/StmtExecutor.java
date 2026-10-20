@@ -1294,7 +1294,7 @@ public class StmtExecutor {
                 isSend = true;
             }
             for (ByteBuffer row : batch.getBatch().getRows()) {
-                channel.sendOnePacket(row);
+                sendMysqlResultRow(row);
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
@@ -1335,7 +1335,7 @@ public class StmtExecutor {
 
         if (context.getConnectType() == ConnectType.MYSQL) {
             // Every time set no send flag and clean all data in buffer
-            context.getMysqlChannel().reset();
+            context.resetMysqlResult();
         }
 
         Queriable queryStmt = (Queriable) parsedStmt;
@@ -1526,7 +1526,7 @@ public class StmtExecutor {
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
-                        channel.sendOnePacket(row);
+                        sendMysqlResultRow(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
@@ -1880,10 +1880,8 @@ public class StmtExecutor {
             serializer.reset();
             new MysqlEofPacket(context.getState()).writeTo(serializer);
             channel.sendOnePacket(serializer.toByteBuffer());
-        } else if (connectorJConsumesCursorMetadataTerminator()) {
-            // Connector/J before 9.5 consumes the first OK packet after column definitions
-            // while probing whether a requested cursor was created. Doris does not create a
-            // cursor, so an empty result would otherwise lose its only end marker and block.
+        } else if (!context.isEmptyCursorSupported() && connectorJConsumesCursorMetadataTerminator()) {
+            // Preserve framing for older client-facing FEs during rolling upgrades.
             serializer.reset();
             new MysqlResultSetEndPacket(context.getState()).writeTo(serializer);
             channel.sendOnePacket(serializer.toByteBuffer());
@@ -1926,6 +1924,11 @@ public class StmtExecutor {
         }
     }
 
+    private void sendMysqlResultRow(ByteBuffer row) throws IOException {
+        context.recordMysqlResultRow();
+        context.getMysqlChannel().sendOnePacket(row);
+    }
+
     protected void sendTextResultRow(ResultSet resultSet) throws IOException {
         for (List<String> row : resultSet.getResultRows()) {
             serializer.reset();
@@ -1936,7 +1939,7 @@ public class StmtExecutor {
                     serializer.writeLenEncodedString(item);
                 }
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            sendMysqlResultRow(serializer.toByteBuffer());
         }
     }
 
@@ -2003,7 +2006,7 @@ public class StmtExecutor {
                     }
                 }
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            sendMysqlResultRow(serializer.toByteBuffer());
         }
     }
 
@@ -2049,7 +2052,7 @@ public class StmtExecutor {
             for (String item : result.split("\n")) {
                 serializer.reset();
                 serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                sendMysqlResultRow(serializer.toByteBuffer());
             }
         } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.getFlightSqlChannel()
@@ -2071,7 +2074,7 @@ public class StmtExecutor {
             for (String item : result.split("\n")) {
                 serializer.reset();
                 serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                sendMysqlResultRow(serializer.toByteBuffer());
             }
         } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.getFlightSqlChannel()
@@ -2130,7 +2133,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
+        // Proxy parsing creates a new context. Use the context marked as the prepare stage
+        // by PrepareCommand, rather than the one allocated before parsing in the constructor.
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(context.getStatementContext());
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
         return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }

@@ -220,6 +220,7 @@ public class FEOpExecutor {
                 params.setPrepareExecuteBuffer(buildPrepareExecuteBuffer());
             }
             params.setCursorFetchRequested(ctx.isCursorFetchRequested());
+            params.setEmptyCursorSupported(true);
         }
 
         ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
