@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -115,7 +116,9 @@ public class CheckScoreUsage implements RewriteRuleFactory {
             return joinType.isRightJoin() && producesScanRows(plan.child(1), statementContext, visitingCtes);
         }
         if (plan instanceof LogicalUnion) {
-            return plan.children().stream()
+            // UNION DISTINCT merges equal rows of different scans, which can have different scores.
+            return ((LogicalUnion) plan).getQualifier() == Qualifier.ALL
+                    && plan.children().stream()
                     .allMatch(child -> producesScanRows(child, statementContext, visitingCtes));
         }
         if (plan instanceof LogicalProject) {

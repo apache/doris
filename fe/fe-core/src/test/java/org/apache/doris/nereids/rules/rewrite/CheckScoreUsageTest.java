@@ -272,6 +272,15 @@ class CheckScoreUsageTest extends TestWithFeService {
         // score() filter there.
         assertScoreUsageError("SELECT id, rn FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn,"
                 + " score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple') w WHERE s > 0.00001", error);
+        // UNION DISTINCT and INTERSECT merge equal rows of different scans, which can have different
+        // scores. The alias forms turn into score() filters above the set operation.
+        String union = "(SELECT id, c1 FROM score_usage_V2 UNION SELECT id, c1 FROM score_usage_V3) u";
+        assertScoreUsageError("SELECT id FROM " + union + " WHERE c1 MATCH 'apple' AND score() > 0.00001", error);
+        assertScoreUsageError("SELECT id FROM (SELECT id, score() AS s FROM " + union
+                + " WHERE c1 MATCH 'apple') x WHERE s > 0.00001", error);
+        assertScoreUsageError("SELECT id FROM (SELECT id, score() AS s FROM (SELECT id, c1 FROM score_usage_V2"
+                + " INTERSECT SELECT id, c1 FROM score_usage_V3) u WHERE c1 MATCH 'apple') x WHERE s > 0.00001",
+                error);
     }
 
     @Test
@@ -290,11 +299,16 @@ class CheckScoreUsageTest extends TestWithFeService {
                 planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
     }
 
-    @Test
-    void testScoreFilterIsPushedIntoUnionBranches() {
-        PlanChecker.from(connectContext).checkPlannerResult(
-                "SELECT id FROM (SELECT id, c1 FROM score_usage_V2 UNION ALL SELECT id, c1 FROM score_usage_V3) u"
-                        + " WHERE c1 MATCH 'apple' AND score() > 0.00001",
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT id FROM (SELECT id, c1 FROM score_usage_V2 UNION ALL SELECT id, c1 FROM score_usage_V3) u"
+                    + " WHERE c1 MATCH 'apple' AND score() > 0.00001",
+            // A filter on the score column of each branch is a filter on a value, which UNION DISTINCT keeps.
+            "SELECT * FROM (SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple'"
+                    + " UNION SELECT id, score() AS s FROM score_usage_V3 WHERE c1 MATCH 'apple') u"
+                    + " WHERE s > 0.00001"})
+    void testScoreFilterIsPushedIntoUnionBranches(String sql) {
+        PlanChecker.from(connectContext).checkPlannerResult(sql,
                 planner -> {
                     Assertions.assertEquals(2, planner.getScanNodes().size());
                     for (ScanNode scanNode : planner.getScanNodes()) {

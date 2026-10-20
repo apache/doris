@@ -165,6 +165,37 @@ suite("test_score_filter_usage", "p0") {
             SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
         ) u WHERE c1 MATCH 'apple' AND score() > 0.00001
     """
+    // UNION DISTINCT merges equal rows of different scans, which can have different scores.
+    test {
+        sql """
+            SELECT id FROM (
+                SELECT id, c1 FROM test_score_filter_usage
+                UNION
+                SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
+            ) u WHERE c1 MATCH 'apple' AND score() > 0.00001
+        """
+        exception "score() filter must be in the WHERE clause of a query on one table"
+    }
+    test {
+        sql """
+            SELECT id FROM (
+                SELECT id, score() AS s FROM (
+                    SELECT id, c1 FROM test_score_filter_usage
+                    UNION
+                    SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
+                ) u WHERE c1 MATCH 'apple'
+            ) x WHERE s > 0.00001
+        """
+        exception "score() filter must be in the WHERE clause of a query on one table"
+    }
+    // The score column of each branch is a value of its rows, so UNION DISTINCT can filter on it.
+    order_qt_union_distinct_score_column """
+        SELECT * FROM (
+            SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+            UNION
+            SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND c2 = 'sweet'
+        ) u WHERE s > 0.00001
+    """
     // Below a window, the filter would change row_number(); it must be rejected instead.
     test {
         sql """

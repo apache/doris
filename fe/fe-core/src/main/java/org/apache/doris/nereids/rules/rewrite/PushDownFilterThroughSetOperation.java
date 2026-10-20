@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -74,6 +75,8 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                 //   full branch row sets before dedup/intersect/except. Sampling rows in each
                 //   branch independently changes which rows participate (e.g. INTERSECT becomes
                 //   "half of A intersect half of B" instead of "half of (A intersect B)").
+                // score() is the score of a branch row, so it stays above these set-ops as well:
+                // equal rows of different branches can have different scores.
                 boolean canPushVolatileExpr = setOperation instanceof LogicalUnion
                         && setOperation.getQualifier() == Qualifier.ALL;
                 Set<Expression> pushableConjuncts;
@@ -87,7 +90,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     pushableConjuncts = new LinkedHashSet<>();
                     Set<Expression> kept = new LinkedHashSet<>();
                     for (Expression c : origFilter.getConjuncts()) {
-                        if (c.containsVolatileOrNoneMovableExpression()) {
+                        if (c.containsVolatileOrNoneMovableExpression() || c.containsType(Score.class)) {
                             kept.add(c);
                         } else {
                             pushableConjuncts.add(c);

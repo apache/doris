@@ -56,6 +56,10 @@
 1
 2
 
+-- !union_distinct_score_column --
+1	0.4700036
+2	0.4700036
+
 -- !cte_score_range --
 1
 2
