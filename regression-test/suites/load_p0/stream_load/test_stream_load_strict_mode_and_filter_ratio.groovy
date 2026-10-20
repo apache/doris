@@ -624,4 +624,118 @@ suite("test_stream_load_strict_mode_and_filter_ratio", "p0") {
         }
     }
     qt_sql_string_exceed_len_strict1 "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+    // Test strict-mode loading into a NOT NULL destination with only expression mappings.
+    // Invalid casts produce NULL and must be filtered even when the direct slot map is unset.
+    sql """ drop table if exists test_stream_load_strict_mode_and_filter_ratio """
+    sql """
+        create table test_stream_load_strict_mode_and_filter_ratio (
+            k00 DECIMALV3(10, 0) NOT NULL
+        ) properties ('replication_num' = '1');
+    """
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file "test_not_number.csv"
+        set 'column_separator', '|'
+        set 'columns', 'src, k00=cast(src as bigint)'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.3'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(7, json.NumberLoadedRows)
+            assertEquals(3, json.NumberFilteredRows)
+            assertTrue(result.contains("ErrorURL"))
+        }
+    }
+    qt_sql_all_expr_strict "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+    // Exceeding the filter ratio must fail the load without committing any rows.
+    sql """ truncate table test_stream_load_strict_mode_and_filter_ratio """
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file "test_not_number.csv"
+        set 'column_separator', '|'
+        set 'columns', 'src, k00=cast(src as bigint)'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.2'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(0, json.NumberLoadedRows)
+            assertEquals(3, json.NumberFilteredRows)
+            assertTrue(json.Message.contains("too many filtered rows"))
+            assertTrue(result.contains("ErrorURL"))
+        }
+    }
+    qt_sql_all_expr_strict_filter_ratio_exceeded "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+    // With no direct slot mapping, expression NULLs are retained by a nullable destination.
+    sql """ drop table if exists test_stream_load_strict_mode_and_filter_ratio """
+    sql """
+        create table test_stream_load_strict_mode_and_filter_ratio (
+            k00 DECIMALV3(10, 0) NULL
+        ) properties ('replication_num' = '1');
+    """
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file "test_not_number.csv"
+        set 'column_separator', '|'
+        set 'columns', 'src, k00=cast(src as bigint)'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(10, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    qt_sql_all_expr_nullable_strict "select * from test_stream_load_strict_mode_and_filter_ratio order by 1"
+
+    // Put an expression before a direct column to check destination/source index alignment.
+    // The expression is always NULL; strict mode only filters the three invalid direct values.
+    sql """ drop table if exists test_stream_load_strict_mode_and_filter_ratio """
+    sql """
+        create table test_stream_load_strict_mode_and_filter_ratio (
+            k00 DECIMALV3(10, 0) NULL,
+            k01 DECIMALV3(10, 0) NULL
+        ) properties ('replication_num' = '1');
+    """
+    streamLoad {
+        table "test_stream_load_strict_mode_and_filter_ratio"
+        file "test_not_number.csv"
+        set 'column_separator', '|'
+        set 'columns', "k01, k00=cast(concat('invalid', k01) as bigint)"
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.3'
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(7, json.NumberLoadedRows)
+            assertEquals(3, json.NumberFilteredRows)
+            assertTrue(result.contains("ErrorURL"))
+        }
+    }
+    qt_sql_mixed_mapping_strict "select * from test_stream_load_strict_mode_and_filter_ratio order by 1, 2"
 }

@@ -49,6 +49,7 @@ public final class RowLevelDmlArgs {
     // DELETE only
     private final boolean isTempPart;
     private final List<String> partitions;
+    private final boolean deduplicateTargetRows;
     // UPDATE only
     private final List<EqualTo> assignments;
 
@@ -63,6 +64,7 @@ public final class RowLevelDmlArgs {
 
     private RowLevelDmlArgs(TableIf table, List<String> nameParts, String tableAlias, LogicalPlan logicalQuery,
             boolean isTempPart, List<String> partitions, List<EqualTo> assignments,
+            boolean deduplicateTargetRows,
             List<String> targetNameParts, Optional<String> targetAlias, Optional<LogicalPlan> cte, LogicalPlan source,
             Expression onClause, List<MergeMatchedClause> matchedClauses,
             List<MergeNotMatchedClause> notMatchedClauses) {
@@ -72,6 +74,7 @@ public final class RowLevelDmlArgs {
         this.logicalQuery = logicalQuery;
         this.isTempPart = isTempPart;
         this.partitions = partitions;
+        this.deduplicateTargetRows = deduplicateTargetRows;
         this.assignments = assignments;
         this.targetNameParts = targetNameParts;
         this.targetAlias = targetAlias;
@@ -86,14 +89,26 @@ public final class RowLevelDmlArgs {
     public static RowLevelDmlArgs forDelete(TableIf table, List<String> nameParts, String tableAlias,
             boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery) {
         return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, isTempPart, partitions,
-                null, null, null, null, null, null, null, null);
+                null, false, null, null, null, null, null, null, null);
+    }
+
+    public static RowLevelDmlArgs forDelete(TableIf table, List<String> nameParts, String tableAlias,
+            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery,
+            boolean deduplicateTargetRows) {
+        return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, isTempPart, partitions,
+                null, deduplicateTargetRows, null, null, null, null, null, null, null);
     }
 
     /** Arguments for an UPDATE (mirrors the legacy {@code ExternalRowLevelUpdatePlanBuilder} constructor inputs). */
     public static RowLevelDmlArgs forUpdate(TableIf table, List<String> nameParts, String tableAlias,
             List<EqualTo> assignments, LogicalPlan logicalQuery) {
+        return forUpdate(table, nameParts, tableAlias, assignments, logicalQuery, Optional.empty());
+    }
+
+    public static RowLevelDmlArgs forUpdate(TableIf table, List<String> nameParts, String tableAlias,
+            List<EqualTo> assignments, LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
         return new RowLevelDmlArgs(table, nameParts, tableAlias, logicalQuery, false, null,
-                assignments, null, null, null, null, null, null, null);
+                assignments, false, null, null, cte, null, null, null, null);
     }
 
     /** Arguments for a MERGE INTO (mirrors the legacy {@code ExternalRowLevelMergePlanBuilder} constructor inputs). */
@@ -101,7 +116,7 @@ public final class RowLevelDmlArgs {
             Optional<LogicalPlan> cte, LogicalPlan source, Expression onClause,
             List<MergeMatchedClause> matchedClauses, List<MergeNotMatchedClause> notMatchedClauses) {
         return new RowLevelDmlArgs(table, null, null, null, false, null, null,
-                targetNameParts, targetAlias, cte, source, onClause, matchedClauses, notMatchedClauses);
+                false, targetNameParts, targetAlias, cte, source, onClause, matchedClauses, notMatchedClauses);
     }
 
     public TableIf getTable() {
@@ -126,6 +141,10 @@ public final class RowLevelDmlArgs {
 
     public List<String> getPartitions() {
         return partitions;
+    }
+
+    public boolean shouldDeduplicateTargetRows() {
+        return deduplicateTargetRows;
     }
 
     public List<EqualTo> getAssignments() {

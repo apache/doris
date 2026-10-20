@@ -16,9 +16,7 @@
 // under the License.
 
 suite("double_write_schema_change_with_variant", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-    assertFalse(getFeConfig("enable_variant_v2").toBoolean())
-    def variantV2Function = ""
+    def variantV2Function = "parse_to_variant"
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -117,10 +115,10 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
 
     sql "set enable_two_phase_read_opt = false"
     qt_two_phase_off """select * from github_events
-        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint) limit 10"""
+        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint), change_column desc limit 10"""
     sql "set enable_two_phase_read_opt = true"
     qt_two_phase_on """select * from github_events
-        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint) limit 10"""
+        order by k, cast(v['id'] as string), cast(v['payload']['push_id'] as bigint), change_column desc limit 10"""
     order_qt_sql """select k, v['payload']['commits'] from github_events
         where length(cast(v['payload']['commits'] as text)) > 100 and k > 1
         order by k, length(cast(v['payload']['commits'] as text)) limit 10"""
@@ -130,5 +128,5 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
     // restore configs
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
     set_be_config.call("write_buffer_size", "209715200")
-    }
+
 }

@@ -40,6 +40,7 @@ public class FromMillisecond extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable,
         FromSecondMonotonic {
     public static final int RESULT_SCALE = 3;
+
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.of(RESULT_SCALE)).args(BigIntType.INSTANCE));
 
@@ -66,6 +67,11 @@ public class FromMillisecond extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarFunction(this, context);
+    }
+
+    @Override
+    public long getEpochUnitsPerSecond() {
+        return 1000;
     }
 
     @Override

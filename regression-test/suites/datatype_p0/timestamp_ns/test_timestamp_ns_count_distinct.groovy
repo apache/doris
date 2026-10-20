@@ -20,6 +20,9 @@ suite("test_timestamp_ns_count_distinct") {
     sql "set enable_distinct_streaming_aggregation=true"
     sql "set enable_bucketed_hash_agg=true"
     sql "set be_number_for_test=1"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set parallel_pipeline_task_num=1"
     sql "set bucketed_agg_min_input_rows=0"
     sql "set bucketed_agg_max_group_keys=0"

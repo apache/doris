@@ -26,7 +26,6 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -261,22 +260,6 @@ public class VariantType extends PrimitiveType {
         return predefinedFields;
     }
 
-    /**
-     * Find the first matching VariantField for the given field name.
-     * The matching is done in definition order, so the first matching pattern wins.
-     *
-     * @param fieldName the field name to match
-     * @return Optional containing the matching VariantField, or empty if no match
-     */
-    public Optional<VariantField> findMatchingField(String fieldName) {
-        for (VariantField field : predefinedFields) {
-            if (field.matches(fieldName)) {
-                return Optional.of(field);
-            }
-        }
-        return Optional.empty();
-    }
-
     public int getVariantMaxSubcolumnsCount() {
         return variantMaxSubcolumnsCount;
     }
@@ -303,6 +286,49 @@ public class VariantType extends PrimitiveType {
 
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
+    }
+
+    /** Whether the Variant V2 execution kernel can convert this source type. */
+    public static boolean isSupportedComputeV2CastSource(DataType dataType) {
+        if (dataType.isNullType() || dataType.isJsonType()) {
+            return true;
+        }
+        if (dataType instanceof VariantType) {
+            // Master is V2-only. Ordinary Variant and the connector execution marker share the
+            // same runtime representation, regardless of storage-layout properties.
+            return true;
+        }
+        if (dataType instanceof ArrayType) {
+            return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return ((DecimalV3Type) dataType).getPrecision()
+                    <= DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isFloatLikeType()
+                || dataType.isDecimalV2Type()
+                || dataType.isDateLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isIPType()
+                || dataType.isUuidType();
+    }
+
+    /** Whether the type or any nested complex type contains Variant. */
+    public static boolean containsVariant(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return true;
+        } else if (dataType instanceof ArrayType) {
+            return containsVariant(((ArrayType) dataType).getItemType());
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (dataType instanceof StructType) {
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getDataType()));
+        }
+        return false;
     }
 
 }

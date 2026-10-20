@@ -32,10 +32,13 @@ public enum IvmFailureReason {
     MIN_MAX_BOUNDARY_HIT,
     BITMAP_AGG_DELETE,
     PLAN_SIGNATURE_MISMATCH,
+    /** A previous IVM refresh txn committed but its data is not yet visible. */
+    MV_COMMIT_NOT_VISIBLE,
     MV_PARTITION_NOT_FOUND;
 
     public boolean requiresCompleteRefresh() {
         return this == BINLOG_BROKEN
+                || this == STREAM_UNSUPPORTED
                 || this == MIN_MAX_BOUNDARY_HIT
                 || this == BITMAP_AGG_DELETE
                 || this == PLAN_SIGNATURE_MISMATCH;

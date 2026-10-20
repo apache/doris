@@ -152,10 +152,12 @@ modify column _hoodie_commit_time set stats (
 
     sql """alter table ${mvName} modify column par set stats ('row_count'='1');"""
 
-    mv_rewrite_success(mvSql, mvName)
+    // A partial refresh adds a union with the unrefreshed partition. On this small fixture the
+    // candidate can cost more than a base scan, so check rewrite eligibility independently of CBO.
+    mv_rewrite_success_without_check_chosen(mvSql, mvName)
     order_qt_refresh_one_partition_rewrite "${mvSql}"
 
-    mv_rewrite_success("${mvSql}", "${mvName}")
+    mv_rewrite_success_without_check_chosen("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
     mv_not_part_in("SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 where par='b' group by par;", "${mvName}")

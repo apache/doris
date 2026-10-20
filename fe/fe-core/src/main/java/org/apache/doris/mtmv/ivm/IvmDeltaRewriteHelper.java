@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -75,6 +76,20 @@ public class IvmDeltaRewriteHelper {
     Slot findSlotByNameOrNull(List<Slot> slots, String name) {
         for (Slot slot : slots) {
             if (name.equals(slot.getName())) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds the slot in {@code slots} whose ExprId equals {@code target}'s, or null. Slots
+     * that share a name (e.g. l.id / r.id after a join) must be resolved by slot identity
+     * instead of a name-keyed lookup, which collapses same-named slots onto one of them.
+     */
+    public Slot findSlotByExprId(List<Slot> slots, Slot target) {
+        for (Slot slot : slots) {
+            if (slot.getExprId().equals(target.getExprId())) {
                 return slot;
             }
         }
@@ -133,6 +148,25 @@ public class IvmDeltaRewriteHelper {
         Slot dmlFactorSlot = findSlotByName(project.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = findSlotByName(project.getOutput(), Column.SEQUENCE_COL);
         return Optional.of(new IvmDeltaRewriteResult(project, dmlFactorSlot, sequenceSlot, maxDeltaIndex));
+    }
+
+    /**
+     * Combine the delta plans of a node's children into one. A delta that carries no sign has nothing to
+     * merge: every contribution is a set of rows to append, so the combination is a plain UNION ALL.
+     */
+    Optional<Plan> combineDeltaPlans(List<Plan> children, List<Slot> targetOutputs) {
+        if (children.isEmpty()) {
+            return Optional.empty();
+        }
+        if (children.size() == 1) {
+            return Optional.of(children.get(0));
+        }
+        List<Plan> unionChildren = new java.util.ArrayList<>(children.size());
+        for (Plan child : children) {
+            unionChildren.add(freshPlan(child).first);
+        }
+        LogicalUnion union = buildUnionAll(unionChildren);
+        return Optional.of(projectUnionOutputs(union, targetOutputs));
     }
 
     IvmDeltaRewriteResult freshDeltaResult(IvmDeltaRewriteResult source) {
@@ -296,6 +330,49 @@ public class IvmDeltaRewriteHelper {
     }
 
     /**
+     * Pair each slot of a source plan with the slot at the same position of the plan that replaced it.
+     * Positional rather than by name: a join's two sides can carry same-named columns, such as l.id and
+     * r.id, and a name lookup would collapse them onto one slot.
+     */
+    Map<Slot, Slot> mapBusinessOutputs(List<Slot> sourceOutputs, List<Slot> rewrittenOutputs) {
+        Map<Slot, Slot> mapping = new HashMap<>();
+        for (int i = 0; i < sourceOutputs.size(); i++) {
+            mapping.put(sourceOutputs.get(i), rewrittenOutputs.get(i));
+        }
+        return mapping;
+    }
+
+    /**
+     * Bind a join's conjuncts to the plans that replaced its children. A conjunct input that neither side
+     * mapping covers is resolved from the side whose output carries it.
+     */
+    void mapJoinConjunctInputs(LogicalJoin<? extends Plan, ? extends Plan> join, Plan leftPlan, Plan rightPlan,
+            Map<Slot, Slot> slotMapping) {
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            mapJoinConjunctInput(conjunct, leftPlan, rightPlan, slotMapping);
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            mapJoinConjunctInput(conjunct, leftPlan, rightPlan, slotMapping);
+        }
+    }
+
+    private void mapJoinConjunctInput(Expression conjunct, Plan leftPlan, Plan rightPlan,
+            Map<Slot, Slot> slotMapping) {
+        for (Slot input : conjunct.getInputSlots()) {
+            if (slotMapping.containsKey(input)) {
+                continue;
+            }
+            Slot leftSlot = findSlotByNameOrNull(leftPlan.getOutput(), input.getName());
+            Slot rightSlot = findSlotByNameOrNull(rightPlan.getOutput(), input.getName());
+            if (leftSlot != null && rightSlot == null) {
+                slotMapping.put(input, leftSlot);
+            } else if (rightSlot != null && leftSlot == null) {
+                slotMapping.put(input, rightSlot);
+            }
+        }
+    }
+
+    /**
      * Wrap an internal copy with a unique subquery alias and keep its slot mapping valid.
      */
     Pair<Plan, Map<Slot, Slot>> aliasPlan(Pair<Plan, Map<Slot, Slot>> plan, String alias) {
@@ -433,6 +510,33 @@ public class IvmDeltaRewriteHelper {
             return IvmUtil.getCommonHiddenSlotDefault(name, oldExpr.getDataType());
         }
         return new NullLiteral(oldExpr.getDataType());
+    }
+
+    /**
+     * Projects an incremental delta scan's output onto the slots of the scan it replaces, keeping their
+     * ExprIds so the plan above keeps binding to them. A delta scan is expanded from the row binlog, which
+     * does not carry {@code __DORIS_ROW_LSN_COL__}: its value is the stream's lsn virtual column, which is
+     * mapped back so the normalized plan's row-id, where it has one, keeps evaluating to the row lsn.
+     */
+    List<NamedExpression> remapDeltaScanOutputs(LogicalOlapScan originalScan, Plan deltaScanPlan) {
+        ImmutableList.Builder<NamedExpression> remappedOutputs =
+                ImmutableList.builderWithExpectedSize(originalScan.getOutput().size());
+        for (Slot originalSlot : originalScan.getOutput()) {
+            Slot deltaSlot = findSlotByNameOrNull(deltaScanPlan.getOutput(), originalSlot.getName());
+            if (deltaSlot != null) {
+                remappedOutputs.add(new Alias(originalSlot.getExprId(), deltaSlot, originalSlot.getName()));
+            } else if (Column.ROW_LSN_COL.equals(originalSlot.getName())) {
+                Slot streamLsnSlot = findSlotByName(deltaScanPlan.getOutput(), Column.STREAM_LSN_COL);
+                remappedOutputs.add(new Alias(originalSlot.getExprId(), streamLsnSlot, originalSlot.getName()));
+            } else if (originalSlot.getName().startsWith(Column.HIDDEN_COLUMN_PREFIX)) {
+                remappedOutputs.add(new Alias(originalSlot.getExprId(),
+                        hiddenColumnFallbackExpression(originalSlot), originalSlot.getName()));
+            } else {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM: delta scan missing column " + originalSlot.getName());
+            }
+        }
+        return remappedOutputs.build();
     }
 
     /**

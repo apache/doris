@@ -104,8 +104,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VariantField;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -163,7 +161,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private int suppressVariantElementAtCastDepth = 0;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -210,6 +207,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);
 
+        expr = expr.prepareBeforeTypeCoercion();
         expr.checkLegalityBeforeTypeCoercion();
         // this cannot be removed, because some function already construct in parser.
         if (expr instanceof ImplicitCastInputTypes) {
@@ -226,7 +224,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
-        return resolveUnboundVariable(unboundVariable);
+        Variable variable = resolveUnboundVariable(unboundVariable);
+        if (wantToParseSqlFromSqlCache) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(sqlCacheContext -> sqlCacheContext.addUsedVariable(variable));
+        }
+        return variable.getRealExpression();
     }
 
     /** resolveUnboundVariable */
@@ -291,26 +294,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        boolean suppressLeftCast = isEnableVariantSchemaAutoCast(context) && elementAt.left() instanceof ElementAt;
-        if (suppressLeftCast) {
-            suppressVariantElementAtCastDepth++;
-        }
-        Expression left;
-        try {
-            left = elementAt.left().accept(this, context);
-        } finally {
-            if (suppressLeftCast) {
-                suppressVariantElementAtCastDepth--;
-            }
-        }
+        Expression left = elementAt.left().accept(this, context);
         Expression right = elementAt.right().accept(this, context);
         elementAt = (ElementAt) elementAt.withChildren(left, right);
         elementAt = canonicalizeStructSelector(elementAt);
-        Expression coerced = TypeCoercionUtils.processBoundFunction(elementAt);
-        if (isEnableVariantSchemaAutoCast(context)) {
-            return wrapVariantElementAtWithCast(coerced);
-        }
-        return coerced;
+        return TypeCoercionUtils.processBoundFunction(elementAt);
     }
 
     @Override
@@ -322,18 +310,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         boolean relationQualifierOccupied = false;
 
         // A multipart name can be either a relation-qualified column (t.col) or a nested field
-        // reference (col.field). In a correlated subquery, try the relation-qualified interpretation
-        // in both visible scopes first, so an inner column named "t" does not hide an outer alias "t".
-        if (canBindOuterScope && shouldPrioritizeRelationQualifier()
-                && unboundSlot.getNameParts().size() > 1) {
+        // reference (col.field). Try the relation-qualified interpretation in every visible scope
+        // first, so a nearer name "t" does not hide a farther relation alias "t". The visible scopes
+        // are the local ones, which HAVING, QUALIFY and ORDER BY layer from the select output and its
+        // child output in a clause specific order, and then the outer scope of a correlated subquery:
+        //   select q.v as q from t q order by q.v  -- q.v is the column of relation q, not alias q
+        if (shouldPrioritizeRelationQualifier() && unboundSlot.getNameParts().size() > 1) {
             SlotBinding localRelationBinding = bindSlotByRelationQualifierInThisScope(unboundSlot);
             bounded = localRelationBinding.getBoundSlots();
             foundInThisScope = !bounded.isEmpty();
-            if (!foundInThisScope) {
+            if (!foundInThisScope && canBindOuterScope) {
                 relationQualifierOccupied = localRelationBinding.isRelationQualifierOccupied();
-            }
-            if (!foundInThisScope && !relationQualifierOccupied) {
-                bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                if (!relationQualifierOccupied) {
+                    bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                }
             }
         }
 
@@ -374,9 +364,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 } else if (firstBound.containsType(ElementAt.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
-                }
-                if (firstBound instanceof Alias) {
-                    return maybeCastAliasExpression((Alias) firstBound, context);
                 }
                 return firstBound;
             default:
@@ -470,29 +457,36 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
         LambdaBinding binding = bindingSpec.bind(unboundFunction.getName(), lambda, subChildren);
-        lambdaFunction = analyzeLambdaFunction(
-                lambda, lambdaFunction, binding.getAnalysisSlots(), context);
+        lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
         Lambda lambdaClosure = binding.close(lambdaFunction);
 
         // We don't add the ArrayExpression in high order function at all
         return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
     }
 
-    private Expression analyzeLambdaFunction(Lambda lambda, Expression lambdaFunction,
+    private Expression analyzeLambdaFunction(Expression lambdaFunction,
             List<Slot> boundedSlots, ExpressionRewriteContext context) {
+        ExpressionAnalyzer enclosingAnalyzer = this;
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(Optional.of(getScope()),
                 boundedSlots), context == null ? null : context.cascadesContext,
                 true, true) {
             @Override
-            protected boolean shouldPrioritizeRelationQualifier() {
-                return false;
+            public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+                // The lambda arguments are the nearest lexical scope. Every other name is resolved by the
+                // enclosing analyzer rather than by its default scope, because ORDER BY, HAVING and QUALIFY
+                // layer several local scopes and a correlated subquery sees its outer scope:
+                //   select id from t order by array_sum(array_map(x -> x + v, arr))  -- v is not in the output
+                if (bindSlotByThisScope(unboundSlot).isEmpty()) {
+                    return enclosingAnalyzer.visitUnboundSlot(unboundSlot, context);
+                }
+                return super.visitUnboundSlot(unboundSlot, context);
             }
 
             @Override
-            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
-                throw new AnalysisException("Unknown lambda slot '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
+            protected boolean shouldPrioritizeRelationQualifier() {
+                // a name that starts with a lambda argument is a field of it, even if a relation of the
+                // enclosing scope has the same name: array_map(x -> x.value, x.items) from t x
+                return false;
             }
         };
         return lambdaAnalyzer.analyze(lambdaFunction, context);
@@ -798,91 +792,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else {
             return ExpressionUtils.or(newChildren);
         }
-    }
-
-    private boolean isEnableVariantSchemaAutoCast(ExpressionRewriteContext context) {
-        if (context == null || context.cascadesContext == null) {
-            return false;
-        }
-        SessionVariable sessionVariable = context.cascadesContext.getConnectContext().getSessionVariable();
-        return sessionVariable != null && sessionVariable.isEnableVariantSchemaAutoCast();
-    }
-
-    private Expression wrapVariantElementAtWithCast(Expression expr) {
-        ElementAt elementAt = (ElementAt) expr;
-        if (suppressVariantElementAtCastDepth > 0) {
-            return elementAt;
-        }
-        Optional<VariantElementAtPath> path = resolveVariantElementAtPath(elementAt);
-        if (!path.isPresent()) {
-            return expr;
-        }
-        VariantType variantType = (VariantType) path.get().root.getDataType();
-        Optional<VariantField> matchingField = variantType.findMatchingField(path.get().path);
-        if (!matchingField.isPresent()) {
-            return expr;
-        }
-        DataType targetType = matchingField.get().getDataType();
-        return new Cast(elementAt, targetType);
-    }
-
-    private Optional<VariantElementAtPath> resolveVariantElementAtPath(ElementAt elementAt) {
-        List<String> segments = new ArrayList<>();
-        Expression current = elementAt;
-        Expression root = null;
-        while (current instanceof ElementAt) {
-            ElementAt currentElementAt = (ElementAt) current;
-            Optional<String> key = getVariantPathKey(currentElementAt.right());
-            if (!key.isPresent()) {
-                return Optional.empty();
-            }
-            segments.add(0, key.get());
-            Expression left = currentElementAt.left();
-            if (left instanceof Cast && !((Cast) left).isExplicitType()) {
-                left = ((Cast) left).child();
-            }
-            current = left;
-            root = left;
-        }
-        if (root == null || !(root.getDataType() instanceof VariantType)) {
-            return Optional.empty();
-        }
-        if (segments.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(new VariantElementAtPath(root, String.join(".", segments)));
-    }
-
-    private Optional<String> getVariantPathKey(Expression expr) {
-        if (expr instanceof StringLikeLiteral) {
-            return Optional.of(((StringLikeLiteral) expr).getStringValue());
-        }
-        return Optional.empty();
-    }
-
-    private static final class VariantElementAtPath {
-        private final Expression root;
-        private final String path;
-
-        private VariantElementAtPath(Expression root, String path) {
-            this.root = root;
-            this.path = path;
-        }
-    }
-
-    private Expression maybeCastAliasExpression(Alias alias, ExpressionRewriteContext context) {
-        if (suppressVariantElementAtCastDepth > 0 || !isEnableVariantSchemaAutoCast(context)) {
-            return alias;
-        }
-        Expression child = alias.child();
-        if (!(child instanceof ElementAt)) {
-            return alias;
-        }
-        Expression casted = wrapVariantElementAtWithCast(child);
-        if (casted == child) {
-            return alias;
-        }
-        return alias.withChildren(ImmutableList.of(casted));
     }
 
     @Override

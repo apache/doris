@@ -82,6 +82,9 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     if (!parse_basic_auth(*req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed.";
         status = Status::InternalError("no valid Basic authorization");
+        status_result = status.to_json();
+        HttpChannel::send_reply(req, HttpStatus::OK, status_result);
+        return;
     }
 
     status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx.get());

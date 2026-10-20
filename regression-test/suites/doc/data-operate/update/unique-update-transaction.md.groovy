@@ -58,21 +58,21 @@ suite("docs/data-operate/update/unique-update-transaction.md") {
 1	2020-02-22	1	2020-02-23	e
 1	2020-02-22	1	2020-02-24	b
 """)
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/testData http://${context.config.feHttpAddress}/api/test/test_table/_stream_load"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/testData ${getDorisHttpScheme()}://${context.config.feHttpAddress}/api/test/test_table/_stream_load${getDorisCurlTlsOptions()}"""
         qt_sql "select * from test_table;"
 
         writeToFile("${context.file.parent}/testData", """\
 1	2020-02-22	1	2020-02-22	a
 1	2020-02-22	1	2020-02-23	b
 """)
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/testData http://${context.config.feHttpAddress}/api/test/test_table/_stream_load"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/testData ${getDorisHttpScheme()}://${context.config.feHttpAddress}/api/test/test_table/_stream_load${getDorisCurlTlsOptions()}"""
         qt_sql "select * from test_table;"
 
         writeToFile("${context.file.parent}/testData", """\
 1	2020-02-22	1	2020-02-22	a
 1	2020-02-22	1	2020-03-23	w
 """)
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/testData http://${context.config.feHttpAddress}/api/test/test_table/_stream_load"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/testData ${getDorisHttpScheme()}://${context.config.feHttpAddress}/api/test/test_table/_stream_load${getDorisCurlTlsOptions()}"""
         qt_sql "select * from test_table;"
 
     } catch (Throwable t) {

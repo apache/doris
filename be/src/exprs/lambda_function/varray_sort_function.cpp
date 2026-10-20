@@ -32,7 +32,11 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/primitive_type.h"
+#include "core/value/large_int_value.h"
 #include "exec/common/util.hpp"
 #include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
@@ -41,14 +45,15 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vlambda_function_expr.h"
+#include "util/untrusted_comparator_sort.h"
 
 namespace doris {
 
-using ConstColumnVariant =
+using ConstSortableColumn =
         std::variant<const ColumnUInt8*, const ColumnInt8*, const ColumnInt16*, const ColumnInt32*,
                      const ColumnInt64*, const ColumnInt128*, const ColumnFloat32*,
                      const ColumnFloat64*, const ColumnString*, const ColumnVarbinary*,
-                     const ColumnArray*, const ColumnIPv4*, const ColumnIPv6*,
+                     const ColumnArray*, const ColumnIPv4*, const ColumnIPv6*, const ColumnUUID*,
                      const ColumnDecimal32*, const ColumnDecimal64*, const ColumnDecimal128V2*,
                      const ColumnDecimal128V3*, const ColumnDecimal256*, const ColumnDate*,
                      const ColumnDateTime*, const ColumnDateV2*, const ColumnDateTimeV2*,
@@ -85,12 +90,23 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
-                   const VExprSPtrs& children) const override {
+    Status execute( // NOLINT(readability-function-size)
+            VExprContext* context, const Block* block, const Selector* expr_selector, size_t count,
+            ColumnPtr& result_column, const DataTypePtr& result_type,
+            const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
         DCHECK_EQ(children.size(), 2);
+
+        // The comparator must return -1, 0 or 1. FE rejects a non-integer comparator, but an older
+        // FE does not check it.
+        const auto& comparator_type = children[0]->get_child(0)->data_type();
+        const auto comparator_result_type = remove_nullable(comparator_type)->get_primitive_type();
+        if (!is_int(comparator_result_type)) {
+            return Status::InvalidArgument(
+                    "array_sort comparator must return -1, 0 or 1, but it returns {}",
+                    comparator_type->get_name());
+        }
 
         // 1. get data, we need to obtain this actual data and type.
         ColumnPtr column_ptr;
@@ -125,7 +141,7 @@ public:
                              ->get_primitive_type();
 
         // Get the actual type data based on PrimitiveType.
-        ConstColumnVariant src_data;
+        ConstSortableColumn src_data;
         RETURN_IF_ERROR(
                 get_data_from_type(pType, nested_nullable_column.get_nested_column(), src_data));
 
@@ -142,11 +158,11 @@ public:
 
         /**
          *  suppose the data_type is nullable(int). The first two rows are the parameter columns, and the
-         *  last row is the result column(type: tinyint). every column's size is 1. the lambda_block is 
+         *  last row is the result column(an integer type). every column's size is 1. the lambda_block is
          *  row  data  nullmap    type
          *   0    10      0    nullable(int)
          *   1    20      1    nullable(int)
-         *   2   1/-1/0  ...     tinyint
+         *   2   1/-1/0  ...     integer
          *  The size of a column is always 1; we only need to use it to store the specific values ​​in the array for comparison.
         */
         Block lambda_block;
@@ -202,33 +218,46 @@ public:
                     };
 
                     const int lambda_result_base = static_cast<int>(lambda_block.columns());
+                    // Returns true when element i sorts before element j according to the
+                    // user's lambda.
+                    auto less = [&](size_t i, size_t j) {
+                        prepare_lambda_input(i, 0);
+                        prepare_lambda_input(j, 1);
+                        int lambda_res_id = lambda_result_base;
+                        auto status = children[0]->execute(context, &lambda_block, &lambda_res_id);
+                        if (!status.ok()) [[unlikely]] {
+                            throw Exception(Status::InternalError(
+                                    "when execute array_sort lambda function: {}",
+                                    status.to_string()));
+                        }
+
+                        // raw_res_col maybe columnVector or ColumnConst
+                        ColumnPtr raw_res_col = lambda_block.get_by_position(lambda_res_id).column;
+                        ColumnPtr full_res_col = raw_res_col->convert_to_full_column_if_const();
+
+                        bool is_less = _is_negative_comparator_result(*full_res_col,
+                                                                      comparator_result_type);
+                        lambda_block.erase_tail(lambda_result_base);
+
+                        return is_less;
+                    };
+
+                    // The comparator is user SQL and may violate strict weak ordering, or
+                    // even be non-deterministic. Standard library sorts rely on the comparator
+                    // contract to keep their accesses in range, so a broken comparator crashes
+                    // BE. sort_with_untrusted_comparator bounds every access by the range
+                    // length; an inconsistent comparator yields an unspecified order instead.
+                    DorisVector<size_t> scratch;
                     for (int row = 0; row < input_rows; ++row) {
+                        // Hidden nested values of an outer-NULL array must not invoke the lambda.
+                        if (outside_null_map.get() != nullptr &&
+                            assert_cast<const ColumnUInt8&>(*outside_null_map).get_data()[row]) {
+                            continue;
+                        }
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
-                        std::sort(&permutation[start], &permutation[end], [&](size_t i, size_t j) {
-                            prepare_lambda_input(i, 0);
-                            prepare_lambda_input(j, 1);
-                            int lambda_res_id = lambda_result_base;
-                            auto status =
-                                    children[0]->execute(context, &lambda_block, &lambda_res_id);
-                            if (!status.ok()) [[unlikely]] {
-                                throw Exception(Status::InternalError(
-                                        "when execute array_sort lambda function: {}",
-                                        status.to_string()));
-                            }
-
-                            // raw_res_col maybe columnVector or ColumnConst
-                            ColumnPtr raw_res_col =
-                                    lambda_block.get_by_position(lambda_res_id).column;
-                            ColumnPtr full_res_col = raw_res_col->convert_to_full_column_if_const();
-
-                            // only -1, 0, 1
-                            long cmp = assert_cast<const ColumnInt8*>(full_res_col.get())
-                                               ->get_data()[0];
-                            lambda_block.erase_tail(lambda_result_base);
-
-                            return cmp < 0;
-                        });
+                        sort_with_untrusted_comparator(permutation.data() + start,
+                                                       permutation.data() + end, scratch, less);
                     }
                 },
                 src_data);
@@ -251,6 +280,45 @@ public:
     }
 
 private:
+    // Returns whether the comparator result in the first row is -1. Any value other than -1, 0 or 1
+    // fails the query.
+    static bool _is_negative_comparator_result(const IColumn& column, PrimitiveType type) {
+        const IColumn* values = &column;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(&column)) {
+            if (nullable->is_null_at(0)) {
+                throw Exception(Status::InvalidArgument(
+                        "array_sort comparator returns NULL, but it must return -1, 0 or 1"));
+            }
+            values = &nullable->get_nested_column();
+        }
+        Int128 result = 0;
+        switch (type) {
+        case TYPE_TINYINT:
+            result = assert_cast<const ColumnInt8&>(*values).get_element(0);
+            break;
+        case TYPE_SMALLINT:
+            result = assert_cast<const ColumnInt16&>(*values).get_element(0);
+            break;
+        case TYPE_INT:
+            result = assert_cast<const ColumnInt32&>(*values).get_element(0);
+            break;
+        case TYPE_BIGINT:
+            result = assert_cast<const ColumnInt64&>(*values).get_element(0);
+            break;
+        case TYPE_LARGEINT:
+            result = assert_cast<const ColumnInt128&>(*values).get_element(0);
+            break;
+        default:
+            DORIS_CHECK(false) << "array_sort comparator must return -1, 0 or 1";
+        }
+        if (result != -1 && result != 0 && result != 1) {
+            throw Exception(Status::InvalidArgument(
+                    "array_sort comparator returns {}, but it must return -1, 0 or 1",
+                    LargeIntValue::to_string(result)));
+        }
+        return result < 0;
+    }
+
     Status _set_comparator_argument_gap(const VExprSPtr& expr,
                                         const std::vector<std::string>* argument_names) const {
         if (expr->is_column_ref()) {
@@ -396,7 +464,7 @@ private:
         break;
 
     Status get_data_from_type(PrimitiveType pType, const IColumn& column,
-                              ConstColumnVariant& column_variant) const {
+                              ConstSortableColumn& column_variant) const {
         switch (pType) {
             DISPATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN, ColumnUInt8)
             DISPATCH_PRIMITIVE_TYPE(TYPE_TINYINT, ColumnInt8)
@@ -413,6 +481,7 @@ private:
             DISPATCH_PRIMITIVE_TYPE(TYPE_ARRAY, ColumnArray)
             DISPATCH_PRIMITIVE_TYPE(TYPE_IPV4, ColumnIPv4)
             DISPATCH_PRIMITIVE_TYPE(TYPE_IPV6, ColumnIPv6)
+            DISPATCH_PRIMITIVE_TYPE(TYPE_UUID, ColumnUUID)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32, ColumnDecimal32)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64, ColumnDecimal64)
             DISPATCH_PRIMITIVE_TYPE(TYPE_DECIMAL128I, ColumnDecimal128V3)

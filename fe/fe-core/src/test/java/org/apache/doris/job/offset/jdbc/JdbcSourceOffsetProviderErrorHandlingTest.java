@@ -56,7 +56,19 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
             provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
             Assertions.fail("a failed envelope must throw");
         } catch (JobException e) {
-            Assertions.assertTrue(e.getMessage().contains(realError), "the real remote error must be surfaced, got: " + e.getMessage());
+            Assertions.assertEquals(realError, e.getMessage());
+        }
+    }
+
+    @Test
+    public void testParseFailureEnvelopeFallsBackToMessageWithoutTextData() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        String response = "{\"code\":1,\"msg\":\"cdc_client is unavailable\",\"data\":null}";
+        try {
+            provider.parseCdcResponseData(response, new TypeReference<List<SnapshotSplit>>() {});
+            Assertions.fail("a failed envelope must throw");
+        } catch (JobException e) {
+            Assertions.assertEquals("cdc_client is unavailable", e.getMessage());
         }
     }
 
@@ -69,7 +81,8 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
             provider.parseCdcResponseData(response, new TypeReference<Map<String, String>>() {});
             Assertions.fail("an incompatible success payload must throw");
         } catch (JobException e) {
-            Assertions.assertTrue(e.getMessage().contains("not-a-map"), "the raw response must be surfaced, got: " + e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("not-a-map"),
+                    "the raw response must be surfaced, got: " + e.getMessage());
         }
     }
 
@@ -81,7 +94,7 @@ public class JdbcSourceOffsetProviderErrorHandlingTest {
             provider.parseCdcResponseData(response, new TypeReference<Integer>() {});
             Assertions.fail("an unparseable response must throw");
         } catch (JobException e) {
-            Assertions.assertTrue(e.getMessage().contains("502"), "the raw response must be surfaced, got: " + e.getMessage());
+            Assertions.assertEquals(response, e.getMessage());
         }
     }
 

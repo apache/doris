@@ -218,6 +218,10 @@ public:
             const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr,
             const std::map<LocalColumnId, LocalIndex>* fixed_non_predicate_positions = nullptr);
 
+    // Table-format hooks may append hidden physical dependencies after the initial request is
+    // localized. Reconcile output mappings with that final layout before opening expressions.
+    Status reconcile_scan_request_after_customization(FileScanRequest* file_request);
+
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with
     // a safe cast. Expressions that cannot be pushed down safely should be handled by the

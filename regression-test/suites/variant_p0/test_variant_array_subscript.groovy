@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_variant_array_subscript", "p0") {
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
     sql "set default_variant_enable_nested_group = false"

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -106,6 +107,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -131,6 +133,8 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
             RuleType.ELIMINATE_GROUP_BY_KEY,
             RuleType.ELIMINATE_GROUP_BY,
+            // Preserve the join structure used by FK-based MV matching.
+            RuleType.REORDER_JOIN_BEFORE_EAGER_AGG,
             RuleType.SALT_JOIN
     );
     // The rules should be disabled when run MTMV task
@@ -169,6 +173,8 @@ public class MTMVPlanUtil {
      * executing {@link StmtExecutor} through {@code executorConsumer} before the command
      * runs and clearing it (with {@code null}) after the command finishes, so task
      * cancellation can interrupt the running statement.
+     *
+     * <p>The supplied statement context must contain the originating SQL statement.
      */
     public static void executeCommand(ConnectContext ctx, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt,
@@ -177,7 +183,10 @@ public class MTMVPlanUtil {
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
         ctx.getSessionVariable().setEnableDmlMaterializedViewRewrite(false);
-        StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, stmtCtx);
+        adapter.setOrigStmt(Preconditions.checkNotNull(stmtCtx.getOriginStatement(),
+                "MTMV command origin statement must not be null"));
+        StmtExecutor executor = new StmtExecutor(ctx, adapter);
         ctx.setExecutor(executor);
         ctx.setQueryId(AbstractTask.generateQueryId());
         if (executorConsumer != null) {
@@ -569,8 +578,10 @@ public class MTMVPlanUtil {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             statementContext.setIvmRewriteContext(ivmRewriteContext);
             statementContext.setExcludedTriggerTables(excludedTriggerTables);
-            ivmRewriteContext.ifPresent(rewriteContext -> rewriteContext.setUseFullKeys(
-                    MTMVPropertyUtil.isIvmUseFullKeys(mvProperties)));
+            ivmRewriteContext.ifPresent(rewriteContext -> {
+                rewriteContext.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(mvProperties));
+                rewriteContext.setForceMow(MTMVPropertyUtil.isIvmForceMow(mvProperties));
+            });
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
             LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
@@ -620,22 +631,28 @@ public class MTMVPlanUtil {
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
+            boolean appendOnlyDup = isAppendOnlyDup(ivmRewriteResult.orElse(null));
+            // The table model decides both: only the unique-key model merges on write, and only it has IVM
+            // hidden columns to lay out. An append-only detail MV is laid out as a plain DUP table.
+            KeysType mvKeysType = isIvm && !appendOnlyDup ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+            final boolean finalEnableMergeOnWrite = isIvm && !appendOnlyDup;
             keys = analyzeKeys(keys, properties, mvProperties, columns, isIvm, mvPartitionInfo, distribution,
                     ivmRewriteResult.orElse(null));
-            properties = CreateTableInfo.addOlapHiddenColumns(
-                    columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
-                    isIvm, properties, false);
+            properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
+                    finalEnableMergeOnWrite, properties, false);
+            // A row-binlog table carries hidden columns on top of the OLAP ones above, added by
+            // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
+            // to carry them too: an MTMV re-validates its schema against it whenever a base table
+            // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
+            // indistinguishable from a real schema change. Idempotent, so the table still gets one.
+            CreateTableInfo.addRowBinlogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
+                    BinlogConfig.fromProperties(properties));
             // analyze column
-            final boolean finalEnableMergeOnWrite = isIvm;
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation,
-                    properties);
-            if (isIvm) {
-                ivmRewriteResult.ifPresent(queryInfo::setIvmRewriteResult);
-            }
-            return queryInfo;
+            return new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation, properties,
+                    isIvm ? ivmRewriteResult.orElse(null) : null, planner.getAnalyzedPlan());
         }
     }
 
@@ -687,7 +704,7 @@ public class MTMVPlanUtil {
             if (col.getType().isVarBinaryType()) {
                 throw new AnalysisException("MTMV do not support varbinary type : " + col.getName());
             }
-            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType);
+            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType, true);
         }
     }
 
@@ -695,7 +712,9 @@ public class MTMVPlanUtil {
             Map<String, String> mvProperties, List<ColumnDefinition> columns, boolean isIvm,
             MTMVPartitionInfo mvPartitionInfo, DistributionDescriptor distribution,
             IvmRewriteResult ivmRewriteResult) {
-        if (isIvm) {
+        // An append-only detail MV is keyed like any other DUP table: it has no row-id to require, no
+        // identity key to add and no physical layout to reorder, so its key analysis is the ordinary one.
+        if (isIvm && !isAppendOnlyDup(ivmRewriteResult)) {
             return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmRewriteResult, mvProperties);
         }
         boolean enableDuplicateWithoutKeysByDefault = false;
@@ -736,6 +755,16 @@ public class MTMVPlanUtil {
             }
         }
         return keys;
+    }
+
+    /**
+     * Whether the statement being laid out builds an append-only detail MV. A statement whose rewrite
+     * carried no key type is not one: the model is settled before anything is laid out, and its absence
+     * means the statement is one of the unique-key model's own, which is what it was before this model
+     * existed.
+     */
+    private static boolean isAppendOnlyDup(IvmRewriteResult ivmRewriteResult) {
+        return ivmRewriteResult != null && ivmRewriteResult.isAppendOnlyDupTable();
     }
 
     private static List<String> analyzeIvmKeys(List<String> keys, List<ColumnDefinition> columns,
@@ -1006,7 +1035,7 @@ public class MTMVPlanUtil {
         }
     }
 
-    public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
+    public static MTMVAnalyzeQueryInfo ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
         MTMVAnalyzeQueryInfo mtmvAnalyzedQueryInfo;
         try {
             mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx,
@@ -1016,6 +1045,7 @@ public class MTMVPlanUtil {
         }
         checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+        return mtmvAnalyzedQueryInfo;
     }
 
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)
@@ -1064,13 +1094,49 @@ public class MTMVPlanUtil {
                             + "original length is: %s, current length is: %s",
                     originalColumns.size(), analyzedColumns.size()));
         }
-        for (int i = 0; i < originalColumns.size(); i++) {
-            if (!isTypeLike(originalColumns.get(i).getType(), analyzedColumns.get(i).getType())) {
+        if (!mtmv.isIvm()) {
+            // Positional, as this check has always been for a plain MV: nothing lays its schema out twice,
+            // so the analysed list is the stored one in order. Matching these by name is not a refinement
+            // -- it is a different answer -- because a plain MV keeps the query as it was written, and an
+            // MV created with column names of its own (`CREATE MATERIALIZED VIEW mv (x, y) AS SELECT a, b`)
+            // persists x/y while re-analysing that query yields a/b. The change this check is for is a
+            // column that disappeared or changed type, and position plus type is what detects it.
+            for (int i = 0; i < originalColumns.size(); i++) {
+                if (!isTypeLike(originalColumns.get(i).getType(), analyzedColumns.get(i).getType())) {
+                    throw new JobException(String.format(
+                            "column type not same, please check whether columns of base table have changed, "
+                                    + "column name is: %s, original type is: %s, current type is: %s",
+                            originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
+                            analyzedColumns.get(i).getType().toSql()));
+                }
+            }
+            return;
+        }
+        // An IVM MV is matched by name, not by position. Its schema is laid out by two passes:
+        // MTMVPlanUtil#applyIvmPhysicalKeyLayout puts the final key columns first when the MV is created,
+        // and the analysed list comes from running that same layout again with the stored key columns as
+        // its input. The two agree except for a chained IVM MV whose base tables carry row-id columns of
+        // their own: the create pass derives the visible key prefix from the identity key slots, the
+        // analysed one takes it from the stored keys, and the base tables' row-id columns end up in a
+        // different block. Where a column sits is not part of what this check is for.
+        Map<String, Column> originalByName = Maps.newHashMap();
+        for (Column column : originalColumns) {
+            originalByName.put(column.getName().toLowerCase(Locale.ROOT), column);
+        }
+        for (Column analyzedColumn : analyzedColumns) {
+            Column originalColumn = originalByName.get(analyzedColumn.getName().toLowerCase(Locale.ROOT));
+            if (originalColumn == null) {
+                throw new JobException(String.format(
+                        "column not found, please check whether columns of base table have changed, "
+                                + "column name is: %s",
+                        analyzedColumn.getName()));
+            }
+            if (!isTypeLike(originalColumn.getType(), analyzedColumn.getType())) {
                 throw new JobException(String.format(
                         "column type not same, please check whether columns of base table have changed, "
                                 + "column name is: %s, original type is: %s, current type is: %s",
-                        originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
-                        analyzedColumns.get(i).getType().toSql()));
+                        analyzedColumn.getName(), originalColumn.getType().toSql(),
+                        analyzedColumn.getType().toSql()));
             }
         }
     }
@@ -1080,7 +1146,9 @@ public class MTMVPlanUtil {
         List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        if (mtmv.isIvm()) {
+        if (mtmv.isIvmUniqueKeysTable()) {
+            // Only the unique-key model carries a sequence column, and this reads its type from the MV's
+            // own schema.
             analyzedColumns.add(ColumnDefinition.newSequenceColumnDefinition(
                     DataType.fromCatalogType(mtmv.getColumn(Column.SEQUENCE_COL).getType()),
                     AggregateType.NONE).translateToCatalogStyle());

@@ -146,7 +146,7 @@ inline bool count_emit_shortcut_safe(const CountEmitShortcutFacts& f) {
 } // namespace doris::segment_v2
 
 // Deterministic seam for the G03 count-emission shortcut, mirroring the SNII
-// query seam (storage/index/snii/query/internal/query_test_counters.h):
+// query seam (storage/index/inverted/snii/query/internal/query_test_counters.h):
 //   - count_emit_shortcut_hits    : engage decisions that ADMITTED the
 //                                   shortcut (incremented inside
 //                                   _should_engage_count_emit_shortcut, which

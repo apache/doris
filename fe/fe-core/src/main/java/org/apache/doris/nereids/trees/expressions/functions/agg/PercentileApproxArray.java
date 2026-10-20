@@ -38,7 +38,7 @@ import java.util.List;
  * AggregateFunction 'percentile_approx_array'.
  */
 public class PercentileApproxArray extends NotNullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
@@ -123,5 +123,10 @@ public class PercentileApproxArray extends NotNullableAggregateFunction
     @Override
     public Expression resultForEmptyInput() {
         return new ArrayLiteral(new ArrayList<>(), this.getDataType());
+    }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 }

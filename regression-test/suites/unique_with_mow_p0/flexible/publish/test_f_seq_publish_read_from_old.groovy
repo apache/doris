@@ -56,18 +56,31 @@ suite("test_f_seq_publish_read_from_old") {
     }
 
     def do_streamload_2pc_commit = { txnId ->
-        def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
-                " -H txn_id:${txnId}" +
-                " -H txn_operation:commit" +
-                " http://${context.config.feHttpAddress}/api/${dbName}/${tableName}/_stream_load_2pc"
-        log.info("http_stream execute 2pc: ${command}")
+        def url = "http://${context.config.feHttpAddress}/api/${dbName}/${tableName}/_stream_load_2pc"
+        def command = ["curl", "-X", "PUT", "--location-trusted",
+                       "-u", "${context.config.feHttpUser}:${context.config.feHttpPassword ?: ''}",
+                       "-H", "txn_id:${txnId}",
+                       "-H", "txn_operation:commit",
+                       url]
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command[-1] = url.replace("http://", "https://")
+            command += ["--cert", context.config.otherConfigs.get("trustCert"),
+                        "--cacert", context.config.otherConfigs.get("trustCACert"),
+                        "--key", context.config.otherConfigs.get("trustCAKey")]
+        }
+        log.info("http_stream execute 2pc: txn_id=${txnId}")
 
-        def process = command.execute()
-        def code = process.waitFor()
-        def out = process.text
+        def process = command.collect { it.toString() }.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        process.waitForProcessOutput(outBuf, errBuf)
+        def code = process.exitValue()
+        def out = outBuf.toString()
+        def err = errBuf.toString()
+        log.info("http_stream 2pc result: code=${code}, out=${out}, err=${err}")
+        assertEquals(0, code, "2PC commit request failed: ${err}".toString())
+        assertTrue(!out.trim().isEmpty(), "2PC commit response should not be empty")
         def json2pc = parseJson(out)
-        log.info("http_stream 2pc result: ${out}".toString())
-        assertEquals(code, 0)
         assertEquals("success", json2pc.status.toLowerCase())
     }
 

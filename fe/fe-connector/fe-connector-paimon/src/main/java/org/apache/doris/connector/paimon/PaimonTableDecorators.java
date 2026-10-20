@@ -17,9 +17,16 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.Table;
+
+import java.lang.reflect.Field;
 
 /**
  * The one place that knows how Paimon stacks {@link DelegatedFileStoreTable} decorators on a loaded
@@ -28,6 +35,51 @@ import org.apache.paimon.table.FileStoreTable;
 final class PaimonTableDecorators {
 
     private PaimonTableDecorators() {
+    }
+
+    static FileStoreTable replaceWrapped(FileStoreTable original, FileStoreTable replacement) {
+        if (!(original instanceof PrivilegedFileStoreTable)) {
+            throw new IllegalArgumentException("Unsupported Paimon planning table delegate: "
+                    + original.getClass().getName());
+        }
+        try {
+            // Paimon exposes no delegate-replacement API. Retain the original checker and identity
+            // so rebuilding a fallback pair does not discard authorization on subsequent reads.
+            Field checker = PrivilegedFileStoreTable.class.getDeclaredField("privilegeChecker");
+            Field identifier = PrivilegedFileStoreTable.class.getDeclaredField("identifier");
+            checker.setAccessible(true);
+            identifier.setAccessible(true);
+            return PrivilegedFileStoreTable.wrap(replacement,
+                    (PrivilegeChecker) checker.get(original), (Identifier) identifier.get(original));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to preserve Paimon privilege delegate", e);
+        }
+    }
+
+    /**
+     * Rebuild a fallback-branch pair around new branches. A chain table is a pair whose other branch is a
+     * {@link ChainGroupReadTable} over its snapshot and delta branches: the group plans and reads the chain
+     * itself, and it is the only pair Paimon lets one nest inside another, so it is rebuilt as a group.
+     */
+    static FileStoreTable rebuildFallbackPair(FallbackReadFileStoreTable pair, FileStoreTable wrapped,
+            FileStoreTable other) {
+        if (pair instanceof ChainGroupReadTable) {
+            return new ChainGroupReadTable(wrapped, other);
+        }
+        return new FallbackReadFileStoreTable(wrapped, other, PaimonReaderOptions.isWrappedFirst(pair));
+    }
+
+    /**
+     * Whether {@code table} reads as a chain table: a fallback pair whose other branch is a
+     * {@link ChainGroupReadTable}. A branch of a chain table read on its own is a plain table.
+     */
+    static boolean isChainTable(Table table) {
+        if (!(table instanceof FileStoreTable)) {
+            return false;
+        }
+        FileStoreTable base = unwrapToFallbackOrBase((FileStoreTable) table);
+        return base instanceof FallbackReadFileStoreTable
+                && ((FallbackReadFileStoreTable) base).other() instanceof ChainGroupReadTable;
     }
 
     /**

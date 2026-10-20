@@ -108,7 +108,7 @@ uint8_t minimum_decimal_width(__int128 value) {
 }
 
 void require_valid_utf8(StringRef value, const char* description) {
-    if (value.size != 0 && !validate_utf8_naive(value.data, value.size)) {
+    if (value.size != 0 && !validate_utf8(value.data, value.size)) {
         fail(description);
     }
 }

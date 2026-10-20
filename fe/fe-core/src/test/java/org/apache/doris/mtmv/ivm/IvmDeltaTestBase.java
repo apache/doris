@@ -53,7 +53,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -287,23 +286,50 @@ abstract class IvmDeltaTestBase {
 
     protected PlanBundle normalizeAggPlan(LogicalAggregate<? extends Plan> agg, ConnectContext connectContext) {
         JobContext jobContext = newJobContextForRoot(agg, connectContext);
-        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(agg, jobContext);
-        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Plan normalizedPlan = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
+        IvmRewriteResult rewriteResult = publishNormalizeResult(jobContext, normalizedPlan);
         return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }
 
+    /**
+     * Publishes a normalized plan the way {@code IvmNormalizeMTMV} does, which is what a statement's
+     * normalize rule does around the normalizer: the normalizer builds the plan, its caller records it
+     * on the statement's rewrite result. Tests that read the recorded plan publish it the same way.
+     */
+    protected static IvmRewriteResult publishNormalizeResult(JobContext jobContext, Plan normalizedPlan) {
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getOrCreateIvmRewriteResult();
+        rewriteResult.setNormalizeRewritten(true);
+        rewriteResult.setNormalizedPlan(normalizedPlan);
+        return rewriteResult;
+    }
+
     protected MTMV buildMtmvFromPlan(List<Slot> output) {
+        return buildMtmv(output, KeysType.UNIQUE_KEYS, true, false);
+    }
+
+    /**
+     * Builds an append-only detail MV over the same output: a plain DUP table, with no merge-on-write
+     * property, no sequence column and no delete sign, which is the table model of that MV.
+     */
+    protected MTMV buildDupMtmvFromPlan(List<Slot> output) {
+        return buildMtmv(output, KeysType.DUP_KEYS, false, true);
+    }
+
+    private MTMV buildMtmv(List<Slot> output, KeysType keysType, boolean mergeOnWrite, boolean enableIvm) {
         List<Column> schema = output.stream().map(this::toColumn).collect(Collectors.toList());
-        schema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
-                AggregateType.NONE, false, "", false, -1));
-        schema.add(new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
-                AggregateType.NONE, false, "", false, -1));
+        if (mergeOnWrite) {
+            // Only the unique-key model maintains a row through a delete sign and a sequence column.
+            schema.add(new Column(Column.DELETE_SIGN, ScalarType.createType(PrimitiveType.BIGINT), false,
+                    AggregateType.NONE, false, "", false, -1));
+            schema.add(new Column(Column.SEQUENCE_COL, ScalarType.createType(PrimitiveType.BIGINT), false,
+                    AggregateType.NONE, false, "", false, -1));
+        }
 
         MTMV mtmv = (MTMV) new OlapTableFactory().init(TableType.MATERIALIZED_VIEW, false)
                 .withTableId(1L)
                 .withTableName("test_mv")
                 .withSchema(schema)
-                .withKeysType(KeysType.UNIQUE_KEYS)
+                .withKeysType(keysType)
                 .withPartitionInfo(new SinglePartitionInfo())
                 .withDistributionInfo(new RandomDistributionInfo(1))
                 .withQuerySql("select 1")
@@ -312,7 +338,7 @@ abstract class IvmDeltaTestBase {
         mtmv.setQualifiedDbName("test_db");
         mtmv.setState(OlapTableState.NORMAL);
         mtmv.setBaseIndexId(1L);
-        mtmv.setIndexMeta(1L, "test_mv", schema, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
+        mtmv.setIndexMeta(1L, "test_mv", schema, 0, 0, (short) 0, TStorageType.COLUMN, keysType);
         mtmv.rebuildFullSchema();
         mtmv.setRefreshInfo((MTMVRefreshInfo) null);
         mtmv.setStatus(new MTMVStatus());
@@ -323,8 +349,13 @@ abstract class IvmDeltaTestBase {
         mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
         mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
         TableProperty tableProperty = new TableProperty(new HashMap<>());
-        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        if (mergeOnWrite) {
+            tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        }
         mtmv.setTableProperty(tableProperty);
+        if (enableIvm) {
+            mtmv.getIvmInfo().setEnableIvm(true);
+        }
         return mtmv;
     }
 
@@ -480,12 +511,31 @@ abstract class IvmDeltaTestBase {
             return;
         }
         long partitionId = table.getId() * 100 + 1;
-        Partition partition = new Partition(partitionId, "p1",
+        addTestPartition(table, "p1", partitionId);
+    }
+
+    private void addTestPartition(OlapTable table, String name, long partitionId) {
+        Partition partition = new Partition(partitionId, name,
                 new MaterializedIndex(table.getBaseIndexId(), MaterializedIndex.IndexState.NORMAL),
                 new RandomDistributionInfo(1));
         partition.setVisibleVersionAndTime(Partition.PARTITION_INIT_VERSION + 1,
                 partitionId * 10, partitionId * 10);
         partition.setNextVersion(Partition.PARTITION_INIT_VERSION + 2);
         table.addPartition(partition);
+    }
+
+    /**
+     * Builds a scan for a table with two partitions, p1 and p2, so that a partition subset is
+     * available to restrict a scan to.
+     */
+    protected LogicalOlapScan buildScanForTableWithTwoPartitions(long tableId, String tableName) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        addTestPartition(table);
+        addTestPartition(table, "p2", tableId * 100 + 2);
+        enableRowBinlog(table);
+        table.setQualifiedDbName("test_db");
+        registerTestStreams(table);
+        return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
     }
 }

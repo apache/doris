@@ -51,7 +51,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "storage/compaction/compaction.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -846,8 +846,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
     if (context.write_binlog_opt().enable) {
-        context.write_binlog_opt().set_need_before(
-                tablet_meta()->binlog_config().need_historical_value());
+        context.write_binlog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.persist_inverted_index_storage_format =
@@ -891,8 +890,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.is_transient_rowset_writer = true;
     if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
         context.write_binlog_opt().enable = true;
-        context.write_binlog_opt().set_need_before(
-                tablet_meta()->binlog_config().need_historical_value());
+        context.write_binlog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();
@@ -1502,13 +1500,36 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
 
 void CloudTablet::agg_delete_bitmap_for_compaction(
         int64_t start_version, int64_t end_version, const std::vector<RowsetSharedPtr>& pre_rowsets,
-        DeleteBitmapPtr& new_delete_bitmap,
-        std::map<std::string, int64_t>& pre_rowset_to_versions) {
-    for (auto& rowset : pre_rowsets) {
+        DeleteBitmapPtr& new_delete_bitmap, std::map<std::string, int64_t>& pre_rowset_to_versions,
+        PreRowsetDeleteBitmapStats* pre_rowset_delete_bitmap_stats) {
+    auto& delete_bitmap = tablet_meta()->delete_bitmap();
+    for (const auto& rowset : pre_rowsets) {
+        if (pre_rowset_delete_bitmap_stats != nullptr) {
+            auto& rowset_delete_bitmap_stats =
+                    (*pre_rowset_delete_bitmap_stats)[rowset->rowset_id().to_string()];
+            std::shared_lock lock(delete_bitmap.lock);
+            const auto bitmap_start_version = static_cast<DeleteBitmap::Version>(start_version);
+            const auto bitmap_end_version = static_cast<DeleteBitmap::Version>(end_version);
+            for (auto seg : rowset->segments()) {
+                auto seg_id = cast_set<uint32_t>(seg.id());
+                DeleteBitmap::BitmapKey segment_start {rowset->rowset_id(), seg_id,
+                                                       bitmap_start_version};
+                for (auto it = delete_bitmap.delete_bitmap.lower_bound(segment_start);
+                     it != delete_bitmap.delete_bitmap.end(); ++it) {
+                    const auto& [key, bitmap] = *it;
+                    if (std::get<0>(key) != rowset->rowset_id() || std::get<1>(key) != seg_id ||
+                        std::get<2>(key) >= bitmap_end_version) {
+                        break;
+                    }
+                    rowset_delete_bitmap_stats.emplace_back(seg_id, std::get<2>(key),
+                                                            bitmap.getSizeInBytes());
+                }
+            }
+        }
         for (auto seg : rowset->segments()) {
             auto seg_id = cast_set<uint32_t>(seg.id());
-            auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
-                    {rowset->rowset_id(), seg_id, end_version}, start_version);
+            auto d = delete_bitmap.get_agg_without_cache({rowset->rowset_id(), seg_id, end_version},
+                                                         start_version);
             if (d->isEmpty()) {
                 continue;
             }
@@ -1551,9 +1572,10 @@ Status CloudTablet::sync_meta() {
             tablet_meta->time_series_compaction_empty_rowsets_threshold();
     auto new_time_series_compaction_level_threshold =
             tablet_meta->time_series_compaction_level_threshold();
-    auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
+    auto new_disable_auto_compaction = tablet_meta->disable_auto_compaction();
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
+    auto new_binlog_config = tablet_meta->binlog_config();
 
     {
         std::unique_lock wlock(_meta_lock);
@@ -1588,18 +1610,20 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_time_series_compaction_level_threshold(
                     new_time_series_compaction_level_threshold);
         }
-        if (_tablet_meta->tablet_schema()->disable_auto_compaction() !=
-            new_disable_auto_compaction) {
-            _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
-                    new_disable_auto_compaction);
+        if (_tablet_meta->disable_auto_compaction() != new_disable_auto_compaction) {
+            _tablet_meta->set_disable_auto_compaction(new_disable_auto_compaction);
         }
         if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
             new_vertical_compaction_num_columns_per_group) {
             _tablet_meta->set_vertical_compaction_num_columns_per_group(
                     new_vertical_compaction_num_columns_per_group);
         }
+        if (_tablet_meta->binlog_config() != new_binlog_config) {
+            _tablet_meta->set_binlog_config(new_binlog_config);
+        }
     }
 
+    last_sync_tablet_meta_time_s = ::time(nullptr);
     return Status::OK();
 }
 
@@ -1955,7 +1979,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                     continue;
                 }
 
-                int64_t expiration_time = _tablet_meta->ttl_seconds();
+                int64_t expiration_time = _tablet_meta->file_cache_ttl_expiration_time();
                 g_file_cache_cloud_tablet_submitted_segment_num << 1;
                 if (seg.file_size() > 0) {
                     g_file_cache_cloud_tablet_submitted_segment_size << seg.file_size();

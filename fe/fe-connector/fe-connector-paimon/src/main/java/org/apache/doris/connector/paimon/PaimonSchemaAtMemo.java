@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import java.util.Objects;
@@ -59,7 +60,7 @@ final class PaimonSchemaAtMemo {
     private final MetaCache<MemoKey, PaimonCatalogOps.PaimonSchemaSnapshot> cache;
 
     PaimonSchemaAtMemo(int maxSize) {
-        this(new CatalogMetaCache(), maxSize);
+        this(CatalogMetaCache.unmanaged(), maxSize);
     }
 
     PaimonSchemaAtMemo(CatalogMetaCache owner, int maxSize) {
@@ -69,6 +70,7 @@ final class PaimonSchemaAtMemo {
                 .<MemoKey, PaimonCatalogOps.PaimonSchemaSnapshot>builder(
                         "paimon-schema-at", spec,
                         key -> ScopePath.table(key.databaseName, key.tableName))
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

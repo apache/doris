@@ -42,7 +42,7 @@ using DataTypePtr = std::shared_ptr<const IDataType>;
 // and manage memory.
 class FunctionContext {
 public:
-    enum FunctionStateScope {
+    enum class FunctionStateScope {
         /// Indicates that function state for this FunctionContext's UDF is shared across
         /// plan fragment (a query is divided into multiple plan fragments, each of which
         /// is responsible for a part of query execution). Within plan fragment, there

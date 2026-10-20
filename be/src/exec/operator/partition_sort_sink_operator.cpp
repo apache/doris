@@ -148,7 +148,7 @@ Status PartitionSortSinkOperatorX::sink_impl(RuntimeState* state, Block* input_b
         local_state._partitioned_data.reset(nullptr);
         SCOPED_TIMER(local_state._sorted_data_timer);
         for (auto& _value_place : local_state._value_places) {
-            _value_place->create_or_reset_sorter_state();
+            _value_place->create_sorter_if_needed();
             local_state._shared_state->partition_sorts.emplace_back(
                     std::move(_value_place->_partition_topn_sorter));
         }

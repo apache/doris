@@ -53,7 +53,6 @@ static constexpr int64_t ROW_BINLOG_DELETE = 2;
 constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
-constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
 
 namespace binlog {
 
@@ -67,8 +66,6 @@ inline std::string build_before_column_name(std::string_view name) {
 } // namespace binlog
 
 constexpr int64_t kBinlogLsnAutoIncId = -1;
-// used in file directory
-constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";
 
 inline auto make_binlog_meta_key(const std::string_view tablet, int64_t version,
                                  const std::string_view rowset) {
@@ -165,6 +162,17 @@ constexpr int64_t kTsoLogicalBits = 18;
 
 inline int64_t extract_tso_physical_time(int64_t tso) {
     return tso <= 0 ? 0 : tso >> kTsoLogicalBits;
+}
+
+inline int64_t row_binlog_ttl_cutoff_tso(int64_t reference_tso, int64_t ttl_seconds) {
+    DCHECK_GT(reference_tso, 0);
+    DCHECK_GE(ttl_seconds, 0);
+    const int64_t reference_ms = extract_tso_physical_time(reference_tso);
+    if (ttl_seconds > reference_ms / 1000) {
+        return 0;
+    }
+    constexpr int64_t kMaxLogical = (1L << kTsoLogicalBits) - 1;
+    return ((reference_ms - ttl_seconds * 1000) << kTsoLogicalBits) | kMaxLogical;
 }
 
 namespace segment_v2 {

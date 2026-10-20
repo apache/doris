@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-/** Measures identifier post-processing through the public facade and with pre-tokenized input. */
+/** Measures identifier-heavy parsing through the public facade and with pre-tokenized input. */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @Fork(value = 3, jvmArgsAppend = {"-Xms1g", "-Xmx1g"})
@@ -51,7 +51,7 @@ import java.util.stream.IntStream;
 @Measurement(iterations = 7, time = 400, timeUnit = TimeUnit.MILLISECONDS)
 @State(Scope.Thread)
 public class IdentifierPostProcessorBenchmark {
-    @Param({"control", "typical", "wide", "nonReserved", "quoted"})
+    @Param({"control", "typical", "wide", "multipart", "nonReserved", "quoted"})
     public String workload;
 
     private final DorisSqlParser facade = new DorisSqlParser();
@@ -95,6 +95,10 @@ public class IdentifierPostProcessorBenchmark {
                         .mapToObj(index -> "c" + index + " AS alias" + index)
                         .collect(Collectors.joining(", "))
                         + " FROM catalog.db.fact_table";
+            case "multipart":
+                return "SELECT 1 FROM " + IntStream.range(0, 64)
+                        .mapToObj(index -> "catalog" + index + ".database" + index + ".table" + index)
+                        .collect(Collectors.joining(", "));
             case "nonReserved":
                 return "SELECT action, branch, cache, catalog, connection, engine, format, global, name "
                         + "FROM aggregate AS alias WHERE action = 1";
