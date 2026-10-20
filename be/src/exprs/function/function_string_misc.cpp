@@ -56,6 +56,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -1535,7 +1536,10 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 1);
+        // Require a distribution column and a bucket count before accessing arguments.
+        if (arguments.size() < 2) {
+            return Status::InvalidArgument("{} requires at least two arguments", name);
+        }
         // The trailing literal is the bucket count to take the modulus against; every leading
         // argument is a distribution column. FE rejects non-literal / non-positive counts at
         // analysis time; these checks keep BE safe on its own (e.g. against forged thrift).
@@ -1551,6 +1555,11 @@ public:
                     "the bucket count argument of {} must be a constant integer, but the constant "
                     "column is missing",
                     name);
+        }
+        // get_data_at returns a null pointer for NULL constants; reject them before dereferencing.
+        if (mod_col_wrapper->column_ptr->is_null_at(0)) {
+            return Status::InvalidArgument("the bucket count argument of {} must not be NULL",
+                                           name);
         }
         auto mod_ref = mod_col_wrapper->column_ptr->get_data_at(0);
         int64_t signed_mod = 0;
@@ -1573,10 +1582,12 @@ public:
                     "the bucket count argument of {} must be an integer literal, got {}", name,
                     block.get_by_position(arguments.back()).type->get_name());
         }
-        if (signed_mod <= 0 || signed_mod > std::numeric_limits<uint32_t>::max()) {
+        // Match FE's positive INT range; INT_MAX + 1 is not a valid bucket count.
+        if (signed_mod <= 0 || signed_mod > std::numeric_limits<int32_t>::max()) {
             return Status::InvalidArgument(
-                    "the bucket count argument of {} must be a positive integer, got {}", name,
-                    signed_mod);
+                    "the bucket count argument of {} must be a positive integer "
+                    "no greater than {}, got {}",
+                    name, std::numeric_limits<int32_t>::max(), signed_mod);
         }
         auto mod = static_cast<uint32_t>(signed_mod);
 
@@ -1585,10 +1596,51 @@ public:
         std::vector<PrimitiveType> argument_primitive_types(argument_size);
 
         for (size_t i = 0; i < argument_size; ++i) {
+            const auto& type = block.get_by_position(arguments[i]).type;
+            argument_primitive_types[i] = type->get_primitive_type();
+            // Nullable(Nothing) represents an untyped NULL with primitive type INVALID_TYPE.
+            if (type->is_nullable() &&
+                dynamic_cast<const DataTypeNothing*>(remove_nullable(type).get()) != nullptr) {
+                argument_primitive_types[i] = TYPE_NULL;
+            }
+            // Types such as JSON trigger RawValue assertions; reject them even for NULL values.
+            switch (argument_primitive_types[i]) {
+            case TYPE_NULL:
+            case TYPE_BOOLEAN:
+            case TYPE_TINYINT:
+            case TYPE_SMALLINT:
+            case TYPE_INT:
+            case TYPE_BIGINT:
+            case TYPE_LARGEINT:
+            case TYPE_FLOAT:
+            case TYPE_DOUBLE:
+            case TYPE_DECIMALV2:
+            case TYPE_DECIMAL32:
+            case TYPE_DECIMAL64:
+            case TYPE_DECIMAL128I:
+            case TYPE_DECIMAL256:
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING:
+            case TYPE_VARBINARY:
+            case TYPE_DATE:
+            case TYPE_DATETIME:
+            case TYPE_DATEV2:
+            case TYPE_DATETIMEV2:
+            case TYPE_TIMEV2:
+            case TYPE_TIMESTAMP_NS:
+            case TYPE_TIMESTAMPTZ:
+            case TYPE_IPV4:
+            case TYPE_IPV6:
+            case TYPE_UUID:
+                break;
+            default:
+                return Status::InvalidArgument("unsupported argument type {} for {}",
+                                               block.get_by_position(arguments[i]).type->get_name(),
+                                               name);
+            }
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            argument_primitive_types[i] =
-                    block.get_by_position(arguments[i]).type->get_primitive_type();
         }
 
         auto res_col = ColumnInt64::create();

@@ -22,21 +22,28 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-/**
- * The trailing bucket count of identity_hash_internal must be a positive integer literal.
- * These checks reject malformed calls at analysis time, before the expression reaches BE,
- * whose implementation expects the modulus as a constant column. Non-constant or non-positive
- * counts previously crashed BE (DCHECK abort in debug, nullptr dereference / division by
- * zero in release).
- */
 public class IdentityHashInternalTest {
 
     private static final SlotReference INT_COLUMN = new SlotReference(
@@ -48,73 +55,65 @@ public class IdentityHashInternalTest {
     public void testValidPositiveIntegerLiteralPasses() {
         for (Expression bucketCount : ImmutableList.of(new IntegerLiteral(1),
                 new IntegerLiteral(8), new IntegerLiteral(Integer.MAX_VALUE))) {
-            Expression expr = new IdentityHashInternal(INT_COLUMN, bucketCount);
-            // positive integer literal must be accepted
-            Assertions.assertNotNull(expr.withChildren(ImmutableList.of(INT_COLUMN, bucketCount)));
+            IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, STRING_COLUMN, bucketCount);
+            Assertions.assertNotNull(TypeCoercionUtils.processBoundFunction(expr));
+            Assertions.assertDoesNotThrow(expr::checkLegalityAfterRewrite);
         }
     }
 
     @Test
-    public void testValidMultiColumnWithLiteralPasses() {
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, STRING_COLUMN,
-                new IntegerLiteral(8));
-        Assertions.assertNotNull(expr.withChildren(
-                ImmutableList.of(INT_COLUMN, STRING_COLUMN, new IntegerLiteral(8))));
+    public void testRejectsInvalidBucketCountsDuringBinding() {
+        for (Expression bucketCount : ImmutableList.of(INT_COLUMN, new StringLiteral("8"),
+                new NullLiteral(), new IntegerLiteral(0), new IntegerLiteral(-8),
+                new BigIntLiteral(Integer.MAX_VALUE + 1L),
+                // Above BIGINT: LargeIntLiteral must be rejected with full precision, not
+                // truncated to a positive long (2^64+1 truncates to 1).
+                new LargeIntLiteral(java.math.BigInteger.valueOf(2).pow(64).add(java.math.BigInteger.ONE)))) {
+            IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, bucketCount);
+            Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.processBoundFunction(expr));
+            Assertions.assertThrows(AnalysisException.class, expr::checkLegalityAfterRewrite);
+        }
+        IdentityHashInternal oneArgument = new IdentityHashInternal(new IntegerLiteral(8));
+        Assertions.assertThrows(AnalysisException.class, () -> TypeCoercionUtils.processBoundFunction(oneArgument));
     }
 
     @Test
-    public void testRejectsNonLiteralBucketCount() {
-        // the trailing argument is a column, not a literal
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, INT_COLUMN);
-        Assertions.assertThrows(AnalysisException.class,
-                () -> expr.withChildren(ImmutableList.of(INT_COLUMN, INT_COLUMN)),
-                "non-literal bucket count must be rejected");
+    public void testRejectsUnsupportedDistributionTypes() {
+        for (DataType type : ImmutableList.of(JsonType.INSTANCE, ArrayType.of(IntegerType.INSTANCE),
+                BitmapType.INSTANCE, HllType.INSTANCE)) {
+            IdentityHashInternal expr = new IdentityHashInternal(new SlotReference("v", type), new IntegerLiteral(8));
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processBoundFunction(expr));
+            Assertions.assertTrue(exception.getMessage().contains("unsupported distribution argument type"));
+            Assertions.assertThrows(AnalysisException.class, expr::checkLegalityAfterRewrite);
+        }
     }
 
     @Test
-    public void testRejectsStringLiteralBucketCount() {
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, new StringLiteral("8"));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> expr.withChildren(ImmutableList.of(INT_COLUMN, new StringLiteral("8"))),
-                "string literal bucket count must be rejected");
+    public void testPreservesLegacyDistributionTypes() {
+        for (DataType type : ImmutableList.of(DateType.INSTANCE, DateTimeType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT)) {
+            IdentityHashInternal expr = new IdentityHashInternal(new SlotReference("v", type), new IntegerLiteral(8));
+            Expression bound = TypeCoercionUtils.processBoundFunction(expr);
+            Assertions.assertEquals(type, bound.child(0).getDataType());
+        }
     }
 
     @Test
-    public void testRejectsZeroBucketCount() {
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, new IntegerLiteral(0));
-        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
-                () -> expr.withChildren(ImmutableList.of(INT_COLUMN, new IntegerLiteral(0))),
-                "zero bucket count must be rejected");
-        Assertions.assertTrue(e.getMessage().contains("positive integer"), e.getMessage());
-    }
-
-    @Test
-    public void testRejectsNegativeBucketCount() {
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, new IntegerLiteral(-8));
-        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
-                () -> expr.withChildren(ImmutableList.of(INT_COLUMN, new IntegerLiteral(-8))),
-                "negative bucket count must be rejected");
-        Assertions.assertTrue(e.getMessage().contains("positive integer"), e.getMessage());
-    }
-
-    @Test
-    public void testRejectsBucketCountOverflowingUint32() {
-        // BE's modulus is uint32_t; anything above Integer.MAX_VALUE cannot be a bucket count.
-        Expression overflow = new BigIntLiteral(Integer.MAX_VALUE + 1L);
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, overflow);
-        Assertions.assertThrows(AnalysisException.class,
-                () -> expr.withChildren(ImmutableList.of(INT_COLUMN, overflow)),
-                "bucket count above Integer.MAX_VALUE must be rejected");
-    }
-
-    @Test
-    public void testSignatureStillAcceptsAnyDataColumns() {
-        // The leading distribution columns keep AnyDataType varArgs: the check only constrains
-        // the trailing bucket count, so the function still parses with any typed columns.
-        IdentityHashInternal expr = new IdentityHashInternal(INT_COLUMN, new IntegerLiteral(8));
-        Assertions.assertNotNull(expr.withChildren(
-                ImmutableList.of(INT_COLUMN, new IntegerLiteral(8))));
-        Assertions.assertTrue(expr.getSignatures().get(0).hasVarArgs,
-                "identity_hash_internal must stay variadic");
+    public void testSqlBindingRejectsMalformedCallsWithoutRewriting() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        for (boolean skipFold : ImmutableList.of(false, true)) {
+            context.getSessionVariable().debugSkipFoldConstant = skipFold;
+            for (String arguments : ImmutableList.of("8", "1, NULL", "1, CAST(NULL AS BIGINT)",
+                    "1, CAST(NULL AS INT)", "1, '8'", "1, 0", "1, -1", "1, 2147483648",
+                    "1, 18446744073709551617", "1, -18446744073709551615",
+                    "CAST('{\"x\":1}' AS JSON), 8", "CAST(NULL AS JSON), 8", "[1, 2], 8")) {
+                String sql = "SELECT identity_hash_internal(" + arguments + ")";
+                Assertions.assertThrows(AnalysisException.class, () -> PlanChecker.from(context).analyze(sql), sql);
+            }
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(context)
+                    .analyze("SELECT identity_hash_internal(CAST(NULL AS INT), 'a', 8)"));
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(context)
+                    .analyze("SELECT identity_hash_internal(NULL, 8)"));
+        }
     }
 }

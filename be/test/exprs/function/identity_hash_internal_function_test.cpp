@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -26,6 +27,9 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_const.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
@@ -130,6 +134,89 @@ TEST_F(IdentityHashInternalFunctionTest, RejectsMissingConstantColumn) {
     auto st = execute({0, 1}, 2);
     ASSERT_FALSE(st.ok());
     EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>());
+}
+
+TEST_F(IdentityHashInternalFunctionTest, RejectsNullBucketCount) {
+    for (const auto& type :
+         DataTypes {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt64>()}) {
+        auto nullable_type = make_nullable(type);
+        auto column = nullable_type->create_column();
+        column->insert_default();
+        ColumnPtr null_mod = ColumnConst::create(std::move(column), 3);
+        _argument_types[1] = nullable_type;
+        _block = Block {make_int32_column("c1", {1, 2, 3}), {null_mod, nullable_type, "mod"}};
+        set_constant_col(1, null_mod);
+        auto st = execute({0, 1}, 2);
+        ASSERT_FALSE(st.ok());
+        EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_NE(st.to_string().find("must not be NULL"), std::string::npos) << st.to_string();
+    }
+}
+
+TEST_F(IdentityHashInternalFunctionTest, RejectsSingleArgument) {
+    _block = Block {make_int32_column("c1", {1, 2, 3})};
+    _argument_types.resize(1);
+    auto st = execute({0}, 1);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_NE(st.to_string().find("at least two arguments"), std::string::npos) << st.to_string();
+}
+
+TEST_F(IdentityHashInternalFunctionTest, RejectsBucketCountAboveIntMax) {
+    _block = Block {
+            make_int32_column("c1", {1, 2, 3}),
+            make_bigint_const(static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1)};
+    set_constant_col(1, _block.get_by_position(1).column);
+    auto st = execute({0, 1}, 2);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_NE(st.to_string().find("no greater than 2147483647"), std::string::npos)
+            << st.to_string();
+}
+
+TEST_F(IdentityHashInternalFunctionTest, RejectsJsonIncludingTypedNull) {
+    auto json_type = std::make_shared<DataTypeJsonb>();
+    for (const auto& type : DataTypes {json_type, make_nullable(json_type)}) {
+        auto column = type->create_column();
+        column->insert_many_defaults(3);
+        _argument_types[0] = type;
+        _block = Block {{std::move(column), type, "c1"}, make_bigint_const(8)};
+        set_constant_col(1, _block.get_by_position(1).column);
+        auto st = execute({0, 1}, 2);
+        ASSERT_FALSE(st.ok());
+        EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_NE(st.to_string().find("unsupported argument type"), std::string::npos)
+                << st.to_string();
+    }
+}
+
+TEST_F(IdentityHashInternalFunctionTest, ValidNullDistributionValue) {
+    for (const auto& type : DataTypes {make_nullable(std::make_shared<DataTypeInt32>()),
+                                       make_nullable(std::make_shared<DataTypeNothing>())}) {
+        auto column = type->create_column();
+        column->insert_many_defaults(3);
+        _argument_types[0] = type;
+        _block = Block {{std::move(column), type, "c1"}, make_bigint_const(8)};
+        set_constant_col(1, _block.get_by_position(1).column);
+        ASSERT_TRUE(execute({0, 1}, 2).ok()) << _status.to_string();
+        const auto* res = assert_cast<const ColumnInt64*>(_block.get_by_position(2).column.get());
+        ASSERT_EQ(res->size(), 3);
+        for (size_t i = 0; i < res->size(); ++i) {
+            EXPECT_EQ(res->get_element(i), 0);
+        }
+    }
+}
+
+TEST_F(IdentityHashInternalFunctionTest, ValidIntMaxBucketCount) {
+    _block = Block {make_int32_column("c1", {1, 2, 3}),
+                    make_bigint_const(std::numeric_limits<int32_t>::max())};
+    set_constant_col(1, _block.get_by_position(1).column);
+    ASSERT_TRUE(execute({0, 1}, 2).ok()) << _status.to_string();
+    const auto* res = assert_cast<const ColumnInt64*>(_block.get_by_position(2).column.get());
+    ASSERT_EQ(res->size(), 3);
+    EXPECT_EQ(res->get_element(0), 1);
+    EXPECT_EQ(res->get_element(1), 2);
+    EXPECT_EQ(res->get_element(2), 3);
 }
 
 } // namespace doris
