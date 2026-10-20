@@ -705,7 +705,7 @@ public class IcebergMetadataOpsValidationTest {
             mockWritableTableLease(mockedIcebergUtils, dorisTable, icebergTable);
 
             ops.modifyColumn(dorisTable, ColumnPath.of("top_uuid"),
-                    new Column("top_uuid", ScalarType.createVarbinaryType(16), true), null, 1L);
+                    new Column("top_uuid", Type.UUID, true), null, 1L);
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.tz_value"),
                     new Column("tz_value", ScalarType.createTimeStampTzType(6), true), null, 1L);
         }
@@ -1678,15 +1678,15 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     private StructType mappedPayloadDorisType(Type metricType, int fixedLength, Type mapKeyType) {
+        // UUID annotations retain their logical type even when binary mapping is enabled.
         return new StructType(
-                new StructField("uuid_value", ScalarType.createVarbinaryType(16)),
+                new StructField("uuid_value", Type.UUID),
                 new StructField("binary_value",
                         ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)),
                 new StructField("fixed_value", ScalarType.createVarbinaryType(fixedLength)),
                 new StructField("tz_value", ScalarType.createTimeStampTzType(6)),
                 new StructField("metric", metricType),
-                new StructField("events", ArrayType.create(
-                        ScalarType.createVarbinaryType(16), true)),
+                new StructField("events", ArrayType.create(Type.UUID, true)),
                 new StructField("attrs", new MapType(
                         mapKeyType, ScalarType.createTimeStampTzType(6))));
     }

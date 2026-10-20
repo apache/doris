@@ -34,7 +34,10 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
@@ -382,6 +385,55 @@ TEST_F(VParquetWriterTest, HiveInt96HonorsCatalogTimezoneContract) {
         EXPECT_EQ("Asia/Shanghai", state.timezone());
         ASSERT_TRUE(_fs->delete_file(_file_path).ok());
     }
+}
+
+TEST_F(VParquetWriterTest, IcebergNanosecondsRoundTripWithoutCoercion) {
+    const auto type = make_nullable(std::make_shared<DataTypeTimeStampNs>());
+    auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json =
+            R"({"type":"struct","fields":[{"id":1,"name":"ts","required":false,"type":"timestamp_ns"}]})";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    const std::map<std::string, std::string> hadoop_conf;
+    TDataSink sink;
+    RuntimeState state;
+    state.set_timezone("Asia/Shanghai");
+    const auto name = "iceberg_ns_" + UniqueId::gen_uid().to_string();
+    _file_path = "./" + name + "-0.parquet";
+    VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json, {"ts"},
+                                   {.write_path = ".",
+                                    .original_write_path = ".",
+                                    .target_path = ".",
+                                    .file_type = TFileType::FILE_LOCAL,
+                                    .broker_addresses = {}},
+                                   name, 0, TFileFormatType::FORMAT_PARQUET,
+                                   TFileCompressType::PLAIN, hadoop_conf);
+    ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
+    const std::vector<int64_t> nanos = {std::numeric_limits<int64_t>::min(), -1, 0, 1, 123456789,
+                                        std::numeric_limits<int64_t>::max()};
+    auto column = type->create_column();
+    for (auto value : nanos) {
+        column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(value)));
+    }
+    column->insert_default();
+    Block block({{std::move(column), type, "ts"}});
+    auto status = writer.write(block);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(writer.close(Status::OK()).ok());
+    auto input = arrow::io::ReadableFile::Open(_file_path);
+    ASSERT_TRUE(input.ok()) << input.status();
+    auto reader = ::parquet::arrow::OpenFile(*input, arrow::default_memory_pool());
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    auto table = (*reader)->ReadTable();
+    ASSERT_TRUE(table.ok()) << table.status();
+    const auto& values = assert_cast<const arrow::TimestampArray&>(*(*table)->column(0)->chunk(0));
+    const auto& timestamp_type = assert_cast<const arrow::TimestampType&>(*values.type());
+    EXPECT_EQ(arrow::TimeUnit::NANO, timestamp_type.unit());
+    EXPECT_TRUE(timestamp_type.timezone().empty());
+    ASSERT_EQ(nanos.size() + 1, values.length());
+    for (size_t row = 0; row < nanos.size(); ++row) {
+        EXPECT_EQ(nanos[row], values.Value(row));
+    }
+    EXPECT_TRUE(values.IsNull(nanos.size()));
 }
 
 } // namespace doris

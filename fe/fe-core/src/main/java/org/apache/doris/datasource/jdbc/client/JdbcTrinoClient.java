@@ -33,6 +33,8 @@ public class JdbcTrinoClient extends JdbcClient {
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         String trinoType = fieldSchema.getDataTypeName().orElse("unknown");
         switch (trinoType) {
+            case "uuid":
+                return Type.UUID;
             case "integer":
                 return Type.INT;
             case "bigint":

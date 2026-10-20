@@ -48,6 +48,7 @@ suite("test_uuid_parquet_roundtrip") {
                SELECT * FROM local("file_path"="${path}", "format"="parquet",
                                    "backend_id"="${backend.BackendId}")"""
         qt_roundtrip "SELECT * FROM uuid_file_reload_parquet ORDER BY id"
+        // The inferred schema must preserve the UUID annotations written by OUTFILE.
         order_qt_inferred_types """DESC FUNCTION local(
             "file_path"="${path}", "format"="parquet", "backend_id"="${backend.BackendId}")"""
     } finally {

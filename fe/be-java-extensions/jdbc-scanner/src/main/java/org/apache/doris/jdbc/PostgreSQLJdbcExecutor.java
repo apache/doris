@@ -82,6 +82,11 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
+            case UUID: {
+                // JNI requires UUID objects even when the driver exposes canonical text.
+                String value = resultSet.getString(columnIndex + 1);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case BOOLEAN:
                 return resultSet.getObject(columnIndex + 1, Boolean.class);
             case SMALLINT:
@@ -198,6 +203,13 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
             return null;
         }
         switch (type.getType()) {
+            case UUID: {
+                List<java.util.UUID> result = new ArrayList<>(array.size());
+                for (Object value : array) {
+                    result.add(value == null ? null : java.util.UUID.fromString(value.toString()));
+                }
+                return result;
+            }
             case DATE:
             case DATEV2: {
                 List<LocalDate> result = new ArrayList<>();

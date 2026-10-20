@@ -28,6 +28,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
         def originalTimeZone = sql "SELECT @@time_zone"
         try {
             // Instant-annotated timestamps now retain their timezone-aware type in TVFs.
+            // V2 schema discovery honors logical UTC annotations even in older-writer fixtures.
             // Pin the display timezone so the golden results do not depend on the FE default.
             sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/upcase_field.parquet"
@@ -567,6 +568,8 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "format" = "parquet") limit 10; """
 
 
+            // V2 maps JSON/BSON annotations to text despite BYTE_ARRAY storage, so both
+            // document columns must keep textual golden results rather than VARBINARY hex.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/byte_array.parquet"
             order_qt_test_74 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -756,8 +759,8 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
 
 
             // The first field is FIXED_LEN_BYTE_ARRAY(16) with a UUID logical annotation.
-            // The UUID annotation preserves canonical text independently of the raw-binary default.
-            // test_107 verifies that explicitly enabling the option produces the same result.
+            // V2 schema inference and decoding preserve the native UUID type and canonical text.
+            // test_107 verifies UUID stays native when the retired VARBINARY option is enabled.
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
             order_qt_test_98 """ select * from HDFS(
                         "uri" = "${uri}",

@@ -32,6 +32,7 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.transforms.Transform;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -124,6 +125,9 @@ public class IcebergExternalTableTest {
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
 
         Mockito.when(icebergTable.schema()).thenReturn(schema);
+        // Partition eligibility inspects the source type in the spec's own schema.
+        Mockito.when(spec.schema()).thenReturn(schema);
+        Mockito.when(schema.findType(1)).thenReturn(Types.TimestampType.withoutZone());
         Mockito.when(schema.findColumnName(ArgumentMatchers.anyInt())).thenReturn("col1");
         Mockito.doReturn(mockTransform("hour")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);

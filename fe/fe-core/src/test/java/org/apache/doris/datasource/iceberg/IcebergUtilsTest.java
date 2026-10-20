@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionKey;
@@ -348,9 +349,12 @@ public class IcebergUtilsTest {
         Assert.assertTrue(binary.isVarbinaryType());
         Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
 
-        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
-        Assert.assertTrue(uuid.isVarbinaryType());
-        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
+        for (boolean mapping : Arrays.asList(false, true)) {
+            Assert.assertEquals(Type.UUID,
+                    IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), mapping, false));
+            Assert.assertEquals(ArrayType.create(Type.UUID, true), IcebergUtils.icebergTypeToDorisType(
+                    Types.ListType.ofOptional(1, Types.UUIDType.get()), mapping, false));
+        }
     }
 
     @Test
@@ -942,12 +946,12 @@ public class IcebergUtilsTest {
         Assert.assertEquals("7", serializedDefaults.get(1));
         Assert.assertEquals("2024-01-01 00:00:00.123456", serializedDefaults.get(2));
         Assert.assertEquals("2024-01-01 00:00:00.123456+00:00", serializedDefaults.get(6));
-        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", serializedDefaults.get(3));
+        Assert.assertEquals("00000000-0000-0000-0000-000000000000", serializedDefaults.get(3));
         Assert.assertEquals("AAEC/w==", serializedDefaults.get(4));
         Assert.assertEquals("AwIBAA==", serializedDefaults.get(5));
 
         Map<Integer, String> base64Defaults = IcebergUtils.getBase64EncodedInitialDefaults(schema);
-        Assert.assertEquals("AAAAAAAAAAAAAAAAAAAAAA==", base64Defaults.get(3));
+        Assert.assertFalse(base64Defaults.containsKey(3));
         Assert.assertEquals("AAEC/w==", base64Defaults.get(4));
         Assert.assertEquals("AwIBAA==", base64Defaults.get(5));
     }
@@ -1006,7 +1010,7 @@ public class IcebergUtilsTest {
         Assert.assertFalse(defaults.containsKey(4));
         Assert.assertEquals(Collections.singleton(3),
                 IcebergUtils.getBase64EncodedInitialDefaults(schema).keySet());
-        Assert.assertEquals(ImmutableSet.of(3, 4), IcebergUtils.getBinaryLikeFieldIds(schema));
+        Assert.assertEquals(ImmutableSet.of(3), IcebergUtils.getBinaryLikeFieldIds(schema));
     }
 
     @Test

@@ -89,6 +89,9 @@ public class JdbcSQLServerClient extends JdbcClient {
         String sqlserverType = identityBaseType(originSqlserverType, fieldSchema.getDataType());
 
         switch (sqlserverType) {
+            // Preserve the external logical UUID independently of binary mapping options.
+            case "uniqueidentifier":
+                return Type.UUID;
             case "bit":
                 return Type.BOOLEAN;
             case "tinyint":
@@ -134,7 +137,6 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "text":
             case "ntext":
             case "time":
-            case "uniqueidentifier":
             case "timestamp":
                 return ScalarType.createStringType();
             case "image":

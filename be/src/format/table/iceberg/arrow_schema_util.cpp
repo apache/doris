@@ -84,12 +84,21 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
         arrow_type = arrow::date32();
         break;
 
-    case iceberg::TypeID::TIMESTAMP: {
-        iceberg::TimestampType* t_type = static_cast<iceberg::TimestampType*>(field.field_type());
-        std::string real_tz = t_type->should_adjust_to_utc() ? _timezone : "";
-        arrow_type = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, real_tz);
+    case iceberg::TypeID::TIMESTAMP:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO);
         break;
-    }
+
+    case iceberg::TypeID::TIMESTAMPTZ:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO, _timezone);
+        break;
+
+    case iceberg::TypeID::TIMESTAMP_NS:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::NANO);
+        break;
+
+    case iceberg::TypeID::TIMESTAMPTZ_NS:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::NANO, _timezone);
+        break;
 
     case iceberg::TypeID::STRING:
         arrow_type = arrow::utf8();

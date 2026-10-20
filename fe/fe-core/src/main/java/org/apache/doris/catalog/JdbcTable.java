@@ -161,6 +161,10 @@ public class JdbcTable extends Table {
             } else if (column != null && column.getType().isTimeStampTz() && remoteType == TOdbcTableType.PRESTO) {
                 sb.append("io.prestosql.jdbc.PrestoDriver".equals(getDriverClass())
                         ? "CAST(? AS TIMESTAMP(6) WITH TIME ZONE)" : "CAST(? AS TIMESTAMP WITH TIME ZONE)");
+            } else if (column != null && column.getType().isUuid()
+                    && (remoteType == TOdbcTableType.TRINO || remoteType == TOdbcTableType.PRESTO)) {
+                // UUID parameters may be bound as text; preserve the target type in remote SQL.
+                sb.append("CAST(? AS UUID)");
             } else {
                 sb.append("?");
             }

@@ -40,7 +40,7 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
             sql """switch `${catalog_name}`"""
             sql """show databases; """
             sql """use `${catalog_name}`.`flink_paimon`"""
-            // Native ORC rounds the fixture's nanosecond fractions to six decimal places.
+            // NTZ scales 7-9 retain nanoseconds through JNI; LTZ values keep microsecond precision.
             order_qt_no_region1 """select ts1,ts19 from ${table_name} """
             order_qt_no_region2 """select * from ${table_name} """
             // 3.1 new features

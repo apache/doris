@@ -144,6 +144,11 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
     }
 
     public Timestamp visit(TimestampType timestampType) {
+        if (expr instanceof org.apache.doris.analysis.TimeStampNsLiteral) {
+            // A nanos predicate must not be narrowed before Paimon evaluates it.
+            return Timestamp.fromLocalDateTime(
+                    ((org.apache.doris.analysis.TimeStampNsLiteral) expr).toLocalDateTime());
+        }
         if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
             Calendar instance = Calendar.getInstance(TimeZone.getTimeZone("GMT"));

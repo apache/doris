@@ -100,6 +100,32 @@ public class RewriteDataFilePlannerTest {
     }
 
     @Test
+    public void testQuotedPromotedTimestampRejectsUnsafeRewritePruning() throws Exception {
+        Mockito.when(mockTable.newScan()).thenReturn(mockTableScan);
+        Mockito.when(mockTableScan.filter(Mockito.any())).thenReturn(mockTableScan);
+        Mockito.when(mockTableScan.planFiles()).thenReturn(
+                CloseableIterable.withNoopClose(Collections.emptyList()));
+        for (String name : Arrays.asList("ts.day", "has space", "tick`name")) {
+            Schema date = new Schema(0, Types.NestedField.optional(1, name, Types.DateType.get()));
+            Schema nanos = new Schema(1,
+                    Types.NestedField.optional(1, name, Types.TimestampNanoType.withoutZone()));
+            Mockito.when(mockTable.schema()).thenReturn(nanos);
+            Mockito.when(mockTable.schemas()).thenReturn(
+                    com.google.common.collect.ImmutableMap.of(0, date, 1, nanos));
+            org.apache.doris.nereids.trees.expressions.Expression predicate =
+                    new org.apache.doris.nereids.parser.NereidsParser().parseExpression(
+                            "`" + name.replace("`", "``") + "` = '2024-01-02'");
+            RewriteDataFilePlanner.Parameters parameters = new RewriteDataFilePlanner.Parameters(
+                    128L, 64L, 256L, 2, false, 512L, 3, 0.1, 0L, Optional.of(predicate));
+            UserException error = Assertions.assertThrows(UserException.class,
+                    () -> new RewriteDataFilePlanner(parameters).planAndOrganizeTasks(mockTable));
+            Assertions.assertTrue(error.getMessage().contains("cannot prune historical DATE bounds"),
+                    error.getMessage());
+        }
+        Mockito.verify(mockTableScan, Mockito.never()).filter(Mockito.any());
+    }
+
+    @Test
     public void testParametersGetters() {
         Assertions.assertEquals(128 * 1024 * 1024L, defaultParameters.getTargetFileSizeBytes());
         Assertions.assertEquals(64 * 1024 * 1024L, defaultParameters.getMinFileSizeBytes());
