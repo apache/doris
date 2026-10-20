@@ -183,12 +183,13 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         // positive. An inserted value that beats the old extreme also makes the merge
         // derivable without a complete refresh.
         Expression oldPresentNoDeletes = new And(oldExtremePresent, new IsNull(deltaDelete));
-        Expression oldPresentBoundary = new And(oldExtremePresent,
-                new And(deletedPresent,
-                        new And(deletedExtremeIsAtLeastOld(deltaDelete, oldExtreme),
-                                new Or(ImmutableList.of(
-                                        insertedBetter,
-                                        new GreaterThan(survivingOldCount, zero))))));
+        Expression oldPresentBoundary = new And(ImmutableList.of(
+                oldExtremePresent,
+                deletedPresent,
+                deletedExtremeIsAtLeastOld(deltaDelete, oldExtreme),
+                new Or(ImmutableList.of(
+                        insertedBetter,
+                        new GreaterThan(survivingOldCount, zero)))));
         Expression guardCond = new Or(ImmutableList.of(
                 new EqualTo(newTotalCount, zero),
                 oldNullGuard,
