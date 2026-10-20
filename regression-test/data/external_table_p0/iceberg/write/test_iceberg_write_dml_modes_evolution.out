@@ -23,7 +23,7 @@
 
 -- !mor_delete_files --
 0	3	3
-2	2	2
+2	1	1
 
 -- !cow_after_rejections --
 1	A	alpha	2026-01-01T01:00	10	base
