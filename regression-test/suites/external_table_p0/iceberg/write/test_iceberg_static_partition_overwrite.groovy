@@ -1097,7 +1097,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (category='food')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1130,7 +1130,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (description='hello')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1163,7 +1163,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1196,7 +1196,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (event_date='2024-06-15')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1229,7 +1229,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (event_date='2025-01-15')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1262,7 +1262,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1297,7 +1297,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (id=1)
             SELECT 'Eve', 'bj'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1330,7 +1330,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (amount=100)
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1363,7 +1363,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (user_id=1001)
             SELECT 10, 'Eve'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1404,7 +1404,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve', 'bj'
         """
-        exception "Unknown partition column"
+        exception "Cannot use static partition syntax for non-identity partition field"
     }
     // Using correct partition field name should trigger non-identity error
     test {
@@ -1414,5 +1414,47 @@ suite("test_iceberg_static_partition_overwrite", "p0,external") {
             SELECT 10, 'Eve', 'bj'
         """
         exception "Cannot use static partition syntax for non-identity partition field"
+    }
+
+    // ============================================================================
+    // Test Case 39: An identity partition field renamed away from its source column
+    // ============================================================================
+
+    // ADD PARTITION KEY id AS id_identity keeps the identity transform on column id but names the partition
+    // field id_identity. Such a partition is written by its SOURCE column - the identifier Spark resolves for a
+    // static PARTITION clause and the one SHOW CREATE TABLE renders - while the field name is not a table column.
+    String tb_renamed = db1 + "_renamed_identity"
+    sql """ DROP TABLE IF EXISTS ${tb_renamed} """
+    sql """
+        CREATE TABLE ${tb_renamed} (
+            id BIGINT,
+            value STRING,
+            metric INT
+        ) ENGINE=iceberg
+    """
+    sql """ ALTER TABLE ${tb_renamed} ADD PARTITION KEY id AS id_identity """
+    sql """ INSERT INTO ${tb_renamed} VALUES (1, 'a', 1), (2, 'b', 2) """
+
+    // Only the id=2 partition is replaced, and the literal is materialized into the row's id column (an identity
+    // partition value must equal the column value, otherwise the data file contradicts its own partition).
+    sql """
+        INSERT OVERWRITE TABLE ${tb_renamed}
+        PARTITION (id = 2) (value, metric) VALUES ('b2', 22)
+    """
+    order_qt_renamed_static_source_column """ SELECT id, value, metric FROM ${tb_renamed} ORDER BY id """
+    def renamedRows = sql("SELECT id, value, metric FROM ${tb_renamed} ORDER BY id")
+    spark_iceberg "REFRESH TABLE demo.${db1}.${tb_renamed}"
+    assertSparkDorisResultEquals(spark_iceberg("""
+        SELECT id, value, metric FROM demo.${db1}.${tb_renamed} ORDER BY id
+    """), renamedRows)
+
+    // The partition FIELD name is not a table column: report it with the source column to use instead, rather than
+    // the previous "PARTITION names a column the binder then cannot find" contradiction.
+    test {
+        sql """
+            INSERT OVERWRITE TABLE ${tb_renamed}
+            PARTITION (id_identity = 2) (value, metric) VALUES ('b3', 33)
+        """
+        exception "is a partition field name, not a table column"
     }
 }

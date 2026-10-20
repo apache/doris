@@ -1939,12 +1939,20 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the
-     * column must be an <em>identity</em> partition field of this (partitioned) table. Mirrors the legacy
-     * fe-resident {@code BindSink.validateStaticPartition} (now dead on the connector-driven path), but the
-     * iceberg {@link PartitionSpec} knowledge and the messages live in the connector. The lookup is keyed by
-     * partition <em>field</em> name (e.g. {@code category_bucket} for {@code bucket(4, category)}), matching
-     * legacy — so a source-column name that is not itself an identity field reads as "Unknown partition column".
+     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the name
+     * must be the SOURCE column of an <em>identity</em> partition field of this (partitioned) table.
+     *
+     * <p>That is the identifier Spark resolves for a static partition clause
+     * ({@code Analyzer.partitionColumnNames} takes the identity transform's field reference), the one
+     * {@code SHOW CREATE TABLE} renders ({@code PARTITION BY LIST (`id`)}), and the only one the engine can
+     * materialize: an identity partition value IS the column value, so the binder fills that column from the
+     * PARTITION literal ({@code PluginDrivenExternalTable#materializeStaticPartitionValues}).</p>
+     *
+     * <p>Consequently a partition FIELD name that was renamed away from its source column
+     * ({@code ADD PARTITION KEY id AS id_identity}) is rejected with the source name to use instead. The field
+     * name is not a table column, so no value could be written for it — accepting it is exactly the
+     * "PARTITION names a column the binder then cannot find" contradiction this replaces. Non-identity
+     * transforms stay rejected, and an unknown name lists the source columns that a static write can use.</p>
      */
     @Override
     public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
@@ -1953,30 +1961,83 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return;
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        Table table = loadTable(session, iceHandle);
-        PartitionSpec spec = table.spec();
         String tableName = iceHandle.getTableName();
+        // Validate against the schema/spec this statement actually writes with. A branch-targeted write pins the
+        // BRANCH's writer schema before analysis is complete (getWriteColumns -> IcebergStatementScope.writeSchema)
+        // and binding, planning and the BE sink all consume that pinned copy, so after a main-only column rename
+        // the current metadata can disagree with the schema the branch statement binds to.
+        Optional<IcebergWriteSchemaContext> pinned = IcebergStatementScope.activeWriteSchema(
+                session, iceHandle.getDbName(), tableName);
+        Schema schema;
+        PartitionSpec spec;
+        if (pinned.isPresent()) {
+            schema = pinned.get().getSchema();
+            spec = pinned.get().getPartitionSpec();
+        } else {
+            Table table = loadTable(session, iceHandle);
+            schema = table.schema();
+            spec = table.spec();
+        }
         if (!spec.isPartitioned()) {
             throw new DorisConnectorException(String.format(
                     "Table %s is not partitioned, cannot use static partition syntax", tableName));
         }
-        Map<String, PartitionField> partitionFieldMap = new HashMap<>();
-        for (PartitionField field : spec.fields()) {
-            partitionFieldMap.put(field.name(), field);
-        }
         for (String colName : staticPartitionColumnNames) {
-            PartitionField field = partitionFieldMap.get(colName);
-            if (field == null) {
+            validateStaticPartitionColumn(schema, spec, colName, tableName);
+        }
+    }
+
+    /** The single-name rule of {@link #validateStaticPartitionColumns}. */
+    private static void validateStaticPartitionColumn(Schema schema, PartitionSpec spec, String colName,
+            String tableName) {
+        // The identity partition over this top-level column is the target. Searching by SOURCE first (across all
+        // fields, not the first source match) keeps a spec that carries a non-identity field on the same column
+        // legal - e.g. bucket(8, id) declared before identity(id) - and never lets a nested leaf or a case-folded
+        // field alias stand in for the column the binder will materialize.
+        if (IcebergPartitionUtils.identityPartitionBySourceColumn(schema, spec, colName) != null) {
+            return;
+        }
+        PartitionField bySource = IcebergPartitionUtils.partitionFieldBySourceColumn(schema, spec, colName);
+        if (bySource != null) {
+            throw nonIdentityStaticPartition(colName, bySource);
+        }
+        PartitionField byName = partitionFieldByName(spec, colName);
+        if (byName != null) {
+            if (byName.transform().isIdentity()) {
+                // Renamed identity field (ADD PARTITION KEY ... AS ...): point at the source column the engine can
+                // materialize, instead of accepting a name that no row column carries.
+                String source = IcebergPartitionUtils.topLevelSourceColumnName(schema, byName.sourceId());
+                if (source == null) {
+                    throw new DorisConnectorException(String.format(
+                            "Static partition column '%s' in table '%s' cannot be written by value: its source is"
+                                    + " a nested field, and the engine can only materialize the literal into a"
+                                    + " top-level column.", byName.name(), tableName));
+                }
                 throw new DorisConnectorException(String.format(
-                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
-                        colName, tableName, partitionFieldMap.keySet()));
+                        "Static partition column '%s' in table '%s' is a partition field name, not a table"
+                                + " column; write the identity partition by its source column '%s' instead.",
+                        byName.name(), tableName, source));
             }
-            if (!field.transform().isIdentity()) {
-                throw new DorisConnectorException(String.format(
-                        "Cannot use static partition syntax for non-identity partition field '%s'"
-                                + " (transform: %s).", colName, field.transform().toString()));
+            throw nonIdentityStaticPartition(colName, byName);
+        }
+        throw new DorisConnectorException(String.format(
+                "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                colName, tableName, IcebergPartitionUtils.identityPartitionSourceColumns(schema, spec)));
+    }
+
+    private static DorisConnectorException nonIdentityStaticPartition(String colName, PartitionField field) {
+        return new DorisConnectorException(String.format(
+                "Cannot use static partition syntax for non-identity partition field '%s'"
+                        + " (transform: %s).", colName, field.transform().toString()));
+    }
+
+    private static PartitionField partitionFieldByName(PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field;
             }
         }
+        return null;
     }
 
     // ========== Predicate pushdown ==========
