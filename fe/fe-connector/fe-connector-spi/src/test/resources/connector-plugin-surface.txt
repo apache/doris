@@ -52,11 +52,13 @@ org.apache.doris.connector.spi.ConnectorColumn#isKey():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isNullable():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isNullableSpecified():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isReservedPassthrough():boolean
+org.apache.doris.connector.spi.ConnectorColumn#isSourceNullable():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isVisible():boolean
 org.apache.doris.connector.spi.ConnectorColumn#isWithTimeZone():boolean
 org.apache.doris.connector.spi.ConnectorColumn#reservedPassthrough():org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#toString():java.lang.String
 org.apache.doris.connector.spi.ConnectorColumn#withDefaultValueSql(java.lang.String):org.apache.doris.connector.spi.ConnectorColumn
+org.apache.doris.connector.spi.ConnectorColumn#withSourceNullable(boolean):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withSpecified(boolean,boolean):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withStringWriteType(org.apache.doris.connector.spi.ConnectorType):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withTimeZone():org.apache.doris.connector.spi.ConnectorColumn

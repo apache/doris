@@ -34,6 +34,8 @@ import java.nio.ByteBuffer;
 // used for serialize memory data to byte stream of MySQL protocol
 public class MysqlSerializer {
     private static final Logger LOG = LogManager.getLogger(MysqlSerializer.class);
+    // ColumnDefinition41 flags: the column cannot be NULL (mysql_com.h NOT_NULL_FLAG).
+    private static final int NOT_NULL_FLAG = 0x0001;
     private ByteArrayOutputStream out;
     private MysqlCapability capability;
 
@@ -199,6 +201,16 @@ public class MysqlSerializer {
     }
 
     public void writeField(String db, String table, Column column, boolean sendDefault) {
+        writeField(db, table, column, sendDefault, false);
+    }
+
+    /**
+     * @param encodeNotNull whether ColumnDefinition41's NOT_NULL flag follows {@code column.isAllowNull()}.
+     *        COM_FIELD_LIST passes true (the column is the display schema column this packet describes);
+     *        prepared-statement metadata passes false because its packet describes an OUTPUT slot whose
+     *        nullability can differ from the original column (e.g. the nullable side of an outer join).
+     */
+    public void writeField(String db, String table, Column column, boolean sendDefault, boolean encodeNotNull) {
         // Catalog Name: length encoded string
         writeLenEncodedString("def");
         // Schema: length encoded string
@@ -220,7 +232,11 @@ public class MysqlSerializer {
         // Column type: one byte integer
         writeInt1(getMysqlResultType(column.getType()).getCode());
         // Flags: two byte integer
-        writeInt2(getMysqlFlags(column.getType()));
+        int flags = getMysqlFlags(column.getType());
+        if (encodeNotNull && !column.isAllowNull()) {
+            flags |= NOT_NULL_FLAG;
+        }
+        writeInt2(flags);
         // Decimals: one byte integer
         writeInt1(getMysqlDecimals(column.getType()));
         // filler: two byte integer

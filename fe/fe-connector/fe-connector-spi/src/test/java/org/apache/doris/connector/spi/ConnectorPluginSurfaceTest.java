@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 19 adds spatial metadata after major 18 DiagnosticException and scoped streaming.
-        Assertions.assertEquals("19.0", version.getProperty("api.version"));
+        // Major 20 combines spatial metadata with major 19 source nullability on ConnectorColumn.
+        Assertions.assertEquals("20.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

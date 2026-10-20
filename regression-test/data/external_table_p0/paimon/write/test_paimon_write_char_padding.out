@@ -12,17 +12,17 @@
 2	2	[k |kk]	1|2
 3	2	[k|k ]	1|2
 
--- !map_row_key_padded --
-1	1	[k ]	7
+-- !map_row_key_rejected --
+0
 
--- !map_nested_map_key_padded --
-2	1	[k ]	10
+-- !map_nested_map_key_rejected --
+0
 
--- !map_nan_key_padded --
-2	1	[k ]	NaN	10
+-- !map_nan_key_rejected --
+0
 
--- !map_nested_nan_key_padded --
-2	2	[k ]|[k ]	10|20
+-- !map_nested_nan_key_rejected --
+0
 
 -- !partition_padded --
 1	[x  ]
