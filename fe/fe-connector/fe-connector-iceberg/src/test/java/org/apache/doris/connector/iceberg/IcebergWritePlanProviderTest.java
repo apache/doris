@@ -1072,6 +1072,27 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteStaticPartitionKeysTheRenamedPartitionField() {
+        // ADD PARTITION KEY id AS id_identity: the engine keys the spec by the SOURCE column (the identifier Spark
+        // resolves for a static PARTITION clause, and the one an identity value can be materialized through), while
+        // the BE writer matches static_partition_values against the partition FIELD name. Shipping "id" unchanged
+        // would make BE treat the write as dynamic, so the planner must rewrite the key to the field name.
+        // MUTATION: dropping the rewrite -> {"id"="7"} != {"id_identity"="7"} -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), schema,
+                PartitionSpec.builderFor(schema).identity("id", "id_identity").build(),
+                Collections.singletonMap("write.format.default", "parquet"));
+
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).overwrite(true)
+                        .writeContext(Collections.singletonMap("id", "7")));
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"), sink.getStaticPartitionValues());
+    }
+
+    @Test
     public void planWriteStaticPartitionNullMarkerReachesSink() {
         Table table = partitionedSortedTable(freshCatalog());
         WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t1"))

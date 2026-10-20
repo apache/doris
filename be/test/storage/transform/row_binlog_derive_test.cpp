@@ -120,11 +120,6 @@ protected:
         add_col(5, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(6, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(7, BINLOG_OP_COL, "BIGINT", false, false);
-        // init_from_pb reads this straight from the PB (it is not inferred from
-        // the column name). [k1,v1,v2,__BEFORE__v1__,__BEFORE__v2__,TSO,LSN,OP]
-        pb.set_binlog_tso_col_idx(5);
-        pb.set_binlog_lsn_col_idx(6);
-        pb.set_binlog_op_col_idx(7);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -167,9 +162,6 @@ protected:
         add_col(1, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(2, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(3, BINLOG_OP_COL, "BIGINT", false, false);
-        pb.set_binlog_tso_col_idx(1);
-        pb.set_binlog_lsn_col_idx(2);
-        pb.set_binlog_op_col_idx(3);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -283,9 +275,6 @@ protected:
         add_col(2, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(3, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(4, BINLOG_OP_COL, "BIGINT", false, false);
-        pb.set_binlog_tso_col_idx(2);
-        pb.set_binlog_lsn_col_idx(3);
-        pb.set_binlog_op_col_idx(4);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -485,9 +474,6 @@ TEST_F(RowBinlogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     add_system_column(10, BINLOG_TSO_COL, true);
     add_system_column(11, BINLOG_LSN_COL, false);
     add_system_column(12, BINLOG_OP_COL, false);
-    binlog_pb.set_binlog_tso_col_idx(4);
-    binlog_pb.set_binlog_lsn_col_idx(5);
-    binlog_pb.set_binlog_op_col_idx(6);
     auto binlog_schema = std::make_shared<TabletSchema>();
     binlog_schema->init_from_pb(binlog_pb);
 
@@ -684,10 +670,6 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     add_col(&binlog_pb, 4, BINLOG_TSO_COL, "BIGINT", false, false, true);
     add_col(&binlog_pb, 5, BINLOG_LSN_COL, "BIGINT", false, false, false);
     add_col(&binlog_pb, 6, BINLOG_OP_COL, "BIGINT", false, false, false);
-    // init_from_pb reads these straight from the PB, not from the column names
-    binlog_pb.set_binlog_tso_col_idx(4);
-    binlog_pb.set_binlog_lsn_col_idx(5);
-    binlog_pb.set_binlog_op_col_idx(6);
     auto binlog_schema = std::make_shared<TabletSchema>();
     binlog_schema->init_from_pb(binlog_pb);
     ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 5);

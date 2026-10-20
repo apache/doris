@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -32,6 +33,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -315,21 +317,157 @@ public class IcebergConnectorMetadataTest {
 
     @Test
     public void validateStaticPartitionColumnsRejectsUnknownColumn() {
-        // WHY: a PARTITION(col=..) naming a column that is not a partition FIELD must fail loud at analysis time
-        // (byte-identical to legacy validateStaticPartition), else the unknown column is silently swallowed by the
-        // sink's materialize block and surfaces as an unrelated planning error ("Cannot find snapshot"). The lookup
-        // is keyed by partition FIELD name, so "id" (the bucket's SOURCE column, not a field) is also "unknown" —
-        // mirroring regression test_iceberg_static_partition_overwrite TC29 PARTITION(category) over bucket(category).
-        // MUTATION: dropping the containsKey/null check -> unknown column admitted -> red.
+        // WHY: a PARTITION(col=..) naming nothing the spec can write must fail loud at analysis time, else the name
+        // is silently swallowed by the sink's materialize block and surfaces as an unrelated planning error
+        // ("Cannot find snapshot"). The available list is the identity partitions' SOURCE columns — the names a
+        // static write can actually use — not the raw field-name set.
+        // MUTATION: dropping the last-resort throw -> unknown column admitted -> red.
         Schema schema = idNameSchema();
         IcebergConnectorMetadata md = metadataWithSpec(schema,
                 PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
-        for (String bad : new String[] {"invalid_col", "id"}) {
-            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> md.validateStaticPartitionColumns(
-                            null, new IcebergTableHandle("db1", "t1"), Collections.singletonList(bad)));
-            Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
-        }
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("invalid_col")));
+        Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("[name]"), e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsBucketSourceColumnAsNonIdentity() {
+        // WHY: "id" feeds bucket(8, id), so it cannot be written statically — but it is a real column, and it is the
+        // name a user reads off SHOW CREATE TABLE (`BUCKET(8, `id`)`). Reporting it as an unknown COLUMN would send
+        // them looking for a spelling mistake; the non-identity reason is the actionable one (Spark rejects the same
+        // name as "not a partition column"). Upstream #65991 case 5.5 / TC29 PARTITION(category) over bucket(category).
+        // MUTATION: matching only identity fields and skipping this branch -> wrong message -> red.
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(
+                e.getMessage().contains("Cannot use static partition syntax for non-identity partition field 'id'"),
+                e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsUsesTheIdentitySourceColumnNotTheRenamedField() {
+        // WHY: ADD PARTITION KEY id AS id_identity renames the partition FIELD away from its source column. A static
+        // partition value must then be written through the SOURCE column (Spark's contract: partitionColumnNames
+        // takes the identity transform's field reference, and the static value is materialized into that column),
+        // while the field name is not a table column at all — accepting it is what produced the binder's
+        // "Column has no default value, column=id". MUTATION: keying the lookup by field name -> 'id' reads as
+        // unknown (red) and 'id_identity' is admitted even though no row column can carry it (red).
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("id", "id_identity").build());
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        // Doris folds identifiers case-insensitively, so the same name in any case must resolve.
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("ID")));
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id_identity")));
+        Assertions.assertTrue(e.getMessage().contains("is a partition field name, not a table column"),
+                e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("source column 'id'"), e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsPrefersTheIdentitySourceOverACaseFoldedAlias() {
+        // PartitionSpec.Builder checks field names case-SENSITIVELY, so a field may be named "ID" over source
+        // "other" next to identity(id) named "id_identity". The static name "id" addresses the SOURCE column, so
+        // it must resolve to that identity field and never to the earlier alias. MUTATION: matching field names
+        // before sources -> "id" resolves to the field over "other" -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .build();
+        IcebergConnectorMetadata md = metadataWithSpec(schema, spec);
+
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsFindsIdentityAfterANonIdentityFieldOnTheSameSource() {
+        // A legal spec may declare bucket(8, id) before identity(id); static writes address the identity field, so
+        // the identity must be found regardless of field order. MUTATION: failing on the first source match ->
+        // a writable table is rejected as non-identity -> red.
+        Schema schema = idNameSchema();
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 8).identity("id").build();
+        IcebergConnectorMetadata md = metadataWithSpec(schema, spec);
+
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsNestedPartitionSources() {
+        // NestedField#name() is only the LEAF name: a nested identity source must never be reachable through the
+        // top-level column sharing that leaf name, because the binder materializes the literal into top-level
+        // columns only - accepting it would commit a file whose nested partition value came from another column.
+        // MUTATION: matching the source by leaf name -> "id" is accepted -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "payload", Types.StructType.of(
+                        Types.NestedField.required(3, "id", Types.IntegerType.get()))));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("payload.id", "nested_id").build();
+        IcebergConnectorMetadata md = metadataWithSpec(schema, spec);
+
+        DorisConnectorException leafName = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(leafName.getMessage().contains("Unknown partition column 'id'"),
+                leafName.getMessage());
+        DorisConnectorException byFieldName = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("nested_id")));
+        Assertions.assertTrue(byFieldName.getMessage().contains("source is a nested field"),
+                byFieldName.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsUsesThePinnedBranchWriterSchema() {
+        // INSERT INTO t@branch(old) pins the BRANCH's writer schema before analysis completes, and binding,
+        // planning and the BE sink all consume that pinned copy. After a main-only rename (id -> key) the current
+        // metadata no longer has column "id" while the branch still does, so validating against the current schema
+        // would reject the branch statement's own partition column and advise a name that branch does not carry.
+        // MUTATION: validating against table.schema() -> the pinned assertion turns red (the unpinned one below
+        // pins the divergence that makes the pin observable).
+        Schema branchSchema = idNameSchema();
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("pinned", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table branchTable = catalog.createTable(TableIdentifier.of("db1", "t1"), branchSchema,
+                PartitionSpec.builderFor(branchSchema).identity("id").build());
+        IcebergWriteSchemaContext pinned = IcebergWriteSchemaContext.create(
+                branchTable, "t1", Optional.empty(), false, false);
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1L, "q1", scope);
+        IcebergStatementScope.writeSchema(session, "db1", "t1", Optional.empty(), () -> pinned);
+
+        Schema renamedSchema = new Schema(
+                Types.NestedField.required(1, "key", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable("t1", renamedSchema,
+                PartitionSpec.builderFor(renamedSchema).identity("key", "id").build(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                session, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        DorisConnectorException currentOnly = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id")));
+        Assertions.assertTrue(currentOnly.getMessage().contains("source column 'key'"),
+                currentOnly.getMessage());
     }
 
     @Test
@@ -748,6 +886,25 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals("the primary id", schema.getColumns().get(0).getComment());
         Assertions.assertEquals("", schema.getColumns().get(1).getComment(),
                 "a doc-less Iceberg field must yield an empty (not null) comment");
+    }
+
+    @Test
+    public void getTableSchemaDeclaresRequiredFieldsNotNull() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable(
+                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db1/t1", Collections.emptyMap());
+
+        ConnectorTableSchema schema =
+                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+
+        // Required fields are read as nullable but displayed as NOT NULL.
+        ConnectorColumn id = schema.getColumns().get(0);
+        Assertions.assertTrue(id.isNullable());
+        Assertions.assertFalse(id.isSourceNullable());
+        ConnectorColumn name = schema.getColumns().get(1);
+        Assertions.assertTrue(name.isNullable());
+        Assertions.assertTrue(name.isSourceNullable());
     }
 
     @Test
