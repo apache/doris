@@ -37,6 +37,8 @@ public final class AzureBackendPropertyKeys {
     public static final String ACCOUNT_KEY = "AZURE_ACCOUNT_KEY";
     /** SAS query string without the leading '?'. */
     public static final String SAS_TOKEN = "AZURE_SAS_TOKEN";
+    /** Optional expiry of {@link #SAS_TOKEN} in Unix milliseconds, when the source knows it. */
+    public static final String SAS_EXPIRES_AT_MS = "AZURE_SAS_EXPIRES_AT_MS";
     public static final String TENANT_ID = "AZURE_TENANT_ID";
     public static final String CLIENT_ID = "AZURE_CLIENT_ID";
     public static final String CLIENT_SECRET = "AZURE_CLIENT_SECRET";

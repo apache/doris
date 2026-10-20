@@ -63,6 +63,7 @@ public final class AzureFileSystemProperties
     public static final String OAUTH_ACCOUNT_HOST = "azure.oauth2_account_host";
     public static final String TENANT_ID = "azure.oauth2_client_tenant_id";
     public static final String SAS_TOKEN = "azure.sas_token";
+    public static final String SAS_TOKEN_EXPIRES_AT_MS = "azure.sas_token_expires_at_ms";
     public static final String AUTH_TYPE = "azure.auth_type";
     public static final String CONTAINER = "container";
     public static final String USE_PATH_STYLE = "use_path_style";
@@ -136,6 +137,12 @@ public final class AzureFileSystemProperties
                     + "without the leading '?'.")
     private String sasToken = "";
 
+    @ConnectorProperty(names = {SAS_TOKEN_EXPIRES_AT_MS, AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS},
+            required = false,
+            description = "The expiry of sas_token in Unix milliseconds, when known, e.g. the expiry an "
+                    + "Iceberg REST catalog vends with the token. BE rejects the token once it has expired.")
+    private String sasTokenExpiresAtMs = "";
+
     @ConnectorProperty(names = {AUTH_TYPE, AzureBackendPropertyKeys.AUTH_TYPE},
             required = false,
             description = "The auth type of Azure Blob Storage: SharedKey, SAS or OAuth2.")
@@ -185,6 +192,9 @@ public final class AzureFileSystemProperties
                         "When auth_type is SharedKey, account_name and account_key are required.")
                 .check(() -> isSasAuth() && (StringUtils.isBlank(sasToken) || StringUtils.isBlank(endpoint)),
                         "When auth_type is SAS, sas_token and either endpoint or account_name are required.")
+                .check(() -> isSasAuth() && StringUtils.isNotBlank(sasTokenExpiresAtMs)
+                                && !StringUtils.isNumeric(sasTokenExpiresAtMs),
+                        "sas_token_expires_at_ms must be Unix milliseconds.")
                 .check(() -> isOauth2Auth()
                                 && (StringUtils.isBlank(oauthAccountHost)
                                 || StringUtils.isBlank(clientId)
@@ -292,6 +302,9 @@ public final class AzureFileSystemProperties
         } else if (isSasAuth()) {
             nativeProps.put(AzureBackendPropertyKeys.AUTH_TYPE, AzureBackendPropertyKeys.AUTH_SAS);
             nativeProps.put(AzureBackendPropertyKeys.SAS_TOKEN, sasToken);
+            if (StringUtils.isNotBlank(sasTokenExpiresAtMs)) {
+                nativeProps.put(AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS, sasTokenExpiresAtMs);
+            }
         } else {
             nativeProps.put(AzureBackendPropertyKeys.AUTH_TYPE, AzureBackendPropertyKeys.AUTH_OAUTH2);
             nativeProps.put(AzureBackendPropertyKeys.TENANT_ID, resolveTenantId().orElse(""));
