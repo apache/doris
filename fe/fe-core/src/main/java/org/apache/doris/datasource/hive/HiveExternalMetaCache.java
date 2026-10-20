@@ -579,6 +579,37 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return partitionValuesEntry.get(key.nameMapping.getCtlId()).get(key);
     }
 
+    /** Cheap scheduling hint only: do not list directories or initialize a cache on a miss. */
+    public long getCachedFileCount(List<HivePartition> partitions) {
+        if (partitions.isEmpty()) {
+            return 0;
+        }
+        HivePartition first = partitions.get(0);
+        long catalogId = first.getNameMapping().getCtlId();
+        MetaCacheEntry<FileCacheKey, FileCacheValue> entry = fileEntryIfInitialized(catalogId);
+        if (entry == null) {
+            return -1;
+        }
+        long fileId = Util.genIdByName(first.getNameMapping().getLocalDbName(),
+                first.getNameMapping().getLocalTblName());
+        long count = 0;
+        for (HivePartition partition : partitions) {
+            FileCacheKey key = partition.isDummyPartition()
+                    ? FileCacheKey.createDummyCacheKey(catalogId, fileId,
+                            partition.getPath(), partition.getInputFormat())
+                    : new FileCacheKey(catalogId, fileId, partition.getPath(),
+                            partition.getInputFormat(), partition.getPartitionValues());
+            FileCacheValue value = entry.peekIfPresent(key);
+            if (value == null) {
+                return -1;
+            }
+            if (value.getFiles() != null) {
+                count += value.getFiles().size();
+            }
+        }
+        return count;
+    }
+
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
             boolean withCache,
             boolean concurrent,
