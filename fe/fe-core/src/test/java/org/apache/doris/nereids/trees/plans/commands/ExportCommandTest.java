@@ -143,6 +143,7 @@ public class ExportCommandTest extends TestWithFeService {
         return (ExportJob) method.invoke(command, connectContext, ImmutableMap.of(),
                 new TableName("internal", "export_test", "T1"));
     }
+
     @Test
     void testEnableInt96TimestampsProperty() {
         Map<String, String> properties = ImmutableMap.of(

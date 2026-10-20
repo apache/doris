@@ -25,8 +25,8 @@
 #include <memory>
 #include <optional>
 
-#include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/auth/obj_credential.h"
 #include "recycler/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 

@@ -534,8 +534,7 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsConflictingGcpCreden
         auto properties = base_properties;
         properties[key] = value;
         S3Conf s3_conf;
-        auto status =
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
         ASSERT_FALSE(status.ok()) << key;
         EXPECT_NE(status.to_string().find("cannot be combined"), std::string::npos) << key;
     }
@@ -554,8 +553,7 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsInvalidGcpCredential
         auto properties = base_properties;
         properties["gs.credential_provider_type"] = provider_type;
         S3Conf s3_conf;
-        auto status =
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
         ASSERT_FALSE(status.ok()) << provider_type;
         EXPECT_NE(status.to_string().find("gs.credential_provider_type"), std::string::npos)
                 << provider_type;
@@ -584,8 +582,7 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfRejectsGcpCredentialWithAws
                 {"gs.credential_provider_type", "DEFAULT"},
         };
         S3Conf s3_conf;
-        auto status =
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
+        auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf);
         ASSERT_FALSE(status.ok()) << provider;
         EXPECT_NE(status.to_string().find("provider=GCP"), std::string::npos) << provider;
     }
