@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/analysis/gram/gram_scheme.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/snii/common/slice.h"
 #include "storage/index/inverted/snii/compaction/eligibility.h"
@@ -96,7 +97,9 @@ struct OpenedIndex {
     reader::LogicalIndexReader reader;
 };
 
-std::unique_ptr<OpenedIndex> open_index(const IndexShape& shape) {
+std::unique_ptr<OpenedIndex> open_index(
+        const IndexShape& shape,
+        std::optional<doris::segment_v2::gram::GramScheme> gram_scheme = std::nullopt) {
     std::vector<uint8_t> file_bytes;
     format::SectionRefs refs;
     if (shape.has_norms) {
@@ -122,6 +125,7 @@ std::unique_ptr<OpenedIndex> open_index(const IndexShape& shape) {
                                                              : format::IndexConfig::kDocsPositions;
     core.stats = shape.stats;
     core.section_refs = refs;
+    core.gram_scheme = gram_scheme;
     ByteSink core_frame;
     const Status core_status = format::encode_core_metadata(core, &core_frame);
     EXPECT_TRUE(core_status.ok()) << core_status.to_string();
@@ -246,6 +250,80 @@ TEST(SniiCompactionEligibilityTest, DestinationWritesNormsExactlyWhenAnalyzed) {
                                                                  *keyword_destination, &keyword)
                         .ok());
     EXPECT_FALSE(keyword.destination_writes_norms);
+}
+
+TEST(SniiCompactionEligibilityTest, AcceptsLegacyDocsOnlySourcesWithoutPhraseProperty) {
+    auto first = open_index(IndexShape {.tier = format::IndexTier::kT1});
+    auto second = open_index(IndexShape {.tier = format::IndexTier::kT1});
+    auto first_meta = make_index({});
+    auto second_meta = make_index({});
+    auto destination = make_index({});
+    std::vector sources {source(*first, *first_meta), source(*second, *second_meta)};
+    compaction::SniiCompactionEligibility eligibility;
+
+    const Status status =
+            compaction::validate_snii_compaction_eligibility(sources, *destination, &eligibility);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_FALSE(eligibility.destination_has_positions);
+    EXPECT_FALSE(eligibility.destination_writes_norms);
+}
+
+TEST(SniiCompactionEligibilityTest, RejectsDocsOnlyGramSources) {
+    auto gram = open_index(IndexShape {.tier = format::IndexTier::kT1},
+                           doris::segment_v2::gram::GramScheme {});
+    auto index_meta = make_index({{"support_phrase", "false"}});
+    std::vector sources {source(*gram, *index_meta)};
+    compaction::SniiCompactionEligibility eligibility;
+
+    expect_rejected(
+            compaction::validate_snii_compaction_eligibility(sources, *index_meta, &eligibility),
+            "gram scheme");
+}
+
+TEST(SniiCompactionEligibilityTest, AcceptsPositionedSourcesWithoutPhraseProperty) {
+    auto positioned = open_index({});
+    auto source_meta = make_index({});
+    auto destination = make_index({});
+    std::vector sources {source(*positioned, *source_meta)};
+    compaction::SniiCompactionEligibility eligibility;
+
+    const Status status =
+            compaction::validate_snii_compaction_eligibility(sources, *destination, &eligibility);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(eligibility.destination_has_positions);
+}
+
+TEST(SniiCompactionEligibilityTest, RejectsMixedPostingShapes) {
+    auto docs_only = open_index(IndexShape {.tier = format::IndexTier::kT1});
+    auto positioned = open_index({});
+    auto first_meta = make_index({});
+    auto second_meta = make_index({});
+    auto destination = make_index({});
+    std::vector sources {source(*docs_only, *first_meta), source(*positioned, *second_meta)};
+    compaction::SniiCompactionEligibility eligibility;
+
+    expect_rejected(
+            compaction::validate_snii_compaction_eligibility(sources, *destination, &eligibility),
+            "position shape");
+}
+
+TEST(SniiCompactionEligibilityTest, RespectsExplicitPhrasePolicyForDocsOnlySources) {
+    auto docs_only = open_index(IndexShape {.tier = format::IndexTier::kT1});
+    auto no_phrase_meta = make_index({{"support_phrase", "false"}});
+    auto no_phrase_destination = make_index({{"support_phrase", "false"}});
+    std::vector no_phrase_sources {source(*docs_only, *no_phrase_meta)};
+    compaction::SniiCompactionEligibility eligibility;
+    ASSERT_TRUE(compaction::validate_snii_compaction_eligibility(
+                        no_phrase_sources, *no_phrase_destination, &eligibility)
+                        .ok());
+    EXPECT_FALSE(eligibility.destination_has_positions);
+
+    auto phrase_meta = make_index({{"support_phrase", "true"}});
+    auto phrase_destination = make_index({{"support_phrase", "true"}});
+    std::vector phrase_sources {source(*docs_only, *phrase_meta)};
+    expect_rejected(compaction::validate_snii_compaction_eligibility(
+                            phrase_sources, *phrase_destination, &eligibility),
+                    "position shape");
 }
 
 // The destination follows the norms policy shared with fresh writes: the "norms" property, and on
