@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -52,9 +53,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class CatalogRecycleBinTest extends TestWithFeService {
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
     private static final long ROW_BINLOG_INDEX_ID = 10001L;
     private static final long ROW_BINLOG_TABLET_ID = 10002L;
 
@@ -1137,6 +1143,129 @@ public class CatalogRecycleBinTest extends TestWithFeService {
             Assertions.assertTrue(recycleCompleted.get(), "recyclePartition should succeed during erase");
             Assertions.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTableId1, 9000));
+        }
+    }
+
+    @Test
+    public void testExpiredDatabaseSnapshotDoesNotEraseNewGeneration() throws Exception {
+        CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+        Database database = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
+        Assertions.assertTrue(recycleBin.recycleDatabase(database, Sets.newHashSet(), Sets.newHashSet(),
+                false, false, 0));
+        recycleBin.setRecycleTimeByIdForReplay(database.getId(), 0L);
+
+        runEraseAfterReplacingGeneration(recycleBin, "eraseDatabase", () -> {
+            Database recovered = recycleBin.recoverDatabase(CatalogTestUtil.testDb1, database.getId());
+            Assertions.assertTrue(recycleBin.recycleDatabase(recovered, Sets.newHashSet(), Sets.newHashSet(),
+                    false, false, 0));
+        });
+
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(database.getId()));
+        Assertions.assertTrue(recycleBin.getRecycleTimeById(database.getId()) > 0);
+    }
+
+    @Test
+    public void testExpiredTableSnapshotDoesNotEraseNewGeneration() throws Exception {
+        CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+        Database database = createSimpleDatabase();
+        OlapTable table = (OlapTable) database.getTable(CatalogTestUtil.testTableId1).get();
+        Assertions.assertTrue(recycleBin.recycleTable(database.getId(), table, false, false, 0));
+        recycleBin.setRecycleTimeByIdForReplay(table.getId(), 0L);
+
+        runEraseAfterReplacingGeneration(recycleBin, "eraseTable", () -> {
+            Assertions.assertTrue(recycleBin.recoverTable(database, table.getName(), table.getId(), null));
+            Assertions.assertTrue(recycleBin.recycleTable(database.getId(), table, false, false, 0));
+        });
+
+        Assertions.assertTrue(recycleBin.isRecycleTable(database.getId(), table.getId()));
+        Assertions.assertTrue(recycleBin.getRecycleTimeById(table.getId()) > 0);
+    }
+
+    @Test
+    public void testExpiredPartitionSnapshotDoesNotEraseNewGeneration() throws Exception {
+        CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+        Database database = createSimpleDatabase();
+        OlapTable table = (OlapTable) database.getTable(CatalogTestUtil.testTableId1).get();
+        Partition partition = table.getPartition(CatalogTestUtil.testPartitionId1);
+        recyclePartition(recycleBin, database, table, partition);
+        recycleBin.setRecycleTimeByIdForReplay(partition.getId(), 0L);
+
+        runEraseAfterReplacingGeneration(recycleBin, "erasePartition", () -> {
+            recycleBin.recoverPartition(database.getId(), table, partition.getName(), partition.getId(), null);
+            recyclePartition(recycleBin, database, table, partition);
+        });
+
+        Assertions.assertTrue(recycleBin.isRecyclePartition(database.getId(), table.getId(), partition.getId()));
+        Assertions.assertTrue(recycleBin.getRecycleTimeById(partition.getId()) > 0);
+    }
+
+    private Database createSimpleDatabase() {
+        return CatalogTestUtil.createSimpleDb(
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion);
+    }
+
+    private void recyclePartition(CatalogRecycleBin recycleBin, Database database,
+            OlapTable table, Partition partition) {
+        Assertions.assertTrue(recycleBin.recyclePartition(database.getId(), table.getId(), table.getName(),
+                partition, null, null, new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3), false, false));
+    }
+
+    private void runEraseAfterReplacingGeneration(CatalogRecycleBin recycleBin,
+            String eraseMethod, ThrowingRunnable replaceGeneration) throws Exception {
+        CountDownLatch snapshotCollected = new CountDownLatch(1);
+        CountDownLatch continueErase = new CountDownLatch(1);
+        ReentrantReadWriteLock originalLock = Deencapsulation.getField(recycleBin, "lock");
+        ReentrantReadWriteLock testLock = new ReentrantReadWriteLock(true) {
+            private final ReadLock readLock = new ReadLock(this) {
+                @Override
+                public void unlock() {
+                    super.unlock();
+                    if (Thread.currentThread().getName().equals("stale-candidate-erase")
+                            && snapshotCollected.getCount() != 0) {
+                        snapshotCollected.countDown();
+                        try {
+                            Assertions.assertTrue(continueErase.await(30, TimeUnit.SECONDS),
+                                    "Timed out waiting to resume erase");
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(e);
+                        }
+                    }
+                }
+            };
+
+            @Override
+            public ReadLock readLock() {
+                return readLock;
+            }
+        };
+        Deencapsulation.setField(recycleBin, "lock", testLock);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> erase = executor.submit(() -> {
+                Thread.currentThread().setName("stale-candidate-erase");
+                Deencapsulation.invoke(recycleBin, eraseMethod, System.currentTimeMillis(), -1);
+            });
+            Assertions.assertTrue(snapshotCollected.await(10, TimeUnit.SECONDS),
+                    "Expired snapshot was not collected");
+            replaceGeneration.run();
+            continueErase.countDown();
+            erase.get(10, TimeUnit.SECONDS);
+        } finally {
+            continueErase.countDown();
+            executor.shutdown();
+            try {
+                Assertions.assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS),
+                        "Erase worker did not finish");
+            } finally {
+                Deencapsulation.setField(recycleBin, "lock", originalLock);
+            }
         }
     }
 }
