@@ -325,17 +325,19 @@ struct NullableAllCase {
     std::array<float, 9> scores {};
 };
 
-NullableAllCase nullable_all_case(int mode, const roaring::Roaring& field_nulls) {
+NullableAllCase nullable_all_case(int mode, const roaring::Roaring& field_nulls,
+                                  const std::wstring& stored_field = L"body",
+                                  const std::string& binding_key = {}) {
     const auto right_true =
             std::make_shared<roaring::Roaring>(roaring::Roaring::bitmapOf(3, 3, 4, 8));
     const auto right_null = std::make_shared<roaring::Roaring>(roaring::Roaring::bitmapOf(2, 1, 6));
     NullableAllCase result;
-    result.query = std::make_shared<AllQuery>(L"body", true);
+    result.query = std::make_shared<AllQuery>(stored_field, true);
     constexpr std::array ops {OperatorType::OP_OR, OperatorType::OP_NOT, OperatorType::OP_AND,
                               OperatorType::OP_OR};
     if (mode != 0) {
         OperatorBooleanQueryBuilder builder(ops[mode]);
-        builder.add(result.query);
+        builder.add(result.query, binding_key);
         if (mode != 1) {
             builder.add(std::make_shared<BitSetQuery>(right_true, right_null));
         }
@@ -362,8 +364,8 @@ NullableAllCase nullable_all_case(int mode, const roaring::Roaring& field_nulls)
 }
 
 void verify_nullable_all_case(const NullableAllCase& query, const QueryExecutionContext& context,
-                              bool scoring, uint32_t target) {
-    auto scorer = query.query->weight(scoring)->scorer(context);
+                              bool scoring, uint32_t target, const std::string& binding_key = {}) {
+    auto scorer = query.query->weight(scoring)->scorer(context, binding_key);
     const auto observed_nulls = [&]() {
         const auto* nulls = scorer->get_null_bitmap();
         return nulls == nullptr ? roaring::Roaring() : *nulls;
@@ -399,6 +401,27 @@ TEST(BooleanTruthContractTest, NullableMatchAllPreservesUnknownThroughNestedOper
                 SCOPED_TRACE(testing::Message()
                              << "scoring=" << scoring << " mode=" << mode << " seek=" << target);
                 verify_nullable_all_case(query, context, scoring, target);
+            }
+        }
+    }
+}
+
+TEST(BooleanTruthContractTest, NullableMatchAllResolvesLogicalFieldFromBinding) {
+    const auto field_nulls = roaring::Roaring::bitmapOf(3, 1, 4, 7);
+    FieldNullIterator iterator(field_nulls);
+    FieldNullResolver resolver(&iterator);
+    QueryExecutionContext context;
+    context.segment_num_rows = 9;
+    context.null_resolver = &resolver;
+    context.binding_fields["body-key"] = {
+            .logical_field_name = "body", .stored_field_name = "1", .stored_field_wstr = L"1"};
+    for (int mode = 0; mode < 4; ++mode) {
+        const auto query = nullable_all_case(mode, field_nulls, L"1", "body-key");
+        for (bool scoring : {false, true}) {
+            for (uint32_t target : {0U, 3U, 8U}) {
+                SCOPED_TRACE(testing::Message()
+                             << "scoring=" << scoring << " mode=" << mode << " seek=" << target);
+                verify_nullable_all_case(query, context, scoring, target, "body-key");
             }
         }
     }
