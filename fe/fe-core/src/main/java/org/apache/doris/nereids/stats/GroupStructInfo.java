@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -183,7 +184,7 @@ public class GroupStructInfo {
      * Characters which structure the canonical form and therefore can not appear raw inside a
      * literal value (see {@link #encodeLiteralValue}).
      */
-    private static final String RESERVED_LITERAL_CHARS = "\\%(){}[],;:|";
+    private static final String RESERVED_LITERAL_CHARS = "\u0000\\%(){}[],;:|";
 
     private static final char[] HEX_DIGITS = "0123456789ABCDEF".toCharArray();
 
@@ -2530,6 +2531,12 @@ public class GroupStructInfo {
      * rows would share a key.
      */
     private static String literalText(Literal literal) {
+        if (literal instanceof NullLiteral) {
+            // the text of every other literal is the value it holds, which for a NULL would be the word a
+            // string literal may hold: a reserved character in front of it keeps a NULL and the string
+            // `null` apart, and the encoder turns it into an escape no other value produces
+            return "\u0000null";
+        }
         if (literal instanceof DateLiteral) {
             return ((DateLiteral) literal).getStringValue();
         }

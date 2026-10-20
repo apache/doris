@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 76, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 78, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -460,6 +460,30 @@ WITH_LITERAL.fingerprint = 3de82b3cc77864a82e5829da27e598345105ad4557955d39ebe25
 NO_LITERAL.canonical = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1#ti:0,v1,r0})
 NO_LITERAL.shape = F{JavaUdf<db1.is_deleted#1>(col(db.t1.id))}(S{null.null.t1#ti:0})
 NO_LITERAL.fingerprint = 3de82b3cc77864a82e5829da27e598345105ad4557955d39ebe25bb0b0762b62
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_with_a_null_argument]
+desc = a filter whose argument is the NULL literal
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.name),lit(%00null:TEXT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.name),lit(%00null:TEXT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 43bf5ae5cbf984a64a9ac4650d4f30af1642517d445c6a5ef0f8642dacce1cc0
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 68b397abfeabd376f1ed9e8219ad77f83588cdbbcbf6c51d9c23a70a8323e9bb
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_with_the_string_null_argument]
+desc = the same filter with the string `null`: the two arguments cannot share a key
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(col(db.t1.name),lit(null:TEXT))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(col(db.t1.name),lit(null:TEXT))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 97aee9f3c6ebab5b732cfd062063b7f0b3e48ea841cf4093566e43b8fb72affd
+NO_LITERAL.canonical = F{EqualTo(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = 68b397abfeabd376f1ed9e8219ad77f83588cdbbcbf6c51d9c23a70a8323e9bb
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN generate_explode_split]

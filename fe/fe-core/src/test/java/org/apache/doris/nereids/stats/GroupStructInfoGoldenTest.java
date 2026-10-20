@@ -62,6 +62,8 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -92,6 +94,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -444,6 +447,22 @@ public class GroupStructInfoGoldenTest {
                 "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
                 "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testANullAndTheStringNullDoNotShareAKey() {
+        // `CAST(NULL AS STRING)` and `'null'` have one data type and one text without the marker: a
+        // filter over either argument (CONCAT_WS keeps the string and skips the null) keeps a different
+        // number of rows, so the two literals cannot render one key
+        GroupStructInfo nullArgument = built("filter_with_a_null_argument");
+        GroupStructInfo stringArgument = built("filter_with_the_string_null_argument");
+        // the exact key of the two literals differs; the constant agnostic form folds a null like every
+        // other literal (an entry which cannot be told apart from one measured on another literal is
+        // never an exact one)
+        Assertions.assertNotEquals(nullArgument.getFingerprint(WITH_LITERAL),
+                stringArgument.getFingerprint(WITH_LITERAL), "a null and the string null share an exact key");
+        Assertions.assertTrue(nullArgument.getCanonical(WITH_LITERAL).contains("lit(%00null:"),
+                "the null literal is not marked: " + nullArgument.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -1206,6 +1225,12 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::generateOutputsSwapped));
         cases.add(new PlanCase("repeat_grouping_sets", "repeat of the grouping sets ((a), ()) over a scan",
                 GroupStructInfoGoldenTest::repeatGroupingSets));
+        cases.add(new PlanCase("filter_with_a_null_argument",
+                "a filter whose argument is the NULL literal",
+                GroupStructInfoGoldenTest::filterWithANullArgument));
+        cases.add(new PlanCase("filter_with_the_string_null_argument",
+                "the same filter with the string `null`: the two arguments cannot share a key",
+                GroupStructInfoGoldenTest::filterWithTheStringNullArgument));
         cases.add(new PlanCase("invalid_too_many_scans",
                 "cross join chain of 21 scans: more than hbo_max_scans_per_group",
                 GroupStructInfoGoldenTest::invalidTooManyScans));
@@ -1646,6 +1671,18 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t2 = scan(1, "t2");
         return describe(new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, ImmutableList.of(
                 new EqualTo(t1.getOutput().get(0), t2.getOutput().get(0))), t1, t2, null));
+    }
+
+    private static GroupStructInfo filterWithANullArgument() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        return describe(new LogicalFilter<>(ImmutableSet.of(new EqualTo(
+                t1.getOutput().get(1), new NullLiteral(StringType.INSTANCE))), t1));
+    }
+
+    private static GroupStructInfo filterWithTheStringNullArgument() {
+        LogicalOlapScan t1 = scan(0, "t1");
+        return describe(new LogicalFilter<>(ImmutableSet.of(new EqualTo(
+                t1.getOutput().get(1), new StringLiteral("null"))), t1));
     }
 
     private static GroupStructInfo joinWithAResidualConstant() {
