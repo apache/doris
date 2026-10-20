@@ -17,6 +17,7 @@
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gmock/gmock-actions.h>
 #include <gmock/gmock-matchers.h>
@@ -27,13 +28,16 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -49,6 +53,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_meta_manager.h"
+#include "storage/task/engine_clone_task.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
@@ -846,6 +851,229 @@ TEST_F(TabletMgrTest, LoadTabletFromMeta) {
 
     // After reload, the original tablet should not be allowed to save meta.
     ASSERT_FALSE(tablet->do_tablet_meta_checkpoint());
+}
+
+TEST_F(TabletMgrTest, CloneInstallsTargetBinlogConfigBeforePublishingTablet) {
+    auto source = create_compaction_tablet(55001, 1);
+    ASSERT_NE(source, nullptr);
+    TBinlogConfig target;
+    target.__set_enable(true);
+    target.__set_binlog_format(TBinlogFormat::ROW);
+    target.__set_ttl_seconds(1);
+    target.__set_config_version(1);
+    BinlogConfig source_config;
+    source_config = target;
+    ASSERT_TRUE(source->set_binlog_config(source_config).ok());
+    source->tablet_meta()->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    const auto header =
+            TabletMeta::construct_header_file_path(source->tablet_path(), source->tablet_id());
+    ASSERT_TRUE(source->tablet_meta()->save(header).ok());
+
+    target.__set_ttl_seconds(86400);
+    target.__set_config_version(2);
+    ASSERT_TRUE(_tablet_mgr
+                        ->load_tablet_from_dir(_data_dir, source->tablet_id(),
+                                               source->schema_hash(), source->tablet_path(), true,
+                                               false, &target)
+                        .ok());
+    auto cloned = _tablet_mgr->get_tablet(source->tablet_id());
+    ASSERT_NE(cloned, nullptr);
+    ASSERT_NE(cloned, source);
+    EXPECT_EQ(86400, cloned->tablet_meta()->binlog_config().ttl_seconds());
+    EXPECT_EQ(2, cloned->tablet_meta()->binlog_config().config_version());
+    EXPECT_EQ(1, source->tablet_meta()->binlog_config().ttl_seconds());
+    EXPECT_EQ(cloned, k_engine->_row_binlog_ttl_tablets.at(cloned->tablet_id()).lock());
+
+    auto persisted = std::make_shared<TabletMeta>();
+    ASSERT_TRUE(TabletMetaManager::get_meta(_data_dir, cloned->tablet_id(), cloned->schema_hash(),
+                                            persisted)
+                        .ok());
+    EXPECT_EQ(cloned->tablet_meta()->binlog_config(), persisted->binlog_config());
+    TTabletInfo report;
+    report.__set_tablet_id(cloned->tablet_id());
+    ASSERT_TRUE(_tablet_mgr->report_tablet_info(&report).ok());
+    EXPECT_TRUE(report.__isset.binlog_config_version);
+    EXPECT_TRUE(report.__isset.binlog_ttl_seconds);
+    EXPECT_EQ(2, report.binlog_config_version);
+    EXPECT_EQ(86400, report.binlog_ttl_seconds);
+
+    // A delayed request cannot replace the newer configuration saved in a source header.
+    ASSERT_TRUE(cloned->tablet_meta()->save(header).ok());
+    target.__set_config_version(1);
+    target.__set_ttl_seconds(1);
+    EXPECT_FALSE(_tablet_mgr
+                         ->load_tablet_from_dir(_data_dir, cloned->tablet_id(),
+                                                cloned->schema_hash(), cloned->tablet_path(), true,
+                                                false, &target)
+                         .ok());
+    EXPECT_EQ(cloned, _tablet_mgr->get_tablet(cloned->tablet_id()));
+    EXPECT_EQ(86400, cloned->tablet_meta()->binlog_config().ttl_seconds());
+}
+
+TEST_F(TabletMgrTest, CloneRepairInstallsConfigWhenNoVersionsAreMissing) {
+    auto tablet = create_compaction_tablet(55002, 1);
+    ASSERT_NE(tablet, nullptr);
+    TBinlogConfig target;
+    target.__set_enable(true);
+    target.__set_binlog_format(TBinlogFormat::ROW);
+    target.__set_ttl_seconds(86400);
+    target.__set_config_version(2);
+    TCloneReq request;
+    request.__set_tablet_id(tablet->tablet_id());
+    request.__set_schema_hash(tablet->schema_hash());
+    request.__set_replica_id(tablet->replica_id() + 1);
+    request.__set_version(1);
+    request.__set_partition_id(tablet->partition_id());
+    request.__set_binlog_config(target);
+    ClusterInfo cluster;
+    std::vector<TTabletInfo> reports;
+    EngineCloneTask task(*k_engine, request, &cluster, 1, &reports);
+    ASSERT_TRUE(task.execute().ok());
+    EXPECT_EQ(tablet, _tablet_mgr->get_tablet(tablet->tablet_id()));
+    EXPECT_EQ(request.replica_id, tablet->replica_id());
+    ASSERT_EQ(1, reports.size());
+    EXPECT_EQ(2, reports.front().binlog_config_version);
+    EXPECT_EQ(86400, reports.front().binlog_ttl_seconds);
+    auto persisted = std::make_shared<TabletMeta>();
+    ASSERT_TRUE(TabletMetaManager::get_meta(_data_dir, tablet->tablet_id(), tablet->schema_hash(),
+                                            persisted)
+                        .ok());
+    EXPECT_EQ(86400, persisted->binlog_config().ttl_seconds());
+    EXPECT_EQ(2, persisted->binlog_config().config_version());
+
+    target.__set_config_version(1);
+    target.__set_ttl_seconds(1);
+    request.__set_binlog_config(target);
+    reports.clear();
+    EXPECT_FALSE(task.execute().ok());
+    EXPECT_TRUE(reports.empty());
+    EXPECT_EQ(86400, tablet->tablet_meta()->binlog_config().ttl_seconds());
+}
+
+TEST_F(TabletMgrTest, RowBinlogCloneRebuildsAnOlderReplica) {
+    auto tablet = create_compaction_tablet(55004, 1);
+    ASSERT_NE(tablet, nullptr);
+    tablet->tablet_meta()->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    TBinlogConfig target;
+    target.__set_enable(true);
+    target.__set_binlog_format(TBinlogFormat::ROW);
+    target.__set_ttl_seconds(1);
+    target.__set_config_version(1);
+    BinlogConfig initial;
+    initial = target;
+    ASSERT_TRUE(tablet->set_binlog_config(initial).ok());
+    target.__set_ttl_seconds(86400);
+    target.__set_config_version(2);
+    TCloneReq request;
+    request.__set_tablet_id(tablet->tablet_id());
+    request.__set_schema_hash(tablet->schema_hash());
+    request.__set_replica_id(tablet->replica_id() + 1);
+    request.__set_version(1);
+    request.__set_binlog_config(target);
+    ClusterInfo cluster;
+    std::vector<TTabletInfo> reports;
+    EngineCloneTask task(*k_engine, request, &cluster, 1, &reports);
+
+    // The fixture has no registered disks. A full clone must request a new path and fail,
+    // rather than report success from the old replica's complete versions.
+    auto status = task.execute();
+    EXPECT_EQ(ErrorCode::NO_AVAILABLE_ROOT_PATH, status.code()) << status;
+    EXPECT_TRUE(reports.empty());
+    EXPECT_TRUE(task._is_new_tablet);
+    EXPECT_EQ(nullptr, _tablet_mgr->get_tablet(tablet->tablet_id()));
+    EXPECT_EQ(TABLET_SHUTDOWN, tablet->tablet_state());
+}
+
+TEST_F(TabletMgrTest, RowBinlogCloneKeepsANewerReplica) {
+    auto tablet = create_compaction_tablet(55005, 1);
+    ASSERT_NE(tablet, nullptr);
+    tablet->tablet_meta()->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    TCloneReq request;
+    request.__set_tablet_id(tablet->tablet_id());
+    request.__set_schema_hash(tablet->schema_hash());
+    request.__set_replica_id(tablet->replica_id() - 1);
+    request.__set_version(1);
+    ClusterInfo cluster;
+    std::vector<TTabletInfo> reports;
+    EngineCloneTask task(*k_engine, request, &cluster, 1, &reports);
+    ASSERT_TRUE(task.execute().ok());
+    EXPECT_FALSE(task._is_new_tablet);
+    EXPECT_EQ(tablet, _tablet_mgr->get_tablet(tablet->tablet_id()));
+    EXPECT_EQ(TABLET_RUNNING, tablet->tablet_state());
+    ASSERT_EQ(1, reports.size());
+    EXPECT_EQ(tablet->replica_id(), reports.front().replica_id);
+}
+
+TEST_F(TabletMgrTest, RowBinlogCloneRejectsStaleConfigBeforeRebuildingReplica) {
+    auto tablet = create_compaction_tablet(55006, 1);
+    ASSERT_NE(tablet, nullptr);
+    tablet->tablet_meta()->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    TBinlogConfig target;
+    target.__set_enable(true);
+    target.__set_binlog_format(TBinlogFormat::ROW);
+    target.__set_ttl_seconds(86400);
+    target.__set_config_version(2);
+    BinlogConfig current;
+    current = target;
+    ASSERT_TRUE(tablet->set_binlog_config(current).ok());
+    target.__set_ttl_seconds(1);
+    target.__set_config_version(1);
+    TCloneReq request;
+    request.__set_tablet_id(tablet->tablet_id());
+    request.__set_schema_hash(tablet->schema_hash());
+    request.__set_replica_id(tablet->replica_id() + 1);
+    request.__set_version(1);
+    request.__set_binlog_config(target);
+    ClusterInfo cluster;
+    std::vector<TTabletInfo> reports;
+    EngineCloneTask task(*k_engine, request, &cluster, 1, &reports);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, task.execute().code());
+    EXPECT_TRUE(reports.empty());
+    EXPECT_EQ(tablet, _tablet_mgr->get_tablet(tablet->tablet_id()));
+    EXPECT_EQ(TABLET_RUNNING, tablet->tablet_state());
+    EXPECT_EQ(current, tablet->tablet_meta()->binlog_config());
+}
+
+TEST_F(TabletMgrTest, BinlogConfigUpdateRejectsConcurrentTabletTransitions) {
+    auto tablet = create_compaction_tablet(55003, 1);
+    ASSERT_NE(tablet, nullptr);
+    TBinlogConfig target;
+    target.__set_enable(true);
+    target.__set_binlog_format(TBinlogFormat::ROW);
+    target.__set_ttl_seconds(1);
+    target.__set_config_version(1);
+    target.__set_max_bytes(1000000);
+    target.__set_max_history_nums(1000000);
+    BinlogConfig initial;
+    initial = target;
+    ASSERT_TRUE(tablet->set_binlog_config(initial).ok());
+    target.__set_ttl_seconds(86400);
+    target.__set_config_version(2);
+    TTabletMetaInfo info;
+    info.__set_tablet_id(tablet->tablet_id());
+    info.__set_binlog_config(target);
+    TUpdateTabletMetaInfoReq update;
+    update.__set_tabletMetaInfos({info});
+    TAgentTaskRequest request;
+    request.__set_signature(-1);
+    request.__set_update_tablet_meta_info_req(update);
+
+    for (const auto* reason : {"clone", "disk migrate"}) {
+        ASSERT_TRUE(_tablet_mgr->register_transition_tablet(tablet->tablet_id(), reason).ok());
+        std::thread updater([&] { update_tablet_meta_callback(*k_engine, request); });
+        updater.join();
+        EXPECT_EQ(initial, tablet->tablet_meta()->binlog_config());
+        _tablet_mgr->unregister_transition_tablet(tablet->tablet_id(), reason);
+    }
+
+    update_tablet_meta_callback(*k_engine, request);
+    EXPECT_EQ(86400, tablet->tablet_meta()->binlog_config().ttl_seconds());
+    EXPECT_EQ(2, tablet->tablet_meta()->binlog_config().config_version());
+    auto persisted = std::make_shared<TabletMeta>();
+    ASSERT_TRUE(TabletMetaManager::get_meta(_data_dir, tablet->tablet_id(), tablet->schema_hash(),
+                                            persisted)
+                        .ok());
+    EXPECT_EQ(tablet->tablet_meta()->binlog_config(), persisted->binlog_config());
 }
 
 } // namespace doris

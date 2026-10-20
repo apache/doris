@@ -3122,6 +3122,24 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.readUnlock();
         }
 
+        String snapshotPoint = "SchemaChangeHandler.updatePartitionProperties.row_binlog_after_replica_snapshot";
+        if (binlogConfig != null && binlogConfig.isEnableForStreaming() && DebugPointUtil.isEnable(snapshotPoint)) {
+            // Expose arrival through SHOW PROCESSLIST so clone/ALTER tests need no timing assumptions.
+            ConnectContext context = ConnectContext.get();
+            String traceId = context.traceId();
+            context.setTraceId(snapshotPoint);
+            try {
+                while (DebugPointUtil.isEnable(snapshotPoint)) {
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new DdlException("Interrupted while waiting at ROW binlog replica snapshot", e);
+            } finally {
+                context.setTraceId(traceId);
+            }
+        }
+
         int totalTaskNum = beIdToTabletIdWithHash.keySet().size();
         MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> countDownLatch = new MarkedCountDownLatch<>(totalTaskNum);
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -4055,9 +4073,33 @@ public class SchemaChangeHandler extends AlterHandler {
         return false;
     }
 
+    private record BinlogReplicaIdentity(long partitionId, long indexId, long tabletId,
+                                        long replicaId, long backendId) {
+    }
+
+    // Caller holds the table lock. Replica IDs distinguish a repair replacing a replica on the same BE.
+    private Set<BinlogReplicaIdentity> snapshotBinlogReplicas(List<Partition> partitions) throws UserException {
+        Set<BinlogReplicaIdentity> replicas = new HashSet<>();
+        // Cloud replicas use shared storage; choosing a query BE here would require a compute group
+        // and turn its routing changes into spurious topology changes during a Meta Service update.
+        boolean cloud = Config.isCloudMode();
+        for (Partition partition : partitions) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replicas.add(new BinlogReplicaIdentity(partition.getId(), index.getId(), tablet.getId(),
+                                replica.getId(), cloud ? -1L : replica.getBackendId()));
+                    }
+                }
+            }
+        }
+        return replicas;
+    }
+
     private void updateRowBinlogConfig(Database db, OlapTable table, BinlogConfig oldConfig,
             BinlogConfig newConfig) throws UserException {
         List<Partition> partitions;
+        Set<BinlogReplicaIdentity> updatedReplicas;
         table.writeLockOrDdlException();
         try {
             if (!table.getBinlogConfig().equals(oldConfig)) {
@@ -4066,46 +4108,67 @@ public class SchemaChangeHandler extends AlterHandler {
             // Journal a new generation even for an identical retry. Earlier timed-out tasks
             // must not overwrite tablets after a later retention extension has succeeded.
             newConfig.setConfigVersion(Math.addExact(oldConfig.getConfigVersion(), 1));
+            newConfig.setPendingTtlSeconds(0);
             BinlogConfig published = new BinlogConfig(newConfig);
             if (oldConfig.isRowTtlEnabled() && newConfig.getTtlSeconds() > oldConfig.getTtlSeconds()) {
                 // An extension is visible only after every tablet accepts the longer TTL.
                 published.setTtlSeconds(oldConfig.getTtlSeconds());
+                published.setPendingTtlSeconds(newConfig.getTtlSeconds());
             }
             // A shorter TTL authorizes irreversible deletion. Persist it before any RPC.
             Env.getCurrentEnv().updateBinlogConfig(db, table, published);
             partitions = Lists.newArrayList(table.getAllPartitions());
+            updatedReplicas = snapshotBinlogReplicas(partitions);
         } finally {
             table.writeUnlock();
         }
 
-        int updatedPartitions = 0;
-        for (Partition partition : partitions) {
-            int failAfter = DebugPointUtil.getDebugParamOrDefault(
-                    "SchemaChangeHandler.updateRowBinlogConfig.fail_after_partitions", -1);
-            if (failAfter >= 0 && updatedPartitions >= failAfter) {
-                throw new DdlException("debug point: ROW binlog configuration update failed after "
-                        + updatedPartitions + " partitions");
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(Config.max_create_table_timeout_second);
+        while (true) {
+            int updatedPartitions = 0;
+            for (Partition partition : partitions) {
+                int failAfter = DebugPointUtil.getDebugParamOrDefault(
+                        "SchemaChangeHandler.updateRowBinlogConfig.fail_after_partitions", -1);
+                if (failAfter >= 0 && updatedPartitions >= failAfter) {
+                    throw new DdlException("debug point: ROW binlog configuration update failed after "
+                            + updatedPartitions + " partitions");
+                }
+                updatePartitionProperties(db, table, partition, -1, -1,
+                        newConfig, null, null, -1, -1, -1);
+                updatedPartitions++;
             }
-            updatePartitionProperties(db, table, partition, -1, -1,
-                    newConfig, null, null, -1, -1, -1);
-            updatedPartitions++;
-        }
 
-        table.writeLockOrDdlException();
-        try {
-            if (table.getBinlogConfig().getConfigVersion() != newConfig.getConfigVersion()) {
-                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            table.writeLockOrDdlException();
+            try {
+                if (table.getBinlogConfig().getConfigVersion() != newConfig.getConfigVersion()) {
+                    throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+                }
+                Set<Long> updatedIds = partitions.stream().map(Partition::getId).collect(Collectors.toSet());
+                List<Partition> currentPartitions = Lists.newArrayList(table.getAllPartitions());
+                Set<Long> currentIds = currentPartitions.stream()
+                        .map(Partition::getId).collect(Collectors.toSet());
+                if (!updatedIds.equals(currentIds)) {
+                    throw new DdlException("Partitions changed during binlog configuration update; retry ALTER TABLE");
+                }
+                Set<BinlogReplicaIdentity> currentReplicas = snapshotBinlogReplicas(currentPartitions);
+                if (!updatedReplicas.equals(currentReplicas)) {
+                    // A clone can appear after the RPC snapshot without changing any partition ID.
+                    // Catch it in another ACK round before exposing the extension to readers.
+                    if (System.nanoTime() >= deadline) {
+                        throw new DdlException(
+                                "Replicas changed during binlog configuration update; retry ALTER TABLE");
+                    }
+                    updatedReplicas = currentReplicas;
+                    partitions = currentPartitions;
+                    continue;
+                }
+                if (!table.getBinlogConfig().equals(newConfig)) {
+                    Env.getCurrentEnv().updateBinlogConfig(db, table, newConfig);
+                }
+                return;
+            } finally {
+                table.writeUnlock();
             }
-            Set<Long> updatedIds = partitions.stream().map(Partition::getId).collect(Collectors.toSet());
-            Set<Long> currentIds = table.getAllPartitions().stream().map(Partition::getId).collect(Collectors.toSet());
-            if (!updatedIds.equals(currentIds)) {
-                throw new DdlException("Partitions changed during binlog configuration update; retry ALTER TABLE");
-            }
-            if (!table.getBinlogConfig().equals(newConfig)) {
-                Env.getCurrentEnv().updateBinlogConfig(db, table, newConfig);
-            }
-        } finally {
-            table.writeUnlock();
         }
     }
 
