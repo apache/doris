@@ -390,6 +390,19 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return children.size() == 3 && children.get(1).isNullLiteral()
                     && children.get(2).isNullLiteral();
         }
+        if (isIfNullConditional(expr)) {
+            // IFNULL / NVL have NO condition argument: every argument is a RESULT, and an
+            // all-NULL call has NullType just like the all-NULL CASE / IF above
+            if (children.isEmpty()) {
+                return false;
+            }
+            for (Expression child : children) {
+                if (!child.isNullLiteral()) {
+                    return false;
+                }
+            }
+            return true;
+        }
         if (isCoalesceConditional(expr)) {
             if (children.isEmpty()) {
                 return false;
@@ -415,6 +428,27 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      */
     private static boolean isIfConditional(Expression expr) {
         return expr instanceof Function && "if".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the expression is an {@code IFNULL} / {@code NVL} call (both parse to the same
+     * {@link Function} named {@code ifnull}; {@code nvl} is accepted as the spelling as well).
+     *
+     * It belongs to the all-NULL conditional family even though it has no condition argument:
+     * {@code ifnull(NULL, NULL)} has NullType, so a Boolean consumer replaces the WHOLE call
+     * with a typed constant NULL exactly like an all-NULL CASE - `k > 0 OR ifnull(NULL, NULL)`
+     * lost both markers and the matching `ifnull(NULL, TRUE)` variant had nothing to
+     * substitute (round-76 #1).
+     *
+     * @param expr the expression to classify
+     * @return whether it is an IFNULL / NVL call
+     */
+    private static boolean isIfNullConditional(Expression expr) {
+        if (!(expr instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expr).getName();
+        return "ifnull".equalsIgnoreCase(name) || "nvl".equalsIgnoreCase(name);
     }
 
     /**
@@ -461,6 +495,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             CaseWhen caseWhen = (CaseWhen) parent;
             return caseWhen.getDefaultValue().isPresent()
                     && childIndex == caseWhen.children().size() - 1;
+        }
+        if (isIfNullConditional(parent)) {
+            return true; // every IFNULL / NVL argument is a result, there is no condition
         }
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;

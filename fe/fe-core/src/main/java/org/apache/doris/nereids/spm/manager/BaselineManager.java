@@ -942,7 +942,8 @@ public class BaselineManager {
 
     /**
      * The drop ids whose KEY CLEANUP (the same-key twin retirement of retireSupersededKeyTwins)
-     * is still unfinished, id -> the identity row the DROP removed.
+     * is still unfinished, id -> the retained cleanup (the identity row the DROP removed plus
+     * the instant the retention was recorded).
      *
      * A DROP deletes its own row FIRST and retires the same-key twins afterwards. When a twin's
      * delete throws, the retry finds the id's row ABSENT - so it never reaches
@@ -951,8 +952,34 @@ public class BaselineManager {
      * allocation is the newest non-dropped compact reservation, so the identity filter does not
      * hide it). The retained identity lets an absent-row retry RESUME the cleanup (see
      * resumePendingDropKeyCleanup) before it settles the tombstone obligation.
+     *
+     * The retention is SCOPE-BOUND (round-76 #2): a resumed cleanup re-discovers twins with the
+     * (digest, planSql, fingerprint) key check, and a CREATE of the SAME SQL that ran AFTER this
+     * DROP is durable is exactly such a row - retiring it deleted a baseline the user had just
+     * created. The retained instant therefore bounds the retirement to the rows that already
+     * existed when the DROP removed its identity (see retireSupersededKeyTwins).
      */
-    private static final Map<Long, BaselinePlan> pendingDropKeyCleanups = new ConcurrentHashMap<>();
+    private static final Map<Long, PendingDropKeyCleanup> pendingDropKeyCleanups =
+            new ConcurrentHashMap<>();
+
+    /**
+     * One retained KEY CLEANUP of a DROP whose twin retirement did not complete.
+     */
+    private static final class PendingDropKeyCleanup {
+        private final BaselinePlan identity;
+        /**
+         * The stored second the DROP's OWN rows carried at the instant the cleanup was
+         * retained: a resumed retirement only removes twins that already existed then. A
+         * CREATE of the same SQL that lands after this point carries a LATER stored second and
+         * is left alone (round-76 #2). 0 = unknown, which is treated as "now" on resume.
+         */
+        private final long retainedAtSeconds;
+
+        PendingDropKeyCleanup(BaselinePlan identity, long retainedAtSeconds) {
+            this.identity = identity;
+            this.retainedAtSeconds = retainedAtSeconds;
+        }
+    }
 
     /**
      * A mutation window this FE holds OPEN after its row statement was DISPATCHED but its
@@ -2645,7 +2672,11 @@ public class BaselineManager {
                 noteDroppedIdState(id);
                 oweDropTombstone(id, removed);
                 oweDropIdTombstone(id);
-                recordPendingMutationFence(id, null, 0);
+                // The identity delete was PROVEN (persistDeleteByIdentity only returns once
+                // the row is gone), so the fence is CONFIRMED like an ALTER's proven flip:
+                // the row can stay unreadable past every bound and an expiring fence would
+                // re-publish it (round-76 #7).
+                recordConfirmedAbsenceFence(id);
                 throw e;
             }
             removeCachedBaseline(removed);
@@ -2653,24 +2684,29 @@ public class BaselineManager {
             // a warm bucket that still held one of them would keep replaying it until the
             // next refresh (see evictRetiredRows).
             evictRetiredRows(retiredTwins);
-            // A DELAYED status INSERT of a demoted master can commit AFTER this delete
-            // and revive the row: the append-only tombstone makes every
-            // later load treat that incarnation as deleted, whatever the commit order.
+            // Two tombstone SCOPES are written on purpose, because the DROP has to defeat two
+            // DIFFERENT revivals (round-76 #7: each path writes the scope it means, and every
+            // reader asks for both):
+            //
+            // - the IDENTITY scope (id|digest|planSqlHash) defeats a DELAYED status INSERT of a
+            //   demoted master that commits AFTER this delete and carries the SAME identity -
+            //   including the handoff case where it lands under an OLDER id (withIdentityDrops
+            //   resolves the identity's newest state, which this marker is).
+            // - the ID scope (id||0) defeats a DIFFERENT incarnation of the same id (a handoff
+            //   collision wrote another digest under this id and it was unreadable when the
+            //   DROP ran): its distinct digest matches no identity marker, and the id is
+            //   condemned because the user dropped it.
             noteDroppedSeqState(removed);
-            // The ID itself is condemned too: a handoff collision can leave a DIFFERENT
-            // incarnation of this id (written by another master) unreadable at this
-            // point, and it must not revive the dropped id when it publishes later - its
-            // distinct digest would not match the identity tombstone above.
             noteDroppedIdState(id);
             // Even a CONFIRMED identity delete can stay unreadable to a later local read
             // (its publication lags the confirmation): the fence keeps the refresh / a
-            // SHOW reload from re-adding the dropped row until the table shows it gone
+            // SHOW reload from re-adding the dropped row until the table shows it gone.
             //
-            // The fence is recorded BEFORE the tombstone confirmation: when the
-            // confirmation cannot make the append readable, the DROP fails retryably and
-            // the fence keeps this FE's cache at "dropped" until the retry / daemon
-            // converges.
-            recordPendingMutationFence(id, null, 0);
+            // The fence is CONFIRMED (round-76 #7), exactly like an ALTER whose conditional
+            // UPDATE reported its row: the DELETE committed, so absence is IRREVERSIBLE and
+            // only its publication lags - an EXPIRING fence re-published the pre-DROP row as
+            // soon as the bound elapsed.
+            recordConfirmedAbsenceFence(id);
             // The tombstone appends above only WARN on the wire: report the DROP only
             // once they are readable, or a delayed write of the removed row - or the
             // unreadable loser of a handoff collision - revives the dropped baseline on
@@ -2678,11 +2714,17 @@ public class BaselineManager {
             // confirmDropTombstonesDurable). The SAME-KEY TWINS retired with this DROP are
             // confirmed in the same obligation: their DELETE is done, but their own
             // resurrection fence was only best effort.
+            //
+            // The KEY CLEANUP retention is released BEFORE this confirmation (round-76 #2):
+            // the retirement above already FINISHED, and a retention that outlived a FAILED
+            // confirmation made the absent-row retry resume a cleanup whose key now names a
+            // baseline the user re-CREATEd - deleting the new row. Only a retirement that
+            // actually threw keeps the retention (see the catch block above).
+            pendingDropKeyCleanups.remove(id);
             List<BaselinePlan> droppedRows = new ArrayList<>(retiredTwins.size() + 1);
             droppedRows.add(removed);
             droppedRows.addAll(retiredTwins);
             confirmDropTombstonesDurable(droppedRows, id);
-            pendingDropKeyCleanups.remove(id);
             return true;
         }
     }
@@ -2851,10 +2893,16 @@ public class BaselineManager {
         evictRetiredRows(retiredKeys);
         droppedRows.addAll(retiredKeys);
         noteDroppedIdState(id);
-        recordPendingMutationFence(id, null, 0);
+        // Same CONFIRMED absence fence as dropBaseline (round-76 #7): every identity delete of
+        // this branch returned OK, so absence is irreversible and only its publication lags.
+        recordConfirmedAbsenceFence(id);
+        // The KEY CLEANUP retention is released BEFORE the tombstone confirmation
+        // (round-76 #2): the twins above are already retired, and a retention surviving a
+        // FAILED confirmation made the absent-row retry resume the cleanup against a key the
+        // user may have re-CREATEd - the resumed retirement then deleted the NEW baseline.
+        pendingDropKeyCleanups.remove(id);
         // prove the tombstones readable before reporting the DROP (see dropBaseline)
         confirmDropTombstonesDurable(droppedRows, id);
-        pendingDropKeyCleanups.remove(id);
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
                 + " not have it (promotion reload / stale snapshot window)", id);
         return true;
@@ -2871,7 +2919,8 @@ public class BaselineManager {
         if (identity == null || identity.getId() <= 0 || !persistence.isDurable()) {
             return;
         }
-        pendingDropKeyCleanups.put(identity.getId(), identity.copyPersistedScalars());
+        pendingDropKeyCleanups.put(identity.getId(), new PendingDropKeyCleanup(
+                identity.copyPersistedScalars(), System.currentTimeMillis() / 1000L));
     }
 
     /**
@@ -2888,13 +2937,16 @@ public class BaselineManager {
      * @param id the dropped id
      */
     private void resumePendingDropKeyCleanup(long id) {
-        BaselinePlan identity = pendingDropKeyCleanups.get(id);
-        if (identity == null) {
+        PendingDropKeyCleanup cleanup = pendingDropKeyCleanups.get(id);
+        if (cleanup == null) {
             return;
         }
         List<BaselinePlan> retired = new ArrayList<>();
         try {
-            retireSupersededKeyTwins(identity, retired);
+            // The retirement is bounded to the rows that already existed when the DROP removed
+            // its identity: a CREATE of the SAME SQL that landed afterwards is a NEW baseline
+            // the retry must not retire (round-76 #2).
+            retireSupersededKeyTwins(cleanup.identity, retired, cleanup.retainedAtSeconds);
         } catch (RuntimeException e) {
             // the twins retired by THIS attempt are gone durably: they must leave the warm
             // cache and keep their markers, and the retention makes the next retry resume
@@ -2958,6 +3010,27 @@ public class BaselineManager {
      */
     private void retireSupersededKeyTwins(BaselinePlan alreadyDeleted,
             List<BaselinePlan> retiredOut) {
+        retireSupersededKeyTwins(alreadyDeleted, retiredOut, Long.MAX_VALUE);
+    }
+
+    /**
+     * Retires the superseded same-key twins of a DROP (see the two-argument overload), bounded
+     * to the rows whose stored second is not LATER than {@code maxUpdateTimeSeconds}.
+     *
+     * A RESUMED cleanup runs long after the DROP removed its identity, and by then the key can
+     * name a NEWER baseline: the user re-CREATEd the very same SQL, the durable row carries the
+     * same (digest, planSql, fingerprint) and a fresh id - the key check alone cannot tell it
+     * from a handoff twin, and retiring it deleted the baseline the user had just created
+     * (round-76 #2). The bound is the instant the DROP removed its own rows, so every real twin
+     * (which existed BEFORE that instant) is still retired and every later CREATE is kept.
+     *
+     * @param alreadyDeleted       the row the DROP removed
+     * @param retiredOut           collects the durably retired rows
+     * @param maxUpdateTimeSeconds the exclusive upper bound of a twin's stored second
+     *                             ({@code Long.MAX_VALUE} = unbounded, the DROP's own path)
+     */
+    private void retireSupersededKeyTwins(BaselinePlan alreadyDeleted,
+            List<BaselinePlan> retiredOut, long maxUpdateTimeSeconds) {
         if (!persistence.isDurable()) {
             return;
         }
@@ -2984,6 +3057,14 @@ public class BaselineManager {
                     || !Objects.equals(twin.getPlanSql(), alreadyDeleted.getPlanSql())
                     || !Objects.equals(twin.getSchemaFingerprint(),
                             alreadyDeleted.getSchemaFingerprint())) {
+                continue;
+            }
+            if (twin.getUpdateTime() > maxUpdateTimeSeconds) {
+                // A baseline CREATED after the DROP removed its rows: same SQL, new
+                // incarnation the user owns - never a handoff twin of this DROP.
+                LOG.info("SPM kept baseline {} while retiring the same-key twins of dropped"
+                        + " baseline {}: it was created after the drop", twin.getId(),
+                        alreadyDeleted.getId());
                 continue;
             }
             LOG.warn("SPM drop of baseline {} retired its superseded same-key twin at id"
@@ -5546,6 +5627,33 @@ public class BaselineManager {
     private void recordPendingAbsenceFence(BaselinePlan removed) {
         pendingMutationFences.put(removed.getId(), new PendingMutationFence(null,
                 System.currentTimeMillis(), 0, removed));
+    }
+
+    /**
+     * Records the ABSENCE fence of a DROP whose DELETE this FE PROVED committed - the exact
+     * counterpart of recordConfirmedMutationFence for a deletion (round-76 #7).
+     *
+     * The DROP's DELETE returned OK, so the transaction committed and the row is gone
+     * IRREVERSIBLY: only its PUBLICATION can still lag a local read. That is the same state an
+     * ALTER is in after its conditional UPDATE reported its row (recordConfirmedMutationFence),
+     * and it must be fenced the same way - CONFIRMED, i.e. EXEMPT from the age bound:
+     *
+     * - An EXPIRING fence was dropped after PENDING_MUTATION_FENCE_MILLIS, and the next refresh
+     *   then re-applied the still-unreadable pre-DROP row: a DROP the master reported successful
+     *   was silently replayed while the deleted row was still in every local read
+     *   (`noteDroppedSeqState` keeps the row unusable, but the mask is what keeps the FE's
+     *   cache at "dropped" instead of re-publishing it).
+     * - The fence carries NO droppedIdentity: the tombstone of the removed row was already
+     *   appended on the success path (`noteDroppedSeqState` / `noteDroppedIdState`), and
+     *   resolvePendingMutationFences must not append it a second time.
+     *
+     * Only an outcome the snapshot shows (the id absent) removes it.
+     *
+     * @param id the dropped baseline id
+     */
+    private void recordConfirmedAbsenceFence(long id) {
+        pendingMutationFences.put(id, new PendingMutationFence(null,
+                System.currentTimeMillis(), 0, null, true));
     }
 
     /**
@@ -9262,6 +9370,15 @@ public class BaselineManager {
         long mutation = beginRowMutation();
         boolean windowHeld = false;
         try {
+            // DISPATCH-time re-checks, the same two the status DELETE runs (round-76 #5):
+            // everything above was verified BEFORE this point, and a paused caller can
+            // outlive its own fences. A DEMOTED writer that was paused between the check
+            // and the dispatch would otherwise land this DELETE after the handoff - and a
+            // window that aged past MUTATION_WINDOW_MAX_AGE_SECONDS is ignored by every
+            // successor, so the same pause let the DELETE erase a row the successor had
+            // already updated. Both are re-validated immediately before the statement.
+            assertLeaderForWrite();
+            assertMutationWindowDispatchable(mutation);
             try {
                 persistence.deleteByIdentity(p);
             } catch (Exception e) {

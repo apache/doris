@@ -545,7 +545,17 @@ public class SPMPlanner {
                 LOG.info("SPM replay baseline {} from frozen planSql (id substitution)",
                         candidate.getId());
             }
-            return rewritten;
+            // The frozen text keeps its STRUCTURAL hints (INDEX pin, [BROADCAST] /
+            // [SHUFFLE] join distribution) - that is what the frozen replay exists for - but
+            // NOT the CREATOR's SET_VAR payload: a SET_VAR writes a STATEMENT-scoped session
+            // variable, and the caller's own hints are re-attached from the CALLER's tree by
+            // carrySetVarHints at the return sites (round-76 #4). An INDEX-pinned baseline
+            // used to replay the captured time_zone='+08:00' inside a nested scalar subquery
+            // and change from_unixtime for a caller that carried no hint at all; the peel
+            // reaches expression-owned subquery plans too (see
+            // SPMPlanTreeSupport#stripSelectHints).
+            LogicalPlan replayable = SPMPlanTreeSupport.stripSelectHints(rewritten);
+            return replayable == null ? rewritten : replayable;
         } catch (Throwable t) {
             // legacy "?" frozen text or any other re-parse failure -> fall back to the
             // parameterized plan tree path
