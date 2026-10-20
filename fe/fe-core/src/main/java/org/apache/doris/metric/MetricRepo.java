@@ -324,6 +324,20 @@ public final class MetricRepo {
     private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
     private static final MetricCalculator metricCalculator = new MetricCalculator();
+    private static final long VERSION_METRIC_COMPONENT_BASE = 100L;
+
+    static long encodeVersionMetricValue(int major, int minor, int patch, int hotfix) {
+        int[] components = {major, minor, patch, hotfix};
+        for (int component : components) {
+            if (component < 0 || component >= VERSION_METRIC_COMPONENT_BASE) {
+                throw new IllegalArgumentException("version metric components must be between 0 and 99");
+            }
+        }
+
+        // Each component is one base-100 digit: 26.0.1.0 becomes 26000100.
+        return (((major * VERSION_METRIC_COMPONENT_BASE + minor) * VERSION_METRIC_COMPONENT_BASE + patch)
+                * VERSION_METRIC_COMPONENT_BASE + hotfix);
+    }
 
     // init() should only be called after catalog is constructed.
     public static synchronized void init() {
@@ -336,12 +350,9 @@ public final class MetricRepo {
             @Override
             public Long getValue() {
                 try {
-                    String verStr = Version.DORIS_BUILD_VERSION_MAJOR + "0" + Version.DORIS_BUILD_VERSION_MINOR + "0"
-                            + Version.DORIS_BUILD_VERSION_PATCH;
-                    if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
-                        verStr += ("0" + Version.DORIS_BUILD_VERSION_HOTFIX);
-                    }
-                    return Long.parseLong(verStr);
+                    return encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                            Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                            Version.DORIS_BUILD_VERSION_HOTFIX);
                 } catch (Throwable t) {
                     LOG.warn("failed to init version metrics", t);
                     return 0L;

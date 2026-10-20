@@ -23,24 +23,23 @@
 #include <gflags/gflags.h>
 
 #include <cstdint>
-#include <cstdlib>
 #include <list>
-#include <sstream>
 #include <string>
 
 #include "common/config.h"
+#include "cpp/version_metrics.h"
 
 namespace doris::cloud {
 namespace {
 
 uint64_t get_doris_cloud_version_metric_value() {
-    std::stringstream ss;
-    ss << DORIS_CLOUD_BUILD_VERSION_MAJOR << 0 << DORIS_CLOUD_BUILD_VERSION_MINOR << 0
-       << DORIS_CLOUD_BUILD_VERSION_PATCH;
-    if (DORIS_CLOUD_BUILD_VERSION_HOTFIX > 0) {
-        ss << 0 << DORIS_CLOUD_BUILD_VERSION_HOTFIX;
-    }
-    return std::strtoul(ss.str().c_str(), nullptr, 10);
+    CHECK(is_valid_version_metric_component(DORIS_CLOUD_BUILD_VERSION_MAJOR));
+    CHECK(is_valid_version_metric_component(DORIS_CLOUD_BUILD_VERSION_MINOR));
+    CHECK(is_valid_version_metric_component(DORIS_CLOUD_BUILD_VERSION_PATCH));
+    CHECK(is_valid_version_metric_component(DORIS_CLOUD_BUILD_VERSION_HOTFIX));
+    return encode_version_metric_value(
+            DORIS_CLOUD_BUILD_VERSION_MAJOR, DORIS_CLOUD_BUILD_VERSION_MINOR,
+            DORIS_CLOUD_BUILD_VERSION_PATCH, DORIS_CLOUD_BUILD_VERSION_HOTFIX);
 }
 
 } // namespace
