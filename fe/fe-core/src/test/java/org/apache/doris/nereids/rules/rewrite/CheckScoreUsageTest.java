@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -32,6 +33,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -268,6 +270,14 @@ class CheckScoreUsageTest extends TestWithFeService {
         // The CTE is inlined after analysis, exposing the window to the outer filter.
         assertScoreUsageError("WITH w AS (SELECT id, row_number() OVER (ORDER BY id) AS rn FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple') SELECT * FROM w WHERE score() > 0.00001", error);
+        // A recursive CTE produces its rows with a recursive union. Its recursive reference is bound
+        // by the planner, so plan the whole query.
+        String recursive = "WITH RECURSIVE r AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple'"
+                + " UNION ALL SELECT CAST(id + 1 AS INT), c1 FROM r WHERE id < 3)"
+                + " SELECT id FROM r WHERE score() > 0.00001";
+        NereidsException exception = Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(recursive));
+        Assertions.assertTrue(exception.getMessage().contains(error), exception.getMessage());
         // Window extraction computes the alias above the window, so the filter on s turns into a
         // score() filter there.
         assertScoreUsageError("SELECT id, rn FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn,"
@@ -287,6 +297,18 @@ class CheckScoreUsageTest extends TestWithFeService {
     void testScoreFilterOnCteOfOneScan() {
         assertScoreRangeWithoutTopN("WITH c AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')"
                 + " SELECT id FROM c WHERE score() > 0.00001");
+    }
+
+    @Test
+    @Timeout(60)
+    void testSharedCteProducerIsCheckedOnce() {
+        // Every CTE reads the one before it twice; checking each consumer again would take 2^40 steps.
+        StringBuilder sql = new StringBuilder("WITH w0 AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')");
+        for (int i = 1; i <= 40; i++) {
+            sql.append(String.format(", w%d AS (SELECT * FROM w%d UNION ALL SELECT * FROM w%d)", i, i - 1, i - 1));
+        }
+        sql.append(" SELECT id FROM w40 WHERE score() > 0.00001");
+        PlanChecker.from(connectContext).analyze(sql.toString());
     }
 
     @Test

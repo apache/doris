@@ -51,9 +51,9 @@ import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * Reject score() calls outside a supported scan scoring context.
@@ -83,26 +83,27 @@ public class CheckScoreUsage implements RewriteRuleFactory {
         if (plan.getExpressions().stream().noneMatch(expr -> expr.containsType(Score.class))) {
             return;
         }
-        if (!producesScanRows(plan.child(0), statementContext, new HashSet<>())) {
+        if (!producesScanRows(plan.child(0), statementContext, new HashMap<>())) {
             throw new AnalysisException(SCORE_FILTER_CONTEXT_ERROR);
         }
     }
 
     // Whether every output row is a row of one scan, so that a filter above can move down to it.
-    // Outer, semi and anti joins keep every row of one side.
+    // Outer, semi and anti joins keep every row of one side. cteResults keeps the answer for each
+    // CTE, because several consumers can read the same producer.
     private static boolean producesScanRows(Plan plan, StatementContext statementContext,
-            Set<CTEId> visitingCtes) {
+            Map<CTEId, Boolean> cteResults) {
         if (plan instanceof LogicalCTEConsumer) {
             // The producer decides the rows: a single-use CTE is inlined into its consumer later.
+            // A consumer only reads a CTE defined before it, so this recursion ends.
             CTEId cteId = ((LogicalCTEConsumer) plan).getCteId();
-            LogicalCTEProducer<? extends Plan> producer = statementContext.getCteProducerByCteId(cteId);
-            Preconditions.checkState(producer != null, "CTE producer %s is not analyzed", cteId);
-            // A recursive CTE reads itself and has no single scan behind its rows.
-            if (!visitingCtes.add(cteId)) {
-                return false;
+            Boolean result = cteResults.get(cteId);
+            if (result == null) {
+                LogicalCTEProducer<? extends Plan> producer = statementContext.getCteProducerByCteId(cteId);
+                Preconditions.checkState(producer != null, "CTE producer %s is not analyzed", cteId);
+                result = producesScanRows(producer.child(), statementContext, cteResults);
+                cteResults.put(cteId, result);
             }
-            boolean result = producesScanRows(producer.child(), statementContext, visitingCtes);
-            visitingCtes.remove(cteId);
             return result;
         }
         if (plan instanceof LogicalRelation) {
@@ -111,26 +112,26 @@ public class CheckScoreUsage implements RewriteRuleFactory {
         if (plan instanceof LogicalJoin) {
             JoinType joinType = ((LogicalJoin<?, ?>) plan).getJoinType();
             if (joinType.isLeftJoin()) {
-                return producesScanRows(plan.child(0), statementContext, visitingCtes);
+                return producesScanRows(plan.child(0), statementContext, cteResults);
             }
-            return joinType.isRightJoin() && producesScanRows(plan.child(1), statementContext, visitingCtes);
+            return joinType.isRightJoin() && producesScanRows(plan.child(1), statementContext, cteResults);
         }
         if (plan instanceof LogicalUnion) {
             // UNION DISTINCT merges equal rows of different scans, which can have different scores.
             return ((LogicalUnion) plan).getQualifier() == Qualifier.ALL
                     && plan.children().stream()
-                    .allMatch(child -> producesScanRows(child, statementContext, visitingCtes));
+                    .allMatch(child -> producesScanRows(child, statementContext, cteResults));
         }
         if (plan instanceof LogicalProject) {
             // Analysis keeps window functions in the project; they depend on the other rows.
             return ((LogicalProject<?>) plan).getProjects().stream()
                     .noneMatch(project -> project.containsType(WindowExpression.class))
-                    && producesScanRows(plan.child(0), statementContext, visitingCtes);
+                    && producesScanRows(plan.child(0), statementContext, cteResults);
         }
         if (plan instanceof LogicalFilter || plan instanceof LogicalSort || plan instanceof LogicalSubQueryAlias
                 || plan instanceof LogicalView || plan instanceof LogicalCheckPolicy
                 || plan instanceof LogicalSelectHint) {
-            return producesScanRows(plan.child(0), statementContext, visitingCtes);
+            return producesScanRows(plan.child(0), statementContext, cteResults);
         }
         return false;
     }
