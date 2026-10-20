@@ -24,23 +24,29 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -109,6 +115,27 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             return BooleanLiteral.of(!exists.isNot());
         }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
+        if (analyzedResult.isCorrelated() && containsARepeatAboveTheCorrelatedPredicate(
+                analyzedResult.getLogicalPlan(), ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+            // The rewrite of a correlated EXISTS subquery reads the aggregation of the domain of an
+            // outer row, and a repeat above the correlated predicate duplicates the rows of every
+            // correlation key together (see containsARepeatAboveTheCorrelatedPredicate): report the
+            // subquery instead of evaluating its grouping sets once for all of them.
+            throw new AnalysisException(
+                    "access outer query's column before grouping sets is not supported "
+                            + analyzedResult.getLogicalPlan());
+        }
+        if (analyzedResult.isCorrelated() && containsAJoinAboveTheCorrelatedPredicate(
+                analyzedResult.getLogicalPlan(), ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+            // The join interleaves the rows of the domain of an outer row with the rows of its other
+            // side, and the rewrite reads the aggregation of that domain from below the join: the
+            // join would be evaluated once for the rows of every correlation key together (see
+            // containsAJoinAboveTheCorrelatedPredicate), so the subquery is reported instead of
+            // reporting the outer rows which the domain of another correlation key decides on.
+            throw new AnalysisException(
+                    "access outer query's column before join is not supported "
+                            + analyzedResult.getLogicalPlan());
+        }
         return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
@@ -125,9 +152,93 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkNoCorrelatedSlotsUnderAgg(analyzedResult);
+        // the correlated predicate of an IN subquery may sit below the aggregation of the subquery:
+        // the rewrite which unnests it (UnCorrelatedApplyAggregateFilter) computes the aggregation
+        // of the domain of every outer row, the empty correlated domain included, so that the value
+        // which the IN compares exists for every outer row
+        if (analyzedResult.isCorrelated()) {
+            // The rewrite only carries the outer slots through the filters of the subquery: it keeps
+            // the aggregation of the domain as it is (the outer predicate becomes the condition
+            // which pairs the outer row with the rows of the domain) and it reads the value which
+            // the IN compares from the aggregation itself. An outer slot which the subquery reads
+            // from its aggregation, its projections or its joins is therefore rejected here, the way
+            // the scalar subquery path rejects it (see visitScalarSubquery): the subquery of
+            //
+            //     select k from o where k in (select sum(i.v + o.k) from i)
+            //
+            // cannot be unnested, because the aggregation of the domain of an outer row would have
+            // to aggregate the value of the outer row as well, and the plan of the rewrite would
+            // read that value from a scan which does not produce it.
+            validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(analyzedResult.getLogicalPlan(),
+                    new CorrelatedSlotsValidator(ImmutableSet.copyOf(analyzedResult.correlatedSlots)));
+            if (containsAWindowAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                // The rewrite reads the value which the IN compares from the aggregation of the domain
+                // of an outer row (the aggregation of the rewrite groups the rows of one correlation
+                // key), so the nodes of the subquery which sit above the correlated predicate are
+                // evaluated on the rows of one domain. A window is evaluated on the rows of the node
+                // it sits in, so a window above the correlated predicate of the rewrite is evaluated
+                // over the rows of every correlation key together, while that window of the subquery
+                // of the query is evaluated over the rows of one domain: the subquery of
+                //
+                //     select k from o where k in (
+                //         select sum(i.g) over () from i where i.k = o.k group by i.g)
+                //
+                // is reported as unsupported for that reason. A window below the correlated
+                // predicate is evaluated before that predicate selects the rows of the domain in the
+                // plan of the query as well, so the rewrite leaves its evaluation domain unchanged
+                // and the subquery of
+                //
+                //     select k from o where k in (
+                //         select rn from (select k, row_number() over (order by k) as rn from i) x
+                //         where x.k = o.k)
+                //
+                // is accepted.
+                throw new AnalysisException(
+                        "access outer query's column before window function is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
+        }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
+        if (analyzedResult.isCorrelated()) {
+            // The nodes above the correlated predicate which the rewrites cannot rebuild per
+            // correlation key are not reported by checkRootIsLimit (it reads the root of the plan
+            // alone) nor by the validator (it validates the nodes which read the outer slots):
+            // report them here, the plan of the rewrite would read the columns of the outer query
+            // from the rows of another correlation key.
+            rejectTheWrappersWhichTheRewriteCannotRebuild(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots));
+            if (containsARepeatAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                throw new AnalysisException(
+                        "access outer query's column before grouping sets is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
+            if (containsAJoinAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                // The join interleaves the rows of the domain of an outer row with the rows of its
+                // other side, and the rewrite reads the aggregation of that domain from below the
+                // join: the join would be evaluated once for the rows of every correlation key
+                // together (see containsAJoinAboveTheCorrelatedPredicate), so the subquery is
+                // reported instead of comparing the outer rows with the rows of another key.
+                throw new AnalysisException(
+                        "access outer query's column before join is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
+            if (containsAComputedProjectionBelowTheAggregation(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                // The projection computes the columns which the aggregation above it reads from the
+                // rows of the domain of an outer row, and the rewrite drops the projections between
+                // the filter of the WHERE clause and the aggregation (it reads the columns of the
+                // domain from the child of that filter): the computed columns of the projection
+                // would be missing below the aggregation, so the subquery is reported instead of
+                // building a plan which reads a column no node below the aggregation produces.
+                throw new AnalysisException(
+                        "access outer query's column before a projection below the aggregation is "
+                                + "not supported " + analyzedResult.getLogicalPlan());
+            }
+        }
 
         return new InSubquery(
                 expr.getCompareExpr().accept(this, context),
@@ -180,6 +291,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             List<PlanNodeCorrelatedInfo> nodeInfoList = new ArrayList<>(16);
             Set<LogicalAggregate> topAgg = new HashSet<>();
             validateSubquery(analyzedResult.logicalPlan, validator, nodeInfoList, topAgg);
+            // A lateral view which sits above the correlated predicate is reported by the walk above
+            // (see validateNodeInfoList), and a generator which reads an outer slot is reported here:
+            // the generator of the lateral view of an outer row explodes the arrays of the rows of
+            // the domain of that row, while the rewrite of the subquery moves the predicate of the
+            // outer row into the join and evaluates the nodes below it once, where the outer column
+            // has no row to read.
+            rejectTheLateralViewsWhichReadTheOuterSlots(analyzedResult.logicalPlan,
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots));
         }
 
         if (analyzedResult.getLogicalPlan() instanceof LogicalOneRowRelation) {
@@ -222,14 +341,6 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         if (plan.getOutput().size() != 1) {
             throw new AnalysisException("Multiple columns returned by subquery are not yet supported. Found "
                     + plan.getOutput().size());
-        }
-    }
-
-    private void checkNoCorrelatedSlotsUnderAgg(AnalyzedResult analyzedResult) {
-        if (analyzedResult.hasCorrelatedSlotsUnderAgg()) {
-            throw new AnalysisException(
-                    "Unsupported correlated subquery with grouping and/or aggregation "
-                            + analyzedResult.getLogicalPlan());
         }
     }
 
@@ -317,12 +428,6 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         public boolean isCorrelated() {
             return !correlatedSlots.isEmpty();
-        }
-
-        public boolean hasCorrelatedSlotsUnderAgg() {
-            return correlatedSlots.isEmpty() ? false
-                    : hasCorrelatedSlotsUnderNode(logicalPlan,
-                            ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
         }
 
         public boolean hasCorrelatedSlotsUnderSetOp() {
@@ -475,16 +580,33 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                         case LOGICAL_GENERATE:
                             throw new AnalysisException(
                                     "access outer query's column before lateral view is not supported");
+                        case LOGICAL_REPEAT:
+                            // The aggregation above a repeat node computes the grouping sets of the
+                            // subquery (GROUP BY GROUPING SETS ...), and the rewrite which unnests the
+                            // subquery reads the aggregation of the domain below the repeat (see
+                            // locateAggregate of UnCorrelatedApplyAggregateFilter): a repeat above the
+                            // correlated predicate belongs to the grouping sets of that aggregation,
+                            // whose groups the rewrite would compute for the rows of every correlation
+                            // key together, so the subquery of
+                            //
+                            //     select t1.id, (select count(*) from t2 where t2.id = t1.id
+                            //         group by grouping sets ((t2.score), ())) from t1
+                            //
+                            // is reported instead of building a plan whose correlation predicate no
+                            // aggregation below it can carry (see the walk of validateNodeInfoList).
+                            throw new AnalysisException(
+                                    "access outer query's column before grouping sets is not supported");
                         case LOGICAL_AGGREGATE:
                             if (checkAfterAggNode) {
                                 throw new AnalysisException(
                                         "access outer query's column before two agg nodes is not supported");
                             }
-                            if (nodeInfo.hasGroupBy) {
-                                // TODO support later
-                                throw new AnalysisException(
-                                        "access outer query's column before agg with group by is not supported");
-                            }
+                            // the aggregation of the subquery may group the inner rows and it may
+                            // filter them with a HAVING clause: the rewrite which unnests the
+                            // subquery (UnCorrelatedApplyAggregateFilter) groups the aggregation of
+                            // every outer row by the correlation key of that row, so that the groups
+                            // of the aggregation of one outer row are the rows of the subquery for
+                            // that row
                             checkAfterAggNode = true;
                             topAggregate = nodeInfo.aggregate;
                             break;
@@ -504,6 +626,12 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                             break;
                         case LOGICAL_PROJECT:
                             // allow any project node
+                            break;
+                        case LOGICAL_FILTER:
+                            // allow any filter node: the filters above the aggregation of the
+                            // subquery are the predicates of its HAVING clause, which the rewrite
+                            // evaluates on the aggregation of every outer row (and which it keeps
+                            // where filter pushdown placed them)
                             break;
                         case LOGICAL_SUBQUERY_ALIAS:
                             // allow any subquery alias
@@ -544,5 +672,271 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             }
         }
         nodeInfoList.remove(nodeInfoList.size() - 1);
+    }
+
+    /**
+     * Whether every node of the plan of the subquery reads the outer slots the way the rewrites of a
+     * correlated subquery can carry them: the validator rejects the outer slots of an aggregation, a
+     * projection, a join or a sort (the filters of the subquery may read them wherever they are, see
+     * CorrelatedSlotsValidator). The scalar subquery path checks the order of the nodes of the
+     * subquery as well (see validateNodeInfoList, which the caller of the validator of that path
+     * runs), because only one aggregation may sit below the correlated predicate there; the rewrites
+     * of an IN subquery read the correlated predicate below every aggregation of the chain, so only
+     * the nodes which read the outer slots are validated here.
+     */
+    private void validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(
+            Plan plan, CorrelatedSlotsValidator validator) {
+        plan.accept(validator, null);
+        for (Plan child : plan.children()) {
+            validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(child, validator);
+        }
+    }
+
+    /**
+     * Whether a window of the subtree is evaluated on the rows of the correlated domain of one outer
+     * row (see visitInSubquery): that is the case for a window which sits above the correlated
+     * predicate, whose rows the predicate selects below it. A window below the correlated predicate
+     * is evaluated on the rows of the node it sits in before the predicate selects the rows of the
+     * domain of an outer row, and the rewrite keeps that node as it is.
+     */
+    private static boolean containsAWindowAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
+        if (computesAWindow(plan) && plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> containsAWindowAboveTheCorrelatedPredicate(child, correlatedSlots));
+    }
+
+    /** whether a node of the plan computes a window (a window node or a projection over a window) */
+    private static boolean computesAWindow(Plan plan) {
+        return plan instanceof LogicalWindow || plan.getExpressions().stream()
+                .anyMatch(expression -> expression.containsType(WindowExpression.class));
+    }
+
+    /** whether a node of the subtree reads a slot of the outer query */
+    private static boolean subtreeReadsTheCorrelatedSlots(Plan plan, Set<Slot> correlatedSlots) {
+        if (plan.getInputSlots().stream().anyMatch(correlatedSlots::contains)) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots));
+    }
+
+    /**
+     * Whether a repeat of the subtree computes the grouping sets of the rows of the correlated domain
+     * of one outer row (see visitInSubquery): that is the case for a repeat which sits above the
+     * correlated predicate, whose rows the predicate selects below it. The rewrite which unnests a
+     * correlated subquery reads the aggregation of the domain of an outer row from below the repeat
+     * (see locateAggregate of UnCorrelatedApplyAggregateFilter), because the repeat of the subquery
+     * duplicates the rows of its child into the grouping sets which the aggregation above it
+     * aggregates: a repeat above the correlated predicate would duplicate the rows of every
+     * correlation key together, so the subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from i where i.k = o.k group by grouping sets ((i.g), ()))
+     *
+     * is reported as unsupported for that reason. A repeat below the correlated predicate computes the
+     * rows which that predicate selects, so the rewrite keeps its evaluation domain unchanged and the
+     * subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from (select k, g from i group by grouping sets ((k, g), ())) x
+     *         where x.k = o.k)
+     *
+     * is accepted.
+     */
+    private static boolean containsARepeatAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
+        if (plan instanceof LogicalRepeat && plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> containsARepeatAboveTheCorrelatedPredicate(child, correlatedSlots));
+    }
+
+    /**
+     * Whether a join of the subtree combines the rows of the correlated domain of one outer row with
+     * the other side of the join (see visitInSubquery): that is the case for a join which sits above
+     * the correlated predicate, whose rows the predicate selects below it. The rewrite which unnests a
+     * correlated subquery reads the aggregation of the domain of an outer row from below the join (see
+     * locateAggregate of UnCorrelatedApplyAggregateFilter), because the join interleaves the rows of
+     * the domain of an outer row with the rows of another relation: a join above the correlated
+     * predicate is evaluated once for the rows of every correlation key together when the rewrite
+     * groups them, so the subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from (select i.id, i.k from i where i.k = o.k) x
+     *             join j on x.id = j.id)
+     *
+     * is reported as unsupported for that reason. The plan of the query is
+     * Apply(IN) -> Aggregate -> Join -> Project -> Filter(i.k = o.k): the walk which validates the
+     * nodes above the correlated predicate (see rejectTheWrappersWhichTheRewriteCannotRebuild)
+     * reaches the join before the filter, and the join has no aggregation below it which could carry
+     * the keys of the correlation. A join below the correlated predicate is part of the rows which
+     * that predicate selects (the domain of an outer row), so the rewrite keeps it as it is and the
+     * subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from i join j on i.id = j.id where i.k = o.k)
+     *
+     * is accepted.
+     */
+    private static boolean containsAJoinAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
+        if (plan instanceof LogicalJoin && plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> containsAJoinAboveTheCorrelatedPredicate(child, correlatedSlots));
+    }
+
+    /**
+     * Whether a projection below the innermost aggregation of the subquery computes its own columns
+     * from the rows of the correlated domain (see visitInSubquery), instead of passing the columns of
+     * the nodes below it through. The rewrite which unnests a correlated IN subquery reads the rows of
+     * the domain of an outer row from the child of the filter of the WHERE clause (see
+     * pullUpCorrelatedFilter of UnCorrelatedApplyAggregateFilter), so it drops the projections between
+     * that filter and the innermost aggregation: a projection which only passes the columns of its
+     * child through is redundant there, while the columns which a projection computes itself would be
+     * missing below the aggregation which reads them. For example the subquery of
+     *
+     *     select k from o where k not in (select max(c) from
+     *         (select count(z) c from (select i.g, i.v + 1 z from i where i.k = o.k) p
+     *             group by p.g having count(z) > 0) x)
+     *
+     * is reported as unsupported for that reason. A projection above the innermost aggregation is kept
+     * by the rewrite, which rebuilds the aggregations around it (see rebuildTheAggregationChain), so
+     * the subquery of
+     *
+     *     select k from o where k in (select count(*) + 1 from i where i.k = o.k)
+     *
+     * is accepted.
+     */
+    private static boolean containsAComputedProjectionBelowTheAggregation(Plan plan,
+            ImmutableSet<Slot> correlatedSlots) {
+        List<Plan> path = new ArrayList<>(8);
+        for (Plan node = plan; node != null; node = theChildWhichHoldsTheOuterSlots(node, correlatedSlots)) {
+            path.add(node);
+            if (readsAnOuterSlot(node, correlatedSlots)) {
+                break;
+            }
+        }
+        int innermostAggregation = -1;
+        for (int i = 0; i < path.size(); ++i) {
+            if (path.get(i) instanceof LogicalAggregate) {
+                innermostAggregation = i;
+            }
+        }
+        if (innermostAggregation < 0) {
+            // the subquery does not aggregate the rows of its domain, so the rewrites of the other
+            // rules read its rows (see UnCorrelatedApplyFilter): only the projections below an
+            // aggregation are dropped by the rewrite of the aggregating subqueries
+            return false;
+        }
+        for (int i = innermostAggregation + 1; i < path.size(); ++i) {
+            if (!(path.get(i) instanceof LogicalProject)) {
+                continue;
+            }
+            for (NamedExpression project : ((LogicalProject<?>) path.get(i)).getProjects()) {
+                if (project instanceof Slot) {
+                    // a projection which passes a column of its child through is redundant below the
+                    // aggregation of the domain: the rewrite reads that column from the child of the
+                    // filter of the WHERE clause
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reject the LIMIT, the TOP-N, the LATERAL VIEW and the JOIN nodes which sit above the correlated
+     * predicate of the subquery: the LIMIT and the LATERAL VIEW of the subquery of an outer row decide
+     * on the rows of the domain of that row (the LIMIT keeps one row of the derived table of the domain,
+     * the LATERAL VIEW explodes the arrays of the rows of the domain), and the JOIN combines those rows
+     * with the rows of its other side, while the rewrite which unnests a correlated subquery reads the
+     * value which the subquery exposes from the aggregation of the domain of the outer row: the LIMIT of
+     * that rewrite reads the domains of every correlation key together, and the LATERAL VIEW and the
+     * JOIN are evaluated once for all of them. Neither rewrite can rebuild those nodes per correlation
+     * key, so the subquery of
+     *
+     *     select k from o where k in (
+     *         select max(c) from (select count(*) c from i where i.k = o.k group by i.g limit 1) x)
+     *
+     * (where the limit keeps one row of the derived table of the domain of every outer row) is
+     * reported instead of building a plan which reads the rows of the outer query from the wrong
+     * correlation key. Only the nodes above the correlated predicate are checked: the nodes below it
+     * are the rows of the domain of an outer row, which the rewrite keeps as they are.
+     */
+    private static void rejectTheWrappersWhichTheRewriteCannotRebuild(Plan plan,
+            ImmutableSet<Slot> correlatedSlots) {
+        rejectTheLateralViewsWhichReadTheOuterSlots(plan, correlatedSlots);
+        for (Plan node = plan; node != null; node = theChildWhichHoldsTheOuterSlots(node, correlatedSlots)) {
+            if (node instanceof LogicalLimit || node instanceof LogicalTopN) {
+                throw new AnalysisException("access outer query's column before limit is not supported "
+                        + plan);
+            }
+            if (node instanceof LogicalGenerate) {
+                throw new AnalysisException(
+                        "access outer query's column before lateral view is not supported " + plan);
+            }
+            if (node instanceof LogicalJoin) {
+                // The join combines the rows of the domain of an outer row with the rows of its other
+                // side, and the rewrite reads the aggregation of that domain from below the join (see
+                // containsAJoinAboveTheCorrelatedPredicate): the keys which it adds to the group by of
+                // the aggregation would be the keys of one branch of the join alone, so the join would
+                // be evaluated once for the rows of every correlation key together.
+                throw new AnalysisException(
+                        "access outer query's column before join is not supported " + plan);
+            }
+            if (readsAnOuterSlot(node, correlatedSlots)) {
+                // the predicate of the outer query itself: the nodes below it hold the rows of the
+                // domain of an outer row, which the rewrite keeps as they are
+                return;
+            }
+        }
+    }
+
+    /**
+     * Reject the lateral views whose generator reads an outer slot: the generator of the lateral view
+     * of an outer row is evaluated on the rows of the domain of that row (the LATERAL VIEW explodes
+     * arrays which the value of the outer row may be a part of), while the rewrite of the subquery
+     * evaluates the nodes below the correlated predicate once, with the predicate of the outer row
+     * moved into the join: the outer column of the generator has no row to read there, and the plan of
+     * the rewrite dangles.
+     */
+    private static void rejectTheLateralViewsWhichReadTheOuterSlots(Plan plan,
+            ImmutableSet<Slot> correlatedSlots) {
+        if (plan instanceof LogicalGenerate && readsAnOuterSlot(plan, correlatedSlots)) {
+            throw new AnalysisException(
+                    "access outer query's column in lateral view is not supported " + plan);
+        }
+        plan.children().forEach(child -> rejectTheLateralViewsWhichReadTheOuterSlots(child, correlatedSlots));
+    }
+
+    /** whether a node of the plan reads one of the outer slots (see CorrelatedSlotsValidator) */
+    private static boolean readsAnOuterSlot(Plan plan, ImmutableSet<Slot> correlatedSlots) {
+        return plan.getExpressions().stream().anyMatch(expression -> !Sets
+                .intersection(correlatedSlots, expression.getInputSlots()).isEmpty());
+    }
+
+    /** the child of the node which holds the predicate of the outer query, or null when none holds it */
+    private static Plan theChildWhichHoldsTheOuterSlots(Plan node, ImmutableSet<Slot> correlatedSlots) {
+        for (Plan child : node.children()) {
+            if (containsAnOuterSlot(child, correlatedSlots)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    /** whether the plan or one of the nodes below it reads one of the outer slots */
+    private static boolean containsAnOuterSlot(Plan plan, ImmutableSet<Slot> correlatedSlots) {
+        if (readsAnOuterSlot(plan, correlatedSlots)) {
+            return true;
+        }
+        return plan.children().stream().anyMatch(child -> containsAnOuterSlot(child, correlatedSlots));
     }
 }
