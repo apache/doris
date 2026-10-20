@@ -44,9 +44,11 @@ namespace collection_statistics_detail {
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
                                                              uint64_t sum_total_term_freq,
                                                              bool has_positions, bool has_norms,
+                                                             bool is_analyzed,
                                                              bool single_term_normalizer) {
-    // Lowercase-normalized docs-only postings use unit frequency and length for scoring.
-    if ((!has_positions || !has_norms) && !single_term_normalizer) {
+    // Keywords and lowercase-only normalizers can omit both sections: a matched value
+    // contributes one term with unit frequency and length. Other analyzed sources need both.
+    if (is_analyzed && !single_term_normalizer && (!has_positions || !has_norms)) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
                 "SNII scoring requires positions and norms; this segment was written without "
                 "positions or without norms. Norms are left out when the index sets \"norms\" = "
@@ -264,10 +266,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
             const uint64_t segment_doc_count = scoring_stats.doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
                     ws_field_name, segment_doc_count, scoring_stats.token_count,
-                    scoring_stats.has_positions, scoring_stats.has_norms,
-                    segment_v2::IndexReaderHelper::is_normalizer_only(
+                    scoring_stats.has_positions, scoring_stats.has_norms, &segment_accumulator,
+                    segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                             collect_info.index_meta->properties()),
-                    &segment_accumulator));
+                    segment_v2::IndexReaderHelper::is_normalizer_only(
+                            collect_info.index_meta->properties())));
 
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
                 const auto logical_term =
@@ -337,12 +340,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
         // them, together with the field's token count, in the norms. A segment written without
         // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
-        // segments that have norms, so refuse to score the collection, as SNII does. A
-        // single-term normalizer can instead use unit frequency and length.
-        const bool single_term_normalizer = segment_v2::IndexReaderHelper::is_normalizer_only(
-                collect_info.index_meta->properties());
-        // Docs-only lowercase indexes have no norms, but each matching row has one term.
-        if (!scoring_stats.has_norms && !single_term_normalizer &&
+        // segments that have norms, so refuse to score the collection, as SNII does.
+        // Keywords and lowercase-only normalizers instead use unit document length.
+        if (!scoring_stats.has_norms &&
+            !segment_v2::IndexReaderHelper::is_normalizer_only(
+                    collect_info.index_meta->properties()) &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     collect_info.index_meta->properties())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -351,10 +353,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, segment_v2::inverted_index::StringHelper::to_string(ws_field_name));
         }
-        // CLucene omits term totals without norms; one token per row gives a unit-length estimate.
-        _total_num_tokens[ws_field_name] += !scoring_stats.has_norms && single_term_normalizer
-                                                    ? scoring_stats.doc_count
-                                                    : scoring_stats.token_count;
+        _total_num_tokens[ws_field_name] +=
+                scoring_stats.has_norms ? scoring_stats.token_count : scoring_stats.doc_count;
 
         for (const auto& logical_term_bytes : collect_info.unique_terms) {
             const auto logical_term =
@@ -375,11 +375,12 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
 Status CollectionStatistics::admit_snii_scoring_segment(
         const std::wstring& field_name, uint64_t index_doc_count, uint64_t sum_total_term_freq,
-        bool has_positions, bool has_norms, bool single_term_normalizer,
-        SniiScoringSegmentAccumulator* segment_accumulator) {
+        bool has_positions, bool has_norms, SniiScoringSegmentAccumulator* segment_accumulator,
+        bool is_analyzed, bool single_term_normalizer) {
     DORIS_CHECK(segment_accumulator != nullptr);
     auto segment_stats = collection_statistics_detail::resolve_snii_scoring_segment(
-            index_doc_count, sum_total_term_freq, has_positions, has_norms, single_term_normalizer);
+            index_doc_count, sum_total_term_freq, has_positions, has_norms, is_analyzed,
+            single_term_normalizer);
     if (!segment_stats.has_value()) {
         clear();
         return segment_stats.error();

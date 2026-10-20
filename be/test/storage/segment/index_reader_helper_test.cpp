@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "storage/index/index_reader.h"
@@ -380,6 +381,7 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithInvertedIndexQueryTypeTes
     index_meta_pb->add_col_unique_id(1);
 
     auto* properties = index_meta_pb->mutable_properties();
+    (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_ENGLISH;
     (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
             INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 
@@ -448,6 +450,7 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
     index_meta_pb->add_col_unique_id(1);
 
     auto* properties = index_meta_pb->mutable_properties();
+    (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_ENGLISH;
     (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
             INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 
@@ -459,4 +462,52 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
 
     EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::EQ, &index_meta));
     EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::LT, &index_meta));
+}
+
+TEST_F(IndexReaderHelperTest, MatchScoringRequiresAnalyzedPhraseIndex) {
+    struct Case {
+        std::map<std::string, std::string> properties;
+        bool expected;
+    };
+    for (const auto& test : std::vector<Case> {
+                 {.properties = {{"support_phrase", "true"}}, .expected = false},
+                 {.properties = {{"parser", "none"}, {"support_phrase", "true"}},
+                 .expected = false},
+                 {.properties = {{"parser", "unknown"}, {"support_phrase", "true"}},
+                 .expected = false},
+                 {.properties = {{"normalizer", "lowercase"}, {"support_phrase", "true"}},
+                 .expected = true},
+                 {.properties = {{"parser", "english"}, {"support_phrase", "true"}},
+                 .expected = true},
+                 {.properties = {{"analyzer", "custom_analyzer"}, {"support_phrase", "true"}},
+                 .expected = true},
+                 {.properties = {{"parser", "english"}}, .expected = false},
+                 {.properties = {{"parser", "english"}, {"support_phrase", "false"}},
+                 .expected = false}}) {
+        // The canonical analyzer predicate also recognizes named normalizers.
+        SCOPED_TRACE(::testing::PrintToString(test.properties));
+        TabletIndexPB pb;
+        pb.set_index_id(1);
+        pb.set_index_name("scoring_index");
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(1);
+        for (const auto& [key, value] : test.properties) {
+            (*pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index;
+        index.init_from_pb(pb);
+        for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE,
+                        TExprOpcode::MATCH_PHRASE_PREFIX}) {
+            EXPECT_EQ(IndexReaderHelper::is_need_similarity_score(op, &index), test.expected);
+        }
+        for (auto type :
+             {InvertedIndexQueryType::MATCH_ANY_QUERY, InvertedIndexQueryType::MATCH_ALL_QUERY,
+              InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+              InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY}) {
+            EXPECT_EQ(IndexReaderHelper::is_need_similarity_score(type, &index), test.expected);
+        }
+        EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::EQ, &index));
+        EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+                InvertedIndexQueryType::EQUAL_QUERY, &index));
+    }
 }

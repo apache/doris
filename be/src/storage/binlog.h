@@ -53,7 +53,6 @@ static constexpr int64_t ROW_BINLOG_DELETE = 2;
 constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
-constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
 
 namespace binlog {
 
@@ -67,8 +66,6 @@ inline std::string build_before_column_name(std::string_view name) {
 } // namespace binlog
 
 constexpr int64_t kBinlogLsnAutoIncId = -1;
-// used in file directory
-constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";
 
 inline auto make_binlog_meta_key(const std::string_view tablet, int64_t version,
                                  const std::string_view rowset) {

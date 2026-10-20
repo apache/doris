@@ -25,7 +25,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
@@ -33,7 +32,6 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
@@ -82,6 +80,20 @@ public class IvmUtil {
 
     public static boolean isIvmHiddenColumn(String columnName) {
         return columnName != null && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX);
+    }
+
+    /**
+     * A base scan's own storage column that must not be carried into an IVM plan, because its name
+     * collides with a column the delta rewrite binds by name and it is read by the plan above.
+     * <p>
+     * The base table's sequence column ({@code Column.SEQUENCE_COL}) is exactly such a column: IVM owns
+     * the MV's sequence and binds it by name, so a base sequence surviving normalization shadows the
+     * delta-allocated one and the merge-on-write merge retracts an updated row. The base delete sign,
+     * version and commit tso are recomputed by the plan and pruned when unused, and the base row lsn is
+     * the row identity IVM reads for DUP detail tables, so none of them is masked here.
+     */
+    public static boolean isBaseScanStorageColumnToMask(String columnName) {
+        return Column.SEQUENCE_COL.equalsIgnoreCase(columnName);
     }
 
     /**
@@ -373,23 +385,6 @@ public class IvmUtil {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "INCREMENTAL materialized view cannot use non-IVM MTMV as a base table: "
                             + table.getName() + ". The base MTMV is refreshed by partition overwrite.");
-        }
-    }
-
-    /**
-     * Rejects an MV output column whose name a Doris hidden column already owns. Both table models lay
-     * hidden columns on the MV they build -- the unique-key model its row-id, any model that enables row
-     * binlog its own commit tso and row lsn -- so a user column taking one of the reserved prefixes would
-     * be indistinguishable from an internal one: it is filtered out of the schema the user reads, leaving
-     * an MV that holds fewer columns than its query produced.
-     */
-    public static void validateUserOutputColumnNames(List<NamedExpression> outputs) {
-        for (NamedExpression output : outputs) {
-            try {
-                FeNameFormat.checkColumnName(output.getName());
-            } catch (org.apache.doris.common.AnalysisException e) {
-                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage(), e);
-            }
         }
     }
 }

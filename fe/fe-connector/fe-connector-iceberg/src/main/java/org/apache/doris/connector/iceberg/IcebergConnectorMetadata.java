@@ -125,6 +125,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
     private static final String ICEBERG_FILE_PATH_COL = "_file";
     private static final String ICEBERG_ROW_POSITION_COL = "_pos";
+    // The hidden DML row-id column, fe-core Column.ICEBERG_ROWID_COL (pinned by
+    // IcebergScanPlanProviderClassifyColumnTest through the scan provider's copy).
+    private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
@@ -783,7 +786,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             rejectReservedMetadataColumns(schema);
         }
         Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(
-                fields.size() + (appendDataFileMetadataColumns ? 2 : 0));
+                fields.size() + (appendDataFileMetadataColumns ? 3 : 0));
         for (Types.NestedField field : fields) {
             String name = field.name();
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
@@ -791,6 +794,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (appendDataFileMetadataColumns) {
             handles.put(ICEBERG_FILE_PATH_COL, new IcebergColumnHandle(ICEBERG_FILE_PATH_COL, -1));
             handles.put(ICEBERG_ROW_POSITION_COL, new IcebergColumnHandle(ICEBERG_ROW_POSITION_COL, -1));
+            // Synthesized by the reader for DML and never in the schema. Its handle tells the scan provider that a
+            // scan produces row IDs (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData).
+            handles.put(DORIS_ICEBERG_ROWID_COL, new IcebergColumnHandle(DORIS_ICEBERG_ROWID_COL, -1));
         }
         return handles;
     }
@@ -939,16 +945,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // ========== DDL writes (B1): create/drop database + table ==========
 
     /**
-     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. Namespace
-     * properties are only honored by an HMS catalog; for every other flavor a non-empty property map fails
-     * loud (legacy parity) — the gate is a pure local check run BEFORE the auth context, like paimon.
-     * Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
+     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. HMS, JDBC
+     * and Glue catalogs store namespace properties; only HMS and Glue place new tables under a namespace
+     * {@code location}. Hadoop, REST, DLF and S3 Tables catalogs reject a non-empty property map (a REST
+     * server may ignore namespace properties). The gate is a pure local check run BEFORE the auth context,
+     * like paimon. Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
      */
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> properties) {
-        if (!properties.isEmpty() && !isHmsCatalog()) {
+        String catalogType = catalogType();
+        if (!properties.isEmpty() && !supportsDatabaseProperties(catalogType)) {
             throw new DorisConnectorException(
-                    "Not supported: create database with properties for iceberg catalog type: " + catalogType());
+                    "Not supported: create database with properties for iceberg catalog type: " + catalogType);
+        }
+        if (properties.containsKey("location") && !supportsDatabaseLocation(catalogType)) {
+            throw new DorisConnectorException("Not supported: database property 'location' for iceberg catalog type: "
+                    + catalogType + " because it does not determine the default table location");
         }
         try {
             executeAuthenticated(() -> {
@@ -959,6 +971,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException(
                     "Failed to create Iceberg database " + dbName + ": " + e.getMessage(), e);
         }
+    }
+
+    private static boolean supportsDatabaseProperties(String catalogType) {
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_JDBC.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equals(catalogType);
+    }
+
+    private static boolean supportsDatabaseLocation(String catalogType) {
+        return IcebergCatalogProperties.TYPE_HMS.equals(catalogType)
+                || IcebergCatalogProperties.TYPE_GLUE.equals(catalogType);
     }
 
     /**
@@ -1043,6 +1066,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // CREATE properties (ConnectorFactory.createConnector(catalogProperty.getProperties())).
         Map<String, String> tableProperties =
                 IcebergSchemaBuilder.buildTableProperties(request.getProperties(), properties);
+        if (request.getColumns().stream().anyMatch(column -> IcebergSchemaBuilder.isVariant(column.getType()))) {
+            IcebergWriterHelper.validateVariantWriteFormat(
+                    IcebergSchemaBuilder.getEffectiveFormatVersion(tableProperties, properties),
+                    IcebergSchemaBuilder.getEffectiveFileFormat(tableProperties, properties));
+        }
         applyCreateTableComment(tableProperties, request.getComment());
         try {
             executeAuthenticated(() -> {
@@ -1463,7 +1491,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!column.isNullable()) {
             throw new DorisConnectorException("New nested field '" + path.getFullPath() + "' must be nullable");
         }
-        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        Type icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(path.getLeafName(), icebergType,
                 column.getComment(), null, column.isNullable());
         try {
@@ -1550,7 +1578,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         Type icebergType;
         try {
-            icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+            icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         } catch (DorisConnectorException buildError) {
             // Preserve the complete target identity so error parity cannot bind a same-named top-level field.
             throw upgradeNestedModifyError(iceHandle, path, column, buildError);
@@ -1911,12 +1939,20 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the
-     * column must be an <em>identity</em> partition field of this (partitioned) table. Mirrors the legacy
-     * fe-resident {@code BindSink.validateStaticPartition} (now dead on the connector-driven path), but the
-     * iceberg {@link PartitionSpec} knowledge and the messages live in the connector. The lookup is keyed by
-     * partition <em>field</em> name (e.g. {@code category_bucket} for {@code bucket(4, category)}), matching
-     * legacy — so a source-column name that is not itself an identity field reads as "Unknown partition column".
+     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the name
+     * must be the SOURCE column of an <em>identity</em> partition field of this (partitioned) table.
+     *
+     * <p>That is the identifier Spark resolves for a static partition clause
+     * ({@code Analyzer.partitionColumnNames} takes the identity transform's field reference), the one
+     * {@code SHOW CREATE TABLE} renders ({@code PARTITION BY LIST (`id`)}), and the only one the engine can
+     * materialize: an identity partition value IS the column value, so the binder fills that column from the
+     * PARTITION literal ({@code PluginDrivenExternalTable#materializeStaticPartitionValues}).</p>
+     *
+     * <p>Consequently a partition FIELD name that was renamed away from its source column
+     * ({@code ADD PARTITION KEY id AS id_identity}) is rejected with the source name to use instead. The field
+     * name is not a table column, so no value could be written for it — accepting it is exactly the
+     * "PARTITION names a column the binder then cannot find" contradiction this replaces. Non-identity
+     * transforms stay rejected, and an unknown name lists the source columns that a static write can use.</p>
      */
     @Override
     public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
@@ -1925,30 +1961,83 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return;
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        Table table = loadTable(session, iceHandle);
-        PartitionSpec spec = table.spec();
         String tableName = iceHandle.getTableName();
+        // Validate against the schema/spec this statement actually writes with. A branch-targeted write pins the
+        // BRANCH's writer schema before analysis is complete (getWriteColumns -> IcebergStatementScope.writeSchema)
+        // and binding, planning and the BE sink all consume that pinned copy, so after a main-only column rename
+        // the current metadata can disagree with the schema the branch statement binds to.
+        Optional<IcebergWriteSchemaContext> pinned = IcebergStatementScope.activeWriteSchema(
+                session, iceHandle.getDbName(), tableName);
+        Schema schema;
+        PartitionSpec spec;
+        if (pinned.isPresent()) {
+            schema = pinned.get().getSchema();
+            spec = pinned.get().getPartitionSpec();
+        } else {
+            Table table = loadTable(session, iceHandle);
+            schema = table.schema();
+            spec = table.spec();
+        }
         if (!spec.isPartitioned()) {
             throw new DorisConnectorException(String.format(
                     "Table %s is not partitioned, cannot use static partition syntax", tableName));
         }
-        Map<String, PartitionField> partitionFieldMap = new HashMap<>();
-        for (PartitionField field : spec.fields()) {
-            partitionFieldMap.put(field.name(), field);
-        }
         for (String colName : staticPartitionColumnNames) {
-            PartitionField field = partitionFieldMap.get(colName);
-            if (field == null) {
+            validateStaticPartitionColumn(schema, spec, colName, tableName);
+        }
+    }
+
+    /** The single-name rule of {@link #validateStaticPartitionColumns}. */
+    private static void validateStaticPartitionColumn(Schema schema, PartitionSpec spec, String colName,
+            String tableName) {
+        // The identity partition over this top-level column is the target. Searching by SOURCE first (across all
+        // fields, not the first source match) keeps a spec that carries a non-identity field on the same column
+        // legal - e.g. bucket(8, id) declared before identity(id) - and never lets a nested leaf or a case-folded
+        // field alias stand in for the column the binder will materialize.
+        if (IcebergPartitionUtils.identityPartitionBySourceColumn(schema, spec, colName) != null) {
+            return;
+        }
+        PartitionField bySource = IcebergPartitionUtils.partitionFieldBySourceColumn(schema, spec, colName);
+        if (bySource != null) {
+            throw nonIdentityStaticPartition(colName, bySource);
+        }
+        PartitionField byName = partitionFieldByName(spec, colName);
+        if (byName != null) {
+            if (byName.transform().isIdentity()) {
+                // Renamed identity field (ADD PARTITION KEY ... AS ...): point at the source column the engine can
+                // materialize, instead of accepting a name that no row column carries.
+                String source = IcebergPartitionUtils.topLevelSourceColumnName(schema, byName.sourceId());
+                if (source == null) {
+                    throw new DorisConnectorException(String.format(
+                            "Static partition column '%s' in table '%s' cannot be written by value: its source is"
+                                    + " a nested field, and the engine can only materialize the literal into a"
+                                    + " top-level column.", byName.name(), tableName));
+                }
                 throw new DorisConnectorException(String.format(
-                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
-                        colName, tableName, partitionFieldMap.keySet()));
+                        "Static partition column '%s' in table '%s' is a partition field name, not a table"
+                                + " column; write the identity partition by its source column '%s' instead.",
+                        byName.name(), tableName, source));
             }
-            if (!field.transform().isIdentity()) {
-                throw new DorisConnectorException(String.format(
-                        "Cannot use static partition syntax for non-identity partition field '%s'"
-                                + " (transform: %s).", colName, field.transform().toString()));
+            throw nonIdentityStaticPartition(colName, byName);
+        }
+        throw new DorisConnectorException(String.format(
+                "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                colName, tableName, IcebergPartitionUtils.identityPartitionSourceColumns(schema, spec)));
+    }
+
+    private static DorisConnectorException nonIdentityStaticPartition(String colName, PartitionField field) {
+        return new DorisConnectorException(String.format(
+                "Cannot use static partition syntax for non-identity partition field '%s'"
+                        + " (transform: %s).", colName, field.transform().toString()));
+    }
+
+    private static PartitionField partitionFieldByName(PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field;
             }
         }
+        return null;
     }
 
     // ========== Predicate pushdown ==========
@@ -2398,6 +2487,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // isKey is always true (external-table semantics: DESC shows Key=true),
             // and isAllowNull is always true regardless of the Iceberg required/optional flag (rows can
             // still read NULL under schema-evolution default-fill; do NOT propagate the NOT NULL constraint).
+            // The required/optional flag travels separately as the SOURCE nullability, which is what DESC /
+            // SHOW CREATE TABLE / SHOW COLUMNS / information_schema display instead of the read nullability.
             // Iceberg write defaults are statement-scoped writer metadata, not catalog display metadata.
             // IcebergWritePlanProvider pins them before write analysis; keeping the cached default null prevents
             // DESCRIBE/SHOW CREATE from exposing them and avoids using a stale default after schema evolution.
@@ -2408,7 +2499,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     field.doc() != null ? field.doc() : "",
                     true,
                     null,
-                    true);
+                    true).withSourceNullable(field.isOptional());
             // Carry the stable iceberg field-id as the column's uniqueId (legacy
             // IcebergUtils.updateIcebergColumnUniqueId set the top-level Column.uniqueId = field.fieldId()).
             // fe-core's ConnectorColumnConverter re-applies it (>= 0); the BE field-id scan path keys the

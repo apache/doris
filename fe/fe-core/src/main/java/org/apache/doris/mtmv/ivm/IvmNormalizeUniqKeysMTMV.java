@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -278,8 +277,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // unsupported: any plan node not explicitly whitelisted below
     @Override
     public Plan visit(Plan plan, NormalizeContext context) {
-        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, "IVM does not support plan node: "
-                + plan.getClass().getSimpleName());
+        throw IvmNormalizeCommonChecker.unsupportedNode(plan);
     }
 
     // whitelisted: only OlapScan — inject IVM row-id at index 0
@@ -307,7 +305,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             outputsBuilder.add(renamedBaseRowIdAlias);
         }
         outputsBuilder.addAll(scan.getOutput().stream()
-                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
+                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName())
+                        && !IvmUtil.isBaseScanStorageColumnToMask(slot.getName()))
                 .collect(ImmutableList.toImmutableList()));
         List<NamedExpression> outputs = outputsBuilder.build();
         LogicalProject<?> result = new LogicalProject<>(outputs, scan);
@@ -348,10 +347,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // whitelisted: project — recurse into child, then propagate row-id if not already present
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, NormalizeContext context) {
-        if (project.isDistinct()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support DISTINCT project.");
-        }
+        IvmNormalizeCommonChecker.checkProject(project);
         Plan newChild = project.child().accept(this, context);
         List<NamedExpression> baseOutputs = materializeDroppedAggState(
                 rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(), context.isFirstNonSink));
@@ -464,16 +460,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, NormalizeContext context) {
         JoinType joinType = join.getJoinType();
-        if (!joinType.isInnerOrCrossJoin() && !joinType.isOuterJoin()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support join type: " + joinType
-                            + ". Only INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN, RIGHT_OUTER_JOIN"
-                            + " and FULL_OUTER_JOIN are supported.");
-        }
-        if (join.isMarkJoin()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support mark join (subquery with disjunction).");
-        }
+        IvmNormalizeCommonChecker.checkJoin(join, IvmNormalizeCommonChecker.UNIQ_JOIN_TYPES);
         NormalizeContext childContext = context.enterJoin();
         Plan newLeft = join.left().accept(this, childContext);
         Plan newRight = join.right().accept(this, childContext);
@@ -598,14 +585,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
      */
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, NormalizeContext context) {
-        if (union.getQualifier() != Qualifier.ALL) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
-        }
-        if (!union.getConstantExprsList().isEmpty()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support UNION ALL with constant expressions.");
-        }
+        IvmNormalizeCommonChecker.checkUnion(union);
 
         NormalizeContext childContext = context.afterNonSink();
         boolean useUnionKeys = useFullKeys && !context.isInsideAggregate;
@@ -928,7 +908,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
-        IvmUtil.validateUserOutputColumnNames(sink.getOutputExprs());
+        IvmNormalizeCommonChecker.checkResultSinkOutputNames(sink);
         Plan newChild = sink.child().accept(this, context);
         List<NamedExpression> baseOutputs = materializeDroppedAggState(
                 rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(), context.isFirstNonSink));

@@ -209,6 +209,15 @@ private:
             if (source == nullptr || !(any_source || source->batches_reads())) {
                 continue;
             }
+            if (scoring && _type == OperatorType::OP_AND) {
+                index_query::IndexScoringStats stats;
+                THROW_IF_ERROR(source->scoring_stats(&stats));
+                // Batched AND scoring counts positions. Docs-only keywords have none, so
+                // keep their individual scorers, which supply implicit unit frequencies.
+                if (!stats.has_positions) {
+                    continue;
+                }
+            }
             auto group = std::ranges::find_if(groups, [&source](const ListedTerms& candidate) {
                 return candidate.source() == source;
             });

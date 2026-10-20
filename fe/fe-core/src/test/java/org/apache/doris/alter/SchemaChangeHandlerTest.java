@@ -23,8 +23,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -32,6 +35,7 @@ import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -43,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -52,12 +57,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 import java.util.stream.Collectors;
@@ -329,6 +336,59 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertFalse(cols.contains(Column.SEQUENCE_COL));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testAlterCompactionSettingSkipsRowBinlogTablets() throws Exception {
+        String tableName = "binlog_compaction_setting";
+        String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
+                + "k1 INT NOT NULL,\n"
+                + "v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
+        createTableWithRowBinlog(create);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Set<Long> dataTabletIds = Sets.newHashSet();
+        Set<Long> rowBinlogTabletIds = Sets.newHashSet();
+        for (Partition partition : tbl.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                (index.isRowBinlog() ? rowBinlogTabletIds : dataTabletIds).addAll(index.getTabletIdsInOrder());
+            }
+        }
+        Assertions.assertFalse(rowBinlogTabletIds.isEmpty());
+
+        // Build the update tasks without sending them, and record the tablets they are for.
+        Set<Long> updatedTabletIds = Sets.newHashSet();
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try (MockedConstruction<UpdateTabletMetaInfoTask> ignored = Mockito.mockConstruction(
+                UpdateTabletMetaInfoTask.class, (task, context) -> {
+                    for (Pair<Long, Integer> tablet : (Set<Pair<Long, Integer>>) context.arguments().get(1)) {
+                        updatedTabletIds.add(tablet.first);
+                    }
+                })) {
+            alterTable("ALTER TABLE test." + tableName + " SET ('compaction_policy' = 'time_series')",
+                    connectContext);
+            Assertions.assertEquals(dataTabletIds, updatedTabletIds);
+
+            updatedTabletIds.clear();
+            alterTable("ALTER TABLE test." + tableName + " SET ('time_series_compaction_goal_size_mbytes' = '2048')",
+                    connectContext);
+            Assertions.assertEquals(dataTabletIds, updatedTabletIds);
+
+            // Other tablet meta still goes to the row binlog tablets.
+            updatedTabletIds.clear();
+            alterTable("ALTER TABLE test." + tableName + " SET ('disable_auto_compaction' = 'true')",
+                    connectContext);
+            Assertions.assertEquals(Sets.union(dataTabletIds, rowBinlogTabletIds), updatedTabletIds);
+        } finally {
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
     }
 
     @Test

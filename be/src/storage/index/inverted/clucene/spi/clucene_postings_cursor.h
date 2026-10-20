@@ -155,7 +155,7 @@ public:
             const int32_t last = _iter->getLastDocInBlock();
             _bound = {.last_doc = static_cast<uint32_t>(last),
                       .max_freq = _iter->getMaxBlockFreq(),
-                      .max_norm = _iter->getMaxBlockNorm(),
+                      .max_norm = _has_norms ? _iter->getMaxBlockNorm() : 1,
                       .last_doc_known = last >= 0 && last != INT_MAX};
             if (_bound->last_doc_known) {
                 _bound->last_doc += _doc_base;
@@ -305,6 +305,8 @@ public:
     }
 
 private:
+    // Keyword indexes omit norms even when CLucene supplies a zero-filled norm buffer.
+    // Exposing no norms makes PostingsBlock use length one, including after partition switches.
     void _select_partition(size_t index) {
         _partition = index;
         _block = {};
@@ -314,8 +316,8 @@ private:
             const auto& part = _partitions[index];
             _iter = part.iter.get();
             _raw_positions = part.positions;
-            _doc_base = part.begin;
             _has_norms = part.has_norms;
+            _doc_base = part.begin;
         }
     }
 
