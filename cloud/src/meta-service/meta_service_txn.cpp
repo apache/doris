@@ -1840,6 +1840,60 @@ std::pair<MetaServiceCode, std::string> get_partition_versions(
     return {MetaServiceCode::OK, ""};
 }
 
+static void check_commit_txn_partition_count(const CommitTxnRequest* request,
+                                             CommitTxnResponse* response) {
+    if (!request->has_num_partitions() ||
+        request->num_partitions() == response->partition_ids_size()) {
+        return;
+    }
+    LOG(WARNING) << "commit txn partition count mismatch, txn_id=" << request->txn_id()
+                 << " table_ids="
+                 << fmt::format("[{}]", fmt::join(response->txn_info().table_ids(), ", "))
+                 << " expected_partitions=" << request->num_partitions()
+                 << " actual_partitions=" << response->partition_ids_size();
+    // A retry may scan only partitions left by a concurrent lazy committer.
+    // FE's CloudGlobalTransactionMgr.updateVersion() invalidates version caches
+    // only when both partition_ids and table_stats are empty.
+    response->clear_table_ids();
+    response->clear_partition_ids();
+    response->clear_versions();
+    response->clear_table_stats();
+    response->clear_version_update_time_ms();
+}
+
+static bool check_commit_txn_tablet_counts(
+        const TxnInfoPB& txn_info, int64_t sub_txn_id, const TabletCommitCounts& expected,
+        const std::vector<std::pair<std::string, RowsetMetaCloudPB>>& tmp_rowsets_meta,
+        MetaServiceCode& code, std::string& msg) {
+    // Validate before the first commit. Once COMMITTED, lazy publication may
+    // have removed entire partitions, including across scan_tmp_rowset() snapshots.
+    if (txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+        return true;
+    }
+
+    // Tmp rowsets are keyed by (txn_id, tablet_id); count each sub-transaction separately.
+    std::map<int64_t, std::pair<int64_t, int64_t>> partition_counts; // expected, actual
+    for (const auto& [partition_id, count] : expected.partition_tablet_counts()) {
+        partition_counts[partition_id].first = count;
+    }
+    for (const auto& [_, rowset] : tmp_rowsets_meta) {
+        ++partition_counts[rowset.partition_id()].second;
+    }
+    for (const auto& [partition_id, counts] : partition_counts) {
+        if (counts.first != counts.second) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format(
+                    "commit txn tablet count mismatch, txn_id={} sub_txn_id={} table_ids=[{}] "
+                    "partition_id={} expected_tablets={} actual_tablets={}",
+                    txn_info.txn_id(), sub_txn_id, fmt::join(txn_info.table_ids(), ", "),
+                    partition_id, counts.first, counts.second);
+            LOG(WARNING) << msg;
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -1954,6 +2008,12 @@ void MetaServiceImpl::commit_txn_immediately(
                << txn_id;
             msg = ss.str();
             LOG(WARNING) << msg;
+            return;
+        }
+
+        if (request->has_tablet_commit_counts() &&
+            !check_commit_txn_tablet_counts(txn_info, txn_id, request->tablet_commit_counts(),
+                                            tmp_rowsets_meta, code, msg)) {
             return;
         }
 
@@ -2081,6 +2141,34 @@ void MetaServiceImpl::commit_txn_immediately(
             }
             last_pending_txn_id = 0;
             continue;
+        }
+
+        {
+            // Recheck the tmp keys from scan_tmp_rowset() in this write transaction.
+            // Non-snapshot reads detect concurrent lazy cleanup; already missing keys
+            // require a retry to avoid publishing the same rowset twice.
+            auto tmp_keys = to_container<std::vector<std::string>>(
+                    std::ranges::ref_view(tmp_rowsets_meta) | std::ranges::views::keys);
+            std::vector<std::optional<std::string>> tmp_values;
+            err = txn->batch_get(&tmp_values, tmp_keys, Transaction::BatchGetOptions(false));
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tmp rowsets before commit, txn_id={} err={}",
+                                  txn_id, err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            for (size_t i = 0; i < tmp_keys.size(); ++i) {
+                if (!tmp_values[i].has_value()) {
+                    code = MetaServiceCode::KV_TXN_CONFLICT;
+                    msg = fmt::format(
+                            "tmp rowset disappeared after scan, retry commit, "
+                            "txn_id={} tmp_rowset_key={}",
+                            txn_id, hex(tmp_keys[i]));
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
         }
 
         record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
@@ -2475,6 +2563,7 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
+        check_commit_txn_partition_count(request, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
         break;
     } while (true);
@@ -2823,6 +2912,12 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        if (request->has_tablet_commit_counts() &&
+            !check_commit_txn_tablet_counts(txn_info, txn_id, request->tablet_commit_counts(),
+                                            tmp_rowsets_meta, code, msg)) {
+            return;
+        }
+
         if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
             txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
             !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
@@ -3102,6 +3197,7 @@ void MetaServiceImpl::commit_txn_eventually(
         // txn set visible for fe callback
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
         response->mutable_txn_info()->CopyFrom(txn_info);
+        check_commit_txn_partition_count(request, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::finish", &code, &txn_id);
         break;
     } while (true);
@@ -3227,6 +3323,15 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
             return;
+        }
+
+        for (const auto& sub_txn_info : sub_txn_infos) {
+            if (sub_txn_info.has_tablet_commit_counts() &&
+                !check_commit_txn_tablet_counts(
+                        txn_info, sub_txn_info.sub_txn_id(), sub_txn_info.tablet_commit_counts(),
+                        sub_txn_to_tmp_rowsets_meta.at(sub_txn_info.sub_txn_id()), code, msg)) {
+                return;
+            }
         }
 
         if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
@@ -3718,6 +3823,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         response->mutable_txn_info()->CopyFrom(txn_info);
+        check_commit_txn_partition_count(request, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn::finish", &code);
         break;
     } while (true);
@@ -3825,6 +3931,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
               << " tmp_rowsets_meta.size=" << tmp_rowsets_meta.size();
     code = MetaServiceCode::OK;
     msg.clear();
+    // Discard version results from a failed immediate attempt before lazy fallback.
+    response->Clear();
     commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
                           stats);
 }

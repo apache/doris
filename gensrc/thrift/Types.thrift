@@ -615,6 +615,8 @@ struct TTabletCommitInfo {
     // Every load job should check if the global dict is valid, if the global dict
     // is invalid then should sent the invalid column names to FE
     3: optional list<string> invalid_dict_cols
+    // Absent for older BEs; false means cloud empty rowset metadata was skipped.
+    4: optional bool rowset_meta_written
 }
 
 struct TErrorTabletInfo {
