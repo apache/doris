@@ -487,8 +487,7 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
                 _shared_state->hash_table_variant_vector.front()->method_variant);
     };
 
-    // Dispatch on the build column once. Homogeneous joins retain their compact physical key;
-    // mixed TIMESTAMP_NS/DATETIMEV2 joins use the exact common civil key.
+    // Dispatch on the build column once to use its physical key.
     // Sub-group by actual key equality within each hash bucket (hash collisions),
     // extract integer representation of ASOF values, then sort by inline values.
     asof_column_dispatch(build_col_nested.get(), [&](const auto* typed_col) {
@@ -498,15 +497,7 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
                             "Unsupported ASOF column type for inline optimization");
         } else {
             const auto& col_data = typed_col->get_data();
-            if (p._asof_mixed_timestamp_ns_datetimev2) {
-                DORIS_CHECK((std::is_same_v<ColType, ColumnDateTimeV2> ||
-                             std::is_same_v<ColType, ColumnTimeStampNs>));
-                build_typed_groups(
-                        col_data, [](const auto& value) { return asof_mixed_datetime_key(value); });
-            } else {
-                build_typed_groups(col_data,
-                                   [](const auto& value) { return value.to_date_int_val(); });
-            }
+            build_typed_groups(col_data, [](const auto& value) { return value.to_date_int_val(); });
         }
     });
 
@@ -785,15 +776,7 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         DORIS_CHECK(full_conjunct->root());
         DORIS_CHECK(full_conjunct->root()->get_num_children() == 2);
         _asof_opcode = full_conjunct->root()->op();
-        const PrimitiveType probe_type =
-                remove_nullable(full_conjunct->root()->get_child(0)->data_type())
-                        ->get_primitive_type();
         auto right_child_expr = full_conjunct->root()->get_child(1);
-        const PrimitiveType build_type =
-                remove_nullable(right_child_expr->data_type())->get_primitive_type();
-        _asof_mixed_timestamp_ns_datetimev2 =
-                (probe_type == TYPE_TIMESTAMP_NS && build_type == TYPE_DATETIMEV2) ||
-                (probe_type == TYPE_DATETIMEV2 && build_type == TYPE_TIMESTAMP_NS);
         _asof_build_side_expr = std::make_shared<VExprContext>(right_child_expr);
     }
 

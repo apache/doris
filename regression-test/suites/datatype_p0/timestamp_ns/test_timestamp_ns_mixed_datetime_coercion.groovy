@@ -171,6 +171,25 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
             order by l.id, r.id
         """
 
+        [lt: "<", le: "<=", gt: ">", ge: ">="].each { name, op ->
+            "order_qt_mixed_column_asof_timestamp_ns_${name}_${mode}" """
+                select l.id, r.id
+                from timestamp_ns_mixed_datetime_coercion l
+                asof left join timestamp_ns_mixed_datetime_coercion r
+                match_condition(l.ts ${op} r.dt)
+                on l.id = r.id
+                order by l.id, r.id
+            """
+            "order_qt_mixed_column_asof_datetimev2_${name}_${mode}" """
+                select l.id, r.id
+                from timestamp_ns_mixed_datetime_coercion l
+                asof left join timestamp_ns_mixed_datetime_coercion r
+                match_condition(l.dt ${op} r.ts)
+                on l.id = r.id
+                order by l.id, r.id
+            """
+        }
+
         "qt_mixed_literal_in_${mode}" """
             select
                 cast('2024-01-02 03:04:05.123456' as timestamp_ns) in (

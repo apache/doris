@@ -16,6 +16,7 @@
 // under the License.
 
 #include <limits>
+#include <string_view>
 
 #include "exprs/function/function_test_util.h"
 #include "util/timezone_utils.h"
@@ -557,17 +558,56 @@ TEST(TimestampNsFunctionTest, mixed_datetimev2_differences_do_not_narrow_datetim
                      .ok()));
 }
 
-TEST(TimestampNsFunctionTest, nullif_compares_mixed_datetimev2_without_narrowing) {
+TEST(TimestampNsFunctionTest, nullif_compares_timestamp_ns) {
     const InputTypeSet arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
-                                    {PrimitiveType::TYPE_DATETIMEV2, 6}};
+                                    {PrimitiveType::TYPE_TIMESTAMP_NS}};
     EXPECT_TRUE((check_function<DataTypeTimeStampNs, true>(
                          "nullif", arguments,
                          {{{std::string("2024-01-01 00:00:00.123456000"),
-                            std::string("2024-01-01 00:00:00.123456")},
+                            std::string("2024-01-01 00:00:00.123456000")},
                            Null()},
+                          {{std::string("2024-01-01 00:00:00.123456001"),
+                            std::string("2024-01-01 00:00:00.123456000")},
+                           std::string("2024-01-01 00:00:00.123456001")},
                           {{std::string("2262-04-11 23:47:16.854775807"),
-                            std::string("9999-05-11 23:47:16.000000")},
+                            std::string("2200-01-01 00:00:00.000000000")},
                            std::string("2262-04-11 23:47:16.854775807")}})
+                         .ok()));
+}
+
+TEST(TimestampNsFunctionTest, comparisons_preserve_nanoseconds_and_nulls) {
+    const InputTypeSet arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
+                                    {PrimitiveType::TYPE_TIMESTAMP_NS}};
+    const auto before_epoch = std::string("1969-12-31 23:59:59.999999999");
+    const auto epoch = std::string("1970-01-01 00:00:00.000000000");
+    const auto minimum = std::string("1677-09-21 00:12:43.145224192");
+    const auto maximum = std::string("2262-04-11 23:47:16.854775807");
+    for (const auto* name : {"eq", "ne", "lt", "le", "gt", "ge", "eq_for_null"}) {
+        SCOPED_TRACE(name);
+        const std::string_view op = name;
+        const bool equal = op == "eq" || op == "le" || op == "ge" || op == "eq_for_null";
+        const bool less = op == "ne" || op == "lt" || op == "le";
+        const bool greater = op == "ne" || op == "gt" || op == "ge";
+        const DataSet data = {{{before_epoch, epoch}, uint8_t(less)},
+                              {{epoch, before_epoch}, uint8_t(greater)},
+                              {{epoch, epoch}, uint8_t(equal)},
+                              {{minimum, maximum}, uint8_t(less)},
+                              {{maximum, minimum}, uint8_t(greater)}};
+        if (op == "eq_for_null") {
+            EXPECT_TRUE((check_function<DataTypeUInt8>(name, arguments, data).ok()));
+        } else {
+            EXPECT_TRUE((check_function<DataTypeUInt8, true>(name, arguments, data).ok()));
+        }
+    }
+    EXPECT_TRUE((check_function<DataTypeUInt8, true>("eq", arguments,
+                                                     {{{Null(), epoch}, Null()},
+                                                      {{epoch, Null()}, Null()},
+                                                      {{Null(), Null()}, Null()}})
+                         .ok()));
+    EXPECT_TRUE((check_function<DataTypeUInt8>("eq_for_null", arguments,
+                                               {{{Null(), epoch}, uint8_t(0)},
+                                                {{epoch, Null()}, uint8_t(0)},
+                                                {{Null(), Null()}, uint8_t(1)}})
                          .ok()));
 }
 

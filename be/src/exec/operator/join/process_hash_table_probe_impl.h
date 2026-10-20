@@ -482,25 +482,6 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
                           return probe_with_index(
                                   groups, assert_cast<const ColumnTimeStampNs*>(probe_col),
                                   [](const auto& value) { return value.to_date_int_val(); });
-                      },
-                      [&](std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>& groups) -> uint32_t {
-                          return asof_column_dispatch(
-                                  probe_col, [&](const auto* typed_col) -> uint32_t {
-                                      using ColType = std::remove_const_t<
-                                              std::remove_pointer_t<decltype(typed_col)>>;
-                                      if constexpr (std::is_same_v<ColType, ColumnDateTimeV2> ||
-                                                    std::is_same_v<ColType, ColumnTimeStampNs>) {
-                                          return probe_with_index(
-                                                  groups, typed_col, [](const auto& value) {
-                                                      return asof_mixed_datetime_key(value);
-                                                  });
-                                      } else {
-                                          throw Exception(ErrorCode::INTERNAL_ERROR,
-                                                          "Mixed TIMESTAMP_NS/DATETIMEV2 ASOF "
-                                                          "index received {}",
-                                                          probe_col->get_name());
-                                      }
-                                  });
                       }},
             shared_state->asof_index_groups);
 

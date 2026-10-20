@@ -1829,12 +1829,6 @@ public class TypeCoercionUtils {
                 : findWiderCommonTypeForComparison(dataTypes);
     }
 
-    /** Whether the two scalar types are a mixed TIMESTAMP_NS/DATETIMEV2 pair. */
-    public static boolean isTimeStampNsAndDateTimeV2Pair(DataType left, DataType right) {
-        return left instanceof TimeStampNsType && right instanceof DateTimeV2Type
-                || left instanceof DateTimeV2Type && right instanceof TimeStampNsType;
-    }
-
     private static boolean isTimeStampNsAndDateLikePair(DataType left, DataType right) {
         return (left instanceof TimeStampNsType && right.isDateLikeType()
                 && !(right instanceof TimeStampNsType))

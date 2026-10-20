@@ -33,6 +33,62 @@ true	true
 3	3
 4	4
 
+-- !mixed_column_asof_timestamp_ns_lt_false --
+1	1
+2	\N
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_datetimev2_lt_false --
+1	\N
+2	2
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_timestamp_ns_le_false --
+1	1
+2	\N
+3	3
+4	4
+5	\N
+
+-- !mixed_column_asof_datetimev2_le_false --
+1	\N
+2	2
+3	3
+4	4
+5	\N
+
+-- !mixed_column_asof_timestamp_ns_gt_false --
+1	\N
+2	2
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_datetimev2_gt_false --
+1	1
+2	\N
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_timestamp_ns_ge_false --
+1	\N
+2	2
+3	3
+4	4
+5	\N
+
+-- !mixed_column_asof_datetimev2_ge_false --
+1	1
+2	\N
+3	3
+4	4
+5	\N
+
 -- !mixed_literal_in_false --
 true	false
 
@@ -95,6 +151,62 @@ true	true
 -- !mixed_column_hash_join_true --
 3	3
 4	4
+
+-- !mixed_column_asof_timestamp_ns_lt_true --
+1	1
+2	\N
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_datetimev2_lt_true --
+1	\N
+2	2
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_timestamp_ns_le_true --
+1	1
+2	\N
+3	3
+4	4
+5	\N
+
+-- !mixed_column_asof_datetimev2_le_true --
+1	\N
+2	2
+3	3
+4	4
+5	\N
+
+-- !mixed_column_asof_timestamp_ns_gt_true --
+1	\N
+2	2
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_datetimev2_gt_true --
+1	1
+2	\N
+3	\N
+4	\N
+5	\N
+
+-- !mixed_column_asof_timestamp_ns_ge_true --
+1	\N
+2	2
+3	3
+4	4
+5	\N
+
+-- !mixed_column_asof_datetimev2_ge_true --
+1	1
+2	\N
+3	3
+4	4
+5	\N
 
 -- !mixed_literal_in_true --
 true	false
