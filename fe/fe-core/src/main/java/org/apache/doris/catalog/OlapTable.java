@@ -127,6 +127,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -190,9 +191,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
-    // handled in postgsonprocess
+    // handled in postgsonprocess. Sorted, and weakly consistent so that lock-free readers
+    // (e.g. EXPLAIN plan rendering) never hit ConcurrentModificationException while the table
+    // write lock holder adds/drops partitions.
     @Getter
-    protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
+    protected Map<String, Partition> nameToPartition = new ConcurrentSkipListMap<>();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
