@@ -99,6 +99,18 @@ public class PluginDrivenScanNodePartitionCountTest {
                 PluginDrivenScanNode.displayPartitionCounts(prunedToZero));
     }
 
+    @Test
+    public void testUnknownTotalIsPreservedForExplain() {
+        SelectedPartitions pruned = new SelectedPartitions(
+                SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM, items(2), true, true);
+        Assertions.assertArrayEquals(new long[] {2, SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM},
+                PluginDrivenScanNode.displayPartitionCounts(pruned));
+    }
+
+    // A connector-filtered selection deliberately never enumerates the table's full partition view (that
+    // enumeration is what pushing the predicate into the connector avoids), so its total remains unknown and
+    // EXPLAIN renders `N/?`.
+
     // FIX-L12 — guards resolveSelectedPartitionNum, which prefers the connector's real scanned-partition
     // count (distinct native partitions after the connector's SDK manifest/residual/transform pruning) over
     // the engine's Nereids declared-column prune count, so partition=N/M and sql_block_rule reflect what is

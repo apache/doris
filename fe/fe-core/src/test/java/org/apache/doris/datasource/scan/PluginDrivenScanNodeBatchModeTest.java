@@ -19,21 +19,52 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * FIX-BATCH-MODE-SPLIT (P4-T06e / NG-7) — guards {@link PluginDrivenScanNode#shouldUseBatchMode},
@@ -50,7 +81,9 @@ import java.util.Map;
  *
  * <p><b>Coverage scope:</b> the original tests pin the PURE static {@code shouldUseBatchMode} gate. The
  * FIX-M3 tests additionally drive {@code computeBatchMode}'s streaming-flavor dispatch + {@code
- * numApproximateSplits} on a {@code CALLS_REAL_METHODS} mock (connector/desc fields injected). Still NOT
+ * numApproximateSplits} on a {@code CALLS_REAL_METHODS} mock (connector/desc fields injected). The MTMV
+ * tests drive real snapshot warmup, injection into the refresh statement, a no-filter logical scan, the
+ * pre-lock scan-view preload, physical deferred finalization, and the partition-flavor batch gate. Still NOT
  * exercised here: the partition-flavor {@code computeBatchMode} branch's {@code scanProvider != null}
  * null-guard, and BOTH async {@code startSplit} pumps (partition + streaming) — these need a live harness
  * this module lacks (DV-019 gaps), covered by flip-gated e2e.</p>
@@ -102,6 +135,220 @@ public class PluginDrivenScanNodeBatchModeTest {
         SelectedPartitions noPredicateFullScan = new SelectedPartitions(THRESHOLD, items, false);
         Assertions.assertTrue(
                 PluginDrivenScanNode.shouldUseBatchMode(noPredicateFullScan, true, true, THRESHOLD));
+    }
+
+    @Test
+    public void testDeferredPartitionViewMaterializationRestoresFullScanBatchEligibility() {
+        Map<String, PartitionItem> items = new LinkedHashMap<>();
+        for (int index = 0; index < THRESHOLD; index++) {
+            items.put("pt=" + index, Mockito.mock(PartitionItem.class));
+        }
+
+        SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, Optional.of(items));
+
+        Assertions.assertNotSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING, materialized);
+        Assertions.assertTrue(
+                PluginDrivenScanNode.shouldUseBatchMode(materialized, true, true, THRESHOLD));
+    }
+
+    @Test
+    public void testUnavailableDeferredPartitionViewDegradesToScanAll() {
+        // An unrepresentable connector partition makes the whole deferred view unavailable. That must degrade
+        // to NOT_PRUNED (read every partition) instead of an empty selection, which would read none.
+        SelectedPartitions degraded = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                SelectedPartitions.DEFERRED_PARTITION_PRUNING, Optional.empty());
+
+        Assertions.assertSame(SelectedPartitions.NOT_PRUNED, degraded);
+        Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(degraded));
+    }
+
+    @Test
+    public void testMtmvWarmupInvalidMaterializedPinPreservesScanAllBeforeBatchDispatch() {
+        assertMtmvWarmupBatchMode(true);
+    }
+
+    @Test
+    public void testMtmvWarmupValidMaterializedPinRetainsBatchMode() {
+        assertMtmvWarmupBatchMode(false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertMtmvWarmupBatchMode(boolean hasMalformedPartition) {
+        // SELF_MANAGE SELECT id FROM hive_table: enough valid DATE partitions to open the partition batch
+        // gate, plus an HMS-created dt=not-a-date whose id rows still need to be scanned.
+        List<ConnectorPartitionInfo> partitions = new ArrayList<>();
+        for (int index = 0; index < THRESHOLD; index++) {
+            String value = LocalDate.of(2024, 1, 1).plusDays(index).toString();
+            partitions.add(new ConnectorPartitionInfo("dt=" + value, Collections.singletonMap("dt", value),
+                    Collections.emptyMap(), Collections.singletonList(value), Collections.emptyList()));
+        }
+        if (hasMalformedPartition) {
+            partitions.add(new ConnectorPartitionInfo("dt=not-a-date",
+                    Collections.singletonMap("dt", "not-a-date"), Collections.emptyMap(),
+                    Collections.singletonList("not-a-date"), Collections.emptyList()));
+        }
+
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
+        Mockito.when(connector.getCapabilities())
+                .thenReturn(Collections.singleton(ConnectorCapability.SUPPORTS_METADATA_PRELOAD));
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getName()).thenReturn("hive");
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getFullName()).thenReturn("db");
+        Mockito.when(db.getRemoteName()).thenReturn("db");
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(metadata.getTableHandle(session, "db", "hive_table")).thenReturn(Optional.of(handle));
+        // Plain, nontransactional Hive has a lightweight fence rather than a data snapshot.
+        ConnectorMvccSnapshot fence = ConnectorMvccSnapshot.builder().snapshotId(-1L).build();
+        Mockito.when(metadata.beginQuerySnapshot(session, handle)).thenReturn(Optional.of(fence));
+        Mockito.when(metadata.applySnapshot(session, handle, fence)).thenReturn(handle);
+        Mockito.when(metadata.listPartitions(session, handle, Optional.empty())).thenReturn(partitions);
+        Column partitionColumn = new Column("dt", Type.DATEV2);
+        SchemaCacheValue schema = new PluginDrivenSchemaCacheValue(
+                List.of(new Column("id", Type.INT), partitionColumn), List.of(partitionColumn), List.of("dt"));
+        PluginDrivenMvccExternalTable table = new PluginDrivenMvccExternalTable(
+                31L, "hive_table", "hive_table", catalog, db) {
+            @Override
+            protected synchronized void makeSureInitialized() {
+                // No Env-backed catalog initialization in this connector unit test.
+            }
+
+            @Override
+            protected Optional<SchemaCacheValue> getLatestSchemaCacheValue() {
+                return Optional.of(schema);
+            }
+
+            @Override
+            public boolean supportsConnectorPartitionPruning() {
+                return true;
+            }
+        };
+
+        // Same warmup and snapshot injection as MTMVTask.beforeMTMVRefresh, without starting a live job.
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                table.materializePartitionViewForMtmv(lightweight);
+        Assertions.assertTrue(materialized.isPartitionViewMaterialized());
+        Assertions.assertSame(fence, materialized.getConnectorSnapshot());
+        Assertions.assertEquals(THRESHOLD, materialized.getNameToPartitionItem().size());
+        Assertions.assertEquals(partitions.size(), materialized.getNameToLastModifiedMillis().size());
+        Assertions.assertEquals(hasMalformedPartition, materialized.isPartitionInvalid());
+        Assertions.assertEquals(hasMalformedPartition ? PartitionType.UNPARTITIONED : PartitionType.LIST,
+                table.getPartitionType(Optional.of(materialized)));
+
+        ConnectContext connectContext = new ConnectContext();
+        StatementContext statementContext = new StatementContext(connectContext, null);
+        connectContext.setStatementContext(statementContext);
+        connectContext.setThreadLocalInfo();
+        try {
+            statementContext.setSnapshot(new MvccTableInfo(table), materialized);
+            LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table, List.of("hive", "db"),
+                    Collections.emptyList(), Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.of(List.of(new SlotReference("id", IntegerType.INSTANCE))));
+            Assertions.assertTrue(scan.getSelectedPartitions().isDeferredPartitionPruning());
+            Assertions.assertFalse(scan.hasPartitionPredicate());
+
+            TableIf internalTable = Mockito.mock(TableIf.class);
+            Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+            statementContext.getTables().put(List.of("internal", "db", "mv"), internalTable);
+            statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(true);
+            Optional<Map<String, PartitionItem>> scanView = statementContext.resolveScanPartitionView(
+                    table, Optional.empty(), Optional.empty(), () -> {
+                        throw new AssertionError("finalization must consume the warmed scan view");
+                    });
+            Assertions.assertEquals(!hasMalformedPartition, scanView.isPresent());
+
+            ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+            Mockito.when(provider.streamingSplitEstimate(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.anyBoolean())).thenReturn(-1L);
+            Mockito.when(provider.supportsBatchScan(session, handle)).thenReturn(true);
+            PluginDrivenScanNode node = streamingNode(provider);
+            Deencapsulation.setField(node, "connectorSession", session);
+            Deencapsulation.setField(node, "currentHandle", handle);
+            TupleDescriptor desc = Deencapsulation.getField(node, "desc");
+            Mockito.when(desc.getTable()).thenReturn(table);
+            node.setSelectedPartitions(scan.getSelectedPartitions());
+            // Drive the real no-arg finalization resolver, not just the pure SelectedPartitions helper.
+            Deencapsulation.invoke(node, "materializeDeferredSelectedPartitions");
+            SelectedPartitions finalized = Deencapsulation.getField(node, "selectedPartitions");
+            Assertions.assertEquals(!hasMalformedPartition, node.isBatchMode());
+            Assertions.assertFalse((Boolean) Deencapsulation.getField(node, "streamingBatch"));
+            Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(finalized));
+            if (hasMalformedPartition) {
+                Assertions.assertSame(SelectedPartitions.NOT_PRUNED, finalized,
+                        "the malformed partition must not be excluded by startSplit's map-key batches");
+            } else {
+                Assertions.assertFalse(finalized.isNotPruned());
+                Assertions.assertEquals(materialized.getNameToPartitionItem(), finalized.selectedPartitions);
+                Assertions.assertFalse(finalized.isPruned);
+            }
+            Mockito.verify(provider).supportsBatchScan(session, handle);
+            Mockito.verify(metadata, Mockito.times(1)).listPartitions(session, handle, Optional.empty());
+            Mockito.verify(metadata, Mockito.times(1)).beginQuerySnapshot(session, handle);
+            Mockito.verify(metadata, Mockito.times(1)).applySnapshot(session, handle, fence);
+        } finally {
+            try {
+                statementContext.close();
+            } finally {
+                ConnectContext.remove();
+            }
+        }
+    }
+
+    @Test
+    public void testDisabledMvPhysicalFinalizationConsumesThePrelockedView() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnableMaterializedViewRewrite(false);
+        sessionVariable.setEnableDmlMaterializedViewRewrite(false);
+        Map<String, PartitionItem> items = new LinkedHashMap<>();
+        for (int index = 0; index < THRESHOLD; index++) {
+            items.put("pt=" + index, Mockito.mock(PartitionItem.class));
+        }
+        Optional<Map<String, PartitionItem>> scanView = Optional.of(items);
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(31L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty());
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(true);
+
+            Optional<Map<String, PartitionItem>> consumed =
+                    statementContext.resolveScanPartitionView(hiveExternalTable, Optional.empty(),
+                            Optional.empty(), () -> {
+                                throw new AssertionError("physical finalization must reuse the prelocked view");
+                            });
+            SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                    SelectedPartitions.DEFERRED_PARTITION_PRUNING, consumed);
+
+            Assertions.assertEquals(scanView.get().keySet(), materialized.selectedPartitions.keySet());
+            Assertions.assertTrue(PluginDrivenScanNode.shouldUseBatchMode(
+                    materialized, true, true, THRESHOLD));
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
     }
 
     @Test

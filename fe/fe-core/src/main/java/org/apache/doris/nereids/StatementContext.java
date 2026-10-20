@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -34,15 +35,19 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.NereidsToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
@@ -51,12 +56,15 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -65,6 +73,8 @@ import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -111,6 +121,7 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -147,6 +158,7 @@ public class StatementContext implements Closeable {
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
     private boolean rowBinlogReferenceTsoRequired;
+    private boolean skipUnpreloadedScanPartitionPruning;
     private Long rowBinlogReferenceTso;
 
     private OriginStatement originStatement;
@@ -672,6 +684,15 @@ public class StatementContext implements Closeable {
      */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
+        registerExternalTableForPreload(table, tableSnapshot, scanParams, false);
+    }
+
+    /**
+     * Register an external relation for pre-lock metadata preload. {@code hasInitialFilter} records whether
+     * this relation is below an effective LogicalFilter that remains selective after constant folding.
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams, boolean hasInitialFilter) {
         if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
             return;
         }
@@ -687,6 +708,9 @@ public class StatementContext implements Closeable {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
+            if (!hasInitialFilter) {
+                preloadInfo.markUnfilteredLatestRelation();
+            }
         }
     }
 
@@ -1338,6 +1362,12 @@ public class StatementContext implements Closeable {
         latestSnapshots.clear();
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
+        // A recorded scan partition view belongs to ONE execution: carrying it into the next one would pin a
+        // stale partition set and, because the recorded value is what the warmup checks, also suppress warming
+        // that execution. The preload CANDIDATES survive, exactly like the preload completion below.
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            preloadInfo.clearPartitionViews();
+        }
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1488,6 +1518,239 @@ public class StatementContext implements Closeable {
 
     public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
         return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    /** Marks collected view relations whose ids will be replaced when the definition is bound again. */
+    public void markReparsedViewRelationsForPreload(Set<RelationId> relationIds) {
+        externalTablePreloadInfos.values().forEach(info ->
+                relationIds.forEach(info::markReparsedScanRelation));
+    }
+
+    public boolean shouldSkipUnpreloadedScanPartitionPruning() {
+        return skipUnpreloadedScanPartitionPruning;
+    }
+
+    /**
+     * The preload record of one external table, or empty when the table was never registered for preload.
+     * Used by lock-sensitive consumers to reuse metadata the pre-lock preload pass already materialized.
+     *
+     * @param tableId the table's id, as used by {@link #registerExternalTableForPreload}
+     * @return ExternalTablePreloadInfo
+     */
+    public Optional<ExternalTablePreloadInfo> getExternalTablePreloadInfo(long tableId) {
+        return Optional.ofNullable(externalTablePreloadInfos.get(tableId));
+    }
+
+    /**
+     * Materializes every deferred connector partition view that can be consumed while the internal table read
+     * locks are held. This step is unconditional for physical finalization: it exists so the default
+     * configuration gets the lock scope, not only the opt-in {@code enable_preload_external_metadata} pass.
+     *
+     * <p>WHY it is needed at all: {@code QueryPartitionCollector} runs from
+     * {@code InitMaterializationContextHook.afterRewrite}, i.e. while {@link #lock()} is held, and an unfiltered
+     * connector-pruning file scan is still {@code DEFERRED} at that point. Even with both MV rewrite switches
+     * off, {@code PluginDrivenScanNode.doFinalize} still materializes a no-filter deferred scan before the
+     * planner releases the internal read locks. Materializing the same view here moves both consumers outside
+     * the lock window.</p>
+     *
+     * <p>Plan-only EXPLAIN still runs logical partition pruning, so relation-scoped filters must be resolved
+     * before locking even when both MV rewrite switches are off. Only the unfiltered full-view warmup can
+     * be skipped in that configuration. The MV gate is the OR of the query and DML rewrite switches because
+     * either hook can consume a deferred view.</p>
+     */
+    public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+        ConnectContext connectContext = getConnectContext();
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return;
+        }
+        boolean mvCollectorWillRun = connectContext.getSessionVariable().isEnableMaterializedViewRewrite()
+                || connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite();
+        boolean needsUnfilteredScanView = willFinalizePhysicalPlan || mvCollectorWillRun;
+        skipUnpreloadedScanPartitionPruning = !needsUnfilteredScanView;
+        boolean hasPlanReadLockTable = hasAnyPlanReadLockTable();
+        Set<BaseTableInfo> candidateMtmvPctTables = mvCollectorWillRun
+                ? collectCandidateMtmvPctTables() : Collections.emptySet();
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            if (hasPlanReadLockTable) {
+                preloadFilteredScanPartitionViews(preloadInfo);
+                if (needsUnfilteredScanView) {
+                    preloadDeferredScanPartitionView(preloadInfo);
+                }
+            }
+            preloadMtmvPartitionView(preloadInfo, candidateMtmvPctTables);
+        }
+    }
+
+    /** Resolve relation-scoped filters before internal locks, never sharing one alias's subset with another. */
+    private void preloadFilteredScanPartitionViews(ExternalTablePreloadInfo info) {
+        ExternalTable table = info.getTable();
+        if (!info.shouldPreloadLatestSnapshot() || !(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
+            return;
+        }
+        loadSnapshots(table, Optional.empty(), Optional.empty());
+        Optional<MvccSnapshot> snapshot = getSnapshot(table);
+        List<Column> columns = table.getPartitionColumns(snapshot);
+        for (Map.Entry<RelationId, Expression> entry : info.getInitialScanPredicates().entrySet()) {
+            if (info.hasFilteredScanView(entry.getKey())) {
+                continue;
+            }
+            // Only bind declared partition columns here. Full analysis, coercion, privileges and residual
+            // evaluation remain in their normal stages; unsupported forms use the preloaded full view.
+            Expression bound = entry.getValue().rewriteUp(expression -> {
+                if (!(expression instanceof UnboundSlot)) {
+                    return expression;
+                }
+                List<String> names = ((UnboundSlot) expression).getNameParts();
+                String name = names.get(names.size() - 1);
+                return columns.stream().filter(column -> column.getName().equalsIgnoreCase(name))
+                        .findFirst().<Expression>map(column -> new SlotReference(column.getName(),
+                                DataType.fromCatalogType(column.getType()), column.isAllowNull()))
+                        .orElse(expression);
+            });
+            List<Expression> safeConjuncts = ExpressionUtils.extractConjunction(bound).stream()
+                    .filter(StatementContext::isSafeInitialPartitionPredicate).collect(Collectors.toList());
+            ConnectorExpression predicate = safeConjuncts.isEmpty() ? null
+                    : NereidsToConnectorExpressionConverter.convert(ExpressionUtils.and(safeConjuncts));
+            Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> view = predicate == null
+                    ? Optional.empty()
+                    : ((PluginDrivenExternalTable) table).applyPartitionFilterForScan(snapshot, predicate);
+            info.setFilteredScanView(entry.getKey(), view, predicate);
+            if (!view.isPresent() && !info.hasScanPartitionView()) {
+                info.setScanPartitionView(((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(snapshot));
+            }
+        }
+    }
+
+    /** Only prefilter typed equality/IN whose later coercion cannot change partition-value semantics. */
+    private static boolean isSafeInitialPartitionPredicate(Expression expression) {
+        if (expression instanceof EqualTo) {
+            Expression left = expression.child(0);
+            Expression right = expression.child(1);
+            return left instanceof SlotReference && right instanceof Literal
+                    && compatibleInitialPartitionTypes(left.getDataType(), right.getDataType())
+                    || right instanceof SlotReference && left instanceof Literal
+                    && compatibleInitialPartitionTypes(right.getDataType(), left.getDataType());
+        }
+        if (expression instanceof InPredicate && expression.child(0) instanceof SlotReference) {
+            DataType type = expression.child(0).getDataType();
+            return expression.children().subList(1, expression.arity()).stream()
+                    .allMatch(child -> child instanceof Literal
+                            && compatibleInitialPartitionTypes(type, child.getDataType()));
+        }
+        return false;
+    }
+
+    private static boolean compatibleInitialPartitionTypes(DataType column, DataType literal) {
+        // In particular, VARCHAR p = 1 is a numeric comparison, not textual p = '1': prefiltering it as
+        // strings could drop p=01. Let full analysis/coercion handle mixed families on the warmed full view.
+        return column.equals(literal) || column.isIntegralType() && literal.isIntegralType()
+                || column.isStringLikeType() && literal.isStringLikeType();
+    }
+
+    /**
+     * Takes a stable copy of the candidate MVs' PCT table identities without doing connector I/O while an MV lock
+     * is held. The full external views are materialized only after every MV lock has been released.
+     */
+    private Set<BaseTableInfo> collectCandidateMtmvPctTables() {
+        Set<BaseTableInfo> pctTables = new HashSet<>();
+        for (MTMV mtmv : candidateMTMVs) {
+            mtmv.readMvLock();
+            try {
+                mtmv.getMvPartitionInfo().getPctInfos().forEach(
+                        pctInfo -> pctTables.add(pctInfo.getTableInfo()));
+            } finally {
+                mtmv.readMvUnlock();
+            }
+        }
+        return pctTables;
+    }
+
+    /**
+     * Materializes the complete latest partition view needed by an async-MV candidate's partition mapping. This
+     * is deliberately separate from the scan view: a filtered scan must retain connector predicate pruning, while
+     * {@code MTMV.calculatePartitionMappings} still needs the full partition universe for union compensation.
+     */
+    private void preloadMtmvPartitionView(ExternalTablePreloadInfo preloadInfo,
+            Set<BaseTableInfo> candidateMtmvPctTables) {
+        if (preloadInfo.hasMtmvPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || candidateMtmvPctTables.isEmpty()) {
+            return;
+        }
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()
+                || !candidateMtmvPctTables.contains(new BaseTableInfo(table))) {
+            return;
+        }
+        if (preloadInfo.hasScanPartitionView()) {
+            preloadInfo.setMtmvPartitionView(preloadInfo.getScanPartitionView());
+            return;
+        }
+        preloadInfo.setMtmvPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
+    }
+
+    /**
+     * Materializes one table's deferred scan partition view and records it on its preload entry. No-op when the
+     * view is already materialized, when no latest reference is initially unfiltered, or when the connector
+     * does not support deferred partition pruning: a filtered relation must let connector pruning avoid the
+     * full view instead of eagerly enumerating it.
+     */
+    public void preloadDeferredScanPartitionView(ExternalTablePreloadInfo preloadInfo) {
+        if (preloadInfo.hasScanPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || !preloadInfo.shouldPreloadUnfilteredScanPartitionView()) {
+            return;
+        }
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
+            return;
+        }
+        preloadInfo.setScanPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
+    }
+
+    /**
+     * Resolves the scan-path partition view of ONE table reference for every consumer in this statement, from a
+     * single generation.
+     *
+     * <p>WHY one generation: the MV partition compensator decides which base partitions a rewritten query still
+     * has to read from the base table BY NAME - the compensation union branch is restricted to exactly the
+     * recorded names - while the physical scan reads the partitions of its own, later, enumeration. Two
+     * generations mean a partition added between them is read by neither branch, and its rows silently
+     * disappear from a rewritten query. The first caller therefore materializes the view, every later caller in
+     * the same statement reuses it, and the compensation decision and the data read describe the same partition
+     * set. The pre-lock warmup ({@link #preloadDeferredScanPartitionViewsBeforeLock}) normally wins that race,
+     * so the enumeration also stays outside the planner's lock window whenever that step ran.</p>
+     *
+     * <p>A reference carrying a version selector is NOT served from the record, and is not recorded: the record
+     * is per table and the warmup materializes the LATEST generation only, so reusing it for e.g.
+     * {@code @branch} would describe a partition set that reference never reads.</p>
+     *
+     * @param table       the external table the reference belongs to
+     * @param tableSnapshot the reference's FOR VERSION/TIME AS OF selector (if any)
+     * @param scanParams    the reference's {@code @branch}/{@code @tag} selector (if any)
+     * @param enumeration   how to materialize the view when no recorded one applies; invoked at most once per
+     *                      recorded table
+     * @return the view; an {@link Optional#empty()} result means the connector view is UNAVAILABLE, which every
+     *         caller must read as "read every partition", never as "read none"
+     */
+    public Optional<Map<String, PartitionItem>> resolveScanPartitionView(ExternalTable table,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Supplier<Optional<Map<String, PartitionItem>>> enumeration) {
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            return enumeration.get();
+        }
+        // The entry is created on demand rather than required to pre-exist: this is the first phase that runs
+        // after the preload pass (which is done with the map by then, candidates and bookkeeping alike), so
+        // recording here can neither pull the table into a preload nor mutate a finished result.
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo(table));
+        if (!preloadInfo.hasScanPartitionView()) {
+            preloadInfo.setScanPartitionView(enumeration.get());
+        }
+        return preloadInfo.getScanPartitionView();
     }
 
     public int getExternalTablePreloadCandidateCount() {

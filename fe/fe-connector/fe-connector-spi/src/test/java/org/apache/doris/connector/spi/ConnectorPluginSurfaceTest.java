@@ -88,9 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean) - the nullability the
-        // source declares, kept separate from the nullability the engine reads the column with.
-        Assertions.assertEquals("19.0", version.getProperty("api.version"));
+        // Major 20 adds connector partition pruning to the major 19 source-nullability surface.
+        Assertions.assertEquals("20.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
