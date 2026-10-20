@@ -154,19 +154,9 @@ suite("test_search_function", "p0") {
     qt_sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
 
     // Test 22: Search on non-indexed table — must now throw at FE planning time.
-    // After the fix for Jira CIR-20006, RewriteSearchToSlots refuses to rewrite
-    // a SEARCH predicate against a column that has no inverted index, with an
-    // AnalysisException that names the column and points at "inverted index".
-    boolean threw = false
-    try {
+    // CheckAfterRewrite rejects a remaining SEARCH predicate whose column has no inverted index.
+    test {
         sql """SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"""
-    } catch (Exception e) {
-        threw = true
-        logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("inverted index"),
-                   "expected error to mention 'inverted index', got: ${e.getMessage()}")
-        assertTrue(e.getMessage().contains("title"),
-                   "expected error to mention 'title', got: ${e.getMessage()}")
+        exception "Field 'title' has no inverted index"
     }
-    assertTrue(threw, "expected AnalysisException for SEARCH on column without inverted index")
 }
