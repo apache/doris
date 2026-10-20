@@ -36,8 +36,10 @@ import com.google.common.hash.Hashing;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -119,7 +121,10 @@ public class HboJoinConditions {
                 qualifiers.add(String.join(".", ((SlotReference) slot).getQualifier()));
             }
         }
-        return String.join(",", qualifiers) + ';' + String.join(",", bindingsOf(plan));
+        // only the qualifiers: the sub tree of a side differs between the form a group is estimated in
+        // and the chosen plan which is printed, so a key which named the relations below it could not be
+        // matched by the read side (the conditions themselves bind the operands of an inner join)
+        return String.join(",", qualifiers);
     }
 
     /** The alias a query gave a relation, empty when it has none. */
@@ -200,8 +205,58 @@ public class HboJoinConditions {
     private static List<String> sidesOf(Join join) {
         Plan joinPlan = (Plan) join;
         if (join.getJoinType() == JoinType.INNER_JOIN) {
-            return ImmutableList.of(String.join(",", bindingsOf(joinPlan)));
+            return ImmutableList.of(String.join(",", bindingsOfConditions(join)));
         }
         return ImmutableList.of(relationsOf(joinPlan.child(0)), relationsOf(joinPlan.child(1)));
+    }
+
+    /**
+     * The table each qualifier of the join conditions names. The qualifiers come from the conditions
+     * themselves, so the binding is the same wherever the join is described (estimating a group and
+     * printing the chosen plan see different sub trees, while the conditions are the join's own), and a
+     * relation which no condition names does not take part in the key.
+     */
+    private static Set<String> bindingsOfConditions(Join join) {
+        Set<String> qualifiers = new TreeSet<>();
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            collectQualifiers(conjunct, qualifiers);
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            collectQualifiers(conjunct, qualifiers);
+        }
+        Set<String> bindings = new TreeSet<>();
+        if (qualifiers.isEmpty()) {
+            return bindings;
+        }
+        Map<String, String> tables = new TreeMap<>();
+        Plan joinPlan = (Plan) join;
+        List<Plan> relations = joinPlan.collectToList(planNode -> planNode instanceof CatalogRelation);
+        for (Plan node : relations) {
+            CatalogRelation relation = (CatalogRelation) node;
+            String identity = relation.getTable() instanceof OlapTable
+                    ? String.valueOf(((OlapTable) relation.getTable()).getId())
+                    : HboScanDescriptor.qualifiedNameOf(relation.getTable());
+            String alias = aliasOf(relation);
+            if (!alias.isEmpty()) {
+                tables.putIfAbsent(alias, identity);
+            }
+            tables.putIfAbsent(String.join(".", relation.getQualifier()), identity);
+        }
+        for (String qualifier : qualifiers) {
+            String table = tables.get(qualifier);
+            if (table != null) {
+                bindings.add(qualifier + '=' + table);
+            }
+        }
+        return bindings;
+    }
+
+    /** The qualifiers of the slots a condition reads. */
+    private static void collectQualifiers(Expression expression, Set<String> qualifiers) {
+        expression.foreachUp(child -> {
+            if (child instanceof SlotReference) {
+                qualifiers.add(String.join(".", ((SlotReference) child).getQualifier()));
+            }
+        });
     }
 }

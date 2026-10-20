@@ -64,13 +64,13 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     assertTrue(baselineOrder[0].contains("b#"), baseline)
     assertTrue(baselineOrder[1].contains("a#"), baseline)
 
-    // the condition fingerprint of the (t1.a = t2.a) join comes from the explain annotation
-    def condCanonical = "JE{INNER_JOIN;EqualTo(col(internal.hbo_test.hbo_je_t1.a),col(internal.hbo_test.hbo_je_t2.a))}"
-    // the expansion entry of the join is listed as its own line of the annotation block
+    // the condition fingerprint and the struct of the (t1.a = t2.a) join come from the explain
+    // annotation: the key is a structural hash, so it cannot be recomputed from the text here
     def matcher = (annotation(query) =~
-            /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='JE\{INNER_JOIN;EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}'/)
+            /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='(JE\{INNER_JOIN;[^']*)'/)
     assertTrue(matcher.find(), "no condition fingerprint annotation:\n" + annotation(query))
     def condFingerprint = matcher.group(1)
+    def condCanonical = matcher.group(2)
     log.info("(t1.a = t2.a) condition fingerprint: ${condFingerprint}")
 
     try {
