@@ -448,6 +448,8 @@ struct TMasterOpRequest {
     1008: optional bool cursor_fetch_requested
     // Capabilities negotiated with the original MySQL client.
     1009: optional i32 mysql_capability
+    // Whether the client-facing FE can complete an empty cursor with COM_STMT_FETCH.
+    1010: optional bool empty_cursor_supported
 }
 
 struct TColumnDefinition {

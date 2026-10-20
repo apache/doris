@@ -37,6 +37,7 @@ public class PreparedStatementContext {
     // Long data belongs to a prepared statement and survives individual upload commands.
     private final Map<Integer, ByteArrayOutputStream> longData = new HashMap<>();
     private String longDataError;
+    private boolean emptyCursorOpen;
 
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;
@@ -47,6 +48,14 @@ public class PreparedStatementContext {
         this.ctx = ctx;
         this.statementContext = statementContext;
         this.stmtString = stmtString;
+    }
+
+    public boolean isEmptyCursorOpen() {
+        return emptyCursorOpen;
+    }
+
+    public void setEmptyCursorOpen(boolean emptyCursorOpen) {
+        this.emptyCursorOpen = emptyCursorOpen;
     }
 
     public long getStartTime() {

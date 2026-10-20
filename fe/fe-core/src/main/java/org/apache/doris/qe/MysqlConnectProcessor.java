@@ -36,6 +36,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
@@ -148,6 +149,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     @Override
     protected void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx,
             ByteBuffer packetBuf, TUniqueId queryId) {
+        MysqlProtocolAdapter.of(ctx).beginPreparedExecute(prepCtx);
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
@@ -308,6 +310,23 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);
     }
 
+    protected void handleStmtFetch(int stmtId) {
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_fetch", stmtId));
+            return;
+        }
+        if (!prepared.isEmptyCursorOpen()) {
+            ctx.getState().setError(ErrorCode.ERR_STMT_HAS_NO_OPEN_CURSOR,
+                    String.format("The statement (%d) has no open cursor.", stmtId));
+            return;
+        }
+        prepared.setEmptyCursorOpen(false);
+        ctx.getState().setEof();
+        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_LAST_ROW_SENT;
+    }
+
     // Process COM_QUERY statement,
     private void handleQuery() throws ConnectionException {
         // convert statement to Java string
@@ -351,6 +370,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 break;
             case COM_STMT_EXECUTE:
                 handleExecute();
+                break;
+            case COM_STMT_FETCH:
+                packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+                int fetchStmtId = packetBuf.getInt();
+                packetBuf.getInt(); // Requested row count; an empty cursor has no rows to return.
+                handleStmtFetch(fetchStmtId);
                 break;
             case COM_STMT_SEND_LONG_DATA:
                 handleSendLongData();

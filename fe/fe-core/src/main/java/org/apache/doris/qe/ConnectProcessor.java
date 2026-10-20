@@ -163,6 +163,7 @@ public abstract class ConnectProcessor {
             return;
         }
         prepared.clearLongData();
+        prepared.setEmptyCursorOpen(false);
         ctx.getState().setOk();
     }
 

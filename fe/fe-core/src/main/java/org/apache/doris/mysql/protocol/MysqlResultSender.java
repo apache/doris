@@ -135,13 +135,14 @@ public class MysqlResultSender implements ResultSender {
 
     @Override
     public void sendRow(ByteBuffer row) throws IOException {
+        adapter.recordResultRow();
         channel().sendOnePacket(row);
     }
 
     /** Clears the send flag and whatever a failed attempt of the query left in the send buffer. */
     @Override
     public void reset() {
-        channel().reset();
+        adapter.resetResult();
     }
 
     /**
@@ -268,10 +269,8 @@ public class MysqlResultSender implements ResultSender {
             serializer.reset();
             new MysqlEofPacket(ctx.getState()).writeTo(serializer);
             channel.sendOnePacket(serializer.toByteBuffer());
-        } else if (adapter.clientConsumesCursorMetadataTerminator(ctx)) {
-            // Connector/J before 9.5 consumes the first OK packet after column definitions
-            // while probing whether a requested cursor was created. Doris does not create a
-            // cursor, so an empty result would otherwise lose its only end marker and block.
+        } else if (!adapter.isEmptyCursorSupported() && adapter.clientConsumesCursorMetadataTerminator(ctx)) {
+            // Preserve framing for older client-facing FEs during rolling upgrades.
             serializer.reset();
             new MysqlResultSetEndPacket(ctx.getState()).writeTo(serializer);
             channel.sendOnePacket(serializer.toByteBuffer());
@@ -280,7 +279,6 @@ public class MysqlResultSender implements ResultSender {
 
     private void sendTextResultRow(ResultSet resultSet) throws IOException {
         MysqlSerializer serializer = serializer();
-        MysqlChannel channel = channel();
         for (List<String> row : resultSet.getResultRows()) {
             serializer.reset();
             for (String item : row) {
@@ -290,13 +288,12 @@ public class MysqlResultSender implements ResultSender {
                     serializer.writeLenEncodedString(item);
                 }
             }
-            channel.sendOnePacket(serializer.toByteBuffer());
+            sendRow(serializer.toByteBuffer());
         }
     }
 
     private void sendBinaryResultRow(ResultSet resultSet) throws IOException {
         MysqlSerializer serializer = serializer();
-        MysqlChannel channel = channel();
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
         ResultSetMetaData metaData = resultSet.getMetaData();
         int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
@@ -359,7 +356,7 @@ public class MysqlResultSender implements ResultSender {
                     }
                 }
             }
-            channel.sendOnePacket(serializer.toByteBuffer());
+            sendRow(serializer.toByteBuffer());
         }
     }
 

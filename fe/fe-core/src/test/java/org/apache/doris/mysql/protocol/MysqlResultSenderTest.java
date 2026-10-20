@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel.RecordedPacket;
+import org.apache.doris.thrift.TMasterOpRequest;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -151,23 +152,33 @@ public class MysqlResultSenderTest {
     }
 
     @Test
-    public void testCursorFetchMetadataTerminatorDependsOnConnectorJVersion() throws IOException {
-        List<byte[]> connector82Packets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0");
-        Assertions.assertEquals(3, connector82Packets.size());
-        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
-        Assertions.assertTrue(connector82Packets.get(2).length > 5);
-
-        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector Java", "5.1.49").size());
-        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "6.0.6").size());
-        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "9.4.0").size());
-        Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
+    public void testCursorFetchMetadataHasNoExtraTerminator() throws IOException {
+        for (String version : new String[] {"8.0.27", "8.4.0", "9.4.0", "9.7.0"}) {
+            Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", version).size());
+        }
+        Assertions.assertEquals(2, sendEmptyResultSet(true, Collections.emptyMap(), true).size());
         Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());
-        Assertions.assertEquals(2, sendEmptyResultSet(true, "MariaDB Connector/J", "3.5.6").size());
-        Assertions.assertEquals(3, sendEmptyResultSet(true, Collections.emptyMap(), true).size());
-
         List<byte[]> legacyEofPackets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0", false);
         Assertions.assertEquals(3, legacyEofPackets.size());
         Assertions.assertEquals(5, legacyEofPackets.get(2).length);
+    }
+
+    @Test
+    public void testOlderFeKeepsLegacyCursorMetadataFraming() throws IOException {
+        RecordingMysqlChannel channel = newChannel(true);
+        ConnectContext ctx = newContext(channel);
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setClientDeprecatedEOF(true);
+        request.setCursorFetchRequested(true);
+        MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
+        ctx.setConnectAttributes(ImmutableMap.of(
+                "_client_name", "MySQL Connector/J", "_client_version", "8.0.27"));
+        ctx.getResultSender().sendResultSet(new CommonResultSet(
+                new CommonResultSetMetaData(Collections.singletonList(new Column("c", PrimitiveType.INT))),
+                Collections.emptyList()), null, true);
+        List<byte[]> packets = payloads(channel);
+        Assertions.assertEquals(3, packets.size());
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(packets.get(2)[0]));
     }
 
     @Test
