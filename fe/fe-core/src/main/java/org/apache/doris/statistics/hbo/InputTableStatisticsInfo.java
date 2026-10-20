@@ -17,8 +17,13 @@
 
 package org.apache.doris.statistics.hbo;
 
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -36,8 +41,14 @@ public class InputTableStatisticsInfo {
     /**
      * Fold the input table statistics of another node which shares the fingerprint of this one: two
      * runtime nodes can carry one fingerprint (the two scans of a self join, for instance), and the
-     * provider stores one entry per fingerprint. Their input statistics are concatenated, which is what
-     * the drift comparison reads - it sums the rows of every recorded scan of a table.
+     * provider stores one entry per fingerprint.
+     *
+     * <p>The two nodes read the same table population, so an entry of the same scan (the same table, the
+     * same index and the same partitions) is one population however many nodes read it: folding two of
+     * them keeps the larger measurement instead of adding the two up. Summing them would describe a table
+     * which holds the rows of both scans at once, and the drift comparison - which sums the rows of every
+     * recorded scan of a table - would then judge the next query of a single scan stale by construction.
+     * Two different scans are both kept, because they describe two populations.
      */
     public InputTableStatisticsInfo merge(InputTableStatisticsInfo other) {
         if (inputTableStatistics.isEmpty()) {
@@ -46,9 +57,38 @@ public class InputTableStatisticsInfo {
         if (other.inputTableStatistics.isEmpty()) {
             return this;
         }
-        List<PlanStatistics> merged = new ArrayList<>(inputTableStatistics.get());
-        merged.addAll(other.inputTableStatistics.get());
-        return new InputTableStatisticsInfo(Optional.of(merged));
+        Map<String, PlanStatistics> merged = new LinkedHashMap<>();
+        for (PlanStatistics statistics : inputTableStatistics.get()) {
+            merged.merge(identityOf(statistics), statistics, InputTableStatisticsInfo::largerRows);
+        }
+        for (PlanStatistics statistics : other.inputTableStatistics.get()) {
+            merged.merge(identityOf(statistics), statistics, InputTableStatisticsInfo::largerRows);
+        }
+        return new InputTableStatisticsInfo(Optional.of(new ArrayList<>(merged.values())));
+    }
+
+    /** The larger of two measurements of one population. */
+    private static PlanStatistics largerRows(PlanStatistics first, PlanStatistics second) {
+        return second.getInputRows() > first.getInputRows() ? second : first;
+    }
+
+    /**
+     * The scan an entry describes: its table, its index and the partitions it selected. Two scans which
+     * differ only by their predicates read one population, so they share the identity a plan sorts them
+     * by ({@code S{<table>#pt:...#ix:...}}).
+     */
+    private static String identityOf(PlanStatistics statistics) {
+        if (!(statistics instanceof ScanPlanStatistics)) {
+            return "node#" + statistics.getNodeId();
+        }
+        ScanPlanStatistics scanStatistics = (ScanPlanStatistics) statistics;
+        if (scanStatistics.getScan() == null || scanStatistics.getScan().getTable() == null) {
+            return "node#" + statistics.getNodeId();
+        }
+        PhysicalOlapScan scan = scanStatistics.getScan();
+        List<Long> partitions = new ArrayList<>(scan.getSelectedPartitionIds());
+        Collections.sort(partitions);
+        return scan.getTable().getId() + "#" + scan.getSelectedIndexId() + "#" + partitions;
     }
 
     /**
