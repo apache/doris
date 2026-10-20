@@ -189,6 +189,26 @@ suite("test_score_filter_usage", "p0") {
         WITH c AS (SELECT id, c1 FROM test_score_filter_usage WHERE c1 MATCH 'apple')
         SELECT id FROM c WHERE score() > 0.00001
     """
+    // A filter on a score alias becomes a score() filter above the window; it must not move below it.
+    test {
+        sql """
+            SELECT id, rn FROM (
+                SELECT id, row_number() OVER (ORDER BY id) AS rn, score() AS s FROM test_score_filter_usage
+                WHERE c1 MATCH 'apple'
+            ) w WHERE s > 0.00001
+        """
+        exception "score() filter must be in the WHERE clause of a query on one table"
+    }
+    // Without a window, a filter on a score alias binds to the scan that computes the score.
+    order_qt_alias_score_range """
+        SELECT id, s FROM (SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple') x
+        WHERE s > 0.00001
+    """
+    order_qt_alias_join_score_range """
+        SELECT a.id, b.c2 FROM (
+            SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+        ) a JOIN test_score_filter_usage b ON a.id = b.id WHERE a.s > 0.00001
+    """
 
     // A projected MATCH must not add its BM25 score to the one the filter compares (0.4700036).
     order_qt_projected_match_above_score """

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -129,6 +130,37 @@ class PushDownFilterThroughWindowTest extends TestWithFeService implements MemoP
                                         logicalOlapScan()
                                 )
                         ).when(f -> f.getConjuncts().contains(filterPredicate))
+                );
+    }
+
+    /**
+     * score() has no input slot but differs per row, so a score() filter above a window must not
+     * filter the rows the window functions see.
+     */
+    @Test
+    void testDoNotPushScoreThroughWindow() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), ImmutableList.of(age),
+                Lists.newArrayList(), windowFrame);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(
+                Lists.newArrayList(new Alias(window1, window1.toSql())), scan);
+        Expression scorePredicate = new GreaterThan(new Score(), Literal.of(0.5));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(scorePredicate)
+                .build();
+        PlanChecker.from(context, plan)
+                .applyTopDown(new PushDownFilterThroughWindow())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalWindow(
+                                        logicalOlapScan()
+                                )
+                        ).when(f -> f.getConjuncts().contains(scorePredicate))
                 );
     }
 

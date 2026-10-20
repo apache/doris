@@ -60,6 +60,14 @@
 1
 2
 
+-- !alias_score_range --
+1	0.4700036
+2	0.4700036
+
+-- !alias_join_score_range --
+1	sweet
+2	sour
+
 -- !projected_match_above_score --
 
 -- !projected_match_score --

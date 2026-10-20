@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -97,7 +98,10 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
         // changes the value of every window function (row_number, rank, sum, ...). In addition,
         // a predicate like `rand() > 0.5` has empty input slots, so `containsAll(emptySet)`
         // would otherwise wrongly return true.
+        // score() has no input slot either, but it is the score of each scanned row, so it must
+        // stay above the window for the same reason.
         return !conjunct.containsVolatileOrNoneMovableExpression()
+                && !conjunct.containsType(Score.class)
                 && commonPartitionKeys.containsAll(conjunct.getInputSlots());
     }
 }

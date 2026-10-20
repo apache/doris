@@ -268,12 +268,26 @@ class CheckScoreUsageTest extends TestWithFeService {
         // The CTE is inlined after analysis, exposing the window to the outer filter.
         assertScoreUsageError("WITH w AS (SELECT id, row_number() OVER (ORDER BY id) AS rn FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple') SELECT * FROM w WHERE score() > 0.00001", error);
+        // Window extraction computes the alias above the window, so the filter on s turns into a
+        // score() filter there.
+        assertScoreUsageError("SELECT id, rn FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn,"
+                + " score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple') w WHERE s > 0.00001", error);
     }
 
     @Test
     void testScoreFilterOnCteOfOneScan() {
         assertScoreRangeWithoutTopN("WITH c AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')"
                 + " SELECT id FROM c WHERE score() > 0.00001");
+    }
+
+    @Test
+    void testScoreAliasFilterBindsToItsScan() {
+        assertScoreRangeWithoutTopN("SELECT id, s FROM (SELECT id, score() AS s FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple') x WHERE s > 0.00001", 2);
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT a.id, b.c2 FROM (SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple') a"
+                        + " JOIN score_usage_V3 b ON a.id = b.id WHERE a.s > 0.00001",
+                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
     }
 
     @Test
