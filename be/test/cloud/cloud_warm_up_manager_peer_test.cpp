@@ -20,7 +20,12 @@
 // update_peer_candidate_on_success, update_peer_candidate_on_rpc_failure,
 // and remove_balanced_tablet.
 
+#include <bvar/bvar.h>
 #include <gtest/gtest.h>
+
+#include <chrono>
+#include <optional>
+#include <vector>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_warm_up_manager.h"
@@ -28,6 +33,9 @@
 #include "util/defer_op.h"
 
 namespace doris {
+
+extern bvar::Adder<uint64_t> g_peer_candidate_cache_hit;
+extern bvar::Adder<uint64_t> g_peer_candidate_cache_miss;
 
 // ============================================================
 // Test fixture
@@ -522,6 +530,65 @@ TEST_F(CloudWarmUpManagerPeerTest, cooldown_noop_for_unknown_tablet) {
     // Should not crash or create phantom entries.
     _mgr->record_peer_all_miss(99999);
     EXPECT_FALSE(_mgr->is_peer_cooldown(99999));
+}
+
+// has_peer_candidates() answers without touching candidate expiry, cooldown state or bvars, unlike
+// get_peer_candidates().
+TEST_F(CloudWarmUpManagerPeerTest, has_peer_candidates_is_read_only) {
+    const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+    const auto make = [](bool with_candidate, int64_t cooldown_until_ms) {
+        TabletPeerCandidates tpc;
+        if (with_candidate) {
+            tpc.candidates.push_back(PeerCandidate {.host = "192.168.0.1",
+                                                    .brpc_port = 9060,
+                                                    .compute_group_id = "cg_a",
+                                                    .last_access_time_ms = 123});
+        }
+        tpc.consecutive_all_miss = cooldown_until_ms == 0 ? 0 : 5;
+        tpc.cooldown_until_ms = cooldown_until_ms;
+        return tpc;
+    };
+    constexpr int64_t kEmpty = 201;
+    constexpr int64_t kCooling = 202;
+    constexpr int64_t kCooldownExpired = 203;
+    constexpr int64_t kReady = 204;
+    _mgr->set_tablet_peer_candidates(kEmpty, make(false, 0));
+    _mgr->set_tablet_peer_candidates(kCooling, make(true, now_ms + 60000));
+    _mgr->set_tablet_peer_candidates(kCooldownExpired, make(true, now_ms - 1000));
+    _mgr->set_tablet_peer_candidates(kReady, make(true, 0));
+
+    const uint64_t hit_before = g_peer_candidate_cache_hit.get_value();
+    const uint64_t miss_before = g_peer_candidate_cache_miss.get_value();
+    std::vector<std::optional<TabletPeerCandidates>> before;
+    for (int64_t tablet_id : {kEmpty, kCooling, kCooldownExpired, kReady}) {
+        before.push_back(_mgr->get_tablet_peer_info(tablet_id));
+    }
+
+    EXPECT_FALSE(_mgr->has_peer_candidates(200)); // unknown tablet
+    EXPECT_FALSE(_mgr->has_peer_candidates(kEmpty));
+    EXPECT_FALSE(_mgr->has_peer_candidates(kCooling));
+    EXPECT_TRUE(_mgr->has_peer_candidates(kCooldownExpired));
+    EXPECT_TRUE(_mgr->has_peer_candidates(kReady));
+
+    EXPECT_EQ(g_peer_candidate_cache_hit.get_value(), hit_before);
+    EXPECT_EQ(g_peer_candidate_cache_miss.get_value(), miss_before);
+    EXPECT_FALSE(_mgr->get_tablet_peer_info(200).has_value());
+    size_t index = 0;
+    for (int64_t tablet_id : {kEmpty, kCooling, kCooldownExpired, kReady}) {
+        SCOPED_TRACE(tablet_id);
+        const auto after = _mgr->get_tablet_peer_info(tablet_id);
+        ASSERT_TRUE(after.has_value());
+        const auto& expected = *before[index++];
+        EXPECT_EQ(after->cooldown_until_ms, expected.cooldown_until_ms);
+        EXPECT_EQ(after->consecutive_all_miss, expected.consecutive_all_miss);
+        ASSERT_EQ(after->candidates.size(), expected.candidates.size());
+        for (size_t i = 0; i < expected.candidates.size(); ++i) {
+            EXPECT_EQ(after->candidates[i].last_access_time_ms,
+                      expected.candidates[i].last_access_time_ms);
+        }
+    }
 }
 
 } // namespace doris

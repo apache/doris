@@ -1389,20 +1389,29 @@ void CloudWarmUpManager::rotate_peer_candidate_on_cache_miss(int64_t tablet_id,
     }
 }
 
-bool CloudWarmUpManager::is_peer_cooldown(int64_t tablet_id) const {
-    const auto& shard = get_shard(tablet_id);
-    std::unique_lock<bthread::Mutex> lock(shard.mtx);
-    auto it = shard.tablets.find(tablet_id);
-    if (it == shard.tablets.end()) {
-        return false;
-    }
-    if (it->second.cooldown_until_ms <= 0) {
+bool CloudWarmUpManager::is_cooling_down(const TabletPeerCandidates& tpc) {
+    if (tpc.cooldown_until_ms <= 0) {
         return false;
     }
     int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
-    return now_ms < it->second.cooldown_until_ms;
+    return now_ms < tpc.cooldown_until_ms;
+}
+
+bool CloudWarmUpManager::is_peer_cooldown(int64_t tablet_id) const {
+    const auto& shard = get_shard(tablet_id);
+    std::unique_lock<bthread::Mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    return it != shard.tablets.end() && is_cooling_down(it->second);
+}
+
+bool CloudWarmUpManager::has_peer_candidates(int64_t tablet_id) const {
+    const auto& shard = get_shard(tablet_id);
+    std::unique_lock<bthread::Mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    return it != shard.tablets.end() && !it->second.candidates.empty() &&
+           !is_cooling_down(it->second);
 }
 
 void CloudWarmUpManager::record_peer_all_miss(int64_t tablet_id) {
