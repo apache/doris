@@ -2224,10 +2224,15 @@ public:
 
                 if (is_last_parent && !value_written) {
                     value_written = true;
-                    writer.writeStartObject();
+                    // The current object is already open above and is waiting for a key, so the
+                    // new member must be appended to it directly. Opening another object here
+                    // would be rejected by the writer, and closing one here would end the
+                    // current object early; the writeEndObject below would then close its
+                    // parent as well, silently dropping every member that follows the current
+                    // one. For example, {"a":{},"b":2} with path $.a.c used to return
+                    // {"a":{"c":1}} instead of {"a":{"c":1},"b":2}.
                     writer.writeKey(last_leg->leg_ptr, static_cast<uint8_t>(last_leg->leg_len));
                     writer.writeValue(value);
-                    writer.writeEndObject();
                 }
                 writer.writeEndObject();
 
