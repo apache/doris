@@ -242,6 +242,29 @@ class TimestampNsFunctionSignatureTest {
     }
 
     @Test
+    void testContainerConstructorsKeepIndependentTemporalTypes() {
+        for (DataType temporalType : new DataType[] {DateV2Type.INSTANCE, DateTimeV2Type.MAX,
+                TimeStampTzType.MAX}) {
+            Expression temporal = SlotReference.of("temporal", temporalType);
+            for (BoundFunction function : new BoundFunction[] {
+                    new CreateStruct(temporal, timestampNs),
+                    new CreateNamedStruct(new VarcharLiteral("date"), temporal,
+                            new VarcharLiteral("timestamp"), timestampNs),
+                    new CreateMap(temporal, timestampNs),
+                    new CreateMap(timestampNs, temporal)}) {
+                Expression coerced = TypeCoercionUtils.processBoundFunction(function);
+                Assertions.assertEquals(function.children(), coerced.children(), function.getName());
+            }
+            // MAP keys still share a common type independently of the value argument group.
+            Expression map = TypeCoercionUtils.processBoundFunction(new CreateMap(
+                    temporal, new IntegerLiteral(1), timestampNs, new IntegerLiteral(2)));
+            Assertions.assertEquals(TimeStampNsType.INSTANCE, map.child(0).getDataType());
+            Assertions.assertTrue(((Cast) map.child(0)).isStrict());
+            Assertions.assertEquals(timestampNs, map.child(2));
+        }
+    }
+
+    @Test
     void testMicrosecondArithmeticDoesNotRewriteTimestampNsToDatetimeV2() {
         VarcharLiteral interval = new VarcharLiteral("1.000001");
         assertTimestampNsBinary(new NanoSecondsAdd(timestampNs, new IntegerLiteral(1)));

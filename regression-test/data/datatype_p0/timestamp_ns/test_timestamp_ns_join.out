@@ -77,3 +77,10 @@
 -- !datetimev2_asof_timestamp_ns --
 1	\N
 
+-- !asof_after_conversion_errors --
+3	1
+4	\N
+
+-- !asof_nullable_build_after_conversion_errors --
+1	3
+

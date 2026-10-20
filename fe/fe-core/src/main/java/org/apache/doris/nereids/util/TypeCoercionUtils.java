@@ -395,6 +395,33 @@ public class TypeCoercionUtils {
                 && dataTypes.stream().anyMatch(TypeCoercionUtils::hasOtherDateLikeType);
     }
 
+    private static boolean hasDateLikeToTimeStampNsCast(DataType sourceType, DataType targetType) {
+        if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
+            return hasDateLikeToTimeStampNsCast(((ArrayType) sourceType).getItemType(),
+                    ((ArrayType) targetType).getItemType());
+        } else if (sourceType instanceof MapType && targetType instanceof MapType) {
+            MapType sourceMap = (MapType) sourceType;
+            MapType targetMap = (MapType) targetType;
+            return hasDateLikeToTimeStampNsCast(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || hasDateLikeToTimeStampNsCast(sourceMap.getValueType(), targetMap.getValueType());
+        } else if (sourceType instanceof StructType && targetType instanceof StructType) {
+            List<StructField> sourceFields = ((StructType) sourceType).getFields();
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            // CheckCast rejects different field counts; such structs have no aligned conversion to inspect.
+            if (sourceFields.size() != targetFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < sourceFields.size(); i++) {
+                if (hasDateLikeToTimeStampNsCast(sourceFields.get(i).getDataType(),
+                        targetFields.get(i).getDataType())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return isOtherDateLikeType(sourceType) && targetType.isTimeStampNsType();
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         return hasSpecifiedType(dataType, type -> specifiedType.isAssignableFrom(type.getClass()));
     }
@@ -602,8 +629,7 @@ public class TypeCoercionUtils {
 
     /** Cast a date-like value to TIMESTAMP_NS and abort on conversion overflow. */
     public static Expression castIfNotSameTypeForTimeStampNsCoercion(Expression input, DataType targetType) {
-        if (hasTimeStampNsType(targetType)
-                && hasOtherDateLikeType(input.getDataType())) {
+        if (hasDateLikeToTimeStampNsCast(input.getDataType(), targetType)) {
             return strictCastIfNotSameType(input, targetType);
         }
         return castIfNotSameType(input, targetType);
@@ -612,8 +638,7 @@ public class TypeCoercionUtils {
     /** Preserve strict type matching while making date-like to TIMESTAMP_NS casts fail-fast. */
     public static Expression castIfNotSameTypeStrictForTimeStampNsCoercion(
             Expression input, DataType targetType) {
-        if (hasTimeStampNsType(targetType)
-                && hasOtherDateLikeType(input.getDataType())) {
+        if (hasDateLikeToTimeStampNsCast(input.getDataType(), targetType)) {
             return strictCastIfNotSameType(input, targetType);
         }
         return castIfNotSameTypeStrict(input, targetType);
@@ -833,8 +858,7 @@ public class TypeCoercionUtils {
             DataType argType = child.getDataType();
             Optional<DataType> castType = castTypes.get(childIndex);
             if (castType.isPresent() && !castType.get().equals(argType)) {
-                if (strictTimeStampNsCoercion && hasTimeStampNsType(castType.get())
-                        && hasOtherDateLikeType(argType)) {
+                if (strictTimeStampNsCoercion && hasDateLikeToTimeStampNsCast(argType, castType.get())) {
                     return strictCastIfNotSameType(child, castType.get());
                 }
                 return TypeCoercionUtils.castIfNotMatchType(child, castType.get());

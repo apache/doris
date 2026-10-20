@@ -587,6 +587,69 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testTimestampNsStrictnessMatchesCorrespondingContainerLeaves() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableStrictCast = false;
+        connectContext.setThreadLocalInfo();
+        StructType sourceStruct = new StructType(ImmutableList.of(
+                new StructField("d", DateV2Type.INSTANCE, true, ""),
+                new StructField("v", BigIntType.INSTANCE, true, "")));
+        StructType targetStruct = new StructType(ImmutableList.of(
+                new StructField("d", DateV2Type.INSTANCE, true, ""),
+                new StructField("v", TimeStampNsType.INSTANCE, true, "")));
+        StructType temporalTargetStruct = new StructType(ImmutableList.of(
+                new StructField("d", TimeStampNsType.INSTANCE, true, ""),
+                new StructField("v", BigIntType.INSTANCE, true, "")));
+        List<DataType> sources = ImmutableList.of(sourceStruct, ArrayType.of(sourceStruct),
+                MapType.of(DateV2Type.INSTANCE, BigIntType.INSTANCE),
+                MapType.of(IntegerType.INSTANCE, ArrayType.of(sourceStruct)));
+        List<DataType> targets = ImmutableList.of(targetStruct, ArrayType.of(targetStruct),
+                MapType.of(DateV2Type.INSTANCE, TimeStampNsType.INSTANCE),
+                MapType.of(IntegerType.INSTANCE, ArrayType.of(targetStruct)));
+        List<DataType> temporalTargets = ImmutableList.of(temporalTargetStruct,
+                ArrayType.of(temporalTargetStruct), MapType.of(TimeStampNsType.INSTANCE, BigIntType.INSTANCE),
+                MapType.of(IntegerType.INSTANCE, ArrayType.of(temporalTargetStruct)));
+        try {
+            for (boolean newBehavior : ImmutableList.of(false, true)) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                for (int i = 0; i < sources.size(); i++) {
+                    Expression source = new SlotReference("source", sources.get(i));
+                    DataType targetType = targets.get(i);
+                    Expression target = new SlotReference("target", targetType);
+                    Expression flag = new SlotReference("flag", BooleanType.INSTANCE);
+                    Expression caseWhen = TypeCoercionUtils.processCaseWhen(new CaseWhen(
+                            ImmutableList.of(new WhenClause(flag, source)), target));
+                    Expression coalesce = TypeCoercionUtils.processBoundFunction(new Coalesce(source, target));
+                    for (Expression cast : ImmutableList.of(
+                            TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(source, targetType),
+                            TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(source, targetType),
+                            caseWhen.child(0).child(1), coalesce.child(0))) {
+                        Assertions.assertInstanceOf(Cast.class, cast);
+                        Assertions.assertFalse(((Cast) cast).isStrict(), cast.toSql());
+                        Assertions.assertEquals(source, cast.child(0));
+                    }
+                    for (Expression cast : ImmutableList.of(
+                            TypeCoercionUtils.castIfNotSameTypeForTimeStampNsCoercion(
+                                    source, temporalTargets.get(i)),
+                            TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+                                    source, temporalTargets.get(i)))) {
+                        Assertions.assertInstanceOf(Cast.class, cast);
+                        Assertions.assertTrue(((Cast) cast).isStrict(), cast.toSql());
+                    }
+                }
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testTimestampNsLiteralAndCommonTypeCoercion() {
         String timestamp = "2024-01-02 03:04:05.123456789";
         Optional<Expression> literal = TypeCoercionUtils.characterLiteralTypeCoercion(

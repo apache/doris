@@ -62,8 +62,62 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
             (6, [null], [[null]], [null], [[null]])
     """
 
+    sql "drop table if exists timestamp_ns_unrelated_container_casts"
+    sql """
+        create table timestamp_ns_unrelated_container_casts (
+            id int,
+            flag boolean,
+            s struct<d:datev2,v:bigint>,
+            n struct<d:datev2,v:timestamp_ns>
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_unrelated_container_casts values
+        (1, true, struct(cast('2024-01-01' as datev2), cast(25000101000000 as bigint)),
+            struct(cast('2024-01-01' as datev2), cast('2024-01-01' as timestamp_ns))),
+        (2, false, struct(cast('2024-01-01' as datev2), cast(25000101000000 as bigint)),
+            struct(cast('2024-01-01' as datev2), cast('2024-01-01' as timestamp_ns))),
+        (3, true, struct(cast('2024-01-01' as datev2), cast(20240101000000 as bigint)),
+            struct(cast('2024-01-01' as datev2), cast('2024-01-01' as timestamp_ns))),
+        (4, true, null, null)
+    """
+
     def checkCoercionMode = { mode ->
         sql "set global enable_new_type_coercion_behavior = ${mode}"
+
+        // An unchanged DATEV2 field must not force an unrelated BIGINT -> TIMESTAMP_NS
+        // field conversion to become strict. Out-of-range numeric fields keep their normal NULL.
+        "order_qt_unrelated_container_casts_${mode}" """
+            select id,
+                   case when flag then s else n end,
+                   coalesce(s, n), if(flag, s, n),
+                   case when flag then array(s) else array(n) end,
+                   coalesce(array(s), array(n)),
+                   case when flag then map(cast('2024-01-01' as datev2), struct_element(s, 'v'))
+                        else map(cast('2024-01-01' as datev2), struct_element(n, 'v')) end,
+                   coalesce(map(cast('2024-01-01' as datev2), struct_element(s, 'v')),
+                            map(cast('2024-01-01' as datev2), struct_element(n, 'v'))),
+                   case when flag then map(1, array(s)) else map(1, array(n)) end
+            from timestamp_ns_unrelated_container_casts
+            order by id
+        """
+        "order_qt_unrelated_container_union_${mode}" """
+            select id, value from (
+                select id, s as value from timestamp_ns_unrelated_container_casts
+                union all
+                select id + 10, n as value from timestamp_ns_unrelated_container_casts
+            ) u order by id
+        """
+        "qt_unrelated_container_literals_${mode}" """
+            select coalesce(
+                struct(cast('2024-01-01' as datev2), cast(25000101000000 as bigint)),
+                struct(cast('2024-01-01' as datev2), cast('2024-01-01' as timestamp_ns))),
+                coalesce(
+                    map(cast('2024-01-01' as datev2), cast(25000101000000 as bigint)),
+                    map(cast('2024-01-01' as datev2), cast('2024-01-01' as timestamp_ns)))
+        """
 
         "qt_mixed_temporal_container_literals_${mode}" """
             select
@@ -82,6 +136,14 @@ suite("test_timestamp_ns_mixed_datetime_coercion", "nonConcurrent") {
         for (def date : ['1600-01-01', '2500-01-01']) {
             def dt = "cast('${date}' as datev2)"
             def ns = "cast('2024-01-01 00:00:00' as timestamp_ns)"
+            // Keys share a temporal type, while the DATEV2 values remain an independent group.
+            test {
+                sql """
+                    select map(${dt}, cast('2024-01-01' as datev2),
+                               ${ns}, cast('2024-01-01' as datev2))
+                """
+                exception "outside Int64 epoch nanosecond range"
+            }
             for (def containers : [["array(${dt})", "array(${ns})"],
                                    ["array(array(${dt}))", "array(array(${ns}))"]]) {
                 for (def operands : [containers, containers.reverse()]) {

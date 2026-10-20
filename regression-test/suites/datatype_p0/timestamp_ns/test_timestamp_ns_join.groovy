@@ -311,4 +311,76 @@ suite("test_timestamp_ns_join") {
         match_condition(l.dt >= r.dt)
         on l.id = r.id
     """
+
+    sql "drop table if exists timestamp_ns_asof_fallible_datetime"
+    sql """
+        create table timestamp_ns_asof_fallible_datetime (
+            id int,
+            k int,
+            dt datetimev2(6)
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "drop table if exists timestamp_ns_asof_fallible_timestamp"
+    sql """
+        create table timestamp_ns_asof_fallible_timestamp (
+            id int,
+            k int,
+            ts timestamp_ns
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_asof_fallible_datetime values
+        (1, 1, '2500-01-01 00:00:00'), (2, 1, '1600-01-01 00:00:00'),
+        (3, 1, '2024-01-01 00:00:00'), (4, 1, null)
+    """
+    sql """
+        insert into timestamp_ns_asof_fallible_timestamp values
+        (1, 1, '2024-01-01 00:00:00')
+    """
+    // Keep the build side nonempty so the probe expression is evaluated rather than short-circuited.
+    // Strict temporal casts on either side must return the original overflow, including in ASAN.
+    for (def joinType : ["asof inner join", "asof left join"]) {
+        for (def op : [">=", ">", "<=", "<"]) {
+            for (def id : [1, 2]) {
+                test {
+                    sql """
+                        select l.id, r.id
+                        from (select * from timestamp_ns_asof_fallible_datetime where id = ${id}) l
+                        ${joinType} timestamp_ns_asof_fallible_timestamp r
+                        match_condition(l.dt ${op} r.ts) on l.k = r.k
+                    """
+                    exception "TIMESTAMP_NS overflow"
+                }
+                test {
+                    sql """
+                        select l.id, r.id
+                        from timestamp_ns_asof_fallible_timestamp l
+                        ${joinType}
+                            (select * from timestamp_ns_asof_fallible_datetime where id = ${id}) r
+                        match_condition(l.ts ${op} r.dt) on l.k = r.k
+                    """
+                    exception "TIMESTAMP_NS overflow"
+                }
+            }
+        }
+    }
+    order_qt_asof_after_conversion_errors """
+        select l.id, r.id
+        from (select * from timestamp_ns_asof_fallible_datetime where id in (3, 4)) l
+        asof left join timestamp_ns_asof_fallible_timestamp r
+        match_condition(l.dt >= r.ts) on l.k = r.k
+        order by l.id, r.id
+    """
+    qt_asof_nullable_build_after_conversion_errors """
+        select l.id, r.id
+        from timestamp_ns_asof_fallible_timestamp l
+        asof left join
+            (select * from timestamp_ns_asof_fallible_datetime where id in (3, 4)) r
+        match_condition(l.ts >= r.dt) on l.k = r.k
+        order by l.id, r.id
+    """
 }
