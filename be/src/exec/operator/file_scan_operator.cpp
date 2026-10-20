@@ -149,6 +149,29 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
+    if (is_load) {
+        // Load planners omit query session options. Thrift's default makes an omitted V2
+        // option indistinguishable from false, so ingestion selects by format instead.
+        switch (scan_params.format_type) {
+        case TFileFormatType::FORMAT_PARQUET:
+        case TFileFormatType::FORMAT_ORC:
+        case TFileFormatType::FORMAT_JSON:
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        case TFileFormatType::FORMAT_PROTO:
+        case TFileFormatType::FORMAT_TEXT:
+        case TFileFormatType::FORMAT_WAL:
+            return true;
+        default:
+            return false;
+        }
+    }
     // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
     // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
     // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
