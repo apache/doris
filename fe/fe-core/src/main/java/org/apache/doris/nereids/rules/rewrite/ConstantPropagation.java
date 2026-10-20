@@ -234,10 +234,6 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         List<NamedExpression> newOutputExprs = Lists.newArrayListWithExpectedSize(oldOutputExprs.size());
         ImmutableList.Builder<NamedExpression> projectBuilder
                 = ImmutableList.builderWithExpectedSize(oldOutputExprs.size());
-        // the constant outputs above the aggregate, recorded as replaced exprId -> fresh exprId. They are only
-        // registered if the project is really built, see the comment below.
-        List<Pair<ExprId, ExprId>> freshExprIds = Lists.newArrayList();
-
         boolean containsConstantOutput = false;
 
         // after normal agg, group by expressions and output expressions are slots,
@@ -253,23 +249,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                 newOutputExprs.add((NamedExpression) newOutputExpr);
             }
 
-            if (replacedExpr.isConstant() && !replacedExpr.equals(expr)) {
-                // The constant project above the aggregate describes another value than the aggregate output: its
-                // nullable and data type may differ, so the exprId of the aggregate output can not be reused when
-                // the aggregate still outputs that column, otherwise one exprId would have two definitions and
-                // rules which compare exprIds only, e.g. EliminateUnnecessaryProject, would treat the constant
-                // project as a pass-through project of the aggregate and remove it.
-                if (newGroupByExprSet.contains(expr)) {
-                    // the aggregate keeps the column, so the project would shadow it
-                    ExprId freshExprId = StatementScopeIdGenerator.newExprId();
-                    projectBuilder.add(new Alias(freshExprId, replacedExpr, expr.getName()));
-                    freshExprIds.add(Pair.of(expr.getExprId(), freshExprId));
-                } else {
-                    // the constant grouping key is removed from the aggregate, so the project item is the only
-                    // definition of this exprId and nothing below references it: keep the exprId, several rules
-                    // and consumers, e.g. the materialized view matching, rely on the identity of the column
-                    projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
-                }
+            if (replacedExpr.isConstant() && !replacedExpr.equals(expr) && !newGroupByExprSet.contains(expr)) {
+                // The aggregate does not output this constant grouping key any more, the project item is the only
+                // definition of the column: keep the exprId, rules and consumers which rely on the identity of the
+                // column, e.g. the materialized view matching, keep working. A fresh exprId is not needed here,
+                // nothing below defines this exprId with another value.
+                projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
                 containsConstantOutput = true;
             } else {
                 Preconditions.checkArgument(newOutputExpr instanceof NamedExpression, newOutputExpr);
@@ -278,16 +263,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         }
 
         if (newGroupByExprs.equals(oldGroupByExprs) && newOutputExprs.equals(oldOutputExprs)) {
-            // the aggregate is not changed, the plan above keeps referencing the output slots of the aggregate,
-            // so neither the constant project nor its fresh exprIds are used
+            // the aggregate is not changed, the plan above keeps referencing the output slots of the aggregate
             return aggregate;
         }
 
         aggregate = aggregate.withGroupByAndOutput(newGroupByExprs, newOutputExprs);
         if (containsConstantOutput) {
-            for (Pair<ExprId, ExprId> freshExprId : freshExprIds) {
-                replacedExprIds.put(freshExprId.first, freshExprId.second);
-            }
             return PlanUtils.projectOrSelf(projectBuilder.build(), aggregate);
         } else {
             return aggregate;

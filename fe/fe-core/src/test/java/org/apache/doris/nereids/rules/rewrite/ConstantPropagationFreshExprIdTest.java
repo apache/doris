@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -32,18 +34,20 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * ConstantPropagation materializes a constant output above the aggregate with a fresh exprId.
+ * The project which ConstantPropagation materializes above an aggregate must not re-label a column which the plan
+ * below defines with another value.
  *
- * <p>The project item used to reuse the exprId of the aggregate output it replaces. Then one exprId had two
- * definitions, the aggregate output slot and the constant, whose nullable and data type may differ, and rules
- * which compare exprIds only, e.g. EliminateUnnecessaryProject, could treat them as the same column and remove
- * the constant project. RQG case 11000258898 reached such a plan and the last AdjustNullable pass then reported
- * "AdjustNullable convert slot 2004-04-28#xx from not-nullable to nullable".
+ * <p>A constant grouping key which the aggregate keeps is passed through as the slot of the aggregate, and a
+ * constant grouping key which the aggregate removes keeps the exprId it already had, so nothing below defines that
+ * exprId any more. The project item used to reuse the exprId of the removed aggregate output while other rules
+ * later brought a subtree which outputs that exprId back below it, and rules which compare exprIds only, e.g.
+ * EliminateUnnecessaryProject, then removed the constant project. RQG case 11000258898 reached such a plan and the
+ * last AdjustNullable pass reported "AdjustNullable convert slot 2004-04-28#xx from not-nullable to nullable".
  */
 public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     private static final String SQL_11000258898 = "select '2004-04-28', '2014-07-07'"
@@ -134,7 +138,7 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
     }
 
     @Test
-    void testConstantAggregateProjectUsesFreshExprId() {
+    void testConstantAggregateProjectKeepsTheExprId() {
         // run this rule alone, so the project it materializes above the aggregate is still part of the plan
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze("select k, v from constant_propagation_fresh_expr_id_t where k = 5 and v = 7 group by k, v")
@@ -142,19 +146,27 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
         Plan plan = checker.getPlan();
         LogicalProject<?> constantProject = findConstantProject(plan);
         Assertions.assertNotNull(constantProject, plan.treeString());
-        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) constantProject.child();
-        Set<ExprId> aggregateOutputIds = aggregate.getOutput().stream()
+        List<NamedExpression> items = constantProject.getProjects();
+        // the kept grouping key is passed through as the slot of the aggregate, it is not re-labelled
+        NamedExpression keptKey = items.get(0);
+        Assertions.assertTrue(keptKey instanceof SlotReference, plan.treeString());
+        Assertions.assertTrue(constantProject.child().getOutput().contains((Slot) keptKey),
+                "the kept grouping key must be passed through, not re-labelled:\n" + plan.treeString());
+        // the removed grouping key is materialized above the aggregate and keeps the exprId it already had, nothing
+        // below defines it any more, so there is no shadow and no consumer has to be refreshed
+        NamedExpression removedKey = items.get(1);
+        Assertions.assertTrue(removedKey instanceof Alias, plan.treeString());
+        Assertions.assertEquals(new IntegerLiteral(7), ((Alias) removedKey).child());
+        Assertions.assertFalse(constantProject.child().getOutput().stream()
+                        .anyMatch(slot -> slot.getExprId().equals(removedKey.getExprId())),
+                "the removed grouping key must not be defined below the constant project:\n" + plan.treeString());
+        // the plan above references the outputs of the project, unchanged
+        Set<ExprId> projectOutputIds = constantProject.getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toSet());
-        Set<ExprId> constantItemIds = constantProject.getProjects().stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toSet());
-        // the constant items describe other values than the aggregate outputs, so they must not reuse their exprIds
-        Assertions.assertTrue(Collections.disjoint(aggregateOutputIds, constantItemIds),
-                "the constant project reuses the exprId of the aggregate output:\n" + plan.treeString());
-        // and the plan above has to reference the fresh exprIds
         Set<ExprId> rootOutputIds = plan.getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toSet());
-        Assertions.assertTrue(rootOutputIds.containsAll(constantItemIds),
-                "the plan above does not reference the fresh exprIds:\n" + plan.treeString());
+        Assertions.assertTrue(rootOutputIds.containsAll(projectOutputIds),
+                "the plan above does not reference the project outputs:\n" + plan.treeString());
     }
 
     @Test
@@ -181,12 +193,13 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
                 PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).getPlan());
         Plan plan = PlanChecker.from(connectContext).analyze(SQL_MATERIALIZED_CTE).rewrite().getPlan();
         assertCteConsumerMapsStayValid(plan);
-        // the constant group by key of the producer is materialized with a fresh exprId, so the producer outputs
-        // different exprIds than in the analyzed plan, and the consumers had to be refreshed with them
+        // constant propagation keeps the exprIds of the producer outputs, so they are the same as in the analyzed
+        // plan and the consumer maps still resolve; a rule which renames them has to refresh the maps, which the
+        // assertCteConsumerMapsStayValid above checks
         Set<ExprId> rewrittenProducerOutputIds = cteProducerOutputIds(plan);
         Assertions.assertEquals(analyzedProducerOutputIds.size(), rewrittenProducerOutputIds.size(),
                 plan.treeString());
-        Assertions.assertNotEquals(analyzedProducerOutputIds, rewrittenProducerOutputIds, plan.treeString());
+        Assertions.assertEquals(analyzedProducerOutputIds, rewrittenProducerOutputIds, plan.treeString());
         // the query has to stay plannable
         PlanChecker.from(connectContext).checkPlannerResult(SQL_MATERIALIZED_CTE);
     }

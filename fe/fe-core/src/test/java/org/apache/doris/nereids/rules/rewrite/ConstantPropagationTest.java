@@ -413,10 +413,9 @@ class ConstantPropagationTest {
         Assertions.assertEquals(expectAggOutput2, rewrittenAgg2.getOutputs());
         List<NamedExpression> actualProjects2 = rewrittenProject2.getProjects();
         Assertions.assertEquals(expectProjection2.subList(0, 5), actualProjects2.subList(0, 5));
-        // all grouping keys are constant, so the aggregate keeps the first one: the project would shadow it,
-        // therefore that constant gets a fresh exprId
-        assertFreshConstantProjectItem(actualProjects2.get(5), expectAggOutput2.get(5).getExprId(),
-                new IntegerLiteral(3), null);
+        // all grouping keys are constant, so the aggregate keeps the first one and the project passes its slot
+        // through instead of re-labelling it with the constant
+        Assertions.assertEquals(expectAggOutput2.get(5).toSlot(), actualProjects2.get(5));
         // the other keys are removed from the aggregate, their exprIds are kept
         assertKeptConstantProjectItem(actualProjects2.get(6), aggOutput.get(6).getExprId(),
                 new IntegerLiteral(3), aggOutput.get(6).getName());
@@ -452,7 +451,7 @@ class ConstantPropagationTest {
     }
 
     @Test
-    public void testBlackholeSinkFollowsFreshExprId() {
+    public void testBlackholeSinkKeepsTheOutputExprIds() {
         // `warm up select` is planned with a blackhole sink which takes its output expressions from its child, so
         // the sink has to follow the fresh exprIds of the constants materialized below it, otherwise it expects a
         // slot which the rewritten child does not output any more
@@ -481,7 +480,8 @@ class ConstantPropagationTest {
                             + rewrittenSink.child().getOutput());
         }
         // the constant column of the sink is refreshed to the fresh exprId of the constant project
-        Assertions.assertNotEquals(studentId.getExprId(),
+        // constant propagation keeps the exprIds here, the sink still references the output of its child
+        Assertions.assertEquals(studentId.getExprId(),
                 rewrittenSink.getOutputExprs().get(1).getExprId());
     }
 
