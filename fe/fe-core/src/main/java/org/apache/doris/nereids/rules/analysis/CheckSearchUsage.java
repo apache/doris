@@ -24,90 +24,35 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 /**
- * Check search expression usage - search() can only be used in WHERE filters on single-table OLAP scans.
+ * Check search expression usage before rewrites can eliminate invalid expressions.
  * This rule validates that search() expressions only appear in supported contexts.
  * Must run in analysis phase before search() gets optimized away.
  */
 public class CheckSearchUsage implements AnalysisRuleFactory {
-    private static final Logger LOG = LogManager.getLogger(CheckSearchUsage.class);
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 any().thenApply(ctx -> {
                     Plan plan = ctx.root;
-                    checkPlanRecursively(plan);
+                    checkPlan(plan);
                     return plan;
                 }).toRule(RuleType.CHECK_SEARCH_USAGE)
         );
     }
 
-    private void checkPlanRecursively(Plan plan) {
-        // Check if current plan node contains search expressions
-        if (containsSearchInPlanExpressions(plan)) {
-            validateSearchUsage(plan);
-        }
-
-        // Check aggregate nodes specifically for GROUP BY usage
-        if (plan instanceof LogicalAggregate) {
-            LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
-            for (Expression expr : agg.getGroupByExpressions()) {
-                if (containsSearchExpression(expr)) {
-                    throw new AnalysisException("search() cannot appear in GROUP BY expressions; "
-                            + "search predicates are only supported in WHERE filters on single-table scans");
-                }
-            }
-            for (Expression expr : agg.getOutputExpressions()) {
-                if (containsSearchExpression(expr)) {
-                    throw new AnalysisException("search() cannot appear in aggregate output expressions; "
-                            + "search predicates are only supported in WHERE filters on single-table scans");
-                }
-            }
-        }
-
-        // Check project nodes
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> project = (LogicalProject<?>) plan;
-            for (Expression expr : project.getProjects()) {
-                if (containsSearchExpression(expr)) {
-                    // Only allow if it's the project directly above a filter->scan pattern
-                    throw new AnalysisException("search() can only appear in WHERE filters on OLAP scans; "
-                            + "projection of search() is not supported");
-                }
-            }
-        }
-
-        // Recursively check children
-        for (Plan child : plan.children()) {
-            checkPlanRecursively(child);
-        }
-    }
-
-    private void validateSearchUsage(Plan plan) {
-        LOG.debug("validateSearchUsage: {}", plan.treeString());
-        if (plan instanceof LogicalFilter) {
-            Plan child = plan.child(0);
-            if (!isSingleTableScanPipeline(child)) {
-                throw new AnalysisException("search() predicate only supports filtering directly on a single "
-                        + "table scan; remove joins, subqueries, or additional operators between search() "
-                        + "and the target table");
-            }
-        } else if (!(plan instanceof LogicalProject)) {
-            // search() can only appear in LogicalFilter or specific LogicalProject nodes
-            throw new AnalysisException("search() predicates are only supported inside WHERE filters on "
-                    + "single-table scans");
+    private void checkPlan(Plan plan) {
+        if (containsSearchInPlanExpressions(plan)
+                && !(plan instanceof LogicalFilter)) {
+            throw new AnalysisException(
+                    "search() is only supported in WHERE filters (filter predicates)");
         }
     }
 
@@ -130,18 +75,5 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
             }
         }
         return false;
-    }
-
-    private boolean isSingleTableScanPipeline(Plan plan) {
-        Plan current = plan;
-        while (true) {
-            if (current instanceof LogicalOlapScan) {
-                return true;
-            }
-            if (current.arity() != 1) {
-                return false;
-            }
-            current = current.child(0);
-        }
     }
 }

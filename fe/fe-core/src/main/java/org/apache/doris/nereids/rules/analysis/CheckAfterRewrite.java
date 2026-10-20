@@ -26,15 +26,20 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -65,6 +70,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
             checkMatchIsUsedCorrectly(plan);
+            checkSearchIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
@@ -212,6 +218,29 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private static boolean comparesVarBinary(Expression conjunct) {
         return conjunct.anyMatch(e -> e instanceof ComparisonPredicate && ((ComparisonPredicate) e).children()
                 .stream().anyMatch(operand -> operand.getDataType().isVarBinaryType()));
+    }
+
+    private void checkSearchIsUsedCorrectly(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            if (expression.anyMatch(expr -> expr instanceof Search)) {
+                throw new AnalysisException("search() could not be bound to an OLAP table scan");
+            }
+            expression.foreach(expr -> {
+                if (!(expr instanceof SearchExpression)) {
+                    return;
+                }
+                if (!(plan instanceof LogicalFilter) || !(plan.child(0) instanceof LogicalOlapScan)) {
+                    throw new AnalysisException("search() is only supported in filters directly on an OLAP table scan");
+                }
+                for (Expression child : expr.children()) {
+                    if (!(child instanceof SlotReference)
+                            && !(child instanceof ElementAt && child.child(0) instanceof SlotReference
+                                    && child.child(1) instanceof StringLiteral)) {
+                        throw new AnalysisException("search() fields must reference OLAP scan columns directly");
+                    }
+                }
+            });
+        }
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {

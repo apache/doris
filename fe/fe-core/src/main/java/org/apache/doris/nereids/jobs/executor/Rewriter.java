@@ -153,7 +153,6 @@ import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
-import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
@@ -736,10 +735,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS)
                 ),
-                // Bind SEARCH to slots. RewriteCteChildren runs this list on every non-anchor subtree
-                // and, when the plan has no LogicalCTEAnchor, on the whole plan as well. It must stay
-                // before the after-push-down ColumnPruning/OperativeColumnDerive.
-                bottomUp(new RewriteSearchToSlots()),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topic("adjust preagg status",
                         custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new)
@@ -929,10 +924,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
         builder.addAll(jobs(topic("split multi distinct",
                 custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                         () -> DistinctAggStrategySelector.INSTANCE))));
-
-        // RewriteSearchToSlots is registered in CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN.
-        // The CTE children rewriter runs that list on every non-anchor subtree and also on the whole
-        // plan when there is no LogicalCTEAnchor, so SEARCH is bound in both cases from one place.
 
         if (needSubPathPushDown) {
             builder.addAll(jobs(
