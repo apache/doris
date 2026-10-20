@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "common/status.h"
@@ -33,6 +34,9 @@ public:
     static ObjClientFactory& instance();
 
     Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config);
+
+    // Called when azure_client_cache_capacity changes; see AzureClientProvider::shrink_cache.
+    void shrink_azure_client_cache(size_t capacity) { _azure.shrink_cache(capacity); }
 
 private:
     ObjClientFactory();

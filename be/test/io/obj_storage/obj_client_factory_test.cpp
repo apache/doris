@@ -272,16 +272,29 @@ TEST_F(ObjClientFactoryTest, AzureProviderCacheIsBounded) {
                         },
         };
     };
-    auto saved_capacity = config::azure_client_cache_capacity;
-    config::azure_client_cache_capacity = 1;
+    auto saved_capacity = std::to_string(config::azure_client_cache_capacity);
     auto& factory = ObjClientFactory::instance();
+    ASSERT_TRUE(config::set_config("azure_client_cache_capacity", "64").ok());
     auto first = factory.get_or_create(make_sas("sig=first"));
     ASSERT_TRUE(first.has_value()) << first.error();
     auto second = factory.get_or_create(make_sas("sig=second"));
     ASSERT_TRUE(second.has_value()) << second.error();
-    // With room for one client, the second SAS evicted the first, so it is built again.
+
+    // A lowered capacity applies at once, not on the next publish: only the most recently
+    // used client survives.
+    ASSERT_TRUE(config::set_config("azure_client_cache_capacity", "1").ok());
+    auto still_cached = factory.get_or_create(make_sas("sig=second"));
+    ASSERT_TRUE(still_cached.has_value()) << still_cached.error();
+    EXPECT_EQ(still_cached.value(), second.value());
+
+    // A rejected value is rolled back and never reaches the cache, which would otherwise treat
+    // a zero capacity as a broken invariant.
+    EXPECT_FALSE(config::set_config("azure_client_cache_capacity", "0").ok());
+    EXPECT_EQ(config::azure_client_cache_capacity, 1);
+
+    // first was evicted by the shrink, so it is built again (and evicts second in turn).
     auto rebuilt = factory.get_or_create(make_sas("sig=first"));
-    config::azure_client_cache_capacity = saved_capacity;
+    ASSERT_TRUE(config::set_config("azure_client_cache_capacity", saved_capacity).ok());
     ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
     EXPECT_NE(rebuilt.value(), first.value());
 #endif

@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
 #include <utility>
 
 #include "common/config.h"
@@ -120,6 +121,14 @@ std::string account_key_for_endpoint_info(const AzureClientSecretConfig& /*clien
 }
 #endif
 
+// set_config writes a new value before validating it and restores the old one when it is
+// invalid, all under this lock. Reading under it never sees that transient value, e.g. a
+// rejected 0 that ObjClientCache would treat as a broken invariant.
+size_t read_azure_client_cache_capacity() {
+    std::lock_guard lock(*config::get_mutable_string_config_lock());
+    return static_cast<size_t>(config::azure_client_cache_capacity);
+}
+
 } // namespace
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
@@ -144,7 +153,11 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
         return ResultError(std::move(expiry).error());
     }
     return _cache.publish(config, obj_client, expiry.value(), now_ms,
-                          static_cast<size_t>(config::azure_client_cache_capacity));
+                          read_azure_client_cache_capacity());
+}
+
+void AzureClientProvider::shrink_cache(size_t capacity) {
+    _cache.shrink(UnixMillis(), capacity);
 }
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(

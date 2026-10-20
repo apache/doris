@@ -24,6 +24,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "io/obj_storage/obj_storage_config.h"
 
@@ -60,6 +61,10 @@ public:
                                               std::optional<int64_t> expires_at_ms, int64_t now_ms,
                                               size_t capacity);
 
+    // Applies a new capacity at once: evicts expired entries, then the least recently used
+    // ones, until at most `capacity` remain. capacity must be positive.
+    void shrink(int64_t now_ms, size_t capacity);
+
     size_t size();
 
 private:
@@ -74,6 +79,13 @@ private:
     std::shared_ptr<ObjStorageClient> _publish_locked(
             const ObjClientConfig& config, const std::shared_ptr<ObjStorageClient>& candidate,
             std::optional<int64_t> expires_at_ms);
+
+    // Moves the clients to drop into `evicted`, which the caller destroys after releasing
+    // _lock: expired entries first, then the least recently used beyond `capacity`.
+    // keep_front exempts the entry a publish just placed at the front, which the caller has
+    // validated, from the expiry sweep.
+    void _evict_locked(int64_t now_ms, size_t capacity, bool keep_front,
+                       std::vector<std::shared_ptr<ObjStorageClient>>* evicted);
 
     std::mutex _lock;
     // Most recently used first.

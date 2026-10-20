@@ -22,6 +22,7 @@
 #include <variant>
 
 #include "cloud/config.h"
+#include "common/config.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
@@ -96,3 +97,14 @@ std::shared_ptr<ObjStorageClient> apply_rate_limit_policy(std::shared_ptr<ObjSto
 }
 
 } // namespace doris::io
+
+namespace doris::config {
+
+// A lowered capacity takes effect at once instead of on the next client publish, so a cache that
+// only serves hits still shrinks. The callback runs after the new value passed its validator, so
+// it is always positive.
+DEFINE_ON_UPDATE(azure_client_cache_capacity, [](int32_t /*old_value*/, int32_t new_value) {
+    io::ObjClientFactory::instance().shrink_azure_client_cache(static_cast<size_t>(new_value));
+});
+
+} // namespace doris::config

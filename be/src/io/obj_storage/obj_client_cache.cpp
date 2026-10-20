@@ -17,7 +17,6 @@
 
 #include "io/obj_storage/obj_client_cache.h"
 
-#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -50,12 +49,28 @@ std::shared_ptr<ObjStorageClient> ObjClientCache::publish(
     std::vector<std::shared_ptr<ObjStorageClient>> evicted;
     std::lock_guard lock(_lock);
     auto client = _publish_locked(config, candidate, expires_at_ms);
+    _evict_locked(now_ms, capacity, true, &evicted);
+    return client;
+}
+
+void ObjClientCache::shrink(int64_t now_ms, size_t capacity) {
+    DORIS_CHECK(capacity > 0);
+    std::vector<std::shared_ptr<ObjStorageClient>> evicted;
+    std::lock_guard lock(_lock);
+    _evict_locked(now_ms, capacity, false, &evicted);
+}
+
+void ObjClientCache::_evict_locked(int64_t now_ms, size_t capacity, bool keep_front,
+                                   std::vector<std::shared_ptr<ObjStorageClient>>* evicted) {
     // Expired entries can never be returned again (every lookup validates the credential
-    // first), so they go before any live entry. The entry just published is at the front and
-    // was validated by the caller.
-    for (auto it = std::next(_entries.begin()); it != _entries.end();) {
+    // first), so they go before any live entry.
+    auto it = _entries.begin();
+    if (keep_front && it != _entries.end()) {
+        ++it;
+    }
+    while (it != _entries.end()) {
         if (it->expires_at_ms.has_value() && *it->expires_at_ms <= now_ms) {
-            evicted.push_back(std::move(it->client));
+            evicted->push_back(std::move(it->client));
             _index.erase(it->config);
             it = _entries.erase(it);
         } else {
@@ -64,11 +79,10 @@ std::shared_ptr<ObjStorageClient> ObjClientCache::publish(
     }
     while (_entries.size() > capacity) {
         auto& oldest = _entries.back();
-        evicted.push_back(std::move(oldest.client));
+        evicted->push_back(std::move(oldest.client));
         _index.erase(oldest.config);
         _entries.pop_back();
     }
-    return client;
 }
 
 size_t ObjClientCache::size() {
