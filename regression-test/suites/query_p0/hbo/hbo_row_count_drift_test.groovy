@@ -94,7 +94,7 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
                 structCanonical)
         // ... and the row count carries the tag of how it was obtained: 'r' when every selected
         // partition reported its own count, 'e' when it was derived from the table
-        assertTrue((structCanonical =~ /S\{internal\.hbo_test\.hbo_dr_t,v\d+,[re]\d+\}/).find(),
+        assertTrue((normalizeRows(structCanonical) =~ /S\{internal\.hbo_test\.hbo_dr_t,v\d+,[re]\d+\}/).find(),
                 structCanonical)
         sql """ HBO SET STATISTICS VALUE=600 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${fingerprint}'
                 STRUCT='${structCanonical}'; """
