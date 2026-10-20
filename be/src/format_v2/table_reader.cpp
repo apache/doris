@@ -1122,6 +1122,11 @@ TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
 }
 
 Status TableReader::init(TableReadOptions&& options) {
+    if (options.is_load &&
+        (!options.conjuncts.empty() || options.push_down_agg_type != TPushAggOp::NONE)) {
+        return Status::InvalidArgument(
+                "Load source materialization requires unfiltered source rows");
+    }
     _scanner_profile = options.scanner_profile;
     if (_scanner_profile != nullptr) {
         const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
@@ -1196,6 +1201,7 @@ Status TableReader::init(TableReadOptions&& options) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.init_timer);
     _scan_params = options.scan_params;
+    _is_load = options.is_load;
     _format = options.format;
     _io_ctx = options.io_ctx;
     _runtime_state = options.runtime_state;

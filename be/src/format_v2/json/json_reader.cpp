@@ -310,6 +310,7 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     const auto max_block_bytes = _runtime_state->preferred_block_size_bytes();
     *rows = 0;
     *eof = false;
+    _missing_fields.clear();
 
     while (file_block->rows() < batch_size && !_reader_eof &&
            file_block->bytes() < max_block_bytes) {
@@ -355,6 +356,9 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     *rows = file_block->rows();
+    for (auto& [_, mask] : _missing_fields) {
+        mask.resize(*rows, 0);
+    }
     _record_scan_rows(cast_set<int64_t>(*rows));
     {
         SCOPED_TIMER(_filter_time);
@@ -702,7 +706,15 @@ Status JsonReader::_append_simple_json_rows(Block* block, bool* is_empty_row, bo
         _array_iter = _array.begin();
         while (_array_iter != _array.end()) {
             simdjson::ondemand::object object_value = (*_array_iter).get_object();
-            RETURN_IF_ERROR(_set_column_values_from_object(&object_value, block, &valid));
+            const size_t row_start = block->rows();
+            const auto status = _set_column_values_from_object(&object_value, block, &valid);
+            if (!status.ok()) {
+                if (!_request->reject_invalid_rows) {
+                    return status;
+                }
+                RETURN_IF_ERROR(_handle_json_error(status, block, row_start, is_empty_row));
+                valid = true;
+            }
             ++_array_iter;
             if (!valid) {
                 *is_empty_row = true;
@@ -750,7 +762,14 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
             }
             object_value = rooted_value.get_object();
         }
-        RETURN_IF_ERROR(_write_columns_by_jsonpath(&object_value, block, &valid));
+        const size_t row_start = block->rows();
+        const auto status = _write_columns_by_jsonpath(&object_value, block, &valid);
+        if (!status.ok()) {
+            if (!_request->reject_invalid_rows) {
+                return status;
+            }
+            RETURN_IF_ERROR(_handle_json_error(status, block, row_start, is_empty_row));
+        }
         ++_array_iter;
     }
     *is_empty_row = block->rows() == original_rows;
@@ -787,6 +806,10 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         if (column_index == static_cast<size_t>(-1)) {
             continue;
         }
+        if (_request->reject_invalid_rows &&
+            _requested_columns[column_index].slot_desc->is_skip_bitmap_col()) {
+            continue;
+        }
         if (seen_columns[column_index]) {
             if (_is_hive_table) {
                 // Hive JSON keeps the last duplicate key ignoring case. The earlier value has
@@ -809,6 +832,9 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         has_valid_value = true;
     }
 
+    if (!has_valid_value && _request->reject_invalid_rows) {
+        return Status::DataQualityError("No source column matches this JSON object");
+    }
     for (size_t i = 0; i < _requested_columns.size(); ++i) {
         if (seen_columns[i]) {
             continue;
@@ -881,6 +907,9 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
         }
     }
 
+    if (!has_valid_value && _request->reject_invalid_rows) {
+        return Status::DataQualityError("No source column matches the JSON paths");
+    }
     if (!has_valid_value) {
         // jsonpaths can legally match nothing. Roll the row back so an all-missing path set does
         // not create a synthetic row of nulls.
@@ -1063,6 +1092,11 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
 
 Status JsonReader::_fill_missing_column(const RequestedColumn& column, IColumn* column_ptr,
                                         bool* valid) {
+    if (_request->reject_invalid_rows) {
+        auto& missing = _missing_fields[column.file_column_id];
+        missing.resize(column_ptr->size() + 1, 0);
+        missing.back() = 1;
+    }
     if (column.slot_desc->is_nullable()) {
         auto* nullable_column = assert_cast<ColumnNullable*>(column_ptr);
         nullable_column->insert_default();
@@ -1097,6 +1131,20 @@ Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t
     // block to the row count before this document before either surfacing the error or appending
     // the ignore-malformed null row.
     _truncate_block_to_rows(block, original_rows);
+    for (auto& [_, mask] : _missing_fields) {
+        mask.resize(original_rows, 0);
+    }
+    if (_request->reject_invalid_rows &&
+        (status.is<ErrorCode::DATA_QUALITY_ERROR>() || status.is<ErrorCode::INVALID_ARGUMENT>())) {
+        RETURN_IF_ERROR(_runtime_state->append_error_msg_to_file(
+                [&] { return std::string(_padding_buffer.data(), _original_doc_size); },
+                [&] { return status.to_string(); }));
+        if (_io_ctx != nullptr) {
+            ++_io_ctx->load_filtered_rows;
+        }
+        *is_empty_row = true;
+        return Status::OK();
+    }
     if (_openx_json_ignore_malformed && status.is<ErrorCode::DATA_QUALITY_ERROR>()) {
         RETURN_IF_ERROR(_append_null_for_malformed_json(block));
         *is_empty_row = false;

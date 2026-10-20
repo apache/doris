@@ -162,6 +162,7 @@ struct TableReadOptions {
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
+    bool is_load = false;
 };
 
 struct SplitReadOptions {
@@ -207,6 +208,9 @@ struct SplitReadOptions {
 class TableReader {
 public:
     virtual ~TableReader() = default;
+
+    // Positions refer to the last returned table block, after physical-to-table mapping.
+    const std::map<size_t, std::vector<uint8_t>>& missing_values() const { return _missing_values; }
 
     // Initialize common runtime options for the table reader. Subclasses may call this from their
     // own init(options); table-format schema and split metadata are provided later per split.
@@ -287,6 +291,7 @@ public:
     virtual Status get_block(Block* block, bool* eos) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.exec_timer);
+        _missing_values.clear();
         DORIS_CHECK(block->columns() == _projected_columns.size());
         block->clear_column_data(_projected_columns.size());
 
@@ -359,6 +364,20 @@ public:
             RETURN_IF_ERROR(_check_file_block_columns("after file reader get_block", current_rows));
 #endif
             DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
+            _missing_values.clear();
+            if (_is_load) {
+                // Only the mapper may translate physical field identities into table positions.
+                for (const auto& mapping : _data_reader.column_mapper->mappings()) {
+                    if (!mapping.file_local_id.has_value()) {
+                        continue;
+                    }
+                    const auto& missing = _data_reader.reader->missing_fields();
+                    const auto it = missing.find(LocalColumnId(*mapping.file_local_id));
+                    if (it != missing.end()) {
+                        _missing_values.emplace(mapping.global_index.value(), it->second);
+                    }
+                }
+            }
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
 #ifndef NDEBUG
             RETURN_IF_ERROR(
@@ -512,6 +531,7 @@ protected:
                 }
             }
         }
+        file_request->reject_invalid_rows = _is_load;
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
         RETURN_IF_ERROR(_data_reader.column_mapper->reconcile_scan_request_after_customization(
                 file_request.get()));
@@ -2008,6 +2028,8 @@ protected:
     // for the split even while predicates are refreshed at a reader-defined granule boundary.
     std::shared_ptr<FileScanRequest> _file_scan_request;
     std::vector<ColumnDefinition> _projected_columns;
+    bool _is_load = false;
+    std::map<size_t, std::vector<uint8_t>> _missing_values;
     std::unique_ptr<ScanTask> _current_task;
     std::optional<io::FileDescription> _current_file_description;
     // Range-level compression has higher priority than scan-param compression. TVF/load can keep

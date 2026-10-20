@@ -145,6 +145,29 @@ bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& qu
 bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
+    if (is_load) {
+        // Load planners omit query session options. Thrift's default makes an omitted V2
+        // option indistinguishable from false, so ingestion selects by format instead.
+        switch (scan_params.format_type) {
+        case TFileFormatType::FORMAT_PARQUET:
+        case TFileFormatType::FORMAT_ORC:
+        case TFileFormatType::FORMAT_JSON:
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        case TFileFormatType::FORMAT_PROTO:
+        case TFileFormatType::FORMAT_TEXT:
+        case TFileFormatType::FORMAT_WAL:
+            return true;
+        default:
+            return false;
+        }
+    }
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
@@ -174,7 +197,7 @@ bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& quer
                                                        bool is_load,
                                                        const TFileScanRangeParams& scan_params,
                                                        const TFileRangeDesc& range) {
-    if (!should_use_file_scanner_v2(query_options, is_load, scan_params)) {
+    if (is_load || !should_use_file_scanner_v2(query_options, is_load, scan_params)) {
         return false;
     }
     const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
