@@ -54,37 +54,25 @@ public final class AzureThriftAdapter {
      * connector already put in its hadoop config. Doing it here keeps the connectors Thrift-shape
      * agnostic for Azure and gives every write sink the same rule.
      *
-     * <p>Iceberg sinks also get their output path back in the table's own form: with typed access
-     * BE parses native Azure locations itself, so it writes
-     * {@code abfss://c1@acct.dfs.core.windows.net/db/t/data/...} as is instead of the s3-style
-     * {@code s3://c1/db/t/data/...} it could only address before. The Hive sink keeps its write
-     * path: the coordinator completes Azure multipart uploads and renames staged files by that
-     * path, and Hive records {@code original_write_path} anyway.
+     * <p>The sinks' output paths already keep their native Azure form
+     * ({@code abfss://c1@acct.dfs.core.windows.net/db/t/data}): connectors normalize them through
+     * {@code DefaultConnectorContext}, which leaves Azure locations unchanged because this config
+     * is bound here.
      */
     public static void bindToWriteSink(TDataSink sink) {
         // Keyed on the member that is set rather than the sink type: a connector fills exactly
         // one of them, and only these carry object-storage writes.
         if (sink.isSetIcebergTableSink()) {
             TIcebergTableSink tableSink = sink.getIcebergTableSink();
-            writeSinkConfig(tableSink.getHadoopConfig()).ifPresent(config -> {
-                tableSink.setAzureClientConfig(config);
-                tableSink.setOutputPath(tableSink.getOriginalOutputPath());
-            });
+            writeSinkConfig(tableSink.getHadoopConfig()).ifPresent(tableSink::setAzureClientConfig);
         }
         if (sink.isSetIcebergDeleteSink()) {
             TIcebergDeleteSink deleteSink = sink.getIcebergDeleteSink();
-            writeSinkConfig(deleteSink.getHadoopConfig()).ifPresent(config -> {
-                deleteSink.setAzureClientConfig(config);
-                // table_location is the raw data location, the directory output_path names.
-                deleteSink.setOutputPath(deleteSink.getTableLocation());
-            });
+            writeSinkConfig(deleteSink.getHadoopConfig()).ifPresent(deleteSink::setAzureClientConfig);
         }
         if (sink.isSetIcebergMergeSink()) {
             TIcebergMergeSink mergeSink = sink.getIcebergMergeSink();
-            writeSinkConfig(mergeSink.getHadoopConfig()).ifPresent(config -> {
-                mergeSink.setAzureClientConfig(config);
-                mergeSink.setOutputPath(mergeSink.getOriginalOutputPath());
-            });
+            writeSinkConfig(mergeSink.getHadoopConfig()).ifPresent(mergeSink::setAzureClientConfig);
         }
         if (sink.isSetHiveTableSink()) {
             THiveTableSink hiveSink = sink.getHiveTableSink();

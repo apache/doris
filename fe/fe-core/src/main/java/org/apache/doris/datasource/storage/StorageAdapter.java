@@ -354,6 +354,22 @@ public final class StorageAdapter {
         return spi.validateAndNormalizeUri(uri);
     }
 
+    /**
+     * Normalizes a location for a BE request that carries typed native access (connector scans
+     * and writes, see {@code AzureThriftAdapter}). Identical to {@link #validateAndNormalizeUri}
+     * except that Azure locations keep their native form: BE parses them with the Azure rules and
+     * checks their account against the client config, which the s3-style rewrite would make
+     * impossible by dropping the account. Requests without typed access (Broker Load, Export,
+     * Outfile, backup, ...) must keep using {@link #validateAndNormalizeUri}, because their BE
+     * entries only parse s3-style locations.
+     */
+    public String validateAndNormalizeUriForNativeAccess(String uri) {
+        if ("AZURE".equals(providerKey)) {
+            return StorageUriUtils.validateAzureUri(uri);
+        }
+        return validateAndNormalizeUri(uri);
+    }
+
     public String validateAndGetUri(Map<String, String> loadProps) {
         // Align fe-core: the S3/Azure legacy classes return the RAW uri value (no normalization)
         // and throw when the map is empty or has no uri key; the SPI default would silently

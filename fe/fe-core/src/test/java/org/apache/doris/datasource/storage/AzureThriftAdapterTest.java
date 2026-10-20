@@ -126,14 +126,13 @@ class AzureThriftAdapterTest {
     }
 
     @Test
-    void icebergSinksGetTypedConfigAndTheirOwnLocation() {
+    void everyWriteSinkGetsTypedConfigAndKeepsItsPaths() {
+        // Connectors already hand native Azure locations to the sinks; binding adds only the config.
         String raw = "abfss://c1@acct.dfs.core.windows.net/db/t/data";
-        String normalized = "s3://c1/db/t/data";
 
         TIcebergTableSink tableSink = new TIcebergTableSink();
         tableSink.setHadoopConfig(sasProps());
-        tableSink.setOutputPath(normalized);
-        tableSink.setOriginalOutputPath(raw);
+        tableSink.setOutputPath(raw);
         TDataSink table = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
         table.setIcebergTableSink(tableSink);
         AzureThriftAdapter.bindToWriteSink(table);
@@ -142,8 +141,7 @@ class AzureThriftAdapterTest {
 
         TIcebergDeleteSink deleteSink = new TIcebergDeleteSink();
         deleteSink.setHadoopConfig(sasProps());
-        deleteSink.setOutputPath(normalized);
-        deleteSink.setTableLocation(raw);
+        deleteSink.setOutputPath(raw);
         TDataSink delete = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK);
         delete.setIcebergDeleteSink(deleteSink);
         AzureThriftAdapter.bindToWriteSink(delete);
@@ -152,31 +150,23 @@ class AzureThriftAdapterTest {
 
         TIcebergMergeSink mergeSink = new TIcebergMergeSink();
         mergeSink.setHadoopConfig(sasProps());
-        mergeSink.setOutputPath(normalized);
-        mergeSink.setOriginalOutputPath(raw);
-        mergeSink.setTableLocation(raw);
+        mergeSink.setOutputPath(raw);
         TDataSink merge = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
         merge.setIcebergMergeSink(mergeSink);
         AzureThriftAdapter.bindToWriteSink(merge);
         Assertions.assertTrue(mergeSink.isSetAzureClientConfig());
         Assertions.assertEquals(raw, mergeSink.getOutputPath());
-    }
 
-    @Test
-    void hiveSinkKeepsItsWritePath() {
         THiveTableSink hiveSink = new THiveTableSink();
         hiveSink.setHadoopConfig(sasProps());
         THiveLocationParams location = new THiveLocationParams();
-        location.setWritePath("s3://c1/db/t");
-        location.setOriginalWritePath("abfss://c1@acct.dfs.core.windows.net/db/t");
+        location.setWritePath(raw);
         hiveSink.setLocation(location);
         TDataSink hive = new TDataSink(TDataSinkType.HIVE_TABLE_SINK);
         hive.setHiveTableSink(hiveSink);
-
         AzureThriftAdapter.bindToWriteSink(hive);
-
         Assertions.assertTrue(hiveSink.isSetAzureClientConfig());
-        Assertions.assertEquals("s3://c1/db/t", hiveSink.getLocation().getWritePath());
+        Assertions.assertEquals(raw, hiveSink.getLocation().getWritePath());
     }
 
     @Test

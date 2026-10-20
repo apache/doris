@@ -433,10 +433,16 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // propagates) — a path that cannot be normalized would otherwise silently corrupt reads (esp. a
         // deletion-vector path on merge-on-read). Single source of truth: the SAME LocationPath
         // normalization legacy/iceberg/hive use, so no drift.
+        //
+        // Azure locations keep their native form (abfss://c@acct.dfs.core.windows.net/k): every path
+        // normalized here ends up in a connector scan range or write sink, and both carry typed
+        // Azure access (FileQueryScanNode / AzureThriftAdapter.bindToWriteSink), so BE parses the
+        // native form and checks its account. The one caller outside scans and writes, the Paimon DLF
+        // connectivity probe, only targets OSS, whose normalization is unchanged.
         Map<StorageTypeId, StorageAdapter> vended = buildVendedStorageMap(rawVendedCredentials);
         Map<StorageTypeId, StorageAdapter> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
-        return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
+        return LocationPath.ofAdaptersForNativeAccess(rawUri, effective).toStorageLocation().toString();
     }
 
     @Override
@@ -465,7 +471,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                     effective = vended != null ? vended : storagePropertiesSupplier.get();
                     built = true;
                 }
-                return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
+                return LocationPath.ofAdaptersForNativeAccess(rawUri, effective).toStorageLocation().toString();
             }
         };
     }
@@ -480,7 +486,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         Map<StorageTypeId, StorageAdapter> vended = buildVendedStorageMap(rawVendedCredentials);
         Map<StorageTypeId, StorageAdapter> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
-        return LocationPath.ofAdapters(rawUri, effective).getTFileTypeForBE().name();
+        return LocationPath.ofAdaptersForNativeAccess(rawUri, effective).getTFileTypeForBE().name();
     }
 
     @Override
