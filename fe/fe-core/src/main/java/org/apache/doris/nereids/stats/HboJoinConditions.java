@@ -31,9 +31,9 @@ import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -80,24 +80,13 @@ public class HboJoinConditions {
      * takes part in the canonical like a plain equality.
      */
     public static Optional<String> canonicalOf(Join join) {
-        List<String> pairs = new ArrayList<>();
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            if (conjunct instanceof EqualTo || conjunct instanceof NullSafeEqual) {
-                pairs.add(GroupStructInfo.normalizeExpression(conjunct));
-            }
-        }
+        List<String> pairs = pairsOf(join);
         if (pairs.isEmpty()) {
             return Optional.empty();
         }
-        pairs.sort(String::compareTo);
-        List<String> residuals = new ArrayList<>();
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            // a residual predicate decides how many partner rows a row finds (`b > u.b + 1` is not
-            // `b > u.b + 2`), so its literals are part of the key and are never folded
-            residuals.add(GroupStructInfo.normalizeExpression(conjunct,
-                    GroupStructInfo.LiteralMode.WITH_LITERAL));
-        }
-        residuals.sort(String::compareTo);
+        // a residual predicate decides how many partner rows a row finds (`b > u.b + 1` is not
+        // `b > u.b + 2`), so its literals are part of the key and are never folded
+        List<String> residuals = residualsOf(join);
         StringBuilder canonical = new StringBuilder(PREFIX).append(join.getJoinType());
         pairs.forEach(pair -> canonical.append(SEP).append(pair));
         residuals.forEach(residual -> canonical.append(SEP).append(residual));
@@ -159,9 +148,60 @@ public class HboJoinConditions {
         return bindings;
     }
 
-    /** sha256 of the canonical string, empty when there is no equality condition. */
+    /**
+     * The key of the expansion entry of a join: the sha256 of its structural identity, empty when there
+     * is no equality condition. The canonical string (see {@link #canonicalOf}) is the readable form of
+     * the same information: it is printed by EXPLAIN and stored as the struct of the entry, and the key is
+     * not derived from it, so an alias or a literal which carries a character of the printed grammar
+     * cannot stand for another field of the identity.
+     */
     public static Optional<String> fingerprintOf(Join join) {
-        return canonicalOf(join).map(canonical -> Hashing.sha256()
-                .hashString(canonical, StandardCharsets.UTF_8).toString());
+        return canonicalOf(join).map(canonical -> {
+            ShapeKeyWriter key = new ShapeKeyWriter();
+            key.tag(0);
+            key.text(String.valueOf(join.getJoinType()));
+            for (String pair : pairsOf(join)) {
+                key.text(pair);
+            }
+            for (String residual : residualsOf(join)) {
+                key.text(residual);
+            }
+            for (String side : sidesOf(join)) {
+                key.text(side);
+            }
+            return Hashing.sha256().hashBytes(key.toByteArray()).toString();
+        });
+    }
+
+    /** The equality pairs of the key, sorted like the canonical string writes them. */
+    private static List<String> pairsOf(Join join) {
+        List<String> pairs = new ArrayList<>();
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            if (conjunct instanceof EqualTo || conjunct instanceof NullSafeEqual) {
+                pairs.add(GroupStructInfo.normalizeExpression(conjunct));
+            }
+        }
+        pairs.sort(String::compareTo);
+        return pairs;
+    }
+
+    /** The residual conditions of the key, with their literals. */
+    private static List<String> residualsOf(Join join) {
+        List<String> residuals = new ArrayList<>();
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            residuals.add(GroupStructInfo.normalizeExpression(conjunct,
+                    GroupStructInfo.LiteralMode.WITH_LITERAL));
+        }
+        residuals.sort(String::compareTo);
+        return residuals;
+    }
+
+    /** The side information of the key: the bindings of an inner join, the sides of an outer one. */
+    private static List<String> sidesOf(Join join) {
+        Plan joinPlan = (Plan) join;
+        if (join.getJoinType() == JoinType.INNER_JOIN) {
+            return ImmutableList.of(String.join(",", bindingsOf(joinPlan)));
+        }
+        return ImmutableList.of(relationsOf(joinPlan.child(0)), relationsOf(joinPlan.child(1)));
     }
 }

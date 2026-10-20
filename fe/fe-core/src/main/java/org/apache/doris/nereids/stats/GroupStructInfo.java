@@ -85,11 +85,6 @@ import com.google.common.hash.Hashing;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -560,57 +555,6 @@ public class GroupStructInfo {
             out.count(branch.size());
             for (NamedExpression constant : branch) {
                 out.text(identityText(constant));
-            }
-        }
-    }
-
-    /**
-     * Writes the structural identity: every value is length prefixed and every number is written in a
-     * fixed width, so the byte stream is injective over the tree by construction.
-     */
-    private static final class ShapeKeyWriter {
-        private final ByteArrayOutputStream bytes = new ByteArrayOutputStream(512);
-        private final DataOutputStream data = new DataOutputStream(bytes);
-
-        private void tag(int value) {
-            writeInt(value);
-        }
-
-        private void flag(boolean value) {
-            writeInt(value ? 1 : 0);
-        }
-
-        private void count(int value) {
-            writeInt(value);
-        }
-
-        private void number(long value) {
-            try {
-                data.writeLong(value);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
-
-        private void text(String value) {
-            byte[] raw = value.getBytes(StandardCharsets.UTF_8);
-            writeInt(raw.length);
-            try {
-                data.write(raw);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
-
-        private byte[] toByteArray() {
-            return bytes.toByteArray();
-        }
-
-        private void writeInt(int value) {
-            try {
-                data.writeInt(value);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
             }
         }
     }

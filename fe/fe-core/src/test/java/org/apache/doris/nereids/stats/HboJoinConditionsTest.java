@@ -33,8 +33,11 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * Unit test of the key of an injected join expansion entry: the factors are keyed by the join
@@ -75,12 +78,20 @@ public class HboJoinConditionsTest {
         LogicalOlapScan u = PlanConstructor.newLogicalOlapScan(1, "u", 0);
         SlotReference x = new SlotReference("id", IntegerType.INSTANCE, false, ImmutableList.of("x"));
         SlotReference y = new SlotReference("id", IntegerType.INSTANCE, false, ImmutableList.of("y"));
-        String first = HboJoinConditions.canonicalOf(joinOver(x, y,
-                project(t.withTableAlias("x"), x), project(u.withTableAlias("y"), y))).get();
-        String swapped = HboJoinConditions.canonicalOf(joinOver(x, y,
-                project(u.withTableAlias("x"), x), project(t.withTableAlias("y"), y))).get();
+        LogicalJoin<LogicalProject<LogicalOlapScan>, LogicalProject<LogicalOlapScan>> firstJoin = joinOver(x, y,
+                project(t.withTableAlias("x"), x), project(u.withTableAlias("y"), y));
+        LogicalJoin<LogicalProject<LogicalOlapScan>, LogicalProject<LogicalOlapScan>> swappedJoin = joinOver(x, y,
+                project(u.withTableAlias("x"), x), project(t.withTableAlias("y"), y));
+        String first = HboJoinConditions.canonicalOf(firstJoin).get();
+        String swapped = HboJoinConditions.canonicalOf(swappedJoin).get();
         Assertions.assertTrue(first.contains("bindings:[x=0,y=1]"), first);
-        Assertions.assertNotEquals(first, swapped, "two alias bindings share an expansion key");
+        Assertions.assertNotEquals(first, swapped, "two alias bindings share a canonical");
+        // the key is the sha256 of the structural identity, not of that text
+        String firstKey = HboJoinConditions.fingerprintOf(firstJoin).get();
+        String swappedKey = HboJoinConditions.fingerprintOf(swappedJoin).get();
+        Assertions.assertNotEquals(firstKey, swappedKey, "two alias bindings share an expansion key");
+        Assertions.assertNotEquals(firstKey, Hashing.sha256()
+                .hashString(first, StandardCharsets.UTF_8).toString(), "the expansion key is keyed on the text");
         // the operands themselves render one text in both plans
         Assertions.assertTrue(first.contains("EqualTo(col(x.id),col(y.id))"), first);
         Assertions.assertTrue(swapped.contains("EqualTo(col(x.id),col(y.id))"), swapped);
