@@ -54,6 +54,10 @@ suite("test_paimon_hms_catalog", "p2,external") {
         sql """SELECT * FROM external_test_table FOR VERSION AS OF 1;"""
         // branch/tag
         // TODO(zgx): add branch/tag
+        // REFRESH must reload snapshots with the catalog identity, even after a warm query.
+        def beforeRefresh = sql """SELECT * FROM external_test_table ORDER BY 1, 2"""
+        sql """REFRESH TABLE external_test_table"""
+        assertEquals(beforeRefresh, sql("""SELECT * FROM external_test_table ORDER BY 1, 2"""))
         // system table
         sql """SELECT * FROM external_test_table\$snapshots;"""
     }
