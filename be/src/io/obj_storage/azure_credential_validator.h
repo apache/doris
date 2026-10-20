@@ -40,6 +40,11 @@ public:
     // expires_at_ms = 10:00 and se=09:30, the SAS is rejected from 09:30 on.
     static Status validate(const AzureAuthConfig& auth, int64_t now_ms);
 
+    // When the credential expires in Unix milliseconds: the earlier of a SAS's upstream expiry
+    // and its "se" field, or nullopt when neither is known or the method does not expire
+    // (SharedKey; client secret, whose access token the SDK refreshes).
+    static Result<std::optional<int64_t>> expiry_ms(const AzureAuthConfig& auth);
+
     // Expiry ("se") of a SAS query string in Unix milliseconds, or nullopt if the token has no
     // "se" field. Accepts the ISO 8601 UTC forms Azure issues, URL-encoded or not:
     // "2026-10-15", "2026-10-15T08:30Z", "2026-10-15T08:30:00Z", "2026-10-15T08:30:00.1234567Z".

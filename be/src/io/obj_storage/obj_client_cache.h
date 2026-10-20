@@ -17,8 +17,12 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 #include "io/obj_storage/obj_storage_config.h"
@@ -31,27 +35,50 @@ namespace doris::io {
 // SDK clients are built outside the lock. When two threads build the same identity
 // concurrently, the first publish wins and the loser's candidate stays owned by its
 // caller, so the losing SDK client is destroyed after the lock is released.
+//
+// A bounded publish keeps at most `capacity` entries. Short-lived credentials make this
+// necessary: each new SAS token is a new identity, e.g. an Iceberg REST catalog that vends a
+// fresh SAS per query would otherwise add one Azure client (with its own connection pool) per
+// query and never release the old ones. Entries whose credential has expired go first, then
+// the least recently used. Eviction only drops the cache's reference: a reader that holds the
+// client keeps using it, and the last reference is released outside the lock.
 class ObjClientCache {
 public:
-    std::shared_ptr<ObjStorageClient> find(const ObjClientConfig& config) {
-        std::lock_guard lock(_lock);
-        auto it = _clients.find(config);
-        return it == _clients.end() ? nullptr : it->second;
-    }
+    // Returns the cached client and marks it as recently used, or nullptr.
+    std::shared_ptr<ObjStorageClient> find(const ObjClientConfig& config);
 
-    // Returns the client cached for config: candidate if it was published, or the one
-    // another thread published first.
+    // Unbounded publish, for clients whose credentials do not expire on their own (e.g. S3
+    // static keys). Returns the client cached for config: candidate if it was published, or
+    // the one another thread published first.
     std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
-                                              const std::shared_ptr<ObjStorageClient>& candidate) {
-        std::lock_guard lock(_lock);
-        auto [it, _] = _clients.try_emplace(config, candidate);
-        return it->second;
-    }
+                                              const std::shared_ptr<ObjStorageClient>& candidate);
+
+    // Bounded publish. expires_at_ms is when the candidate's credential expires, if known;
+    // capacity must be positive.
+    std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
+                                              const std::shared_ptr<ObjStorageClient>& candidate,
+                                              std::optional<int64_t> expires_at_ms, int64_t now_ms,
+                                              size_t capacity);
+
+    size_t size();
 
 private:
+    struct Entry {
+        ObjClientConfig config;
+        std::shared_ptr<ObjStorageClient> client;
+        std::optional<int64_t> expires_at_ms;
+    };
+    using EntryList = std::list<Entry>;
+
+    // Inserts or finds config under _lock; returns the cached client.
+    std::shared_ptr<ObjStorageClient> _publish_locked(
+            const ObjClientConfig& config, const std::shared_ptr<ObjStorageClient>& candidate,
+            std::optional<int64_t> expires_at_ms);
+
     std::mutex _lock;
-    std::unordered_map<ObjClientConfig, std::shared_ptr<ObjStorageClient>, ObjClientConfigHash>
-            _clients;
+    // Most recently used first.
+    EntryList _entries;
+    std::unordered_map<ObjClientConfig, EntryList::iterator, ObjClientConfigHash> _index;
 };
 
 } // namespace doris::io

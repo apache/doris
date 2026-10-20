@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <variant>
 
 namespace doris::io {
@@ -139,23 +140,32 @@ Result<int64_t> parse_sas_time(std::string_view value) {
     return seconds * 1000 + millis;
 }
 
-Status validate_azure_credential_expiry(const AzureSharedKeyConfig& /*shared_key*/,
-                                        int64_t /*now_ms*/) {
-    return Status::OK();
+Result<std::optional<int64_t>> azure_credential_expiry(const AzureSharedKeyConfig& /*shared_key*/) {
+    return std::optional<int64_t> {};
 }
 
-Status validate_azure_credential_expiry(const AzureClientSecretConfig& /*client_secret*/,
-                                        int64_t /*now_ms*/) {
+Result<std::optional<int64_t>> azure_credential_expiry(
+        const AzureClientSecretConfig& /*client_secret*/) {
     // The SDK credential obtains and refreshes the access token, so nothing here can expire.
-    return Status::OK();
+    return std::optional<int64_t> {};
 }
 
-Status validate_azure_credential_expiry(const AzureSasConfig& sas, int64_t now_ms) {
-    auto token_expiry = DORIS_TRY(AzureCredentialValidator::sas_expiry_ms(sas.token));
-    std::optional<int64_t> expiry = sas.expires_at_ms;
-    if (token_expiry.has_value()) {
-        expiry = std::min(expiry.value_or(*token_expiry), *token_expiry);
+Result<std::optional<int64_t>> azure_credential_expiry(const AzureSasConfig& sas) {
+    auto token_expiry = AzureCredentialValidator::sas_expiry_ms(sas.token);
+    if (!token_expiry.has_value()) {
+        return ResultError(std::move(token_expiry).error());
     }
+    std::optional<int64_t> expiry = sas.expires_at_ms;
+    if (token_expiry->has_value()) {
+        expiry = std::min(expiry.value_or(**token_expiry), **token_expiry);
+    }
+    return expiry;
+}
+
+} // namespace
+
+Status AzureCredentialValidator::validate(const AzureAuthConfig& auth, int64_t now_ms) {
+    auto expiry = DORIS_TRY(expiry_ms(auth));
     if (expiry.has_value() && *expiry <= now_ms) {
         return Status::InvalidArgument<false>(
                 "Azure SAS credential expired at {} ms (now {} ms); request a new credential",
@@ -164,11 +174,8 @@ Status validate_azure_credential_expiry(const AzureSasConfig& sas, int64_t now_m
     return Status::OK();
 }
 
-} // namespace
-
-Status AzureCredentialValidator::validate(const AzureAuthConfig& auth, int64_t now_ms) {
-    return std::visit([&](const auto& a) { return validate_azure_credential_expiry(a, now_ms); },
-                      auth);
+Result<std::optional<int64_t>> AzureCredentialValidator::expiry_ms(const AzureAuthConfig& auth) {
+    return std::visit([](const auto& a) { return azure_credential_expiry(a); }, auth);
 }
 
 Result<std::optional<int64_t>> AzureCredentialValidator::sas_expiry_ms(std::string_view token) {

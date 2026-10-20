@@ -256,6 +256,37 @@ TEST_F(ObjClientFactoryTest, AzureProviderCachesByContainer) {
     EXPECT_EQ(_s3_builds, 0);
 }
 
+TEST_F(ObjClientFactoryTest, AzureProviderCacheIsBounded) {
+#ifdef USE_AZURE
+    auto make_sas = [](std::string token) {
+        return ObjClientConfig {
+                .connection = {},
+                .usage = ClientUsage::EXTERNAL_ACCESS,
+                .backend =
+                        AzureClientConfig {
+                                .endpoint = "https://bounded-cache.blob.core.windows.net",
+                                .account = "",
+                                .container = "container",
+                                .auth = AzureSasConfig {.token = std::move(token),
+                                                        .expires_at_ms = std::nullopt},
+                        },
+        };
+    };
+    auto saved_capacity = config::azure_client_cache_capacity;
+    config::azure_client_cache_capacity = 1;
+    auto& factory = ObjClientFactory::instance();
+    auto first = factory.get_or_create(make_sas("sig=first"));
+    ASSERT_TRUE(first.has_value()) << first.error();
+    auto second = factory.get_or_create(make_sas("sig=second"));
+    ASSERT_TRUE(second.has_value()) << second.error();
+    // With room for one client, the second SAS evicted the first, so it is built again.
+    auto rebuilt = factory.get_or_create(make_sas("sig=first"));
+    config::azure_client_cache_capacity = saved_capacity;
+    ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
+    EXPECT_NE(rebuilt.value(), first.value());
+#endif
+}
+
 TEST_F(ObjClientFactoryTest, HolderPublishesConfAndClientTogether) {
     auto conf = make_s3_conf("holder-state.example.com");
     ObjClientHolder holder(conf);
