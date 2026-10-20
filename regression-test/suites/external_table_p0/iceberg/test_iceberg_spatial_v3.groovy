@@ -581,6 +581,31 @@ public class CreateIcebergSpatialV3Table {
         sql """select /*+ SET_VAR(agg_phase=2) */ collect_list(shapes) from nested_spatial_values"""
         exception "collect_list does not support nested spatial arguments"
     }
+    // ARRAY_AGG has a separate factory; its nonnullable branch shares the unsafe text state.
+    for (String constructor : ["ST_GeometryFromWKBTyped", "ST_GeogFromWKB"]) {
+        String point = "${constructor}('01010000000000000000002c400000000000000040')"
+        for (String argument : ["array(${point})", "if(id = 1, array(${point}), NULL)"]) {
+            for (String expression : ["array_agg(${argument})", "array_agg(distinct ${argument})",
+                    "array_agg_state(${argument})", "array_agg_combine(${argument})",
+                    "array_agg_merge(array_agg_state(${argument}))"]) {
+                test {
+                    sql """select /*+ SET_VAR(agg_phase=2, enable_agg_state=true) */
+                        ${expression} from geometry_values"""
+                    exception "array_agg does not support nested spatial arguments"
+                }
+            }
+        }
+    }
+    test {
+        sql """select /*+ SET_VAR(agg_phase=2) */ array_agg(shapes) from nested_spatial_values"""
+        exception "array_agg does not support nested spatial arguments"
+    }
+    qt_scalar_spatial_array_agg """select /*+ SET_VAR(agg_phase=2) */
+        array_sort(array_map(shape -> hex(ST_AsBinary(shape)),
+            array_agg(ST_GeometryFromWKBTyped('01010000000000000000002c400000000000000040')))),
+        array_sort(array_map(shape -> hex(ST_AsBinary(shape)),
+            array_agg(ST_GeogFromWKB('01010000000000000000002c400000000000000040'))))
+        from geometry_values where id = 1"""
     order_qt_nested_spatial_values """
         select size(shapes), ST_AsText(shapes[1]), hex(ST_AsBinary(shapes[1]))
         from nested_spatial_values
