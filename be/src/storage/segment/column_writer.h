@@ -663,6 +663,7 @@ private:
                       std::span<const uint8_t> outer_nulls);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_builder();
+    Status _promote_chunks(DataTypePtr* inferred_type);
     Status _seal_chunk();
     // Bounded value chunks; each chunk is finalized and flushed independently so the writer never
     // holds a segment-sized ColumnString.
@@ -683,8 +684,8 @@ private:
     std::vector<ValueChunk> _chunks;
     size_t _chunk_row_begin = 0;
     size_t _chunk_rows = 0;
-    // Type accumulated by the sealed chunks. A new chunk starts from it so appends follow the
-    // exact same inference and JSONB-fallback sequence as one uninterrupted builder.
+    // Type carried into the next chunk. Inferred promotions also check and update sealed chunks
+    // so fallback follows the same sequence as one uninterrupted builder.
     DataTypePtr _running_type;
     size_t _num_rows = 0;
     ColumnWriterOptions _opts;

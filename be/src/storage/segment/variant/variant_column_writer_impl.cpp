@@ -2044,6 +2044,11 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
         _chunk_rows = 0;
     }
 
+    VariantPathBuilder::InferredPromotion on_promotion;
+    // Until a chunk is sealed, the active builder already holds every value to be checked.
+    if (!_chunks.empty()) {
+        on_promotion = [this](DataTypePtr* type) { return _promote_chunks(type); };
+    }
     const auto append_encoded = [&](const ColumnVariantV2::ReadView& view, size_t begin) -> Status {
         DORIS_CHECK(!view.is_typed());
         for (size_t offset = 0; offset < num_rows; ++offset) {
@@ -2053,7 +2058,8 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
             const size_t input_row = begin + offset;
             const VariantRef value = view.value_at(input_row);
             if (!value.is_null()) {
-                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset - _chunk_row_begin));
+                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset - _chunk_row_begin,
+                                                    on_promotion));
             }
         }
         return Status::OK();
@@ -2085,6 +2091,30 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
 #endif
     if (_v2_builder->byte_size() >= chunk_bytes || _v2_builder->non_null_rows() >= chunk_values) {
         RETURN_IF_ERROR(_seal_chunk());
+    }
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::_promote_chunks(DataTypePtr* inferred_type) {
+    // Decide against every retained value before changing any chunk. A small scale-1 Decimal may
+    // fit scale 38 while a later large Decimal does not; committing the first cast would change
+    // its JSONB representation before discovering that the whole path needs fallback.
+    for (const auto& chunk : _chunks) {
+        if (chunk.builder->non_null_rows() == 0) {
+            continue;
+        }
+        bool needs_jsonb = false;
+        RETURN_IF_ERROR(chunk.builder->check_inferred_promotion(*inferred_type, &needs_jsonb));
+        if (needs_jsonb) {
+            *inferred_type = std::make_shared<DataTypeJsonb>();
+            break;
+        }
+    }
+    for (auto& chunk : _chunks) {
+        if (chunk.builder->non_null_rows() != 0) {
+            RETURN_IF_ERROR(
+                    chunk.builder->convert_to(*inferred_type, false /* filter_cast_nulls */));
+        }
     }
     return Status::OK();
 }
