@@ -111,7 +111,7 @@ public class MTMV extends OlapTable {
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
     @SerializedName("ii")
-    private IvmInfo ivmInfo = new IvmInfo();
+    private volatile IvmInfo ivmInfo = new IvmInfo();
     /**
      * The refresh epoch of every MV partition, keyed by MV partition name.
      *
@@ -223,13 +223,25 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
+    /**
+     * Applies an ALTER_REFRESH_INFO op and journals it under one MV write lock, so that the record
+     * order is the order the change took effect in (see {@link #submitAlterLog}). The journal write
+     * itself is awaited by the caller after the lock is released.
+     *
+     * @return the pending journal entry, or null on replay (which has nothing to record)
+     */
+    public EditLogItem alterRefreshInfo(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem = null;
         writeMvLock();
         try {
-            return refreshInfo.updateNotNull(newRefreshInfo);
+            refreshInfo.updateNotNull(alterMTMV.getRefreshInfo());
+            if (!isReplay) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
         } finally {
             writeMvUnlock();
         }
+        return editLogItem;
     }
 
     /**
@@ -238,8 +250,8 @@ public class MTMV extends OlapTable {
      * the transparent rewrite serving rows from it.
      *
      * <p>This is the step that <em>applies</em> a change, not the one that records it -- it takes the MV
-     * lock and moves all three, but nothing here is journaled. It is what {@code Alter#processAlterMTMV}
-     * calls for an {@code ALTER_STATUS} op, both live and on replay; a live caller reaches it through
+     * lock and moves all three, but nothing here is journaled. {@code Alter#processAlterMTMV} uses the
+     * overload that journals under the same lock; a live invalidation reaches it through
      * {@link #invalidateWholeMv}, which goes the journaled way round. A new invalidation belongs there:
      * calling this directly would leave the MV in a state a restart forgets. The one caller that goes
      * direct is {@link #processBaseViewChange}, and it is not new: the alter or the drop of the view is
@@ -252,13 +264,40 @@ public class MTMV extends OlapTable {
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            // only can update state, refresh state will be change by add task
-            this.schemaChangeVersion++;
-            this.refreshSnapshot = new MTMVRefreshSnapshot();
-            return this.status.updateStateAndDetail(newStatus);
+            return applyStatus(newStatus);
         } finally {
             writeMvUnlock();
         }
+    }
+
+    /**
+     * Applies an ALTER_STATUS op and journals it under one MV write lock. An ALTER_STATUS is applied
+     * together with what it stands for -- the version bump and the snapshot drop -- and the record has
+     * to describe that same step, not a later one: a result journaled in between would be replayed on
+     * either side of it.
+     *
+     * @return the pending journal entry, or null on replay (which has nothing to record)
+     */
+    public EditLogItem alterStatus(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem = null;
+        writeMvLock();
+        try {
+            applyStatus(alterMTMV.getStatus());
+            if (!isReplay) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
+        } finally {
+            writeMvUnlock();
+        }
+        return editLogItem;
+    }
+
+    // Assumes the MV write lock is held.
+    private MTMVStatus applyStatus(MTMVStatus newStatus) {
+        // only can update state, refresh state will be change by add task
+        this.schemaChangeVersion++;
+        this.refreshSnapshot = new MTMVRefreshSnapshot();
+        return this.status.updateStateAndDetail(newStatus);
     }
 
     /**
@@ -757,16 +796,21 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The MV's IVM metadata, readable without the MV lock.
+     *
+     * <p>{@code isIvm()} is on the query path, and what it reads is fixed for the MV's lifetime:
+     * {@code enableIvm} is decided at CREATE and no ALTER path changes it. The rest of the payload is
+     * touched only by the refresh of this MV -- the sequence prefix is read when a refresh plans and
+     * advanced when its transaction commits, and the plan signature is published by the same task's
+     * result -- and one MV's tasks run one at a time, under its job's write lock (see
+     * {@code MTMVTask#runTask}). So no reader here races a writer.
+     *
+     * <p>Never null: the field is created with the MV, and {@link #gsonPostProcess} covers an image
+     * that carries it as null.
+     */
     public IvmInfo getIvmInfo() {
-        writeMvLock();
-        try {
-            if (ivmInfo == null) {
-                ivmInfo = new IvmInfo();
-            }
-            return ivmInfo;
-        } finally {
-            writeMvUnlock();
-        }
+        return ivmInfo;
     }
 
     // ALTER_IVM_INFO replay applies a detached snapshot here. Live IVM changes submit their journal

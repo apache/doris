@@ -311,7 +311,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // are not DataTable). Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
         if (!paimonHandle.isSystemTable()) {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest =
-                    readSchemaAuthenticated(() -> catalogOps.latestSchema(table));
+                    readMetadataAuthenticated(() -> catalogOps.latestSchema(table));
             if (latest.isPresent()) {
                 PaimonCatalogOps.PaimonSchemaSnapshot schema = latest.get();
                 return buildTableSchema(
@@ -634,7 +634,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // on a miss; when caching is disabled (ttl-second<=0, the no-cache catalog) it runs every call.
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long id = latestSnapshotCache.getOrLoad(identifier,
-                () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
+                () -> readMetadataAuthenticated(
+                        () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L)));
         StatementPin pin = statementPin(paimonHandle, resolveTable(paimonHandle), id);
         Map<String, String> coordinates = new HashMap<>(pin.coordinates);
         if (!coordinates.isEmpty()) {
@@ -644,19 +645,19 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 .retainSchema(pin.schemaId() >= 0).properties(coordinates).build());
     }
 
-    private <T> T readSchemaAuthenticated(Supplier<T> read) {
-        // Cached tables do not cache schema files: exact/latest schema reads still need plugin UGI and TCCL.
+    private <T> T readMetadataAuthenticated(Supplier<T> read) {
+        // Table resolution can return before lazy schema/snapshot I/O; authenticate the actual read as well.
         try {
             return context.executeAuthenticated(read::get);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to read Paimon schema", e);
+            throw new RuntimeException("Failed to read Paimon metadata", e);
         }
     }
 
     private StatementPin statementPin(PaimonTableHandle handle, Table table, long snapshotId) {
-        return statementPins.computeIfAbsent(handle, ignored -> readSchemaAuthenticated(() -> {
+        return statementPins.computeIfAbsent(handle, ignored -> readMetadataAuthenticated(() -> {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> schema = catalogOps.latestSchema(table);
             long schemaId = schema.map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId).orElse(-1L);
             Map<String, String> coordinates = PaimonSchemaPin.capture(table, schemaId, snapshotId);
@@ -669,9 +670,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private PaimonCatalogOps.PaimonSchemaSnapshot schemaForPin(PaimonTableHandle handle, Table table, long schemaId) {
         if (!PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
             return schemaAtMemo.getOrLoad(handle, schemaId,
-                    () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
+                    () -> readMetadataAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
         }
-        return readSchemaAuthenticated(() -> {
+        return readMetadataAuthenticated(() -> {
             PaimonSchemaPin.validate(table, handle.getScanOptions());
             // INSERT replanning can replace this scope while retaining the source pin. Rehydrate
             // the exact schema in the new scope without using the catalog's historical memo.
@@ -752,6 +753,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (paimonHandle.isSystemTable()) {
             return Optional.empty();
         }
+        return readMetadataAuthenticated(() -> resolveTimeTravelAuthenticated(session, paimonHandle, spec));
+    }
+
+    private Optional<ConnectorMvccSnapshot> resolveTimeTravelAuthenticated(
+            ConnectorSession session, PaimonTableHandle paimonHandle, ConnectorTimeTravelSpec spec) {
         Table table = resolveTable(paimonHandle);
         switch (spec.getKind()) {
             case SNAPSHOT_ID: {
@@ -1559,7 +1565,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // rowType(). System tables keep their synthetic rowType() (no schema-version history).
         if (!paimonHandle.isSystemTable()) {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest =
-                    readSchemaAuthenticated(() -> catalogOps.latestSchema(table));
+                    readMetadataAuthenticated(() -> catalogOps.latestSchema(table));
             if (latest.isPresent()) {
                 return buildColumnHandles(latest.get().fields(), true);
             }
@@ -1740,7 +1746,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private ConnectorTableKey partitionViewCacheKey(PaimonTableHandle paimonHandle) {
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long snapshotId = latestSnapshotCache.getOrLoad(identifier,
-                () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
+                () -> readMetadataAuthenticated(
+                        () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L)));
         return new ConnectorTableKey(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName(), snapshotId, -1L);
     }
@@ -1991,7 +1998,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
         Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
         if (PaimonScanParams.preservesBoundSchema(scanOptions)) {
-            return readSchemaAuthenticated(() -> PaimonReaderOptions.runtimeSafeSystemTable(
+            return readMetadataAuthenticated(() -> PaimonReaderOptions.runtimeSafeSystemTable(
                     handle.getSysTableName(), systemTable, dataTable, scanOptions));
         }
         return PaimonReaderOptions.runtimeSafeSystemTable(

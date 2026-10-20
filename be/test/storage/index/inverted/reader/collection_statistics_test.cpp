@@ -667,6 +667,7 @@ protected:
         uint64_t sum_total_term_freq = 0;
         bool has_positions = true;
         bool has_norms = true;
+        bool is_analyzed = true;
         bool single_term_normalizer = false;
     };
 
@@ -676,8 +677,8 @@ protected:
         for (const auto& field : fields) {
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
                     field.field_name, field.index_doc_count, field.sum_total_term_freq,
-                    field.has_positions, field.has_norms, field.single_term_normalizer,
-                    segment_accumulator));
+                    field.has_positions, field.has_norms, segment_accumulator, field.is_analyzed,
+                    field.single_term_normalizer));
         }
         return Status::OK();
     }
@@ -975,26 +976,45 @@ TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
     expect_no_collected_tokens(L"1");
 }
 
-// An index that is not analyzed never writes norms, and its scoring statistics are collected as
-// before.
-TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsCollectsScoring) {
     auto tablet_schema = create_legacy_v3_schema({});
     const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
     ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
 
+    const std::string second_path = test_dir_ + "/legacy_v3_keyword_1.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, second_path).ok());
+
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
     auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
-    rowset->set_num_segments(1);
+    rowset->set_num_segments(2);
     rowset->set_segment_path(0, segment_path);
+    rowset->set_segment_path(1, second_path);
     auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
     std::vector<RowSetSplits> splits {RowSetSplits(reader)};
 
-    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
-                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+    for (const auto* clause_type : {"TERM", "PHRASE", "EXACT"}) {
+        const Status status =
+                stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                create_search_contexts(clause_type, "alpha beta"), nullptr);
 
-    ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 1, 0);
-    expect_collected_term(L"1", L"alpha beta", 1);
+        ASSERT_TRUE(status.ok()) << status;
+        expect_collected_stats(L"1", 2, 2);
+        expect_collected_term(L"1", L"alpha beta", 2);
+        EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.0F);
+    }
+}
+
+TEST_F(CollectionStatisticsTest, SniiKeywordStatsAllowMissingPositionsAndNorms) {
+    auto resolved = resolve_snii_scoring_segment(3, 3, false, false, false);
+    ASSERT_TRUE(resolved.has_value()) << resolved.error();
+    EXPECT_EQ(resolved->doc_count, 3);
+    EXPECT_EQ(resolved->token_count, 3);
+    SniiScoringFieldInput input(L"1", 3, 3, false);
+    input.has_positions = false;
+    input.is_analyzed = false;
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {input}).ok());
+    expect_collected_stats(L"1", 3, 3);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.0F);
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
@@ -1230,9 +1250,10 @@ TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutPositions)
 }
 
 TEST(CollectionStatisticsSniiScoringTest, ResolveAcceptsSingleTermNormalizerWithoutPositions) {
-    auto result = resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
-                                               /*has_norms=*/false,
-                                               /*single_term_normalizer=*/true);
+    auto result =
+            resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
+                                         /*has_norms=*/false,
+                                         /*is_analyzed=*/true, /*single_term_normalizer=*/true);
 
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result->doc_count, 3U);
@@ -1939,7 +1960,9 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     index_pb.set_index_name("kw_idx");
     index_pb.set_index_type(IndexType::INVERTED);
     index_pb.add_col_unique_id(kColUid);
-    // No "parser" property -> should_analyzer returns false
+    // An explicit keyword parser inherits phrase support but is still not analyzed.
+    (*index_pb.mutable_properties())["parser"] = "none";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
     TabletIndex index;
     index.init_from_pb(index_pb);
     tablet_schema->append_index(std::move(index));
@@ -2377,7 +2400,7 @@ TEST_F(CollectionStatisticsTest, SearchArrayStringSelectsFulltextLeafIndex) {
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 20);
 }
 
-TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
+TEST_F(CollectionStatisticsTest, SearchExactUsesKeywordIndexWithAnalyzedBindingHint) {
     auto tablet_schema = create_tablet_schema_with_keyword_and_fulltext_indexes();
     TSearchClause clause;
     clause.clause_type = "EXACT";
@@ -2397,8 +2420,8 @@ TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
             runtime_state_.get(), create_search_contexts(std::move(clause), {std::move(binding)}),
             tablet_schema, &collect_infos);
 
-    ASSERT_TRUE(status.ok()) << status.msg();
-    ASSERT_EQ(collect_infos.size(), 1u);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(collect_infos.size(), 1U);
     ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 10);
     EXPECT_EQ(collect_infos.begin()->second.unique_terms,

@@ -82,6 +82,30 @@ public class MysqlConnectProcessorCursorFetchTest {
                 "Unknown prepared statement handler"));
     }
 
+    @Test
+    public void testEmptyCursorFetchResetAndClose() throws Exception {
+        ConnectContext context = new ConnectContext();
+        PreparedStatementContext prepared = new PreparedStatementContext(
+                Mockito.mock(PrepareCommand.class), context, new StatementContext(), "7");
+        context.addPreparedStatementContext("7", prepared);
+        MysqlConnectProcessor processor = new MysqlConnectProcessor(context);
+        prepared.setEmptyCursorOpen(true);
+        processor.handleStmtFetch(7);
+        Assertions.assertEquals(QueryState.MysqlStateType.EOF, context.getState().getStateType());
+        Assertions.assertFalse(prepared.isEmptyCursorOpen());
+        Assertions.assertEquals(0x80, context.getState().serverStatus & 0xC0);
+
+        context.getState().reset();
+        processor.handleStmtFetch(7);
+        Assertions.assertEquals(1421, context.getState().getErrorCode().getCode());
+        prepared.setEmptyCursorOpen(true);
+        processor.handleStmtResetById(7);
+        Assertions.assertFalse(prepared.isEmptyCursorOpen());
+        context.removePrepareStmt("7");
+        processor.handleStmtFetch(7);
+        Assertions.assertEquals(1243, context.getState().getErrorCode().getCode());
+    }
+
     private ConnectContext execute(boolean cursorRequested, boolean clientDeprecatedEof,
             boolean identifiedClient) throws Exception {
         ConnectContext context = new ConnectContext();

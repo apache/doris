@@ -240,6 +240,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3CellToBoundary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3CellToLatLng;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3LatLngToCell;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -1132,6 +1135,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StLinefromtext.class, "st_linefromtext"),
             scalar(StLinestringfromtext.class, "st_linestringfromtext"),
             scalar(StPoint.class, "st_point"),
+            scalar(H3CellToBoundary.class, "h3_cell_to_boundary"),
+            scalar(H3CellToLatLng.class, "h3_cell_to_lat_lng"),
+            scalar(H3LatLngToCell.class, "h3_lat_lng_to_cell"),
             scalar(StPolyfromtext.class, "st_polyfromtext"),
             scalar(StPolygon.class, "st_polygon"),
             scalar(StPolygonfromtext.class, "st_polygonfromtext"),
