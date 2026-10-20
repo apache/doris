@@ -718,29 +718,25 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Keep local cache integration and prewarm field resolution on the pinned lance-c revision.
+# Foyer remains a local patch until its cache interface is accepted upstream.
+# All search fixes are supplied by the immutable lance-c dependency revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    lance_c_patches=(lance-c-foyer.patch lance-c-prewarm-field.patch)
-    lance_c_patch_checksum="$(
-        for patch_file in "${lance_c_patches[@]}"; do
-            cat "${TP_PATCH_DIR}/${patch_file}"
-        done | cksum
-    )"
-    lance_c_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_lance_c"
-    # Fingerprint the complete patch set: old Foyer-only caches and interrupted
-    # applications must be rebuilt from the archive before applying either patch.
-    if [[ ! -f "${lance_c_patch_marker}" ]] ||
-        [[ "$(cat "${lance_c_patch_marker}")" != "${lance_c_patch_checksum}" ]]; then
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
+    # A new local patch must also replace previously patched cached sources.
+    # Empty markers from older builds cannot identify the applied patch version.
+    if [[ -f "${foyer_patch_marker}" ]] &&
+        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
         rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
         "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
-        cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-        for patch_file in "${lance_c_patches[@]}"; do
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/${patch_file}"
-        done
-        printf '%s\n' "${lance_c_patch_checksum}" > "${lance_c_patch_marker}"
-        cd -
     fi
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
+    fi
+    cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 
