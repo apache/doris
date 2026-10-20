@@ -2050,7 +2050,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns()));
                 sb.append(hashDistributionInfo.getBucketNum());
-                sb.append(hashDistributionInfo.getHashType());
+                // Same reason as the table-level append above: keep the legacy signature byte-for-byte
+                // unchanged for CRC32 so an old-FE/new-FE signature comparison still matches.
+                if (hashDistributionInfo.getHashType() != HashDistributionInfo.HashType.CRC32) {
+                    sb.append(hashDistributionInfo.getHashType());
+                }
             }
         }
 

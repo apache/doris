@@ -222,10 +222,20 @@ public class DistributionHashTypeTest {
         table.addPartition(new Partition(2L, "p", new MaterializedIndex(3L,
                 MaterializedIndex.IndexState.NORMAL), distributionInfo));
 
+        // CRC32 keeps the legacy signature: neither the table-level nor the per-partition loop
+        // appends the hash type, so an old-FE signature of the same table still matches after
+        // upgrade (RestoreJob compares getSignature across FE versions).
         String crc32Signature = table.getSignature(1, Lists.newArrayList("p"));
+        Assertions.assertFalse(crc32Signature.contains("CRC32"),
+                "CRC32 signature must stay byte-identical with the pre-hash-type FE: " + crc32Signature);
+
         distributionInfo.setHashType(HashType.IDENTITY);
         String identitySignature = table.getSignature(1, Lists.newArrayList("p"));
+        // IDENTITY changes both the table-level layout and the partition layout, so either
+        // contribution alone must make the signatures diverge.
         Assertions.assertNotEquals(crc32Signature, identitySignature);
+        Assertions.assertTrue(identitySignature.contains("IDENTITY"),
+                "IDENTITY signature must carry the hash type: " + identitySignature);
     }
 
     // ------------------------------------------------------------------
