@@ -23,6 +23,11 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -32,6 +37,67 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
+
+static Block make_point_query_filter_block(const std::vector<int8_t>& deleted) {
+    auto keys = ColumnInt32::create();
+    auto values = ColumnString::create();
+    auto nulls = ColumnUInt8::create();
+    auto signs = ColumnInt8::create();
+    for (size_t row = 0; row < deleted.size(); ++row) {
+        keys->insert_value(static_cast<int32_t>(row));
+        auto value = std::to_string(row);
+        values->insert_data(value.data(), value.size());
+        nulls->insert_value(row == 2);
+        signs->insert_value(deleted[row]);
+    }
+    return Block {{std::move(keys), std::make_shared<DataTypeInt32>(), "key"},
+                  {ColumnNullable::create(std::move(values), std::move(nulls)),
+                   make_nullable(std::make_shared<DataTypeString>()), "value"},
+                  {std::move(signs), std::make_shared<DataTypeInt8>(), "delete_sign"}};
+}
+
+TEST(PointQueryBatchTest, FilterMixedDeletedRowsPreservesNullsAndSharedColumns) {
+    auto block = make_point_query_filter_block({0, 1, 0, 1});
+    auto shared_block = block;
+    PointQueryExecutor::_filter_deleted_rows(block, 2);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& keys = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+    EXPECT_EQ(keys.get_element(0), 0);
+    EXPECT_EQ(keys.get_element(1), 2);
+    const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_FALSE(values.is_null_at(0));
+    EXPECT_EQ(values.get_nested_column().get_data_at(0).to_string(), "0");
+    EXPECT_TRUE(values.is_null_at(1));
+    EXPECT_EQ(shared_block.rows(), 4);
+    for (const auto& column : block.get_columns()) {
+        EXPECT_EQ(column->size(), 2);
+    }
+}
+
+TEST(PointQueryBatchTest, FilterAllDeletedRows) {
+    auto block = make_point_query_filter_block({1, 1, 1});
+    PointQueryExecutor::_filter_deleted_rows(block, 2);
+    for (const auto& column : block.get_columns()) {
+        EXPECT_EQ(column->size(), 0);
+    }
+}
+
+TEST(PointQueryBatchTest, FilterNoDeletedRows) {
+    auto block = make_point_query_filter_block({0, 0, 0});
+    PointQueryExecutor::_filter_deleted_rows(block, 2);
+    ASSERT_EQ(block.rows(), 3);
+    const auto& values = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(values.is_null_at(2));
+}
+
+TEST(PointQueryBatchTest, FilterEmptyAndMissingDeleteSign) {
+    auto block = make_point_query_filter_block({});
+    PointQueryExecutor::_filter_deleted_rows(block, 2);
+    EXPECT_EQ(block.rows(), 0);
+    block = make_point_query_filter_block({1, 1});
+    PointQueryExecutor::_filter_deleted_rows(block, -1);
+    EXPECT_EQ(block.rows(), 2);
+}
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
 class ReusableTestHelper {
