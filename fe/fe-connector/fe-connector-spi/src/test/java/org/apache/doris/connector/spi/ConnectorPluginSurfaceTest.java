@@ -89,7 +89,7 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean); major 20 adds
-        // deleteUsingMetadata to the connector write surface.
+        // deleteUsingMetadata to the connector write surface and statement-scoped metadata.
         Assertions.assertEquals("20.0", version.getProperty("api.version"));
     }
 
@@ -99,11 +99,14 @@ public class ConnectorPluginSurfaceTest {
             ConnectorProvider.class,
             ConnectorContext.class,
             ConnectorSession.class,
+            ConnectorStatementScope.class,
+            ConnectorStatementScopes.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,

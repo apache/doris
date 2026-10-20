@@ -70,6 +70,11 @@ public interface ConnectorTableMetadataOps {
         return Optional.empty();
     }
 
+    /** Checks existence without requiring the caller to retain a planning handle or read metadata. */
+    default boolean tableExists(ConnectorSession session, String dbName, String tableName) {
+        return getTableHandle(session, dbName, tableName).isPresent();
+    }
+
     /**
      * Lists the system-table names supported for the given base table
      * (e.g. ["snapshots", "schemas", "options", "audit_log", "binlog"]).

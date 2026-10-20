@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -30,11 +31,52 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class ExternalCatalogMetaCacheTest {
+
+    @Test
+    public void contextualEntriesPreserveTheirSizeEstimatorAcrossCatalogRuntimes() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger estimates = new AtomicInteger();
+        ExternalCatalogMetaCache cache = new ExternalCatalogMetaCache("weighted_test", refreshExecutor) {
+            {
+                registerEntry(MetaCacheEntryDef.contextualOnly("large", String.class, LargeValue.class,
+                        CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10, 2_000_000))
+                        .withSizeEstimator((key, value) -> {
+                            estimates.incrementAndGet();
+                            return MetaCacheSizeEstimate.complete(800_000);
+                        }));
+            }
+        };
+        try {
+            LargeValue value = new LargeValue();
+            Assertions.assertEquals(20_000, value.values.size());
+            for (long catalogId : new long[] {1L, 2L}) {
+                cache.initCatalog(catalogId, Map.of("meta.cache.weighted_test.large.max-weight", "2000000"));
+                MetaCache<String, LargeValue> entry = cache.entry(catalogId, "large", String.class, LargeValue.class);
+                Assertions.assertSame(value, entry.get("key", key -> value));
+                Assertions.assertSame(value, entry.get("key", key -> {
+                    throw new AssertionError("contextual entry must use its own complete size estimate");
+                }));
+                cache.invalidateCatalog(catalogId);
+            }
+            Assertions.assertEquals(2, estimates.get());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    private static final class LargeValue {
+        private final List<String> values = IntStream.range(0, 20_000)
+                .mapToObj(Integer::toString).collect(Collectors.toList());
+    }
 
     @Test
     public void testEntryRequiresExplicitInit() {
