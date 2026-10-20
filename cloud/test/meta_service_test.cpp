@@ -8458,6 +8458,7 @@ TEST(MetaServiceTest, GetDeleteBitmapReturnsCompleteReplacementAfterTxnTooOld) {
         constexpr int64_t tablet_id = 652;
         const std::string rowset_id = "replacement_during_paginated_read";
         put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 1, rowset_id);
+        put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 2, "r1-2", 1);
 
         auto bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 2, 0});
         std::string old_bitmap(DEFAULT_BLOB_SPLIT_SIZE, 'a');
