@@ -55,6 +55,8 @@ suite('test_pythonudaf_drop', "nonConcurrent") {
         sql """
             CREATE AGGREGATE FUNCTION py_drop_sum_once(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udaf.SumAgg",
                 "runtime_version" = "${runtime_version}"
@@ -74,6 +76,8 @@ suite('test_pythonudaf_drop', "nonConcurrent") {
         sql """
             CREATE AGGREGATE FUNCTION py_drop_sum_a(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udaf.SumAgg",
                 "runtime_version" = "${runtime_version}"
@@ -82,6 +86,8 @@ suite('test_pythonudaf_drop', "nonConcurrent") {
         sql """
             CREATE AGGREGATE FUNCTION py_drop_sum_b(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipB}",
                 "symbol" = "drop_udaf.SumAgg",
                 "runtime_version" = "${runtime_version}"
@@ -109,6 +115,8 @@ suite('test_pythonudaf_drop', "nonConcurrent") {
         sql """
             CREATE AGGREGATE FUNCTION py_drop_sum_reconnect(INT) RETURNS BIGINT PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${zipA}",
                 "symbol" = "drop_udaf.SumAgg",
                 "runtime_version" = "${runtime_version}"
@@ -136,6 +144,8 @@ suite('test_pythonudaf_drop', "nonConcurrent") {
             RETURNS BIGINT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "symbol" = "InlineDropRecreateUdaf",
                 "runtime_version" = "${runtime_version}",
                 "always_nullable" = "true"
@@ -165,6 +175,8 @@ class InlineDropRecreateUdaf:
             RETURNS BIGINT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "symbol" = "InlineDropRecreateUdaf",
                 "runtime_version" = "${runtime_version}",
                 "always_nullable" = "true"

@@ -73,6 +73,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.VarianceUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -93,6 +95,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.StdDevUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -113,6 +117,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.MedianUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -133,6 +139,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.CollectListUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -153,6 +161,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.RangeUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -173,6 +183,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.GeometricMeanUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -193,6 +205,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.WeightedAvgUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -304,6 +318,8 @@ suite("test_pythonudaf_complex_aggregation_module") {
             "file" = "file://${pyPath}",
             "symbol" = "stats_udaf.VarianceUDAF",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );

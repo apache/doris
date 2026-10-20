@@ -37,6 +37,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_date_range",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -77,6 +79,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_time_slots",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -99,6 +103,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_json_array",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -139,6 +145,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_json_object_keys",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -178,6 +186,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.flatten_nested_json",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -216,6 +226,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_histogram_bins",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -238,6 +250,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_quartile_distribution",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -260,6 +274,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_ngrams",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -298,6 +314,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_sentences",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -320,6 +338,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_order_items",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -359,6 +379,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_user_events",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -397,6 +419,8 @@ suite("test_python_udtf_complex") {
             "file" = "file://${pyPath}",
             "symbol" = "complex_udtf.expand_bbox_to_tiles",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """

@@ -31,6 +31,8 @@ suite("test_pythonudtf_data_types_inline") {
         RETURNS ARRAY<STRUCT<original:TINYINT, doubled:TINYINT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_tinyint",
             "runtime_version" = "${runtime_version}"
         )
@@ -73,6 +75,8 @@ def process_tinyint(v):
         RETURNS ARRAY<STRUCT<original:SMALLINT, squared:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_smallint",
             "runtime_version" = "${runtime_version}"
         )
@@ -115,6 +119,8 @@ def process_smallint(v):
         RETURNS ARRAY<STRUCT<original:BIGINT, incremented:BIGINT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_bigint",
             "runtime_version" = "${runtime_version}"
         )
@@ -157,6 +163,8 @@ def process_bigint(v):
         RETURNS ARRAY<STRUCT<original:FLOAT, halved:FLOAT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_float",
             "runtime_version" = "${runtime_version}"
         )
@@ -199,6 +207,8 @@ def process_float(v):
         RETURNS ARRAY<STRUCT<original:DOUBLE, sqrt_value:DOUBLE>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_double",
             "runtime_version" = "${runtime_version}"
         )
@@ -243,6 +253,8 @@ def process_double(v):
         RETURNS ARRAY<STRUCT<original:BOOLEAN, negated:BOOLEAN, as_string:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_boolean",
             "runtime_version" = "${runtime_version}"
         )
@@ -285,6 +297,8 @@ def process_boolean(v):
         RETURNS ARRAY<STRUCT<original:STRING, length:INT, upper:STRING, lower:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_string",
             "runtime_version" = "${runtime_version}"
         )
@@ -327,6 +341,8 @@ def process_string(v):
         RETURNS ARRAY<STRUCT<original:DATE, year:INT, month:INT, day:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_date",
             "runtime_version" = "${runtime_version}"
         )
@@ -370,6 +386,8 @@ def process_date(v):
         RETURNS ARRAY<STRUCT<original:DATETIME, hour:INT, minute:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_datetime",
             "runtime_version" = "${runtime_version}"
         )
@@ -416,6 +434,8 @@ def process_datetime(v):
         RETURNS ARRAY<STRUCT<arr_pos:INT, element:INT, doubled:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_array_int",
             "runtime_version" = "${runtime_version}"
         )
@@ -463,6 +483,8 @@ def process_array_int(arr):
         RETURNS ARRAY<STRUCT<element:STRING, length:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_array_string",
             "runtime_version" = "${runtime_version}"
         )
@@ -509,6 +531,8 @@ def process_array_string(arr):
         RETURNS ARRAY<STRUCT<name:STRING, age:INT, category:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_struct",
             "runtime_version" = "${runtime_version}"
         )
@@ -559,6 +583,8 @@ def process_struct(person):
         RETURNS ARRAY<STRUCT<number:INT, text:STRING, combined:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_multi_types",
             "runtime_version" = "${runtime_version}"
         )
@@ -602,6 +628,8 @@ def process_multi_types(num, text):
         RETURNS ARRAY<STRUCT<original:DECIMAL(10,2), doubled:DECIMAL(11,2)>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_decimal",
             "runtime_version" = "${runtime_version}"
         )
@@ -650,6 +678,8 @@ def process_decimal(v):
         RETURNS ARRAY<STRUCT<k:STRING, v:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_map_string",
             "runtime_version" = "${runtime_version}"
         )
@@ -699,6 +729,8 @@ def process_map_string(map_str):
         RETURNS ARRAY<STRUCT<group_idx:INT, element:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_nested_array",
             "runtime_version" = "${runtime_version}"
         )
@@ -751,6 +783,8 @@ def process_nested_array(nested_str):
         RETURNS ARRAY<STRUCT<name:STRING, age:INT, score:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_array_structs",
             "runtime_version" = "${runtime_version}"
         )
@@ -800,6 +834,8 @@ def process_array_structs(data):
         RETURNS ARRAY<STRUCT<person_name:STRING, tag_count:INT, tags:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_struct_array",
             "runtime_version" = "${runtime_version}"
         )
@@ -844,6 +880,8 @@ def process_struct_array(data):
         RETURNS ARRAY<STRUCT<field:STRING, v:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "extract_json_fields",
             "runtime_version" = "${runtime_version}"
         )
@@ -894,6 +932,8 @@ def extract_json_fields(json_str):
         RETURNS ARRAY<STRUCT<user_id:INT, user_name:STRING, address_city:STRING, address_zip:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_complex_struct",
             "runtime_version" = "${runtime_version}"
         )
