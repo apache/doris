@@ -153,8 +153,8 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     /**
      * Check session-variable compatibility for synchronous materialized views.
      *
-     * Differences only in STRICT_TRANS_TABLES do not affect the
-     * SQL expressions used for synchronous MV rewriting.
+     * Differences only in STRICT_TRANS_TABLES and STRICT_ALL_TABLES do not
+     * affect the SQL expressions used for synchronous MV rewriting.
      *
      * Other SQL-mode bits and result-affecting session variables
      * must still match.
@@ -201,8 +201,10 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
                 long currentMode = Long.parseLong(currentValue);
                 long persistedMode = Long.parseLong(persistedValue);
 
-                // STRICT_TRANS_TABLES is the only ignored SQL-mode bit.
-                long relevantModes = ~SqlModeHelper.MODE_STRICT_TRANS_TABLES;
+                // Neither strict-table SQL-mode bit affects synchronous MV rewrite semantics.
+                long ignoredModes = SqlModeHelper.MODE_STRICT_TRANS_TABLES
+                        | SqlModeHelper.MODE_STRICT_ALL_TABLES;
+                long relevantModes = ~ignoredModes;
 
                 if ((currentMode & relevantModes)
                         != (persistedMode & relevantModes)) {

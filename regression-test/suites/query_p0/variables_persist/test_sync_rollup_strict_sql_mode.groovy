@@ -37,7 +37,7 @@ suite("test_sync_rollup_strict_sql_mode", "p0") {
         sql "SET enable_fallback_to_original_planner = false"
         sql "SET enable_sql_cache = false"
 
-        // Create the synchronous rollup without STRICT_TRANS_TABLES.
+        // Create the synchronous rollup without either strict-table SQL-mode bit.
         sql "SET sql_mode = 'ONLY_FULL_GROUP_BY'"
 
         sql "DROP TABLE IF EXISTS test_sync_rollup_strict_sql_mode"
@@ -156,6 +156,62 @@ suite("test_sync_rollup_strict_sql_mode", "p0") {
         }
 
         qt_strict_sql_mode(query)
+
+        // STRICT_ALL_TABLES alone must not prevent compatible rollup rewriting.
+        sql "SET sql_mode = 'ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES'"
+
+        explain {
+            sql query
+            verbose true
+
+            check { plan ->
+                boolean rewriteSucceeded =
+                    plan.contains("${rollupName} chose")
+                        || plan.contains("${rollupName} not chose")
+
+                assertTrue(
+                    rewriteSucceeded,
+                    "STRICT_ALL_TABLES prevented rollup rewriting:\n${plan}"
+                )
+
+                assertFalse(
+                    plan.contains("${rollupName} fail"),
+                    "Unexpected rollup rewrite failure:\n${plan}"
+                )
+
+                return true
+            }
+        }
+
+        qt_strict_all_sql_mode(query)
+
+        // Both strict-table SQL-mode bits together must also remain compatible.
+        sql "SET sql_mode = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,STRICT_ALL_TABLES'"
+
+        explain {
+            sql query
+            verbose true
+
+            check { plan ->
+                boolean rewriteSucceeded =
+                    plan.contains("${rollupName} chose")
+                        || plan.contains("${rollupName} not chose")
+
+                assertTrue(
+                    rewriteSucceeded,
+                    "Both strict-table bits prevented rollup rewriting:\n${plan}"
+                )
+
+                assertFalse(
+                    plan.contains("${rollupName} fail"),
+                    "Unexpected rollup rewrite failure:\n${plan}"
+                )
+
+                return true
+            }
+        }
+
+        qt_both_strict_sql_modes(query)
 
     } finally {
 

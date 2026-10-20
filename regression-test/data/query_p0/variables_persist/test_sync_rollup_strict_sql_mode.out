@@ -6,3 +6,11 @@
 -- !strict_sql_mode --
 1	300
 2	700
+
+-- !strict_all_sql_mode --
+1	300
+2	700
+
+-- !both_strict_sql_modes --
+1	300
+2	700
