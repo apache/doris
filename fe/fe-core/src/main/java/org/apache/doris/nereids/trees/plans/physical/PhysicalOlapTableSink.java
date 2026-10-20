@@ -259,9 +259,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
 
     @Override
     public PhysicalOlapTableSink<Plan> resetLogicalProperties() {
-        return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
+        return rebuildKeepingStates(this,
+                new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
                 isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, null, physicalProperties,
-                statistics, child());
+                statistics, child()));
     }
 }
