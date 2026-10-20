@@ -641,6 +641,20 @@ public class CreateIcebergSpatialV3Table {
         's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
         's3.access_key' = 'admin', 's3.secret_key' = 'password',
         's3.region' = 'us-east-1')"""
+    // Materialize payloads in both readers: COUNT pushdown alone can bypass WKB conversion.
+    // geometry_values has spatial Parquet annotations; projected_values imports unannotated WKB.
+    for (boolean scanV2 : [false, true]) {
+        "qt_annotated_spatial_payload_${scanV2}"("""select /*+ SET_VAR(
+            enable_file_scanner_v2=${scanV2}) */ id,
+            geom is null, ST_AsText(geom), hex(ST_AsBinary(geom)),
+            geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
+            from geometry_values order by id""")
+        "qt_unannotated_spatial_payload_${scanV2}"("""select /*+ SET_VAR(
+            enable_file_scanner_v2=${scanV2}) */ id,
+            geom is null, ST_AsText(geom), hex(ST_AsBinary(geom)),
+            geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
+            from projected_values order by id""")
+    }
     // Recreate the catalog so the second read resolves schema and files from external metadata.
     createCatalog()
     order_qt_spatial_dml_reread """

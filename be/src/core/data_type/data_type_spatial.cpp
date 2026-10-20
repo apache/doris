@@ -57,23 +57,24 @@ std::string normalize_spatial_algorithm(PrimitiveType type, std::string algorith
     return algorithm;
 }
 
-class SpatialParquetSerDe final : public DataTypeVarbinarySerDe {
+class SpatialParquetSerDe final : public DataTypeVarbinarySerDeBase<ColumnSpatial> {
 public:
     SpatialParquetSerDe(int nesting_level, bool geographic)
-            : DataTypeVarbinarySerDe(nesting_level), _geographic(geographic) {}
+            : DataTypeVarbinarySerDeBase<ColumnSpatial>(nesting_level), _geographic(geographic) {}
 
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
                                     ParquetMaterializationState& state) const override {
         const auto start = column.size();
-        RETURN_IF_ERROR(DataTypeVarbinarySerDe::read_column_from_parquet(column, source, context,
-                                                                         num_values, state));
+        RETURN_IF_ERROR(DataTypeVarbinarySerDeBase<ColumnSpatial>::read_column_from_parquet(
+                column, source, context, num_values, state));
         // Validate materialized values, not unselected dictionary entries. NULL runs
         // are appended by the reader outside the leaf SerDe.
-        for (size_t row = start; row < column.size(); ++row) {
-            const auto value = column.get_data_at(row);
+        const auto& values = assert_cast<const ColumnSpatial&>(column).get_data();
+        for (size_t row = start; row < values.size(); ++row) {
+            const auto& value = values[row];
             RETURN_IF_ERROR(
-                    WkbParse::validate_spatial_wkb(value.data, value.size, _geographic, row));
+                    WkbParse::validate_spatial_wkb(value.data(), value.size(), _geographic, row));
         }
         return Status::OK();
     }
