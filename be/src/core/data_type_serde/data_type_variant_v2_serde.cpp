@@ -362,7 +362,9 @@ Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map
 
 } // namespace
 
-DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level) : DataTypeSerDe(nesting_level) {}
+DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level,
+                                               VariantDecimalPathSetPtr decimal_paths)
+        : DataTypeSerDe(nesting_level), _decimal_paths(std::move(decimal_paths)) {}
 
 int64_t DataTypeVariantV2SerDe::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                   int be_exec_version) {
@@ -596,10 +598,16 @@ JsonToVariantOptions serde_json_options() {
 
 } // namespace
 
+JsonToVariantOptions DataTypeVariantV2SerDe::json_options() const {
+    JsonToVariantOptions options = serde_json_options();
+    options.decimal_paths = _decimal_paths;
+    return options;
+}
+
 Status DataTypeVariantV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions&) const {
     RETURN_IF_CATCH_EXCEPTION({
-        JsonStringToVariantEncoder encoder(serde_json_options());
+        JsonStringToVariantEncoder encoder(json_options());
         encoder.add_json({slice.data, slice.size});
         VariantBatchBuilder block = encoder.finish_batch();
         destination(column).insert_encoded_batch(block);
@@ -642,7 +650,7 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
         if (slices.empty()) {
             return Status::OK();
         }
-        JsonStringToVariantEncoder encoder(serde_json_options());
+        JsonStringToVariantEncoder encoder(json_options());
         for (const Slice& slice : slices) {
             encoder.add_json({slice.data, slice.size});
         }
