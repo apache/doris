@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -87,9 +89,14 @@ public class IdentityHashInternal extends ScalarFunction
         }
         for (int i = 0; i < arguments.size() - 1; i++) {
             DataType type = arguments.get(i).getDataType();
-            if (!(type.isNumericType() || type.isBooleanType() || type.isStringLikeType()
-                    || type.isVarBinaryType() || type.isDateLikeType() || type.isTimeType()
-                    || type.isIPType() || type.isUuidType() || type.isNullType())) {
+            // FLOAT/DOUBLE are excluded to mirror HashDistributionInfo.checkDistributionColumnType,
+            // which forbids floating-point distribution columns: their FE pruning bytes
+            // (FloatLiteral.getHashValue -> UTF-8 string) differ from the BE routing bytes
+            // (IEEE-754 little-endian), so the function must not model a routing that cannot exist.
+            boolean isFloatDouble = type instanceof FloatType || type instanceof DoubleType;
+            if (isFloatDouble || !(type.isNumericType() || type.isBooleanType()
+                    || type.isStringLikeType() || type.isVarBinaryType() || type.isDateLikeType()
+                    || type.isTimeType() || type.isIPType() || type.isUuidType() || type.isNullType())) {
                 throw new AnalysisException(String.format(
                         "unsupported distribution argument type %s for %s", type.toSql(), getName()));
             }

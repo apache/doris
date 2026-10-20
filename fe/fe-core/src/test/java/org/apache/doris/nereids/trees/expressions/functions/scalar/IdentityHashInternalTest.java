@@ -31,6 +31,8 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
@@ -85,6 +87,22 @@ public class IdentityHashInternalTest {
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                     () -> TypeCoercionUtils.processBoundFunction(expr));
             Assertions.assertTrue(exception.getMessage().contains("unsupported distribution argument type"));
+            Assertions.assertThrows(AnalysisException.class, expr::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    public void testRejectsFloatingPointDistributionTypes() {
+        // Mirror HashDistributionInfo.checkDistributionColumnType: FLOAT/DOUBLE can never be a
+        // distribution column because their FE pruning bytes (FloatLiteral.getHashValue -> UTF-8
+        // string) differ from the BE routing bytes (IEEE-754 little-endian), so the debug
+        // function must not model a routing that cannot exist.
+        for (DataType type : ImmutableList.of(FloatType.INSTANCE, DoubleType.INSTANCE)) {
+            IdentityHashInternal expr = new IdentityHashInternal(new SlotReference("v", type), new IntegerLiteral(8));
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> TypeCoercionUtils.processBoundFunction(expr));
+            Assertions.assertTrue(exception.getMessage().contains("unsupported distribution argument type"),
+                    type + " must be rejected: " + exception.getMessage());
             Assertions.assertThrows(AnalysisException.class, expr::checkLegalityAfterRewrite);
         }
     }
