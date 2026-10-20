@@ -773,6 +773,9 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboDeleteStaleStatisticsCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboShowStatisticsCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.InstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
@@ -5157,6 +5160,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
+     * Parse the VALUE token of an hbo set statistics statement. Only the syntax is checked here: whether
+     * the number is acceptable depends on TYPE, and the type is resolved by the command. A row count has
+     * to be an exact integer and a fan-out factor only has to be finite and positive, so the command
+     * receives the token as well as the parsed value and applies the check its type requires.
+     */
+    private static double parseHboSetValue(String text) {
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException e) {
+            throw new ParseException("hbo statistics VALUE out of range: " + text);
+        }
+    }
+
+    /**
      * match predicate type and generate different predicates.
      *
      * @param ctx PredicateContext
@@ -7180,6 +7197,141 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             NodeType.FRONTEND,
             configs,
             applyToAll);
+    }
+
+    @Override
+    public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
+        checkHboStatementWords(ctx.statistics);
+        Double value = null;
+        String valueText = null;
+        String typeName = null;
+        String fingerprint = null;
+        String structCanonical = null;
+        String literalModeName = null;
+        for (DorisParser.HboSetParamContext param : ctx.hboSetParam()) {
+            if (param instanceof DorisParser.HboSetValueContext) {
+                if (value != null) {
+                    throw new ParseException("VALUE is given twice in hbo set statistics statement");
+                }
+                valueText = ((DorisParser.HboSetValueContext) param).value.getText();
+                value = parseHboSetValue(valueText);
+            } else if (param instanceof DorisParser.HboSetTypeContext) {
+                if (typeName != null) {
+                    throw new ParseException("TYPE is given twice in hbo set statistics statement");
+                }
+                typeName = ((DorisParser.HboSetTypeContext) param).typeName.getText();
+            } else if (param instanceof DorisParser.HboSetStructContext) {
+                if (structCanonical != null) {
+                    throw new ParseException("STRUCT is given twice in hbo set statistics statement");
+                }
+                structCanonical = SqlLiteralUtils.parseStringLiteral(
+                        ((DorisParser.HboSetStructContext) param).structCanonical.getText());
+            } else if (param instanceof DorisParser.HboSetFingerprintContext) {
+                DorisParser.HboSetFingerprintContext fingerprintParam =
+                        (DorisParser.HboSetFingerprintContext) param;
+                if (!isHboWord(fingerprintParam.fingerprintWord, "FINGERPRINT")) {
+                    throw unknownHboParameter(fingerprintParam.fingerprintWord);
+                }
+                if (fingerprint != null) {
+                    throw new ParseException("FINGERPRINT is given twice in hbo set statistics statement");
+                }
+                fingerprint = stripQuotes(fingerprintParam.fingerprint.getText());
+            } else if (param instanceof DorisParser.HboSetWordContext) {
+                DorisParser.HboSetWordContext wordParam = (DorisParser.HboSetWordContext) param;
+                if (isHboWord(wordParam.valueWord, "FINGERPRINT")) {
+                    // a bare FINGERPRINT value can not be lexed reliably (a hex fingerprint may start
+                    // with a digit), so it has to be quoted
+                    throw new ParseException("the FINGERPRINT value must be quoted: FINGERPRINT='<64 hex>'");
+                }
+                if (!isHboWord(wordParam.valueWord, "LITERAL_MODE")) {
+                    // this alternative is also matched by an unknown parameter whose value happens to
+                    // be an identifier (LITERAL_MODE=NO_LITERAL is the only one that takes one), so
+                    // report the parameter name instead of claiming LITERAL_MODE was expected
+                    throw unknownHboParameter(wordParam.valueWord);
+                }
+                if (literalModeName != null) {
+                    throw new ParseException("LITERAL_MODE is given twice in hbo set statistics statement");
+                }
+                literalModeName = wordParam.valueName.getText();
+            } else if (param instanceof DorisParser.HboSetUnknownContext) {
+                throw unknownHboParameter(((DorisParser.HboSetUnknownContext) param).unknownWord);
+            }
+        }
+        if (value == null) {
+            throw new ParseException("expect 'VALUE=<number>' in hbo set statistics statement");
+        }
+        if (fingerprint == null) {
+            throw new ParseException("expect \"FINGERPRINT='<fingerprint>'\" in hbo set statistics statement");
+        }
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.SET,
+                ctx.scope == null ? null : ctx.scope.getText(),
+                fingerprint,
+                value,
+                valueText,
+                typeName,
+                structCanonical == null ? "" : structCanonical,
+                literalModeName);
+    }
+
+    @Override
+    public LogicalPlan visitHboDeleteStaleStatistics(DorisParser.HboDeleteStaleStatisticsContext ctx) {
+        checkHboStatementWords(ctx.statistics);
+        checkHboWord(ctx.staleWord, "STALE");
+        Long olderThanSeconds = null;
+        if (ctx.olderWord != null && ctx.olderThan != null) {
+            checkHboWord(ctx.olderWord, "OLDER_THAN");
+            try {
+                olderThanSeconds = Long.parseLong(ctx.olderThan.getText());
+            } catch (NumberFormatException e) {
+                throw new ParseException(
+                        "hbo delete stale statistics OLDER_THAN out of range: " + ctx.olderThan.getText());
+            }
+        }
+        return new HboDeleteStaleStatisticsCommand(olderThanSeconds);
+    }
+
+    @Override
+    public LogicalPlan visitHboDeleteStatistics(DorisParser.HboDeleteStatisticsContext ctx) {
+        checkHboStatementWords(ctx.statistics);
+        checkHboWord(ctx.fingerprintWord, "FINGERPRINT");
+        return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE,
+                ctx.scope == null ? null : ctx.scope.getText(),
+                stripQuotes(ctx.fingerprint.getText()), 0, null, "", null);
+    }
+
+    @Override
+    public LogicalPlan visitHboShowStatistics(DorisParser.HboShowStatisticsContext ctx) {
+        checkHboStatementWords(ctx.statistics);
+        String scope = ctx.scope == null ? null : ctx.scope.getText();
+        String likePattern = ctx.likePattern == null
+                ? null : SqlLiteralUtils.parseStringLiteral(ctx.likePattern.getText());
+        return new HboShowStatisticsCommand(scope, ctx.FULL() != null, likePattern);
+    }
+
+    private void checkHboWord(org.antlr.v4.runtime.ParserRuleContext word, String expected) {
+        if (!isHboWord(word, expected)) {
+            throw new ParseException("expect '" + expected + "' keyword in hbo statement, but got "
+                    + (word == null ? "nothing" : word.getText()));
+        }
+    }
+
+    /** Whether the word is the expected one (case insensitive). */
+    private static boolean isHboWord(org.antlr.v4.runtime.ParserRuleContext word, String expected) {
+        return word != null && expected.equalsIgnoreCase(word.getText());
+    }
+
+    /** The error of a named parameter which is not one of the parameters of the statement. */
+    private static ParseException unknownHboParameter(org.antlr.v4.runtime.ParserRuleContext word) {
+        return new ParseException("unknown parameter '"
+                + (word == null ? "" : word.getText())
+                + "' in hbo set statistics statement, expect VALUE / TYPE / FINGERPRINT /"
+                + " STRUCT / LITERAL_MODE");
+    }
+
+    private void checkHboStatementWords(org.antlr.v4.runtime.ParserRuleContext statisticsWord) {
+        if (statisticsWord == null || !"statistics".equalsIgnoreCase(statisticsWord.getText())) {
+            throw new ParseException("expect 'STATISTICS' keyword in hbo statement");
+        }
     }
 
     @Override

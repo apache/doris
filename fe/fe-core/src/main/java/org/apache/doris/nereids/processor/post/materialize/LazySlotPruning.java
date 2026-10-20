@@ -109,8 +109,10 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
 
         if (hasNewChildren) {
             AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) plan;
-            plan = ((AbstractPhysicalPlan) plan.withChildren(newChildren.build()))
-                    .copyStatsAndGroupIdFrom(physicalPlan).resetLogicalProperties();
+            AbstractPhysicalPlan rebuilt =
+                    (AbstractPhysicalPlan) ((AbstractPhysicalPlan) plan.withChildren(newChildren.build()))
+                            .resetLogicalProperties();
+            plan = rebuilt.copyStatsAndGroupIdFrom(physicalPlan);
         }
         return plan;
     }
@@ -144,8 +146,9 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
                 Context contextForScan = context.withLazySlots(lazySlotsToScan);
                 filter = (PhysicalFilter<? extends Plan>) filter.withChildren(
                         filter.child().accept(this, contextForScan));
-                filter = (PhysicalFilter<? extends Plan>) filter
-                        .copyStatsAndGroupIdFrom(filter).resetLogicalProperties();
+                PhysicalFilter<? extends Plan> rebuiltFilter =
+                        (PhysicalFilter<? extends Plan>) filter.resetLogicalProperties();
+                filter = (PhysicalFilter<? extends Plan>) rebuiltFilter.copyStatsAndGroupIdFrom(filter);
                 // Predicate slots that are not lazy can still be required by TopN order keys.
                 List<Slot> filterOutput = computeFilterOutput(filter.getOutput(), context.lazySlots);
                 return new PhysicalProject<>(
@@ -296,8 +299,10 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         Plan plan = join;
         if (hasNewChildren) {
             AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) plan;
-            plan = ((AbstractPhysicalPlan) plan.withChildren(newChildren.build()))
-                    .copyStatsAndGroupIdFrom(physicalPlan).resetLogicalProperties();
+            AbstractPhysicalPlan rebuilt =
+                    (AbstractPhysicalPlan) ((AbstractPhysicalPlan) plan.withChildren(newChildren.build()))
+                            .resetLogicalProperties();
+            plan = rebuilt.copyStatsAndGroupIdFrom(physicalPlan);
             // update rowIdSlot.nullable after outer join
             int rowIdPos = plan.getOutput().indexOf(context.rowIdSlot);
             if (rowIdPos != -1 && !context.rowIdSlot.nullable()) {

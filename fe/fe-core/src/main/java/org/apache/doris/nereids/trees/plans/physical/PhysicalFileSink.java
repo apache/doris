@@ -159,7 +159,8 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
 
     @Override
     public PhysicalFileSink<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression, null,
-                physicalProperties, statistics, child());
+        return rebuildKeepingStates(this,
+                new PhysicalFileSink<>(outputExprs, filePath, format, properties, groupExpression, null,
+                physicalProperties, statistics, child()));
     }
 }

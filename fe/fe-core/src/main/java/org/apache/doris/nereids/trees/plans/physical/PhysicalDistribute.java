@@ -137,8 +137,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     @Override
     public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalDistribute<>(distributionSpec, groupExpression,
-                null, physicalProperties, statistics, child());
+        return rebuildKeepingStates(this, new PhysicalDistribute<>(distributionSpec, groupExpression,
+                null, physicalProperties, statistics, child()));
     }
 
     @Override

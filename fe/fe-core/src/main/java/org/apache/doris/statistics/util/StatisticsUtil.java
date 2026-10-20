@@ -146,6 +146,26 @@ public class StatisticsUtil {
         }
     }
 
+    /**
+     * Like {@link #execStatisticQuery(String)}, but an environment in which the query can not be run
+     * at all (the internal schema database is disabled, or the cloud compute group is unreachable) is
+     * reported as a failure instead of as an empty result. A caller which takes a decision from the
+     * rows - e.g. "there is nothing stored" - must not mistake an unreadable table for an empty one.
+     */
+    public static List<ResultRow> execStatisticQueryOrThrow(String sql) throws Exception {
+        if (!FeConstants.enableInternalSchemaDb) {
+            throw new IllegalStateException("the internal schema database is disabled");
+        }
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+            if (Config.isCloudMode()) {
+                // throws ComputeGroupException when no compute group is reachable
+                r.connectContext.getCloudCluster();
+            }
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            return stmtExecutor.executeInternalQuery();
+        }
+    }
+
     public static QueryState execUpdate(String sql) throws Exception {
         StmtExecutor stmtExecutor = null;
         AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
