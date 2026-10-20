@@ -51,8 +51,7 @@ suite("test_search_null_array_payload_contract", "p0") {
     def cases = [
         [dsl: 'a:hit', matches: [2], complement: [1,3]],
         [dsl: 'a:"hit"', matches: [2], complement: [1,3]],
-        [dsl: 'a:h*', matches: [2], complement: [1,3]],
-        [dsl: 'a:*', matches: [2,3], complement: [1]]
+        [dsl: 'a:h*', matches: [2], complement: [1,3]]
     ]
     def variable = "enable_inverted_index_query_cache"
     def saved = sql("SHOW VARIABLES LIKE '${variable}'")[0][1]

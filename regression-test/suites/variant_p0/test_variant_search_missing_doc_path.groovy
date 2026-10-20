@@ -55,7 +55,7 @@ suite("test_variant_search_missing_doc_path", "p0") {
                     "not_b": "NOT v.b:hit",
                     "missing": "v.missing:hit",
                     "not_missing": "NOT v.missing:hit",
-                    "exists_b": "v.b:*"
+                    "prefix_b": "v.b:h*"
                 ].each { label, dsl ->
                     quickTest("${prefix}_${label}", """
                         SELECT id FROM test_variant_search_missing_doc_path

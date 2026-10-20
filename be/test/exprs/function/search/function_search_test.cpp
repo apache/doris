@@ -4152,10 +4152,17 @@ TEST_F(FunctionSearchTest, MissingFieldsStillEvaluateTheCompleteBooleanTree) {
     TSearchClause twice;
     twice.clause_type = "NOT";
     twice.__set_children({negated});
-    for (const auto& [root, expected] :
-         std::vector<std::pair<TSearchClause, roaring::Roaring>> {{missing, make_bitmap({})},
-                                                                  {negated, make_bitmap({0, 1, 2})},
-                                                                  {twice, make_bitmap({})}}) {
+    auto exists = missing;
+    exists.clause_type = "WILDCARD";
+    exists.value = "*";
+    auto not_exists = negated;
+    not_exists.__set_children({exists});
+    for (const auto& [root, expected] : std::vector<std::pair<TSearchClause, roaring::Roaring>> {
+                 {missing, make_bitmap({})},
+                 {negated, make_bitmap({0, 1, 2})},
+                 {twice, make_bitmap({})},
+                 {exists, make_bitmap({})},
+                 {not_exists, make_bitmap({0, 1, 2})}}) {
         TSearchParam param;
         param.original_dsl = "missing field Boolean contract";
         param.root = root;
@@ -4173,6 +4180,47 @@ TEST_F(FunctionSearchTest, MissingFieldsStillEvaluateTheCompleteBooleanTree) {
             EXPECT_TRUE(result.get_null_bitmap()->isEmpty());
         }
     }
+}
+
+// A numeric existence clause uses the physical NULL bitmap, not a term lookup for "*".
+// Supplying the backend clause directly keeps this test independent of FE parser changes.
+TEST_F(FunctionSearchTest, NumericExistenceUsesBackendClausesIndependentlyOfFrontend) {
+    auto index_meta = make_test_inverted_index(105);
+    auto file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, file_reader, InvertedIndexReaderType::BKD);
+    reader->set_null_bitmap(make_bitmap({0, 3}));
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::BKD, reader);
+    auto context = std::make_shared<IndexQueryContext>();
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {
+            {"age", {"age", std::make_shared<DataTypeInt32>()}}};
+    std::unordered_map<std::string, IndexIterator*> iterators {{"age", &iterator}};
+    FieldReaderResolver resolver(types, iterators, context);
+    auto exists = make_leaf_clause("WILDCARD", "*");
+    exists.field_name = "age";
+    TSearchClause not_exists;
+    not_exists.clause_type = "NOT";
+    not_exists.__set_children({exists});
+    SearchNullBitmapResolver null_resolver;
+    for (const bool scoring : {false, true}) {
+        for (const auto& [clause, expected] :
+             std::vector<std::pair<TSearchClause, roaring::Roaring>> {
+                     {exists, make_bitmap({1, 2})}, {not_exists, make_bitmap({0, 3})}}) {
+            inverted_index::query_v2::QueryPtr query;
+            std::string binding_key;
+            ASSERT_TRUE(function_search
+                                ->build_query_recursive(clause, context, resolver, &query,
+                                                        &binding_key, "or", -1, 4)
+                                .ok());
+            auto scorer = query->weight(scoring)->scorer(
+                    build_variant_search_query_execution_context(4, resolver, &null_resolver),
+                    binding_key);
+            EXPECT_EQ(expected, collect_docs(scorer));
+            EXPECT_FALSE(scorer->has_null_bitmap());
+        }
+    }
+    EXPECT_EQ(0, reader->raw_query_calls);
 }
 
 TEST_F(FunctionSearchTest, DirectSearchOwnsTheReaderCachedMatchBitmap) {

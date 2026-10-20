@@ -25,7 +25,7 @@
 3
 4
 
--- !standard_false_first_exists_b --
+-- !standard_false_first_prefix_b --
 4
 
 -- !standard_false_first_scored_or --
@@ -63,7 +63,7 @@
 3
 4
 
--- !standard_false_repeat_exists_b --
+-- !standard_false_repeat_prefix_b --
 4
 
 -- !standard_false_repeat_scored_or --
@@ -101,7 +101,7 @@
 3
 4
 
--- !standard_true_first_exists_b --
+-- !standard_true_first_prefix_b --
 4
 
 -- !standard_true_first_scored_or --
@@ -139,7 +139,7 @@
 3
 4
 
--- !standard_true_repeat_exists_b --
+-- !standard_true_repeat_prefix_b --
 4
 
 -- !standard_true_repeat_scored_or --
@@ -177,7 +177,7 @@
 3
 4
 
--- !lucene_false_first_exists_b --
+-- !lucene_false_first_prefix_b --
 4
 
 -- !lucene_false_first_scored_or --
@@ -215,7 +215,7 @@
 3
 4
 
--- !lucene_false_repeat_exists_b --
+-- !lucene_false_repeat_prefix_b --
 4
 
 -- !lucene_false_repeat_scored_or --
@@ -253,7 +253,7 @@
 3
 4
 
--- !lucene_true_first_exists_b --
+-- !lucene_true_first_prefix_b --
 4
 
 -- !lucene_true_first_scored_or --
@@ -291,7 +291,7 @@
 3
 4
 
--- !lucene_true_repeat_exists_b --
+-- !lucene_true_repeat_prefix_b --
 4
 
 -- !lucene_true_repeat_scored_or --

@@ -11,6 +11,11 @@ Positive term combinations also compare SEARCH with MATCH. Negated queries keep 
 
 The `tdd_search_2vl` suites additionally cover both parser modes, cold/warm cache, complete scored results, missing VARIANT paths, and nullable ARRAY payloads.
 
+The backend SQL suites use clauses already emitted by the master FE. Backend field-existence
+semantics are checked directly with `TSearchClause` unit tests, including empty arrays, residual
+NULL postings, numeric fields, absent paths, scoring, cache reads, and multiple CLucene readers.
+The FE field-scope regression is maintained separately with its minimal backend binding fix.
+
 Run this directory with the repository wrapper, passing the worktree configuration before `--run`:
 
 ```bash

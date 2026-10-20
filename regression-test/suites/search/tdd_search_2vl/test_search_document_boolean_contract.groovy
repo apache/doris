@@ -110,8 +110,6 @@ suite("test_search_document_boolean_contract", "p0") {
             [name: "tautology", dsl: "a:hit OR (NOT a:hit)", ids: allIds],
             [name: "contradiction", dsl: "a:hit AND NOT a:hit", ids: []],
             [name: "double_not", dsl: "NOT (NOT a:hit)", ids: [1, 2, 3]],
-            [name: "field_exists", dsl: "a:*", ids: [1, 2, 3, 4, 5, 6]],
-            [name: "field_missing", dsl: "NOT a:*", ids: [7, 8, 9]],
             [name: "empty_hit_stream", dsl: "a:unmatchabletoken", ids: []],
             [name: "not_empty_hit_stream", dsl: "NOT a:unmatchabletoken", ids: allIds]
         ]
