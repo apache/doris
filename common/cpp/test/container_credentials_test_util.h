@@ -31,8 +31,6 @@
 #include <string>
 #include <vector>
 
-#include "cpp/aws_common.h"
-
 // Test support for the container credentials provider built by
 // create_container_credentials_provider(). It lives in common/cpp/test because both test trees need
 // it and neither can include the other's: the BE unit tests cover the S3 client factory and the
@@ -42,6 +40,8 @@ namespace doris {
 
 // Clears the four AWS_CONTAINER_* variables on construction and restores them on destruction.
 class ContainerCredentialsEnvGuard {
+    using Provider = Aws::Auth::GeneralHTTPCredentialsProvider;
+
 public:
     ContainerCredentialsEnvGuard() {
         for (const char* name : kNames) {
@@ -71,26 +71,26 @@ public:
     // Presents the environment the way EKS Pod Identity does: a full URL, a token that exists only
     // as a file, and no relative URI or inline token at all.
     void set_pod_identity(const std::string& full_uri, const std::string& token_file) {
-        unsetenv(AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
-        unsetenv(AWS_CONTAINER_AUTHORIZATION_TOKEN);
-        setenv(AWS_CONTAINER_CREDENTIALS_FULL_URI, full_uri.c_str(), 1);
-        setenv(AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, token_file.c_str(), 1);
+        unsetenv(Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
+        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN);
+        setenv(Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI, full_uri.c_str(), 1);
+        setenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, token_file.c_str(), 1);
     }
 
     // Presents the environment the way ECS does: a relative path against the agent's own address,
     // and no full URI or token file.
     void set_ecs_task_role(const std::string& relative_uri) {
-        unsetenv(AWS_CONTAINER_CREDENTIALS_FULL_URI);
-        unsetenv(AWS_CONTAINER_AUTHORIZATION_TOKEN);
-        unsetenv(AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
-        setenv(AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, relative_uri.c_str(), 1);
+        unsetenv(Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI);
+        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN);
+        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
+        setenv(Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, relative_uri.c_str(), 1);
     }
 
     void set_inline_token_endpoint(const std::string& full_uri, const std::string& token) {
-        unsetenv(AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
-        unsetenv(AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
-        setenv(AWS_CONTAINER_CREDENTIALS_FULL_URI, full_uri.c_str(), 1);
-        setenv(AWS_CONTAINER_AUTHORIZATION_TOKEN, token.c_str(), 1);
+        unsetenv(Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
+        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
+        setenv(Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI, full_uri.c_str(), 1);
+        setenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN, token.c_str(), 1);
     }
 
     // Writes a token file and takes responsibility for deleting it. Call it again with the same path
@@ -109,8 +109,10 @@ public:
 
 private:
     static constexpr std::array<const char*, 4> kNames {
-            AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, AWS_CONTAINER_CREDENTIALS_FULL_URI,
-            AWS_CONTAINER_AUTHORIZATION_TOKEN, AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE};
+            Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI,
+            Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI,
+            Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN,
+            Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE};
 
     std::vector<std::optional<std::string>> _saved;
     std::vector<std::string> _token_files;
