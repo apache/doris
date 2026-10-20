@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <hll.hpp>
 #include <optional>
 #include <string>
@@ -41,12 +42,40 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/function_utils.h"
 
 namespace doris {
 
 class FunctionDataSketchesHllDownsampleTest : public testing::Test {
 protected:
+    static void put_uint32(std::string& bytes, size_t offset, uint32_t value) {
+        std::memcpy(bytes.data() + offset, &value, sizeof(value));
+    }
+
+    static std::string aux_sketch_bytes(int lg_k, bool compact) {
+        // Force genuine HLL_4 exceptions without searching for extremely rare hash values.
+        datasketches::Hll4Array<std::allocator<uint8_t>> sketch(lg_k, true, {});
+        sketch.couponUpdate(datasketches::HllUtil<>::pair(1, 20));
+        sketch.couponUpdate(datasketches::HllUtil<>::pair(3, 21));
+        auto bytes = sketch.serialize(compact, 0);
+        return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+    }
+
+    static void expect_corruption(const std::string& bytes, const std::string& message,
+                                  const std::string& type = "HLL_4") {
+        // The matching type at lgK=21 also covers the unchanged-byte path.
+        for (int target : {4, 21}) {
+            for (auto primitive : {TYPE_STRING, TYPE_VARBINARY}) {
+                auto block = input({bytes}, target, type, primitive);
+                auto status = execute(block);
+                EXPECT_EQ(status.code(), ErrorCode::CORRUPTION);
+                EXPECT_NE(status.to_string().find(message), std::string::npos);
+            }
+        }
+    }
+
     static std::string sketch_bytes(int lg_k, datasketches::target_hll_type type, uint64_t n,
                                     bool compact = true, bool full = false) {
         datasketches::hll_sketch sketch(lg_k, type, full);
@@ -289,6 +318,109 @@ TEST_F(FunctionDataSketchesHllDownsampleTest, AllocationFailureKeepsErrorCode) {
     }
     --enable_thread_catch_bad_alloc;
     config::mem_alloc_fault_probability = old;
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, RejectAuxMapsOnHll6AndHll8) {
+    using namespace datasketches::hll_constants;
+    for (auto type : {datasketches::HLL_6, datasketches::HLL_8}) {
+        for (bool compact : {false, true}) {
+            auto bytes = sketch_bytes(8, type, 1, compact, true);
+            const auto offset = bytes.size();
+            // Supply the full auxiliary payload: a short image would throw before the unsafe
+            // Hll4Array cast, hiding the regression this test is meant to exercise.
+            bytes.resize(offset + sizeof(uint32_t) * (compact ? 1 : 4), '\0');
+            put_uint32(bytes, AUX_COUNT_INT, 1);
+            bytes[LG_ARR_BYTE] = 2;
+            put_uint32(bytes, offset, datasketches::HllUtil<>::pair(3, 20));
+            expect_corruption(bytes, "cannot contain an auxiliary map",
+                              type == datasketches::HLL_6 ? "HLL_6" : "HLL_8");
+        }
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, ArrayExponentsAndTruncatedPayloads) {
+    using namespace datasketches::hll_constants;
+    const auto set = sketch_bytes(8, datasketches::HLL_4, 10, false);
+    ASSERT_EQ(static_cast<uint8_t>(set[PREAMBLE_INTS_BYTE]), HASH_SET_PREINTS);
+    const auto aux = aux_sketch_bytes(8, false);
+    for (uint8_t exponent : {31, 32, 63, 64, 255}) {
+        SCOPED_TRACE(static_cast<int>(exponent));
+        auto bad_set = set;
+        bad_set[LG_ARR_BYTE] = static_cast<char>(exponent);
+        bad_set.resize(HASH_SET_INT_ARR_START);
+        expect_corruption(bad_set, "SET array exponent");
+        auto bad_aux = aux;
+        bad_aux[LG_ARR_BYTE] = static_cast<char>(exponent);
+        expect_corruption(bad_aux, "auxiliary array exponent");
+    }
+    auto small_aux = aux;
+    small_aux[LG_ARR_BYTE] = 0;
+    expect_corruption(small_aux, "auxiliary array exponent");
+    // Valid exponents still require a complete array before the library allocates anything.
+    expect_corruption(set.substr(0, set.size() - 1), "corrupted");
+    expect_corruption(aux.substr(0, aux.size() - 1), "corrupted");
+    auto compact_aux = aux_sketch_bytes(8, true);
+    expect_corruption(compact_aux.substr(0, compact_aux.size() - 1), "corrupted");
+    auto huge_count = set;
+    huge_count[LG_ARR_BYTE] = 0;
+    put_uint32(huge_count, HASH_SET_COUNT_INT, UINT32_MAX);
+    expect_corruption(huge_count, "SET coupon count");
+    put_uint32(compact_aux, AUX_COUNT_INT, UINT32_MAX);
+    expect_corruption(compact_aux, "auxiliary count exceeds register count");
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, AuxiliarySlotsAreUniqueAndDoNotLeak) {
+    using namespace datasketches::hll_constants;
+    for (bool compact : {false, true}) {
+        auto bytes = aux_sketch_bytes(8, compact);
+        const size_t offset = HLL_BYTE_ARR_START + (1 << 7);
+        std::fill(bytes.begin() + offset, bytes.end(), '\0');
+        put_uint32(bytes, offset, datasketches::HllUtil<>::pair(3, 20));
+        // Raw keys differ but deserialize masks both down to register 3.
+        put_uint32(bytes, offset + 4, datasketches::HllUtil<>::pair(3 + (1 << 8), 21));
+        expect_corruption(bytes, "duplicate slots");
+
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "HllAuxiliaryMapError");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        for (int i = 0; i < 32; ++i) {
+            try {
+                static_cast<void>(datasketches_hll::deserialize(StringRef(bytes), "test"));
+                ADD_FAILURE() << "Expected duplicate auxiliary slots to fail";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+            }
+        }
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(tracker->consumption(), baseline);
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, ValidAuxiliaryMapsAndLegacyArrayExponents) {
+    using namespace datasketches::hll_constants;
+    for (int lg_k : {4, 8, 12}) {
+        for (bool compact : {false, true}) {
+            auto bytes = aux_sketch_bytes(lg_k, compact);
+            if (compact) {
+                // Compact auxiliary images historically omit lgArr; the library ignores it.
+                bytes[LG_ARR_BYTE] = static_cast<char>(255);
+            }
+            for (const auto& [type, name] : {std::pair {datasketches::HLL_4, "HLL_4"},
+                                             std::pair {datasketches::HLL_6, "HLL_6"},
+                                             std::pair {datasketches::HLL_8, "HLL_8"}}) {
+                verify_conversion(bytes, lg_k, datasketches::HLL_4, 2, 4, type, name);
+                verify_conversion(bytes, lg_k, datasketches::HLL_4, 2, 21, type, name);
+            }
+        }
+    }
+    for (bool compact : {false, true}) {
+        auto bytes = sketch_bytes(8, datasketches::HLL_4, 10, compact);
+        bytes[LG_ARR_BYTE] = compact ? static_cast<char>(255) : 0;
+        verify_conversion(bytes, 8, datasketches::HLL_4, 10, 4, datasketches::HLL_4, "HLL_4");
+        verify_conversion(bytes, 8, datasketches::HLL_4, 10, 21, datasketches::HLL_4, "HLL_4");
+    }
 }
 
 } // namespace doris

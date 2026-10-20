@@ -124,6 +124,31 @@ suite("test_datasketches_hll_downsample") {
             FROM (SELECT hex(datasketches_hll_downsample(from_base64('${dense}'),12)) AS h) t"""
         exception "AUX_TOKEN without an auxiliary map"
     }
+    // datasketches-cpp 46025e9 fixtures with complete malformed auxiliary maps, or lgArr=32.
+    // Cover the shared deserialization entry through both the scalar and the existing aggregate.
+    def malformedAux = [
+        ['0a01070402280006000000000000f03f0000000000002f4000000000000000000f000000010000000000000000000000040000000003000050',
+         'cannot contain an auxiliary map'],
+        ['0a0107040228000a000000000000f03f0000000000002f4000000000000000000f000000010000000000000000000000000000010000000003000050',
+         'cannot contain an auxiliary map'],
+        ['03010708200000010a000000', 'SET array exponent'],
+        ['0a01070420200002565d6e7f888800400000003000002c4000000000000000000e00000002000000f0f000000000000000000000010000500000000003000054',
+         'auxiliary array exponent'],
+        ['0a01070402200002565d6e7f888800400000003000002c4000000000000000000e00000002000000f0f000000000000003000050130000540000000000000000',
+         'duplicate slots'],
+        ['0a01070402280002565d6e7f888800400000003000002c4000000000000000000e00000002000000f0f00000000000000300005013000054',
+         'duplicate slots']
+    ]
+    for (def bad : malformedAux) {
+        test {
+            sql "SELECT datasketches_hll_downsample(unhex('${bad[0]}'),21)"
+            exception bad[1]
+        }
+        test {
+            sql "SELECT datasketches_hll_union_agg(unhex('${bad[0]}'))"
+            exception bad[1]
+        }
+    }
     for (String bad : ["''", "from_base64('AA==')", "'not a sketch'"]) {
         test {
             sql "SELECT datasketches_hll_downsample(${bad},21)"
