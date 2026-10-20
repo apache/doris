@@ -3,6 +3,8 @@
 Routine Load accepts `"kafka_consumer_type" = "share"` in its `FROM KAFKA`
 properties. The default is `standard`, retaining partition assignment and existing
 recovery behavior. Upgrade all FEs and BEs before enabling share mode.
+The former `kafka_consumer_mode` property remains an alias so existing jobs survive
+FE restart; use `kafka_consumer_type` for new jobs. Do not specify both properties.
 
 ```sql
 CREATE ROUTINE LOAD events_share ON events

@@ -51,6 +51,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     private static final Logger LOG = LogManager.getLogger(KafkaDataSourceProperties.class);
 
     public static final String KAFKA_CONSUMER_TYPE = "kafka_consumer_type";
+    private static final String LEGACY_KAFKA_CONSUMER_MODE = "kafka_consumer_mode";
 
     @Getter
     @SerializedName(value = "useShareConsumer")
@@ -103,6 +104,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             new ImmutableSet.Builder<String>().add(KafkaConfiguration.KAFKA_BROKER_LIST.getName())
                     .add(KafkaConfiguration.KAFKA_TOPIC.getName())
                     .add(KAFKA_CONSUMER_TYPE)
+                    .add(LEGACY_KAFKA_CONSUMER_MODE)
                     .add(KafkaConfiguration.KAFKA_PARTITIONS.getName())
                     .add(KafkaConfiguration.KAFKA_OFFSETS.getName())
                     .add(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())
@@ -164,11 +166,22 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         // This should be done before check partition and offsets, because we need KAFKA_DEFAULT_OFFSETS,
         // which is in custom properties.
         analyzeCustomProperties();
+        if (originalDataSourceProperties.containsKey(KAFKA_CONSUMER_TYPE)
+                && originalDataSourceProperties.containsKey(LEGACY_KAFKA_CONSUMER_MODE)) {
+            throw new AnalysisException("Specify only kafka_consumer_type");
+        }
         String consumerType = originalDataSourceProperties.getOrDefault(KAFKA_CONSUMER_TYPE, "standard");
+        if (originalDataSourceProperties.containsKey(LEGACY_KAFKA_CONSUMER_MODE)) {
+            consumerType = originalDataSourceProperties.get(LEGACY_KAFKA_CONSUMER_MODE);
+            if ("classic".equalsIgnoreCase(consumerType)) {
+                consumerType = "standard";
+            }
+        }
         if (!"standard".equalsIgnoreCase(consumerType) && !"share".equalsIgnoreCase(consumerType)) {
             throw new AnalysisException("kafka_consumer_type must be standard or share");
         }
-        if (isAlter() && originalDataSourceProperties.containsKey(KAFKA_CONSUMER_TYPE)) {
+        if (isAlter() && (originalDataSourceProperties.containsKey(KAFKA_CONSUMER_TYPE)
+                || originalDataSourceProperties.containsKey(LEGACY_KAFKA_CONSUMER_MODE))) {
             throw new AnalysisException("kafka_consumer_type cannot be altered");
         }
         useShareConsumer = "share".equalsIgnoreCase(consumerType);

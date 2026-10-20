@@ -54,11 +54,23 @@ class KafkaSharePropertiesTest {
     }
 
     @Test
-    void rejectPreviousExperimentalNameAndValue() {
+    void acceptLegacyNameForPersistedCreateStatements() throws Exception {
         Map<String, String> oldName = properties();
         oldName.put("kafka_consumer_mode", "share");
-        KafkaDataSourceProperties invalidName = new KafkaDataSourceProperties(oldName);
-        Assertions.assertThrows(AnalysisException.class, invalidName::convertAndCheckDataSourceProperties);
+        KafkaDataSourceProperties legacyShare = new KafkaDataSourceProperties(oldName);
+        legacyShare.convertAndCheckDataSourceProperties();
+        Assertions.assertTrue(legacyShare.isUseShareConsumer());
+        oldName.put("kafka_consumer_mode", "classic");
+        KafkaDataSourceProperties legacyStandard = new KafkaDataSourceProperties(oldName);
+        legacyStandard.convertAndCheckDataSourceProperties();
+        Assertions.assertFalse(legacyStandard.isUseShareConsumer());
+        oldName.put("kafka_consumer_type", "share");
+        KafkaDataSourceProperties ambiguous = new KafkaDataSourceProperties(oldName);
+        Assertions.assertThrows(AnalysisException.class, ambiguous::convertAndCheckDataSourceProperties);
+    }
+
+    @Test
+    void rejectClassicWithNewPropertyName() {
         Map<String, String> oldValue = properties();
         oldValue.put("kafka_consumer_type", "classic");
         KafkaDataSourceProperties invalidValue = new KafkaDataSourceProperties(oldValue);
@@ -109,5 +121,10 @@ class KafkaSharePropertiesTest {
         KafkaDataSourceProperties properties = new KafkaDataSourceProperties(values);
         properties.setAlter(true);
         Assertions.assertThrows(AnalysisException.class, properties::convertAndCheckDataSourceProperties);
+        values.clear();
+        values.put("kafka_consumer_mode", "share");
+        KafkaDataSourceProperties legacy = new KafkaDataSourceProperties(values);
+        legacy.setAlter(true);
+        Assertions.assertThrows(AnalysisException.class, legacy::convertAndCheckDataSourceProperties);
     }
 }
