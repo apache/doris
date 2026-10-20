@@ -747,7 +747,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("brokerList", brokerList);
         dataSourceProperties.put("topic", topic);
-        dataSourceProperties.put("consumerMode", useShareConsumer ? "share" : "classic");
+        dataSourceProperties.put("consumerType", useShareConsumer ? "share" : "standard");
         List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
         Collections.sort(sortedPartitions);
         dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
@@ -790,8 +790,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("kafka_broker_list", brokerList);
         dataSourceProperties.put("kafka_topic", topic);
-        dataSourceProperties.put(KafkaDataSourceProperties.KAFKA_CONSUMER_MODE,
-                useShareConsumer ? "share" : "classic");
+        dataSourceProperties.put(KafkaDataSourceProperties.KAFKA_CONSUMER_TYPE,
+                useShareConsumer ? "share" : "standard");
         return dataSourceProperties;
     }
 

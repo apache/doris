@@ -1,7 +1,7 @@
 # Experimental Kafka share consumption
 
-Routine Load accepts `"kafka_consumer_mode" = "share"` in its `FROM KAFKA`
-properties. The default is `classic`, retaining partition assignment and existing
+Routine Load accepts `"kafka_consumer_type" = "share"` in its `FROM KAFKA`
+properties. The default is `standard`, retaining partition assignment and existing
 recovery behavior. Upgrade all FEs and BEs before enabling share mode.
 
 ```sql
@@ -10,7 +10,7 @@ PROPERTIES ("desired_concurrent_number" = "9")
 FROM KAFKA (
     "kafka_broker_list" = "kafka:9092",
     "kafka_topic" = "events",
-    "kafka_consumer_mode" = "share",
+    "kafka_consumer_type" = "share",
     "property.group.id" = "doris-events-share"
 );
 ```

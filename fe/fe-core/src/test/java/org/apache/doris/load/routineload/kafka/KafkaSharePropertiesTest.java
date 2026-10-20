@@ -34,16 +34,41 @@ class KafkaSharePropertiesTest {
     }
 
     @Test
-    void classicRemainsDefault() throws Exception {
+    void standardRemainsDefault() throws Exception {
         KafkaDataSourceProperties properties = new KafkaDataSourceProperties(properties());
         properties.convertAndCheckDataSourceProperties();
         Assertions.assertFalse(properties.isUseShareConsumer());
     }
 
     @Test
+    void explicitStandardUsesPartitionOffsets() throws Exception {
+        Map<String, String> values = properties();
+        values.put("kafka_consumer_type", "standard");
+        values.put("kafka_partitions", "0");
+        values.put("kafka_offsets", "42");
+        KafkaDataSourceProperties properties = new KafkaDataSourceProperties(values);
+        properties.convertAndCheckDataSourceProperties();
+        Assertions.assertFalse(properties.isUseShareConsumer());
+        Assertions.assertEquals(1, properties.getKafkaPartitionOffsets().size());
+        Assertions.assertEquals(42L, properties.getKafkaPartitionOffsets().get(0).second);
+    }
+
+    @Test
+    void rejectPreviousExperimentalNameAndValue() {
+        Map<String, String> oldName = properties();
+        oldName.put("kafka_consumer_mode", "share");
+        KafkaDataSourceProperties invalidName = new KafkaDataSourceProperties(oldName);
+        Assertions.assertThrows(AnalysisException.class, invalidName::convertAndCheckDataSourceProperties);
+        Map<String, String> oldValue = properties();
+        oldValue.put("kafka_consumer_type", "classic");
+        KafkaDataSourceProperties invalidValue = new KafkaDataSourceProperties(oldValue);
+        Assertions.assertThrows(AnalysisException.class, invalidValue::convertAndCheckDataSourceProperties);
+    }
+
+    @Test
     void shareDoesNotCreateOffsetProgress() throws Exception {
         Map<String, String> values = properties();
-        values.put("kafka_consumer_mode", "share");
+        values.put("kafka_consumer_type", "share");
         values.put("property.group.id", "demo-share");
         KafkaDataSourceProperties properties = new KafkaDataSourceProperties(values);
         properties.convertAndCheckDataSourceProperties();
@@ -59,7 +84,7 @@ class KafkaSharePropertiesTest {
                 "property.kafka_default_offsets", "property.auto.offset.reset",
                 "property.enable.auto.commit", "property.share.acknowledgement.mode"}) {
             Map<String, String> values = properties();
-            values.put("kafka_consumer_mode", "share");
+            values.put("kafka_consumer_type", "share");
             values.put(key, "1");
             KafkaDataSourceProperties properties = new KafkaDataSourceProperties(values);
             Assertions.assertThrows(AnalysisException.class, properties::convertAndCheckDataSourceProperties, key);
@@ -67,20 +92,20 @@ class KafkaSharePropertiesTest {
     }
 
     @Test
-    void rejectUnsupportedModeAndMultiTable() {
+    void rejectUnsupportedTypeAndMultiTable() {
         Map<String, String> values = properties();
-        values.put("kafka_consumer_mode", "typo");
+        values.put("kafka_consumer_type", "typo");
         KafkaDataSourceProperties invalid = new KafkaDataSourceProperties(values);
         Assertions.assertThrows(AnalysisException.class, invalid::convertAndCheckDataSourceProperties);
-        values.put("kafka_consumer_mode", "share");
+        values.put("kafka_consumer_type", "share");
         KafkaDataSourceProperties multi = new KafkaDataSourceProperties(values, true);
         Assertions.assertThrows(AnalysisException.class, multi::convertAndCheckDataSourceProperties);
     }
 
     @Test
-    void rejectModeChange() {
+    void rejectTypeChange() {
         Map<String, String> values = new HashMap<>();
-        values.put("kafka_consumer_mode", "share");
+        values.put("kafka_consumer_type", "share");
         KafkaDataSourceProperties properties = new KafkaDataSourceProperties(values);
         properties.setAlter(true);
         Assertions.assertThrows(AnalysisException.class, properties::convertAndCheckDataSourceProperties);
