@@ -9345,4 +9345,137 @@ TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_array
     EXPECT_EQ(chunked_rows[3], "NULL");
 }
 
+TEST(VariantPathBuilderTest, MergeNullableDecimalArraysPreservesScale) {
+    VariantBatchBuilder value_builder;
+    for (size_t index = 0; index < 2; ++index) {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        row.add_decimal(index == 0 ? 123 : 12345, index == 0 ? 2 : 4, 16);
+        array.finish();
+        row.finish();
+    }
+    const auto values = value_builder.finish_batch();
+    segment_v2::VariantPathBuilder first(PathInData("metric"));
+    segment_v2::VariantPathBuilder second(PathInData("metric"));
+    ASSERT_TRUE(first.append(values.value_at(0), 0).ok());
+    ASSERT_TRUE(second.append(values.value_at(1), 0).ok());
+    for (bool reverse : {false, true}) {
+        const DataTypePtr common = segment_v2::variant_path_least_common_type(
+                reverse ? second.type() : first.type(), reverse ? first.type() : second.type());
+        EXPECT_TRUE(common->is_nullable());
+        const auto& array = assert_cast<const DataTypeArray&>(*remove_nullable(common));
+        EXPECT_EQ(array.get_nested_type()->get_scale(), 4);
+    }
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_decimal_overflow) {
+    init_extracted_variant_schema(11408);
+    for (bool array_values : {false, true}) {
+        for (bool double_tail : {false, true}) {
+            SCOPED_TRACE(testing::Message()
+                         << "array=" << array_values << ", double_tail=" << double_tail);
+            VariantBatchBuilder value_builder;
+            for (size_t index = 0; index < (double_tail ? 5 : 4); ++index) {
+                auto row = value_builder.begin_row();
+                std::optional<VariantBatchBuilder::Row::ArrayScope> array;
+                if (array_values) {
+                    array.emplace(row.start_array());
+                }
+                if (index == 1) {
+                    row.add_decimal(static_cast<__int128>(VARIANT_DECIMAL16_MAX), 1, 16);
+                } else if (index == 3) {
+                    row.add_decimal(1, 38, 16);
+                } else if (index == 4) {
+                    row.add_double(2.5);
+                } else {
+                    row.add_decimal(1, 1, 16);
+                }
+                if (array_values) {
+                    array->finish();
+                }
+                row.finish();
+            }
+            auto source = ColumnVariantV2::create();
+            source->insert_encoded_batch(value_builder.finish_batch());
+            const auto source_type = std::make_shared<DataTypeVariantV2>(0, false);
+            const auto suffix = fmt::format("{}_{}", array_values, double_tail);
+            SegmentFooterPB ref_footer;
+            std::string ref_path;
+            ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
+                                                        "decimal_overflow_ref_" + suffix,
+                                                        &ref_footer, &ref_path)
+                                .ok());
+            std::vector<std::string> ref_rows;
+            ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+            ASSERT_EQ(static_cast<FieldType>(ref_footer.columns(0).type()),
+                      FieldType::OLAP_FIELD_TYPE_JSONB);
+
+            struct ChunkGuard {
+                explicit ChunkGuard(size_t values) {
+                    VariantSubcolumnWriter::set_chunk_values_for_test(values);
+                }
+                ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+            } guard(double_tail ? 2 : 1);
+            SegmentFooterPB chunked_footer;
+            std::string chunked_path;
+            ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
+                                                        "decimal_overflow_chunks_" + suffix,
+                                                        &chunked_footer, &chunked_path, 0, 1)
+                                .ok());
+            std::vector<std::string> chunked_rows;
+            ASSERT_TRUE(
+                    read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+            // The scale-38 value cannot widen the earlier large value losslessly. With two rows
+            // per chunk, fallback must also preserve the preceding 0.1 in the active chunk.
+            EXPECT_EQ(chunked_rows, ref_rows);
+            EXPECT_EQ(static_cast<FieldType>(chunked_footer.columns(0).type()),
+                      FieldType::OLAP_FIELD_TYPE_JSONB);
+        }
+    }
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_subcolumn_writer_chunks_decimal_array_scales) {
+    init_extracted_variant_schema(11409);
+    for (bool reverse : {false, true}) {
+        SCOPED_TRACE(testing::Message() << "reverse=" << reverse);
+        VariantBatchBuilder value_builder;
+        for (size_t index = 0; index < 2; ++index) {
+            auto row = value_builder.begin_row();
+            auto array = row.start_array();
+            const bool high_scale = (index == 1) != reverse;
+            row.add_decimal(high_scale ? 12345 : 123, high_scale ? 4 : 2, 16);
+            array.finish();
+            row.finish();
+        }
+        auto source = ColumnVariantV2::create();
+        source->insert_encoded_batch(value_builder.finish_batch());
+        const auto source_type = std::make_shared<DataTypeVariantV2>(0, false);
+        const auto suffix = std::to_string(reverse);
+        SegmentFooterPB ref_footer;
+        std::string ref_path;
+        ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
+                                                    "decimal_array_ref_" + suffix, &ref_footer,
+                                                    &ref_path)
+                            .ok());
+        std::vector<std::string> ref_rows;
+        ASSERT_TRUE(read_extracted_variant_rows(ref_footer, ref_path, &ref_rows).ok());
+        ASSERT_EQ(ref_footer.columns(0).children_columns(0).frac(), 4);
+
+        struct ChunkGuard {
+            ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(1); }
+            ~ChunkGuard() { VariantSubcolumnWriter::set_chunk_values_for_test(0); }
+        } guard;
+        SegmentFooterPB chunked_footer;
+        std::string chunked_path;
+        ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
+                                                    "decimal_array_chunks_" + suffix,
+                                                    &chunked_footer, &chunked_path, 0, 1)
+                            .ok());
+        std::vector<std::string> chunked_rows;
+        ASSERT_TRUE(read_extracted_variant_rows(chunked_footer, chunked_path, &chunked_rows).ok());
+        EXPECT_EQ(chunked_rows, ref_rows);
+        EXPECT_EQ(chunked_footer.columns(0).children_columns(0).frac(), 4);
+    }
+}
+
 } // namespace doris
