@@ -61,6 +61,16 @@ namespace doris::format {
 
 namespace {
 
+bool requires_paimon_datetime_precision_conversion(const DataTypePtr& source_type,
+                                                   const DataTypePtr& target_type) {
+    const auto source = remove_nullable(source_type);
+    const auto target = remove_nullable(target_type);
+    const auto primitive = source->get_primitive_type();
+    return primitive == target->get_primitive_type() &&
+           (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ) &&
+           source->get_scale() > target->get_scale();
+}
+
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
     const auto& table_children =
             table.identity_children.empty() ? table.children : table.identity_children;
@@ -1530,6 +1540,11 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     if (mapping.table_type == nullptr || mapping.file_type == nullptr) {
         return false;
     }
+    // A historical .600000 timestamp narrowed to p0 must be materialized through the
+    // truncating cast; reusing its file column directly would retain the fraction.
+    if (mapping.truncate_datetimev2_precision) {
+        return false;
+    }
     const auto table_type = remove_nullable(mapping.table_type);
     const auto file_type = remove_nullable(mapping.file_type);
     const bool same_timestamptz_with_different_scale =
@@ -1576,6 +1591,11 @@ static FilterConversionType direct_filter_conversion(const ColumnMapping& mappin
     // Apply the same rule to a complex root because generic array/map/struct expressions rewrite
     // the root slot and can otherwise expose a nested VARBINARY child to the reader.
     if (type_contains_varbinary(mapping.table_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    // Filtering the historical .600000 value before p0 truncation can reject a row
+    // that equals the whole-second literal after repair. Keep that predicate above materialization.
+    if (mapping.truncate_datetimev2_precision) {
         return FilterConversionType::FINALIZE_ONLY;
     }
     const auto table_type = remove_nullable(mapping.table_type);
@@ -2222,7 +2242,8 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
         return;
     }
 
-    auto expr = EvolutionCast::create_shared(mapping->table_type);
+    auto expr = EvolutionCast::create_shared(mapping->table_type,
+                                             mapping->truncate_datetimev2_precision);
     expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
                                             cast_set<int>(block_position.value()), -1,
                                             mapping->file_type, mapping->file_column_name));
@@ -2937,6 +2958,11 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->projected_file_children = file_field.children;
     mapping->timestamp_is_adjusted_to_utc = file_field.timestamp_is_adjusted_to_utc;
     mapping->file_type = file_field.type;
+    const auto file_type = remove_nullable(mapping->file_type);
+    const auto table_type = remove_nullable(mapping->table_type);
+    mapping->truncate_datetimev2_precision =
+            _options.truncate_datetimev2_precision_for_paimon &&
+            requires_paimon_datetime_precision_conversion(file_type, table_type);
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.
     mapping->variant_access_paths = table_column.variant_access_paths;

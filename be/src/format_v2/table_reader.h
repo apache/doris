@@ -1338,8 +1338,8 @@ protected:
     }
 
     Status _cast_column_to_type(ColumnPtr* column, const DataTypePtr& file_type,
-                                const DataTypePtr& table_type,
-                                const std::string& column_name) const {
+                                const DataTypePtr& table_type, const std::string& column_name,
+                                bool truncate_datetimev2_precision = false) const {
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(file_type != nullptr);
@@ -1367,7 +1367,7 @@ protected:
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        auto cast_expr = EvolutionCast::create_shared(cast_type);
+        auto cast_expr = EvolutionCast::create_shared(cast_type, truncate_datetimev2_precision);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;
@@ -1421,7 +1421,8 @@ protected:
         // _align_column_nullability() reject an actual NULL before removing the wrapper.
         ColumnPtr result_column = source.column;
         RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
-                                             mapping.file_column_name));
+                                             mapping.file_column_name,
+                                             mapping.truncate_datetimev2_precision));
         RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
         *column = _detach_column(std::move(result_column));
         *handled = true;
@@ -1441,7 +1442,8 @@ protected:
                                                                     nullable_parent_null_map));
             } else {
                 RETURN_IF_ERROR(_cast_column_to_type(column, mapping.file_type, mapping.table_type,
-                                                     mapping.file_column_name));
+                                                     mapping.file_column_name,
+                                                     mapping.truncate_datetimev2_precision));
             }
         }
         RETURN_IF_ERROR(
