@@ -797,6 +797,28 @@ public class SPMOptimizer {
             return table;
         }
 
+        /**
+         * Re-hashes every collected table the moment the planning locks are HELD.
+         *
+         * CollectRelation resolves (and caches) the statement's relations BEFORE
+         * NereidsPlanner#collectAndLockTable acquires the locks, so this override's
+         * getAndCacheTable hook ran UNLOCKED: for `t(k, v)` a concurrent
+         * `ALTER TABLE t DROP COLUMN v` could land between that resolution and the lock, the
+         * locked capture froze `Project(k, k + ph AS z) over Scan(t[k])` (the NEW schema) while
+         * the recorded entry still described the OLD one (`[k, v]`), and re-adding `v` with the
+         * same type / nullability restored that old name-and-type string - so the identical
+         * `SELECT t.*, k + 1 AS z` passed BOTH fingerprint checks and replayed a plan that
+         * omits `v` (round-75 #1). Re-recording here makes every stored entry describe the
+         * schema the LOCKED bind actually saw; a table FIRST resolved after the lock is
+         * recorded correctly by getAndCacheTable, which now OVERWRITES instead of keeping the
+         * first value.
+         */
+        @Override
+        public synchronized void lock() {
+            super.lock();
+            SPMPlanTreeSupport.recordTableFingerprints(tableFingerprints, getTables());
+        }
+
         java.util.Map<String, String> getTableFingerprints() {
             return tableFingerprints;
         }
