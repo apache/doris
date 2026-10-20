@@ -38,6 +38,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -154,6 +155,8 @@ public class ExportJob implements Writable {
     private String dataConsistency;
     @SerializedName("compressType")
     private String compressType;
+    @SerializedName("csvQuote")
+    private String csvQuote;
     @SerializedName("whereStr")
     private String whereStr;
 
@@ -204,6 +207,7 @@ public class ExportJob implements Writable {
         this.lineDelimiter = "\n";
         this.columns = "";
         this.withBom = "false";
+        this.csvQuote = "false";
         this.dataConsistency = CONSISTENT_PARTITION;
     }
 
@@ -481,6 +485,8 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
+            outfileProperties.put(CsvFileFormatProperties.PROP_CSV_QUOTE,
+                    csvQuote == null ? "false" : csvQuote);
         }
         // compressType == null means outfile will use default compression type
         if (compressType != null) {
@@ -706,6 +712,9 @@ public class ExportJob implements Writable {
     public static ExportJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         ExportJob job = GsonUtils.GSON.fromJson(json, ExportJob.class);
+        if (job.csvQuote == null) {
+            job.csvQuote = "false";
+        }
         job.isReplayed = true;
         return job;
     }

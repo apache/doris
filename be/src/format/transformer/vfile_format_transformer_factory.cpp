@@ -82,7 +82,8 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
             compress_type = tvf_sink.compression_type;
         }
         result->reset(new VCSVTransformer(state, file_writer, output_vexpr_ctxs, false, {}, {},
-                                          column_separator, line_delimiter, false, compress_type));
+                                          column_separator, line_delimiter, false, false,
+                                          compress_type));
         break;
     }
     case TFileFormatType::FORMAT_PARQUET: {

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -222,5 +223,70 @@ public class CsvFileFormatPropertiesTest {
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assertions.assertEquals(false, csvFileFormatProperties.isTrimDoubleQuotes());
+    }
+
+    @Test
+    public void testCsvQuoteDefaultAndThrift() {
+        Map<String, String> properties = new HashMap<>();
+        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
+
+        TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions();
+        csvFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
+
+        Assertions.assertFalse(csvFileFormatProperties.isCsvQuote());
+        Assertions.assertFalse(sinkOptions.isCsvQuote());
+    }
+
+    @Test
+    public void testCsvQuoteTrueAndThrift() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CsvFileFormatProperties.PROP_CSV_QUOTE, "TrUe");
+        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
+
+        TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions();
+        csvFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
+
+        Assertions.assertTrue(csvFileFormatProperties.isCsvQuote());
+        Assertions.assertTrue(sinkOptions.isCsvQuote());
+        Assertions.assertFalse(properties.containsKey(CsvFileFormatProperties.PROP_CSV_QUOTE));
+    }
+
+    @Test
+    public void testCsvQuoteRejectsNonBoolean() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CsvFileFormatProperties.PROP_CSV_QUOTE, "yes");
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "csv_quote must be true or false",
+                () -> csvFileFormatProperties.analyzeFileFormatProperties(properties, true));
+    }
+
+    @Test
+    public void testCsvQuoteRejectsDoubleQuoteSeparators() {
+        for (String property : new String[] {
+                CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+                CsvFileFormatProperties.PROP_LINE_DELIMITER}) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put(CsvFileFormatProperties.PROP_CSV_QUOTE, "true");
+            properties.put(property, property.equals(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR)
+                    ? "|\"" : "\"\n");
+
+            ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                    "must not contain double quote when csv_quote is true",
+                    () -> csvFileFormatProperties.analyzeFileFormatProperties(properties, true));
+        }
+    }
+
+    @Test
+    public void testDisabledCsvQuoteKeepsLegacySeparatorRules() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CsvFileFormatProperties.PROP_CSV_QUOTE, "false");
+        properties.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, "|\"");
+        properties.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, "\"\n");
+
+        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
+
+        Assertions.assertEquals("|\"", csvFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals("\"\n", csvFileFormatProperties.getLineDelimiter());
     }
 }
