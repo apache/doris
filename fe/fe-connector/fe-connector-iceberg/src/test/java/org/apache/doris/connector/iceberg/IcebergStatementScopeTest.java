@@ -61,6 +61,19 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void manifestReadBudgetIsSharedAcrossCatalogsButNotExecutions() {
+        TestStatementScope scope = new TestStatementScope();
+        java.util.concurrent.Semaphore first = IcebergStatementScope.manifestReadBudget(
+                new ScopeSession(1L, "q1", scope), 8);
+        Assertions.assertSame(first, IcebergStatementScope.manifestReadBudget(
+                new ScopeSession(2L, "q1", scope), 8));
+        Assertions.assertNotSame(first, IcebergStatementScope.manifestReadBudget(
+                new ScopeSession(1L, "q2", scope), 8));
+        Assertions.assertNotSame(IcebergStatementScope.manifestReadBudget(null, 8),
+                IcebergStatementScope.manifestReadBudget(null, 8));
+    }
+
+    @Test
     public void sameStatementSharesOneLoadedTable() {
         // Read metadata and scan planning resolve one frozen view through sharedTable; sharing one scope
         // collapses them onto one load and hands each the same statement instance.
@@ -249,6 +262,28 @@ public class IcebergStatementScopeTest {
         Assertions.assertEquals(0, catalogCloses.get());
         scope.closeAll();
         Assertions.assertEquals(1, catalogCloses.get());
+    }
+
+    @Test
+    public void runningReadLeaseDefersStatementOwnedFileIoCleanup() throws Exception {
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession session = new ScopeSession(7L, "q1", scope);
+        AtomicInteger tableCloses = new AtomicInteger();
+        AtomicInteger catalogCloses = new AtomicInteger();
+        IcebergStatementScope.sharedTrackedTable(session, "db1", "t", tracker, () -> table("t"),
+                ignored -> tableCloses::incrementAndGet);
+        Supplier<AutoCloseable> retain = IcebergStatementScope.readTableLeaseFactory(session, "db1", "t");
+        AutoCloseable release = retain.get();
+        scope.closeAll();
+        tracker.close(catalogCloses::incrementAndGet);
+        Assertions.assertEquals(0, tableCloses.get());
+        Assertions.assertEquals(0, catalogCloses.get());
+        release.close();
+        release.close();
+        Assertions.assertEquals(1, tableCloses.get());
+        Assertions.assertEquals(1, catalogCloses.get());
+        Assertions.assertThrows(IllegalStateException.class, retain::get);
     }
 
     @Test

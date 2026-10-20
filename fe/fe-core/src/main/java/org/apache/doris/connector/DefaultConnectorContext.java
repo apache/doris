@@ -23,6 +23,7 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.spi.Connector;
@@ -65,6 +66,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -122,6 +125,12 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             SecurityChecker.getInstance().stopSSRFChecking();
         }
     };
+
+    @Override
+    public <T> RunnableFuture<T> submitMetadataTask(Callable<T> task) {
+        return ThreadPoolManager.submitWithCallerHelp(
+                (ThreadPoolExecutor) Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor(), task);
+    }
 
     public DefaultConnectorContext(String catalogName, long catalogId) {
         this(catalogName, catalogId, () -> NOOP_AUTH);
