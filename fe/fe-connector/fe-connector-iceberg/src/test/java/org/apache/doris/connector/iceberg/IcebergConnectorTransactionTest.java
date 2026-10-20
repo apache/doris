@@ -51,10 +51,13 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.types.Types;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
@@ -1274,12 +1277,39 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
-    public void rollbackAndCloseAreNoOps() {
+    public void rollbackWithoutBeginAndCloseAreNoOps() {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertDoesNotThrow(() -> {
             txn.rollback();
             txn.close();
         });
+    }
+
+    @Test
+    public void rollbackDeletesReportedFilesAndClearsCommitData() throws IOException {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
+        String path = "s3://b/db1/t1/uncommitted.parquet";
+        OutputFile output = table.io().newOutputFile(path);
+        try (PositionOutputStream stream = output.create()) {
+            stream.write(1);
+        }
+        Assertions.assertTrue(table.io().newInputFile(path).exists());
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", insertCtx());
+        txn.addCommitData(commitBytes(dataFileItem(path, 1L, 1L)));
+
+        txn.rollback();
+
+        Assertions.assertThrows(NotFoundException.class,
+                () -> table.io().newInputFile(path).exists(),
+                "rollback must delete data files reported by completed BE fragments");
+        Assertions.assertTrue(txn.getCommitDataList().isEmpty(),
+                "rollback must not leave fragments that a later lifecycle call could commit");
+        txn.close();
     }
 
     @Test

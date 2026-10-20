@@ -64,6 +64,73 @@ public:
 };
 } // namespace
 
+TEST(VIcebergTableWriterTest, RejectsRequiredNullBeforeWriterCreation) {
+    std::vector<iceberg::NestedField> fields;
+    fields.emplace_back(false, 1, "id", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(fields));
+    TIcebergTableSink sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    writer._schema = schema;
+
+    auto type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto data = ColumnInt32::create();
+    data->insert_value(1);
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().push_back(1);
+    Block block({ColumnWithTypeAndName(ColumnNullable::create(std::move(data), std::move(null_map)),
+                                       type, "id")});
+
+    Status status = writer._write_prepared_block(block);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("required field 'id'"), std::string::npos);
+    EXPECT_TRUE(writer._partitions_to_writers.empty());
+    EXPECT_EQ(0, writer._row_count);
+}
+
+TEST(VIcebergTableWriterTest, RejectsNestedRequiredNullBeforeWriterCreation) {
+    std::vector<iceberg::NestedField> child_fields;
+    child_fields.emplace_back(false, 2, "required_metric", std::make_unique<iceberg::IntegerType>(),
+                              std::nullopt);
+    std::vector<iceberg::NestedField> fields;
+    fields.emplace_back(true, 1, "info",
+                        std::make_unique<iceberg::StructType>(std::move(child_fields)),
+                        std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(fields));
+    TIcebergTableSink sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    writer._schema = schema;
+
+    auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto child_data = ColumnInt32::create();
+    child_data->insert_value(7);
+    auto child_nulls = ColumnUInt8::create();
+    child_nulls->get_data().push_back(1);
+    Columns children {
+            ColumnNullable::create(std::move(child_data), std::move(child_nulls)),
+    };
+    auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {"required_metric"});
+    auto parent_nulls = ColumnUInt8::create();
+    parent_nulls->get_data().push_back(0);
+    Block block({
+            ColumnWithTypeAndName(ColumnNullable::create(ColumnStruct::create(std::move(children)),
+                                                         std::move(parent_nulls)),
+                                  make_nullable(struct_type), "info"),
+    });
+
+    Status status = writer._write_prepared_block(block);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("required field 'info.required_metric'"), std::string::npos);
+    EXPECT_TRUE(writer._partitions_to_writers.empty());
+    EXPECT_EQ(0, writer._row_count);
+}
+
 TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
     std::vector<iceberg::NestedField> fields;
     fields.emplace_back(false, 1, "event_time", std::make_unique<iceberg::TimestampTzType>(),
