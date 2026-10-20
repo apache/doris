@@ -124,6 +124,11 @@ public final class AzureThriftAdapter {
             case AzureBackendPropertyKeys.AUTH_SAS: {
                 TAzureSas sas = new TAzureSas();
                 sas.setToken(props.getOrDefault(AzureBackendPropertyKeys.SAS_TOKEN, ""));
+                String expiresAtMs = props.get(AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS);
+                if (StringUtils.isNotBlank(expiresAtMs)) {
+                    // The provider validated it as Unix milliseconds.
+                    sas.setExpiresAtMs(Long.parseLong(expiresAtMs));
+                }
                 credential.setSas(sas);
                 break;
             }

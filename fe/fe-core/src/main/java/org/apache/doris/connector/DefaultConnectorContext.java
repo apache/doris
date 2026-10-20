@@ -34,6 +34,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.IcebergAdlsVendedCredentials;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
@@ -256,6 +257,9 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         }
         try {
             Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
+            // Iceberg names an Azure SAS by its account host (adls.sas-token.<host>), which no
+            // storage provider binds as is; translate it into Azure storage properties.
+            filtered.putAll(IcebergAdlsVendedCredentials.toAzureProperties(rawVendedCredentials));
             if (filtered.isEmpty()) {
                 return null;
             }

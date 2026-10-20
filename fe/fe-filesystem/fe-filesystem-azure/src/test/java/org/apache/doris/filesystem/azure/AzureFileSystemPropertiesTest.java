@@ -170,6 +170,30 @@ class AzureFileSystemPropertiesTest {
     }
 
     @Test
+    void toBackendProperties_sasCarriesKnownExpiry() {
+        Map<String, String> backendMap = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "azure.account_name", "account",
+                "azure.sas_token", "sv=2024&sig=abc",
+                "azure.sas_token_expires_at_ms", "1792400400000")).toBackendProperties().orElseThrow().toMap();
+        Assertions.assertEquals("1792400400000", backendMap.get(AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS));
+
+        Map<String, String> noExpiry = AzureFileSystemProperties.of(Map.of(
+                "azure.auth_type", "SAS",
+                "azure.account_name", "account",
+                "azure.sas_token", "sv=2024&sig=abc")).toBackendProperties().orElseThrow().toMap();
+        Assertions.assertFalse(noExpiry.containsKey(AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS));
+
+        IllegalArgumentException notMillis = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AzureFileSystemProperties.of(Map.of(
+                        "azure.auth_type", "SAS",
+                        "azure.account_name", "account",
+                        "azure.sas_token", "sv=2024&sig=abc",
+                        "azure.sas_token_expires_at_ms", "2030-01-01")));
+        Assertions.assertTrue(notMillis.getMessage().contains("sas_token_expires_at_ms"), notMillis.getMessage());
+    }
+
+    @Test
     void toBackendProperties_oauth2CarriesNativeClientSecretKeys() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
                 "azure.auth_type", "OAuth2",

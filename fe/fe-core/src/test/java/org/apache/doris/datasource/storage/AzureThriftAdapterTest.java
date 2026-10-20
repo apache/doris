@@ -76,6 +76,18 @@ class AzureThriftAdapterTest {
     }
 
     @Test
+    void sasExpiryIsCarriedWhenKnown() {
+        Map<String, String> props = sasProps();
+        props.put(AzureBackendPropertyKeys.SAS_EXPIRES_AT_MS, "1792400400000");
+
+        TAzureClientConfig config = AzureThriftAdapter.fromBackendProperties(props).orElseThrow();
+
+        Assertions.assertEquals(1792400400000L, config.getCredential().getSas().getExpiresAtMs());
+        Assertions.assertFalse(AzureThriftAdapter.fromBackendProperties(sasProps()).orElseThrow()
+                .getCredential().getSas().isSetExpiresAtMs());
+    }
+
+    @Test
     void oauth2BecomesClientSecretCredential() {
         Map<String, String> props = baseProps(AzureBackendPropertyKeys.AUTH_OAUTH2);
         props.remove(AzureBackendPropertyKeys.ACCOUNT_NAME);
