@@ -205,6 +205,9 @@ PeerFileCacheReader::~PeerFileCacheReader() {
     peer_cache_being_read << -1;
 }
 
+// The size and complexity were already over the limits on master; this PR only changed the
+// parameter type from blocks to ranges.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ranges,
                                          PeerFetchResult* result, size_t file_size,
                                          const IOContext* ctx, bool request_fill, int64_t tablet_id,

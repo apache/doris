@@ -20,7 +20,12 @@
 // update_peer_candidate_on_success, update_peer_candidate_on_rpc_failure,
 // and remove_balanced_tablet.
 
+#include <bvar/bvar.h>
 #include <gtest/gtest.h>
+
+#include <chrono>
+#include <optional>
+#include <vector>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_warm_up_manager.h"
@@ -28,6 +33,9 @@
 #include "util/defer_op.h"
 
 namespace doris {
+
+extern bvar::Adder<uint64_t> g_peer_candidate_cache_hit;
+extern bvar::Adder<uint64_t> g_peer_candidate_cache_miss;
 
 // ============================================================
 // Test fixture
@@ -522,6 +530,83 @@ TEST_F(CloudWarmUpManagerPeerTest, cooldown_noop_for_unknown_tablet) {
     // Should not crash or create phantom entries.
     _mgr->record_peer_all_miss(99999);
     EXPECT_FALSE(_mgr->is_peer_cooldown(99999));
+}
+
+namespace {
+
+TabletPeerCandidates make_peer_info(bool with_candidate, int64_t cooldown_until_ms) {
+    TabletPeerCandidates tpc;
+    if (with_candidate) {
+        tpc.candidates.push_back(PeerCandidate {.host = "192.168.0.1",
+                                                .brpc_port = 9060,
+                                                .compute_group_id = "cg_a",
+                                                .last_access_time_ms = 123});
+    }
+    tpc.consecutive_all_miss = cooldown_until_ms == 0 ? 0 : 5;
+    tpc.cooldown_until_ms = cooldown_until_ms;
+    return tpc;
+}
+
+int64_t peer_test_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
+}
+
+// Checks has_peer_candidates() and that, unlike get_peer_candidates(), it touches neither the
+// tablet's candidate expiry and cooldown state nor the candidate cache bvars.
+void expect_has_peer_candidates_read_only(const CloudWarmUpManager& mgr, int64_t tablet_id,
+                                          bool expected) {
+    SCOPED_TRACE(tablet_id);
+    const uint64_t hit_before = g_peer_candidate_cache_hit.get_value();
+    const uint64_t miss_before = g_peer_candidate_cache_miss.get_value();
+    const auto before = mgr.get_tablet_peer_info(tablet_id);
+
+    EXPECT_EQ(mgr.has_peer_candidates(tablet_id), expected);
+
+    EXPECT_EQ(g_peer_candidate_cache_hit.get_value(), hit_before);
+    EXPECT_EQ(g_peer_candidate_cache_miss.get_value(), miss_before);
+    const auto after = mgr.get_tablet_peer_info(tablet_id);
+    ASSERT_EQ(after.has_value(), before.has_value());
+    if (!before.has_value()) {
+        return;
+    }
+    EXPECT_EQ(after->cooldown_until_ms, before->cooldown_until_ms);
+    EXPECT_EQ(after->consecutive_all_miss, before->consecutive_all_miss);
+    ASSERT_EQ(after->candidates.size(), before->candidates.size());
+    for (size_t i = 0; i < before->candidates.size(); ++i) {
+        EXPECT_EQ(after->candidates[i].last_access_time_ms,
+                  before->candidates[i].last_access_time_ms);
+    }
+}
+
+} // namespace
+
+TEST_F(CloudWarmUpManagerPeerTest, has_peer_candidates_false_for_unknown_or_empty_tablet) {
+    expect_has_peer_candidates_read_only(*_mgr, 200, false);
+    EXPECT_FALSE(_mgr->get_tablet_peer_info(200).has_value());
+
+    _mgr->set_tablet_peer_candidates(201, make_peer_info(false, 0));
+    ASSERT_TRUE(_mgr->get_tablet_peer_info(201).has_value());
+    expect_has_peer_candidates_read_only(*_mgr, 201, false);
+}
+
+TEST_F(CloudWarmUpManagerPeerTest, has_peer_candidates_false_while_cooling_down) {
+    _mgr->set_tablet_peer_candidates(202, make_peer_info(true, peer_test_now_ms() + 60000));
+    ASSERT_TRUE(_mgr->get_tablet_peer_info(202).has_value());
+    expect_has_peer_candidates_read_only(*_mgr, 202, false);
+}
+
+TEST_F(CloudWarmUpManagerPeerTest, has_peer_candidates_true_after_cooldown_expired) {
+    _mgr->set_tablet_peer_candidates(203, make_peer_info(true, peer_test_now_ms() - 1000));
+    ASSERT_TRUE(_mgr->get_tablet_peer_info(203).has_value());
+    expect_has_peer_candidates_read_only(*_mgr, 203, true);
+}
+
+TEST_F(CloudWarmUpManagerPeerTest, has_peer_candidates_true_with_candidates) {
+    _mgr->set_tablet_peer_candidates(204, make_peer_info(true, 0));
+    ASSERT_TRUE(_mgr->get_tablet_peer_info(204).has_value());
+    expect_has_peer_candidates_read_only(*_mgr, 204, true);
 }
 
 } // namespace doris
