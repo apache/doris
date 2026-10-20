@@ -119,7 +119,7 @@ public class VarBinaryType extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new VarBinaryLiteral(this, new byte[0]));
     }
 }

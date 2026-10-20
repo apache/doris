@@ -87,7 +87,7 @@ public class CharType extends CharacterType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new CharLiteral("", width()));
     }
 }

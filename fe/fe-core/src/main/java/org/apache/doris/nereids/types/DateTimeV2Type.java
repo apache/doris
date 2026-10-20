@@ -203,7 +203,7 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new DateTimeV2Literal(this, 0, 1, 1, 0, 0, 0, 0));
     }
 }

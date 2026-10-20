@@ -181,7 +181,7 @@ public class AggStateType extends DataType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.empty();
     }
 }

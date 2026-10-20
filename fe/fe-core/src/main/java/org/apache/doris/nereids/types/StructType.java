@@ -201,7 +201,7 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.empty();
     }
 }

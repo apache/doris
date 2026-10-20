@@ -253,7 +253,7 @@ public class DecimalV2Type extends FractionalType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         // The literal validates precision and scale before it rescales, so zero has to carry
         // the type's scale already; a scale-0 zero overflows DECIMAL(p, p).
         return Optional.of(new DecimalLiteral(this, BigDecimal.ZERO.setScale(getScale())));

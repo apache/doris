@@ -151,7 +151,7 @@ public class IvmUtil {
 
     /**
      * The value a common hidden slot takes when the plan writing it does not produce it. The data
-     * type owns that value ({@link DataType#defaultValue()}), so a hidden slot of any type -- a
+     * type owns that value ({@link DataType#zeroValue()}), so a hidden slot of any type -- a
      * base table's sequence column can be a DATE/DATETIME, for example -- gets a non-null
      * placeholder instead of failing the rewrite; a type without one still fails loudly.
      */
@@ -174,7 +174,7 @@ public class IvmUtil {
         if (defaultValue != null) {
             return defaultValue.castTo(targetType);
         }
-        return targetType.defaultValue().orElseThrow(() -> new IvmException(
+        return targetType.zeroValue().orElseThrow(() -> new IvmException(
                 IvmFailureReason.PLAN_REWRITE_FAILED,
                 "no default value for IVM hidden slot: " + columnName + ", type=" + targetType));
     }

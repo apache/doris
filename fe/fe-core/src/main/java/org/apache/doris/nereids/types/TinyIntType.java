@@ -73,7 +73,7 @@ public class TinyIntType extends IntegralType implements Int16OrLessType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new TinyIntLiteral((byte) 0));
     }
 }

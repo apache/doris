@@ -100,7 +100,7 @@ public class VarcharType extends CharacterType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new VarcharLiteral("", width()));
     }
 }

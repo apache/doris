@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
+import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IPv4Type;
 import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -105,24 +107,27 @@ class IvmUtilTest {
     }
 
     @Test
-    void testDefaultValueForEveryType() {
-        // Every data type a hidden slot can have owns a non-null default value.
-        Assertions.assertEquals(TinyIntType.INSTANCE, TinyIntType.INSTANCE.defaultValue().get().getDataType());
-        Assertions.assertEquals(BigIntType.INSTANCE, BigIntType.INSTANCE.defaultValue().get().getDataType());
-        Assertions.assertEquals(LargeIntType.INSTANCE, LargeIntType.INSTANCE.defaultValue().get().getDataType());
+    void testZeroValueForEveryType() {
+        // Every data type a hidden slot can have owns a non-null zero value.
+        Assertions.assertEquals(TinyIntType.INSTANCE, TinyIntType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, BigIntType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(LargeIntType.INSTANCE, LargeIntType.INSTANCE.zeroValue().get().getDataType());
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
-                VarcharType.SYSTEM_DEFAULT.defaultValue().get().getDataType());
-        Assertions.assertEquals(StringType.INSTANCE, StringType.INSTANCE.defaultValue().get().getDataType());
-        Assertions.assertEquals(DateV2Type.INSTANCE, DateV2Type.INSTANCE.defaultValue().get().getDataType());
-        Assertions.assertEquals(DateTimeV2Type.of(6), DateTimeV2Type.of(6).defaultValue().get().getDataType());
-        Assertions.assertInstanceOf(BitmapEmpty.class, BitmapType.INSTANCE.defaultValue().get());
-        Assertions.assertInstanceOf(IPv4Literal.class, IPv4Type.INSTANCE.defaultValue().get());
-        Assertions.assertInstanceOf(IPv6Literal.class, IPv6Type.INSTANCE.defaultValue().get());
+                VarcharType.SYSTEM_DEFAULT.zeroValue().get().getDataType());
+        Assertions.assertEquals(StringType.INSTANCE, StringType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(DateV2Type.INSTANCE, DateV2Type.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(DateTimeV2Type.of(6), DateTimeV2Type.of(6).zeroValue().get().getDataType());
+        Assertions.assertInstanceOf(BitmapEmpty.class, BitmapType.INSTANCE.zeroValue().get());
+        Assertions.assertInstanceOf(IPv4Literal.class, IPv4Type.INSTANCE.zeroValue().get());
+        Assertions.assertInstanceOf(IPv6Literal.class, IPv6Type.INSTANCE.zeroValue().get());
+        JsonLiteral jsonZeroValue = (JsonLiteral) JsonType.INSTANCE.zeroValue().get();
+        Assertions.assertEquals("null", jsonZeroValue.getValue());
+        Assertions.assertFalse(jsonZeroValue.nullable());
         // Zero must be legal even when it occupies no integer digit, e.g. DECIMAL(p, p).
         DecimalV2Type decimalV2 = DecimalV2Type.createDecimalV2Type(9, 9);
-        Assertions.assertEquals(decimalV2, decimalV2.defaultValue().get().getDataType());
+        Assertions.assertEquals(decimalV2, decimalV2.zeroValue().get().getDataType());
         DecimalV3Type decimalV3 = DecimalV3Type.createDecimalV3Type(9, 9);
-        Assertions.assertEquals(decimalV3, decimalV3.defaultValue().get().getDataType());
+        Assertions.assertEquals(decimalV3, decimalV3.zeroValue().get().getDataType());
     }
 
     @Test

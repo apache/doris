@@ -79,7 +79,7 @@ public class IPv4Type extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new IPv4Literal("0.0.0.0"));
     }
 }

@@ -558,12 +558,13 @@ public abstract class DataType {
     }
 
     /**
-     * The non-null default value of this type: the value a NOT NULL column of the type is
+     * The non-null zero value of this type: the value a NOT NULL column of the type is
      * initialized with when no value is supplied, and what a slot of this type holds when the
      * plan has no producer for it (e.g. an IVM hidden slot a source scan does not carry).
+     * The expression must be deterministic, have no slot references, and produce this type.
      * Empty for types that have no such value (state types, lambda, unsupported).
      */
-    public abstract Optional<Expression> defaultValue();
+    public abstract Optional<Expression> zeroValue();
 
     public boolean acceptsType(DataType other) {
         return sameType(other);

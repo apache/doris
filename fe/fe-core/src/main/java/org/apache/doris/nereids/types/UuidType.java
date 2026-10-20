@@ -68,7 +68,7 @@ public class UuidType extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new UuidLiteral("00000000-0000-0000-0000-000000000000"));
     }
 }

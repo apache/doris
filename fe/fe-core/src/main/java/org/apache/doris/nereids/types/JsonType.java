@@ -69,7 +69,7 @@ public class JsonType extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new JsonLiteral("null"));
     }
 }

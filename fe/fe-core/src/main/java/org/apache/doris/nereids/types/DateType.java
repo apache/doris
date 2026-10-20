@@ -96,7 +96,7 @@ public class DateType extends DateLikeType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new DateLiteral(0, 1, 1));
     }
 }

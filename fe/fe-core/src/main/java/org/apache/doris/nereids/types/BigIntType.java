@@ -73,7 +73,7 @@ public class BigIntType extends IntegralType implements Int64OrLessType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new BigIntLiteral(0));
     }
 }

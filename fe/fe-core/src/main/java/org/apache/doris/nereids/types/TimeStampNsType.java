@@ -101,7 +101,7 @@ public final class TimeStampNsType extends DateLikeType implements ScaleTimeType
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new TimeStampNsLiteral(1970, 1, 1, 0, 0, 0, 0));
     }
 }

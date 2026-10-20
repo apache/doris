@@ -139,7 +139,7 @@ public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new TimestampTzLiteral(this, 1970, 1, 1, 0, 0, 0, 0));
     }
 }

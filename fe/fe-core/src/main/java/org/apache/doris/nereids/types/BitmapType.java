@@ -72,7 +72,7 @@ public class BitmapType extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new BitmapEmpty());
     }
 }

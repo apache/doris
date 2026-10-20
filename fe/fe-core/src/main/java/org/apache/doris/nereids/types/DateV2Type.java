@@ -79,7 +79,7 @@ public class DateV2Type extends DateLikeType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new DateV2Literal(0, 1, 1));
     }
 }

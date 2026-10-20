@@ -156,7 +156,7 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new TimeV2Literal(this, "00:00:00"));
     }
 }

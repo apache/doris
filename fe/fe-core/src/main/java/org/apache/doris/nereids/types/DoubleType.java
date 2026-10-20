@@ -66,7 +66,7 @@ public class DoubleType extends FractionalType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new DoubleLiteral(0));
     }
 }

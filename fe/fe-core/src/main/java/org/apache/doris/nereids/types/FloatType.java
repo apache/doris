@@ -74,7 +74,7 @@ public class FloatType extends FractionalType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new FloatLiteral(0));
     }
 }

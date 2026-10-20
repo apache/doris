@@ -115,7 +115,7 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new ArrayLiteral(Collections.<Literal>emptyList(), this));
     }
 }

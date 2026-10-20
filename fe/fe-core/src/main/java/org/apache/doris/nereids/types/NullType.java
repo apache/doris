@@ -56,7 +56,7 @@ public class NullType extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.empty();
     }
 }

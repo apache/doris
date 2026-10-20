@@ -79,7 +79,7 @@ public class IPv6Type extends PrimitiveType {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new IPv6Literal("::"));
     }
 }

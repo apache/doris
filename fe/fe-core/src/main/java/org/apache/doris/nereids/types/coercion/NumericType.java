@@ -57,7 +57,7 @@ public class NumericType extends PrimitiveType implements RangeScalable {
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.empty();
     }
 }

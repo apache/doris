@@ -134,7 +134,7 @@ public class MapType extends DataType implements ComplexDataType, NestedColumnPr
     }
 
     @Override
-    public Optional<Expression> defaultValue() {
+    public Optional<Expression> zeroValue() {
         return Optional.of(new MapLiteral(Collections.<Literal, Literal>emptyMap(), this));
     }
 }
