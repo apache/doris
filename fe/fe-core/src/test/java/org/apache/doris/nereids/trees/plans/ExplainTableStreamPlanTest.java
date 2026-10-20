@@ -20,20 +20,20 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -69,7 +69,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.normalize.QueryCacheNormalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.tso.TSOTimestamp;
@@ -96,7 +96,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
 
         createDatabase("test_stream");
         connectContext.setDatabase("test_stream");
@@ -112,10 +112,10 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\","
                 + "\"enable_unique_key_merge_on_write\"=\"true\","
-                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\","
+                + "\"changelog.enable\"=\"true\","
                 // Offset/plan tests below deliberately use historical timestamps.
-                + "\"binlog.ttl_seconds\"=\"9223372036854775807\","
-                + "\"binlog.need_historical_value\"=\"true\")";
+                + "\"changelog.ttl_seconds\"=\"9223372036854775807\","
+                + "\"changelog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
@@ -143,12 +143,12 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\","
-                + "\"binlog.enable\"=\"true\",\"binlog.format\"=\"ROW\")";
+                + "\"changelog.enable\"=\"true\")";
         createTable(createDuplicateBaseTable);
         createTable("create table test_stream.tbl_dup_stream_ttl (k1 int, k2 int) "
                 + "duplicate key(k1) distributed by hash(k1) buckets 1 properties("
-                + "\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
-                + "\"binlog.format\"=\"ROW\",\"binlog.ttl_seconds\"=\"10\")");
+                + "\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.ttl_seconds\"=\"10\")");
         OlapTable duplicateBaseTable = (OlapTable) db.getTableOrMetaException("tbl_dup_stream_base");
         bumpPartitionsAndReplicas(duplicateBaseTable, 1001L);
         String createDuplicateInitialStream =
@@ -362,12 +362,12 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
         Assertions.assertFalse(scanNodes.isEmpty());
 
-        TBinlogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getStreamScanType());
+        TChangelogScanType expectedScanType = BaseTableStream.StreamScanType.toThrift(stream.getStreamScanType());
         Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
 
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes) {
-            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+            if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
@@ -378,15 +378,15 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
                 long pid = tabletIdToPartitionId.get(tabletId);
                 // BE reads [startTso, endTso), so the recorded offset is shifted to its next TSO.
                 long expectedStart = TSOTimestamp.nextTso(stream.getStreamUpdate(pid).first);
-                Assertions.assertEquals(expectedScanType, range.getBinlogScanType(),
-                        "binlog scan type should match stream consume type");
+                Assertions.assertEquals(expectedScanType, range.getChangelogScanType(),
+                        "changelog scan type should match stream consume type");
                 Assertions.assertEquals(expectedStart, range.getStartTso(),
-                        "startTSO should equal stream partitionOffset (last committed binlog TSO) + 1");
+                        "startTSO should equal stream partitionOffset (last committed changelog TSO) + 1");
                 assertedAtLeastOne = true;
             }
         }
         Assertions.assertTrue(assertedAtLeastOne,
-                "expected at least one incremental scan range to assert binlog TSO bounds against");
+                "expected at least one incremental scan range to assert changelog TSO bounds against");
     }
 
     @Test
@@ -408,7 +408,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         collectOlapScanNodes(fragment1.getPlanRoot(), scanNodes1);
         OlapScanNode incrementalScan1 = null;
         for (OlapScanNode scanNode : scanNodes1) {
-            if (scanNode.getOlapTable() instanceof RowBinlogTableWrapper) {
+            if (scanNode.getOlapTable() instanceof OlapChangelogTableWrapper) {
                 incrementalScan1 = scanNode;
                 break;
             }
@@ -419,7 +419,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         for (Long pid : incrementalScan1.getSelectedPartitionIds()) {
             // Use the raw (un-shifted) stream offsets, mirroring what the production
             // StreamConsumptionInfoExtractor commits. Reading them back from the scan node's
-            // RowBinlogTableWrapper would return the already +1-shifted scan-range bounds and
+            // OlapChangelogTableWrapper would return the already +1-shifted scan-range bounds and
             // introduce a spurious double shift into this closed-loop check.
             Pair<Long, Long> off = stream.getStreamUpdate(pid);
             if (off.first != null) {
@@ -454,7 +454,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Map<Long, Long> tabletIdToPartitionId = buildTabletIdToPartitionId(baseTable);
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes2) {
-            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+            if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
@@ -554,7 +554,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     public void testIncrementalStreamScanForcesValueColumnsNullable() throws Exception {
         // s2 is an incremental (INCREMENTAL read mode) stream over a unique-key table
         // (k1 key, k2 value). computeOutput must force non-key value columns to nullable so the
-        // scan output stays consistent with the row-binlog after/before value columns, while key
+        // scan output stays consistent with the changelog after/before value columns, while key
         // columns keep their original nullability (forceNullable is skipped for keys).
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable base = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
@@ -629,7 +629,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     public void testIncrTimestampRangePropagatesToScanRangeTso() throws Exception {
         // An @incr('startTimestamp'=..., 'endTimestamp'=...) query on the MOW base table goes
         // through makeUniformedTimestampRangeMap in BindRelation, which seeds a per-partition
-        // (start, end) offset on the RowBinlogTableWrapper. OlapScanNode.getScanRangeLocations then
+        // (start, end) offset on the OlapChangelogTableWrapper. OlapScanNode.getScanRangeLocations then
         // stamps those offsets onto every scan range as startTso/endTso. Verify the whole chain by
         // asserting every incremental scan range carries the composed start/end TSO for its partition.
         String startTs = "2026-05-25 20:51:28";
@@ -652,7 +652,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
 
         boolean assertedAtLeastOne = false;
         for (OlapScanNode scanNode : scanNodes) {
-            if (!(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+            if (!(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
                 continue;
             }
             List<TScanRangeLocations> locations = scanNode.getScanRangeLocations(Long.MAX_VALUE);
@@ -671,7 +671,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testRowBinlogTtlCutoffPropagatesToScanRanges() throws Exception {
+    public void testChangelogTtlCutoffPropagatesToScanRanges() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
         String sql = "explain select * from test_stream.tbl_dup_stream_ttl"
@@ -680,7 +680,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         long expectedStartTso = TSOTimestamp.nextTso(TSOTimestamp.calculateCutoff(referenceTso, 10));
 
         StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
-        statementContext.getOrRegisterRowBinlogReferenceTso(() -> referenceTso);
+        statementContext.getOrRegisterChangelogReferenceTso(() -> referenceTso);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
                 .getLogicalPlan())).getExplainPlan(ctx);
@@ -691,7 +691,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         List<OlapScanNode> scanNodes = new ArrayList<>();
         collectOlapScanNodes(fragment.getPlanRoot(), scanNodes);
         List<TPaloScanRange> ranges = scanNodes.stream()
-                .filter(scan -> scan.getOlapTable() instanceof RowBinlogTableWrapper)
+                .filter(scan -> scan.getOlapTable() instanceof OlapChangelogTableWrapper)
                 .flatMap(scan -> scan.getScanRangeLocations(Long.MAX_VALUE).stream())
                 .map(location -> location.getScanRange().getPaloScanRange())
                 .collect(java.util.stream.Collectors.toList());
@@ -700,13 +700,13 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testRowBinlogTtlRejectsExpiredMinDeltaOffset() throws Exception {
+    public void testChangelogTtlRejectsExpiredMinDeltaOffset() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
         String sql = "explain select * from test_stream.tbl_dup_stream_ttl@incr("
                 + "'startTimestamp' = '1971-01-01 00:00:00', 'incrementType' = 'MIN_DELTA')";
         StatementContext statementContext = MemoTestUtils.createStatementContext(ctx, sql);
-        statementContext.getOrRegisterRowBinlogReferenceTso(
+        statementContext.getOrRegisterChangelogReferenceTso(
                 () -> TSOTimestamp.composePhysicalTimestamp(System.currentTimeMillis()));
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
@@ -715,11 +715,11 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> planner.planWithLock(logicalPlan, PhysicalProperties.ANY));
-        Assertions.assertTrue(exception.getMessage().contains(BinlogUtils.ROW_BINLOG_OFFSET_EXPIRED));
+        Assertions.assertTrue(exception.getMessage().contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED));
     }
 
     @Test
-    public void testRowBinlogTtlDisablesQueryCache() throws Exception {
+    public void testChangelogTtlDisablesQueryCache() throws Exception {
         ConnectContext ctx = createDefaultCtx();
         ctx.setDatabase("test_stream");
         PlanFragment fragment = getFragment(ctx, "explain select count(*) "
@@ -793,11 +793,11 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         Assertions.assertEquals(1, commitPredicates.size());
         Assertions.assertEquals(new BigIntLiteral(exclusiveBound), commitPredicates.get(0).child(1));
 
-        Set<LogicalOlapScan> binlogScans = plan.collect(node -> node instanceof LogicalOlapScan
-                && ((LogicalOlapScan) node).getTable() instanceof RowBinlogTableWrapper);
-        Assertions.assertEquals(mow ? 1 : 0, binlogScans.size());
-        for (LogicalOlapScan scan : binlogScans) {
-            RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) scan.getTable();
+        Set<LogicalOlapScan> changelogScans = plan.collect(node -> node instanceof LogicalOlapScan
+                && ((LogicalOlapScan) node).getTable() instanceof OlapChangelogTableWrapper);
+        Assertions.assertEquals(mow ? 1 : 0, changelogScans.size());
+        for (LogicalOlapScan scan : changelogScans) {
+            OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) scan.getTable();
             Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
             for (Long partitionId : wrapper.getPartitionIds()) {
                 Assertions.assertEquals(Pair.of(exclusiveBound, null), wrapper.getPartitionOffset(partitionId));
@@ -844,7 +844,7 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
     private PlanChecker analyzeTimeTravel(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
         // Direct analyzer tests bypass the planner's statement reference initialization.
-        checker.getCascadesContext().getStatementContext().getOrRegisterRowBinlogReferenceTso(
+        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(
                 () -> TSOTimestamp.composePhysicalTimestamp(1700000000001L));
         return checker.analyze();
     }

@@ -81,7 +81,8 @@ struct TKeyRange {
 // - T<subclass>: all other operational parameters that are the same across
 //   all plan fragments
 
-enum TBinlogScanType {
+// ATTN(changelog-rename): formerly "TBinlogScanType"
+enum TChangelogScanType {
   NONE = 0,
   APPEND_ONLY = 1,
   MIN_DELTA = 2,
@@ -101,7 +102,8 @@ struct TPaloScanRange {
   9: optional string table_name
   10: optional i64 start_tso
   11: optional i64 end_tso
-  12: optional TBinlogScanType binlog_scan_type
+  // ATTN(changelog-rename): formerly "binlog_scan_type"
+  12: optional TChangelogScanType changelog_scan_type
   // Full distribution bucket ordinal/count for runtime-filter bucket pruning
   // and exact scan-key bucket pruning. The count is not the selected tablet count.
   13: optional i32 bucket_seq
@@ -1094,8 +1096,9 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
-  // Read row binlog index instead of base index
-  26: optional bool read_row_binlog
+  // Read changelog index instead of base index
+  // ATTN(changelog-rename): formerly "read_row_binlog"
+  26: optional bool read_changelog
   // Partition boundary descriptors for BE-side runtime filter partition pruning.
   // Only partitions that are candidates for pruning are included; partitions FE
   // does not want pruned (e.g. default catch-all) are omitted from this list.

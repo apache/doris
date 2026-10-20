@@ -45,7 +45,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
@@ -80,7 +80,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = false;
     }
 
-    if (_reader->_reader_context.read_row_binlog) {
+    if (_reader->_reader_context.read_changelog) {
         _merge = false;
     }
 
@@ -236,7 +236,7 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
     // Tie-break direction depends on `_small_seq_first`:
     //   - false (UNIQUE_KEYS sequence column): larger value sorts first (cmp_res < 0 => lhs sorts first).
-    //   - true  (row binlog TSO column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
+    //   - true  (changelog TSO column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
     bool lower = (cmp_res != 0) ? (_small_seq_first ? (cmp_res > 0) : (cmp_res < 0))
                                 : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
                                                                : (lhs->version() < rhs->version()));

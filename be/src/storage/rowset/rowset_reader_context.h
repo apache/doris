@@ -43,7 +43,7 @@ class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
-    bool read_row_binlog = false;
+    bool read_changelog = false;
     Version version {-1, -1};
     // Set only by compaction, alongside its extended tablet_schema.
     VariantCompactionPathsSPtr variant_compaction_paths;

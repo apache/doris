@@ -909,10 +909,10 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
-            // The binlog policy is set when a row binlog tablet is created and never changes.
-            if (tablet->is_row_binlog_tablet()) {
+            // The changelog policy is set when a changelog tablet is created and never changes.
+            if (tablet->is_changelog_tablet()) {
                 status = Status::InvalidArgument(
-                        "can not change compaction policy of row binlog tablet {}",
+                        "can not change compaction policy of changelog tablet {}",
                         tablet_meta_info.tablet_id);
                 continue;
             }

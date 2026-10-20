@@ -76,7 +76,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
@@ -1783,13 +1783,13 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
-    // Row-binlog incremental reads force-push the TSO range predicate (see
+    // Changelog incremental reads force-push the TSO range predicate (see
     // OlapScanner::_init_tso_predicate), and the merge iterator uses the TSO column as its
-    // sequence sort key (BetaRowsetReader sets binlog_tso_idx). On a cross-version rowset
-    // (e.g. produced by binlog LMax quick-merge) the TSO zonemap can be always-true, so the
+    // sequence sort key (BetaRowsetReader sets changelog_tso_idx). On a cross-version rowset
+    // (e.g. produced by changelog LMax quick-merge) the TSO zonemap can be always-true, so the
     // pruning below would skip reading it and fill placeholder zeros, breaking the merge
     // ordering. The TSO column carries real values on disk, so force it to be read.
-    if (_opts.read_row_binlog && cid == _schema->tso_ordinal()) {
+    if (_opts.read_changelog && cid == _schema->tso_ordinal()) {
         return true;
     }
     const auto& column = *_schema->column(cid);

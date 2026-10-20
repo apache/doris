@@ -51,7 +51,8 @@ struct TMasterInfo {
     13: optional string auth_token;
     14: optional TCloudClusterInfo cloud_cluster_info;
     // Cleanup reference only; this is not an active-query safe point.
-    15: optional i64 row_binlog_ttl_reference_tso;
+    // ATTN(changelog-rename): formerly "row_binlog_ttl_reference_tso"
+    15: optional i64 changelog_ttl_reference_tso;
 }
 
 struct TBackendInfo {

@@ -1160,7 +1160,7 @@ public class MTMV extends OlapTable {
         }
         if (!affectedMvPartitions.isPresent()) {
             // A narrower rebuild could leave a partition holding rows of the changed base partition
-            // untouched, and those rows cannot be repaired later: the change emitted no row binlog. The
+            // untouched, and those rows cannot be repaired later: the change emitted no changelog. The
             // whole MV is invalidated instead, which says "every partition, including the ones partition
             // sync has not created yet" -- what a per-partition requirement cannot express.
             invalidateWholeMv(reason).await();
@@ -1228,7 +1228,7 @@ public class MTMV extends OlapTable {
      * bound that is allowed to lag: a base partition that was added after the snapshot was captured never
      * appears in it, so it can report "this partition never read the changed base partition" about a
      * partition that does hold its rows. Missing a partition here is not repaired by a later refresh --
-     * dropping or truncating a base partition emits no row binlog, so the incremental path never learns
+     * dropping or truncating a base partition emits no changelog, so the incremental path never learns
      * about those orphan rows and they stay in the MV forever.
      *
      * <p>Three cases have no answer in the mapping, and each of them must rebuild the whole MV instead:
@@ -1294,7 +1294,7 @@ public class MTMV extends OlapTable {
             // PARTITION reports the recycled partition under its old name, and a partition added after
             // the drop may be live under that name again, with a different range. Matching on the name
             // alone would accept that replacement, select the MV partitions of its range, and leave the
-            // recovered range -- whose rows no row binlog can repair -- without a barrier. The lookup is
+            // recovered range -- whose rows no changelog can repair -- without a barrier. The lookup is
             // by exact name, so a name that only differs in case takes the whole-MV path too. Base tables
             // that do not implement getPartition -- the external ones -- answer null for every name, so a
             // partition change on them always rebuilds the whole MV. That matches what the

@@ -595,7 +595,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * dropping or renaming a column the MV uses makes the query unanalyzable, and a column re-added with
      * the same name is a different column, so pre-existing rows read its default value instead.
      *
-     * <p>Such a change is metadata-only for light schema changes and emits no binlog, so an
+     * <p>Such a change is metadata-only for light schema changes and emits no changelog, so an
      * incremental refresh would consume an empty delta and report SUCCESS while silently keeping the
      * rows computed under the old column epoch. Invalidating the MV is what keeps that from being
      * reported as current.

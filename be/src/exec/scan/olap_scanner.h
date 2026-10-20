@@ -78,8 +78,8 @@ public:
         io::FileCacheStatistics initial_file_cache_stats;
         int64_t limit;
         bool aggregation;
-        bool read_row_binlog = false;
-        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        bool read_changelog = false;
+        TChangelogScanType::type changelog_scan_type = TChangelogScanType::NONE;
         int32_t bucket_seq = 0;
         int32_t bucket_num = 0;
         std::optional<int64_t> start_tso;

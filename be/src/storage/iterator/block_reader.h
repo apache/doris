@@ -75,9 +75,9 @@ private:
 
     Status _detail_change_next_block(Block* block, bool* eof);
 
-    int64_t _read_binlog_op(const IColumn& col, size_t row) const;
+    int64_t _read_changelog_op(const IColumn& col, size_t row) const;
 
-    Status _write_binlog_op(IColumn& col, int64_t op) const;
+    Status _write_changelog_op(IColumn& col, int64_t op) const;
 
     uint32_t _resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const;
 

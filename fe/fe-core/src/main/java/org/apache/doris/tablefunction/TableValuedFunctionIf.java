@@ -100,8 +100,8 @@ public abstract class TableValuedFunctionIf {
                 return new FileTableValuedFunction(params);
             case HttpTableValuedFunction.NAME:
                 return new HttpTableValuedFunction(params);
-            case TableBinlogFunction.NAME:
-                return new TableBinlogFunction(params);
+            case TableChangelogFunction.NAME:
+                return new TableChangelogFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

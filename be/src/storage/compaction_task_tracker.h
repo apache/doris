@@ -130,7 +130,7 @@ struct CompactionTaskInfo {
     int64_t output_segments_num {0};
     std::string output_version; // e.g. "[0-5]"
     bool is_ordered_data_compaction {
-            false}; // ordered/meta-link compaction path, including binlog quick path
+            false}; // ordered/meta-link compaction path, including changelog quick path
 
     // ===== Merge performance =====
     int64_t merge_latency_ms {0}; // merge rowsets latency (ms; 0 for ordered path)

@@ -18,13 +18,13 @@
 package org.apache.doris.task;
 
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.ColumnsUtil;
@@ -131,7 +131,7 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean storeRowColumn;
 
-    private BinlogConfig binlogConfig;
+    private TabletBinlogConfig binlogConfig;
     private TTabletRole tabletRole = TTabletRole.TABLET_ROLE_DATA;
     private List<Integer> clusterKeyUids;
 
@@ -163,7 +163,7 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionEmptyRowsetsThreshold,
                              long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
-                             BinlogConfig binlogConfig,
+                             TabletBinlogConfig binlogConfig,
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
@@ -458,8 +458,8 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
-        createTabletReq.setCompactionPolicy(tabletRole == TTabletRole.TABLET_ROLE_ROW_BINLOG
-                ? PropertyAnalyzer.BINLOG_COMPACTION_POLICY : compactionPolicy);
+        createTabletReq.setCompactionPolicy(tabletRole == TTabletRole.TABLET_ROLE_CHANGELOG
+                ? PropertyAnalyzer.CHANGELOG_COMPACTION_POLICY : compactionPolicy);
         createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);

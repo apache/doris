@@ -251,7 +251,7 @@ protected:
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
         reader_context.delete_bitmap = delete_bitmap;

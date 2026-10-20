@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.changelog.ChangelogTabletLocality;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -129,12 +130,12 @@ public abstract class Rebalancer {
         // The metadata flag rejects the companion without a catalog lookup. The dynamic check below
         // is still required to reject its paired base tablet.
         return tabletMeta != null
-                && !tabletMeta.isRowBinlog()
+                && !tabletMeta.isChangelog()
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
                         tabletMeta.getTableId(), tabletMeta.getPartitionId()))
-                && RowBinlogTabletLocality.canMoveTabletIndependently(tabletMeta);
+                && ChangelogTabletLocality.canMoveTabletIndependently(tabletMeta);
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
