@@ -1423,7 +1423,7 @@ static void collect_tablet_unused_remote_files(
     }
 
     // TODO(plat1ko): Support path v1
-    if (storage_resource->path_version > 0) {
+    if (storage_resource->path_format.path_version > 0) {
         return;
     }
 

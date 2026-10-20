@@ -600,7 +600,7 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
                                    int64_t version, int64_t index_id, int num_segments = 1,
                                    int num_inverted_indexes = 1,
                                    bool enable_create_delete_bitmaps_v2 = false,
-                                   const VaultPathFormat& path_format = {}) {
+                                   const RemotePathFormat& path_format = {}) {
     std::string key;
     std::string val;
     int64_t schema_version = tablet_id + version + num_inverted_indexes + 1;
@@ -5782,7 +5782,7 @@ TEST(CheckerTest, path_version_1) {
     obj_info->set_id("1");
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
-    VaultPathFormat path_format {.path_version = 1, .shard_num = 16};
+    RemotePathFormat path_format {.path_version = 1, .shard_num = 16};
     checker.path_format_map_["1"] = path_format;
 
     auto accessor = checker.accessor_map_.begin()->second;
@@ -5819,7 +5819,7 @@ TEST(CheckerTest, inverted_check_path_version_1) {
     obj_info->set_id("1");
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
-    VaultPathFormat path_format {.path_version = 1, .shard_num = 16};
+    RemotePathFormat path_format {.path_version = 1, .shard_num = 16};
     checker.path_format_map_["1"] = path_format;
 
     auto accessor = checker.accessor_map_.begin()->second;
@@ -7453,7 +7453,7 @@ TEST(RecyclerTest, delete_partial_update_rowset_data_by_recycling_state) {
 
 TEST(RecyclerTest, vault_path_format) {
     // path_version 0, must be unchanged
-    VaultPathFormat v0;
+    RemotePathFormat v0;
     EXPECT_EQ(tablet_path_prefix(10005, v0), "data/10005/");
     EXPECT_EQ(rowset_path_prefix(10005, "r", v0), "data/10005/r_");
     EXPECT_EQ(segment_path(10005, "r", 5, v0), "data/10005/r_5.dat");
@@ -7465,8 +7465,8 @@ TEST(RecyclerTest, vault_path_format) {
     EXPECT_EQ(segment_path(10005, "r", 5), segment_path(10005, "r", 5, v0));
 
     // path_version 1, must be identical to BE `StorageResource`, see storage_resource_test.cpp
-    VaultPathFormat v1 {.path_version = 1, .shard_num = 1000};
-    EXPECT_EQ(tablet_shard(10005, 1000), uint64_t {611});
+    RemotePathFormat v1 {.path_version = 1, .shard_num = 1000};
+    EXPECT_EQ(remote_tablet_shard(10005, 1000), uint64_t {611});
     EXPECT_EQ(tablet_path_prefix(10005, v1), "data/611/10005/");
     EXPECT_EQ(rowset_path_prefix(10005, "r", v1), "data/611/10005/r/");
     EXPECT_EQ(segment_path(10005, "r", 5, v1), "data/611/10005/r/5.dat");
@@ -7478,42 +7478,46 @@ TEST(RecyclerTest, vault_path_format) {
 
     EXPECT_TRUE(v0.is_supported());
     EXPECT_TRUE(v1.is_supported());
-    EXPECT_FALSE((VaultPathFormat {.path_version = 1, .shard_num = 0}).is_supported());
-    EXPECT_FALSE((VaultPathFormat {.path_version = 2, .shard_num = 16}).is_supported());
+    EXPECT_FALSE((RemotePathFormat {.path_version = 1, .shard_num = 0}).is_supported());
+    EXPECT_FALSE((RemotePathFormat {.path_version = 2, .shard_num = 16}).is_supported());
     StorageVaultPB vault;
-    EXPECT_EQ(VaultPathFormat::from_pb(vault.path_format()).path_version, 0);
+    EXPECT_EQ(path_format_from_pb(vault.path_format()).path_version, 0);
 
     // rowset id parsing
-    EXPECT_EQ(rowset_id_from_path(segment_path(10005, "r", 5, v0), v0), "r");
-    EXPECT_EQ(rowset_id_from_path(inverted_index_path_v1(10005, "r", 5, 7, "", v0), v0), "r");
-    EXPECT_EQ(rowset_id_from_path(delete_bitmap_path(10005, "r", v0), v0), "r");
-    EXPECT_EQ(rowset_id_from_path(segment_path(10005, "r", 5, v1), v1), "r");
-    EXPECT_EQ(rowset_id_from_path(inverted_index_path_v1(10005, "r", 5, 7, "", v1), v1), "r");
-    EXPECT_EQ(rowset_id_from_path(inverted_index_path_v2(10005, "r", 5, v1), v1), "r");
-    EXPECT_EQ(rowset_id_from_path(delete_bitmap_path(10005, "r", v1), v1), "r");
-    EXPECT_EQ(rowset_id_from_path("data/packed_file/xxx", v0), "");
+    EXPECT_EQ(remote_rowset_id_from_path(segment_path(10005, "r", 5, v0), v0), "r");
+    EXPECT_EQ(remote_rowset_id_from_path(inverted_index_path_v1(10005, "r", 5, 7, "", v0), v0),
+              "r");
+    EXPECT_EQ(remote_rowset_id_from_path(delete_bitmap_path(10005, "r", v0), v0), "r");
+    EXPECT_EQ(remote_rowset_id_from_path(segment_path(10005, "r", 5, v1), v1), "r");
+    EXPECT_EQ(remote_rowset_id_from_path(inverted_index_path_v1(10005, "r", 5, 7, "", v1), v1),
+              "r");
+    EXPECT_EQ(remote_rowset_id_from_path(inverted_index_path_v2(10005, "r", 5, v1), v1), "r");
+    EXPECT_EQ(remote_rowset_id_from_path(delete_bitmap_path(10005, "r", v1), v1), "r");
+    EXPECT_EQ(remote_rowset_id_from_path("data/packed_file/xxx", v0), "");
 
     // object key splitting, file name is normalized to path_version 0 form
     int64_t tablet_id = 0;
     std::string file_name;
-    ASSERT_TRUE(split_tablet_file_key(segment_path(10005, "r", 5, v0), v0, &tablet_id, &file_name));
+    ASSERT_TRUE(split_remote_tablet_file_key(segment_path(10005, "r", 5, v0), v0, &tablet_id,
+                                             &file_name));
     EXPECT_EQ(tablet_id, 10005);
     EXPECT_EQ(file_name, "r_5.dat");
-    ASSERT_TRUE(split_tablet_file_key(segment_path(10005, "r", 5, v1), v1, &tablet_id, &file_name));
+    ASSERT_TRUE(split_remote_tablet_file_key(segment_path(10005, "r", 5, v1), v1, &tablet_id,
+                                             &file_name));
     EXPECT_EQ(tablet_id, 10005);
     EXPECT_EQ(file_name, "r_5.dat");
-    ASSERT_TRUE(split_tablet_file_key(inverted_index_path_v1(10005, "r", 5, 7, "suffix", v1), v1,
-                                      &tablet_id, &file_name));
+    ASSERT_TRUE(split_remote_tablet_file_key(inverted_index_path_v1(10005, "r", 5, 7, "suffix", v1),
+                                             v1, &tablet_id, &file_name));
     EXPECT_EQ(file_name, "r_5_7@suffix.idx");
-    ASSERT_TRUE(split_tablet_file_key(inverted_index_path_v2(10005, "r", 5, v1), v1, &tablet_id,
-                                      &file_name));
+    ASSERT_TRUE(split_remote_tablet_file_key(inverted_index_path_v2(10005, "r", 5, v1), v1,
+                                             &tablet_id, &file_name));
     EXPECT_EQ(file_name, "r_5.idx");
-    ASSERT_TRUE(
-            split_tablet_file_key(delete_bitmap_path(10005, "r", v1), v1, &tablet_id, &file_name));
+    ASSERT_TRUE(split_remote_tablet_file_key(delete_bitmap_path(10005, "r", v1), v1, &tablet_id,
+                                             &file_name));
     EXPECT_EQ(tablet_id, 10005);
     EXPECT_EQ(file_name, "r_delete_bitmap.db");
-    EXPECT_FALSE(split_tablet_file_key("data/10005", v0, &tablet_id, &file_name));
-    EXPECT_FALSE(split_tablet_file_key("data/611/10005", v1, &tablet_id, &file_name));
+    EXPECT_FALSE(split_remote_tablet_file_key("data/10005", v0, &tablet_id, &file_name));
+    EXPECT_FALSE(split_remote_tablet_file_key("data/611/10005", v1, &tablet_id, &file_name));
 }
 
 TEST(RecyclerTest, delete_rowset_data_path_version_1) {
@@ -7528,7 +7532,7 @@ TEST(RecyclerTest, delete_rowset_data_path_version_1) {
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.at(resource_id);
-    VaultPathFormat path_format {.path_version = 1, .shard_num = 1000};
+    RemotePathFormat path_format {.path_version = 1, .shard_num = 1000};
     recycler.path_format_map_[resource_id] = path_format;
 
     doris::TabletSchemaCloudPB schema;

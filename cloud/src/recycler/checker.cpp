@@ -583,7 +583,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
-        auto path_format = VaultPathFormat::from_pb(vault.path_format());
+        auto path_format = path_format_from_pb(vault.path_format());
         if (!path_format.is_supported()) {
             LOG_WARNING("failed to init accessor for vault because of unsupported path format")
                     .tag("instance_id", instance_id_)
@@ -927,12 +927,12 @@ int InstanceChecker::do_inverted_check() {
     RowsetIndexesFormatV2 rowset_index_cache_v2;
 
     // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
-    auto check_segment_file = [&](const std::string& obj_key, const VaultPathFormat& path_format) {
+    auto check_segment_file = [&](const std::string& obj_key, const RemotePathFormat& path_format) {
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
         // data/{shard}/{tablet_id}/{rowset_id}/{seg_num}.dat
         int64_t tablet_id = 0;
         std::string file_name;
-        if (!split_tablet_file_key(obj_key, path_format, &tablet_id, &file_name)) {
+        if (!split_remote_tablet_file_key(obj_key, path_format, &tablet_id, &file_name)) {
             LOG(WARNING) << "failed to parse tablet file key, key=" << obj_key
                          << " path_version=" << path_format.path_version;
             return -1;
@@ -1007,13 +1007,13 @@ int InstanceChecker::do_inverted_check() {
     };
 
     auto check_inverted_index_file = [&](const std::string& obj_key,
-                                         const VaultPathFormat& path_format) {
+                                         const RemotePathFormat& path_format) {
         // format v1: data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
         // format v2: data/{tablet_id}/{rowset_id}_{seg_num}.idx
-        // path_version 1 keys are data/{shard}/{tablet_id}/{rowset_id}/..., see `split_tablet_file_key`
+        // path_version 1 keys are data/{shard}/{tablet_id}/{rowset_id}/..., see `split_remote_tablet_file_key`
         int64_t tablet_id = 0;
         std::string rowset_info;
-        if (!split_tablet_file_key(obj_key, path_format, &tablet_id, &rowset_info)) {
+        if (!split_remote_tablet_file_key(obj_key, path_format, &tablet_id, &rowset_info)) {
             LOG(WARNING) << "failed to parse tablet file key, key=" << obj_key
                          << " path_version=" << path_format.path_version;
             return -1;

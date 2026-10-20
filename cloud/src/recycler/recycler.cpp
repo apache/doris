@@ -753,7 +753,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
-        auto path_format = VaultPathFormat::from_pb(vault.path_format());
+        auto path_format = path_format_from_pb(vault.path_format());
         if (!path_format.is_supported()) {
             // Recycling with a wrong layout would miss or wrongly delete objects
             LOG_WARNING("failed to init accessor for vault because of unsupported path format")
@@ -4766,7 +4766,8 @@ int InstanceRecycler::delete_rowset_data(
                 std::for_each(paths->begin(), paths->end(),
                               [&metrics_context, &rowsets, &deleted_rowset_id, &path_format,
                                this](const std::string& path) {
-                                  std::string rowset_id = rowset_id_from_path(path, path_format);
+                                  std::string rowset_id =
+                                          remote_rowset_id_from_path(path, path_format);
                                   if (rowset_id.empty()) {
                                       if (path.find("packed_file/") != std::string::npos) {
                                           return; // packed files do not have rowset_id encoded

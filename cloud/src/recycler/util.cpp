@@ -19,9 +19,7 @@
 
 #include <glog/logging.h>
 
-#include <bit>
 #include <cstdint>
-#include <cstring>
 
 #include "common/util.h"
 #include "meta-service/meta_service_schema.h"
@@ -234,70 +232,6 @@ int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::s
         return -1;
     }
     return 0;
-}
-
-uint64_t murmur_hash64A(const void* key, int64_t len, uint32_t seed) {
-    constexpr uint64_t m = 0xc6a4a7935bd1e995ULL;
-    constexpr int r = 47;
-    uint64_t h = seed ^ (len * m);
-    const auto* data = static_cast<const uint8_t*>(key);
-    const uint8_t* end = data + (len - (len & 7));
-
-    while (data != end) {
-        uint64_t k;
-        if constexpr (std::endian::native == std::endian::big) {
-            k = (uint64_t)data[0];
-            k |= (uint64_t)data[1] << 8;
-            k |= (uint64_t)data[2] << 16;
-            k |= (uint64_t)data[3] << 24;
-            k |= (uint64_t)data[4] << 32;
-            k |= (uint64_t)data[5] << 40;
-            k |= (uint64_t)data[6] << 48;
-            k |= (uint64_t)data[7] << 56;
-        } else if constexpr (std::endian::native == std::endian::little) {
-            memcpy(&k, data, sizeof(k));
-        } else {
-            static_assert(std::endian::native == std::endian::big ||
-                                  std::endian::native == std::endian::little,
-                          "Unsupported endianness");
-        }
-
-        k *= m;
-        k ^= k >> r;
-        k *= m;
-        h ^= k;
-        h *= m;
-        data += 8;
-    }
-
-    switch (len & 7) {
-    case 7:
-        h ^= (uint64_t)data[6] << 48;
-        [[fallthrough]];
-    case 6:
-        h ^= (uint64_t)data[5] << 40;
-        [[fallthrough]];
-    case 5:
-        h ^= (uint64_t)data[4] << 32;
-        [[fallthrough]];
-    case 4:
-        h ^= (uint64_t)data[3] << 24;
-        [[fallthrough]];
-    case 3:
-        h ^= (uint64_t)data[2] << 16;
-        [[fallthrough]];
-    case 2:
-        h ^= (uint64_t)data[1] << 8;
-        [[fallthrough]];
-    case 1:
-        h ^= (uint64_t)data[0];
-        h *= m;
-    }
-
-    h ^= h >> r;
-    h *= m;
-    h ^= h >> r;
-    return h;
 }
 
 // ret: 0: success, 1: tablet not found, -1: failed

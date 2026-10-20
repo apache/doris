@@ -175,7 +175,7 @@ public:
     std::string_view instance_id() const { return instance_id_; }
 
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor,
-                           const VaultPathFormat& path_format = {}) {
+                           const RemotePathFormat& path_format = {}) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
         path_format_map_.insert({std::string(id), path_format});
     }
@@ -281,10 +281,10 @@ private:
     // id -> accessor
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
     // id -> object key layout, resources absent here use path_version 0
-    std::unordered_map<std::string, VaultPathFormat> path_format_map_;
-    VaultPathFormat path_format_of(const std::string& resource_id) const {
+    std::unordered_map<std::string, RemotePathFormat> path_format_map_;
+    RemotePathFormat path_format_of(const std::string& resource_id) const {
         auto it = path_format_map_.find(resource_id);
-        return it == path_format_map_.end() ? VaultPathFormat {} : it->second;
+        return it == path_format_map_.end() ? RemotePathFormat {} : it->second;
     }
     std::shared_ptr<SnapshotManager> snapshot_manager_;
     std::shared_ptr<ResourceManager> resource_mgr_;
