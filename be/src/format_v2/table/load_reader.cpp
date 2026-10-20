@@ -312,6 +312,24 @@ Status LoadTableReader::_convert(Block* output) {
     return Status::OK();
 }
 
+Status LoadTableReader::validate_file_mapping(const TableColumnMapper& mapper) const {
+    RETURN_IF_ERROR(TableReader::validate_file_mapping(mapper));
+    for (const auto& mapping : mapper.mappings()) {
+        const auto position = mapping.global_index.value();
+        if (mapping.file_local_id.has_value() || _projected_columns[position].is_partition_key) {
+            continue;
+        }
+        const auto* slot = _source_tuple->slots()[position];
+        // FE uses an empty expression for an explicit NULL default. An absent map entry instead
+        // means the file source alias has no fallback and must not silently materialize as NULL.
+        if (!_scan_params->default_value_of_src_slot.contains(slot->id())) {
+            return Status::InternalError("failed to find default value expr for slot: {}",
+                                         slot->col_name());
+        }
+    }
+    return Status::OK();
+}
+
 Status LoadTableReader::finalize_chunk(Block* block, size_t physical_rows) {
     _source = Block(_source_tuple->slots(), 0);
     RETURN_IF_ERROR(TableReader::finalize_chunk(&_source, physical_rows));

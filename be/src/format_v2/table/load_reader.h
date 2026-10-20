@@ -42,6 +42,7 @@ public:
 
 protected:
     Status finalize_chunk(Block* block, size_t rows) override;
+    Status validate_file_mapping(const TableColumnMapper& mapper) const override;
     Status customize_file_scan_request(FileScanRequest* request) override;
     Status create_file_reader(std::unique_ptr<FileReader>* reader) override;
     TableColumnMappingMode mapping_mode() const override;

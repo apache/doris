@@ -64,6 +64,38 @@ suite("test_file_scanner_v2_load", "p0") {
         sql "sync"
         assertEquals([[1, 7], [2, null], [4, 40]], sql("SELECT k, v FROM ${tableName} ORDER BY k"))
 
+        ["0", "1"].each { ratio ->
+            sql "TRUNCATE TABLE ${tableName}"
+            streamLoad {
+                table tableName
+                set 'format', 'json'
+                set 'read_json_by_line', 'true'
+                set 'strip_outer_array', 'true'
+                set 'max_filter_ratio', ratio
+                file 'file_scanner_v2_load_empty_array.json'
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    def response = parseJson(result)
+                    assertEquals(2, response.NumberTotalRows as int)
+                    assertEquals(1, response.NumberFilteredRows as int)
+                    assertEquals(0, response.NumberUnselectedRows as int)
+                    if (ratio == "0") {
+                        // Empty arrays must reach the quality gate even when the next row is valid.
+                        assertEquals("Fail", response.Status)
+                        assertEquals(0, response.NumberLoadedRows as int)
+                        assertTrue(response.Message.contains("too many filtered rows"))
+                    } else {
+                        checkRows(result, exception, 1, 1, 0)
+                    }
+                }
+            }
+            sql "sync"
+            assertEquals(ratio == "0" ? [] : [[1, 7]],
+                         sql("SELECT k, v FROM ${tableName} ORDER BY k"))
+        }
+
         sql "DROP TABLE ${tableName}"
         sql """CREATE TABLE ${tableName} (k INT NOT NULL, v INT NULL)
                UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1

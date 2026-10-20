@@ -708,6 +708,10 @@ Status JsonReader::_append_simple_json_rows(Block* block, bool* is_empty_row, bo
     if (_json_value.type().value() == simdjson::ondemand::json_type::array) {
         _array = _json_value.get_array();
         if (_array.count_elements() == 0) {
+            // Empty load documents must contribute to max_filter_ratio just like malformed rows.
+            if (_request->reject_invalid_rows) {
+                return Status::DataQualityError("Empty json line");
+            }
             *is_empty_row = true;
             return Status::OK();
         }

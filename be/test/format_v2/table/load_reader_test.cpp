@@ -55,6 +55,7 @@ struct SourceReader {
     std::vector<ColumnDefinition> columns;
     bool all_null = false;
     bool missing_first = false;
+    bool omit_first_column = false;
     bool eof_with_rows = false;
     int opens = 0;
     int closes = 0;
@@ -69,6 +70,9 @@ public:
     Status init(RuntimeState*) override { return Status::OK(); }
     Status get_schema(std::vector<ColumnDefinition>* schema) const override {
         *schema = _source.columns;
+        if (_source.omit_first_column) {
+            schema->erase(schema->begin());
+        }
         for (size_t i = 0; i < schema->size(); ++i) {
             (*schema)[i].local_id = cast_set<int32_t>(i);
             (*schema)[i].default_expr.reset();
@@ -304,6 +308,20 @@ protected:
         destination->add_slot(destination_sequence.get());
         params.expr_of_dest_slot.emplace(22, params.expr_of_dest_slot[20]);
     }
+    void add_anchor_source_column() {
+        anchor_definition = source_definition;
+        anchor_definition.__set_id(12);
+        anchor_definition.__set_slotIdx(1);
+        anchor_definition.__set_columnPos(1);
+        anchor_definition.__set_colName("anchor");
+        anchor_slot = std::make_unique<SlotDescriptor>(anchor_definition);
+        source->add_slot(anchor_slot.get());
+        TFileScanSlotInfo required;
+        required.__set_slot_id(12);
+        required.__set_is_file_slot(true);
+        params.required_slots.push_back(required);
+        params.__set_num_of_columns_from_file(2);
+    }
     void TearDown() override {
         if (!input_path.empty()) {
             std::filesystem::remove(input_path);
@@ -483,6 +501,83 @@ TEST_F(LoadJsonPipeTest, EmptyFinishedPipeReturnsEof) {
     EXPECT_TRUE(eos);
     EXPECT_EQ(output.rows(), 0);
     EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadReaderTest, MissingPhysicalSourceAliasRequiresDeclaredDefault) {
+    add_anchor_source_column();
+    params.__set_strict_mode(true);
+    auto input = std::make_unique<SourceReader>();
+    input->omit_first_column = true;
+    auto* physical = input.get();
+    TestLoadTableReader reader(std::move(input), source.get(), destination.get());
+    ASSERT_TRUE(init(reader).ok());
+    ASSERT_TRUE(reader.prepare_split({}).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    const auto status = reader.get_block(&output, &eos);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("raw_value"), std::string::npos);
+    EXPECT_EQ(physical->opens, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadReaderTest, MissingPhysicalSourceAcceptsExplicitNullDefault) {
+    add_anchor_source_column();
+    params.__set_strict_mode(true);
+    // An empty expression is FE's explicit NULL default, not an absent map entry.
+    params.__set_default_value_of_src_slot({{10, TExpr {}}});
+    auto input = std::make_unique<SourceReader>();
+    input->omit_first_column = true;
+    TestLoadTableReader reader(std::move(input), source.get(), destination.get());
+    ASSERT_TRUE(init(reader).ok());
+    ASSERT_TRUE(reader.prepare_split({}).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(0));
+    EXPECT_TRUE(output.get_by_position(0).column->is_null_at(1));
+    EXPECT_EQ(io->load_filtered_rows, 0);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadReaderTest, PartitionSourceDoesNotRequireFileDefault) {
+    add_anchor_source_column();
+    params.required_slots[0].__set_is_file_slot(false);
+    params.__set_num_of_columns_from_file(1);
+    auto input = std::make_unique<SourceReader>();
+    input->omit_first_column = true;
+    TestLoadTableReader reader(std::move(input), source.get(), destination.get());
+    ASSERT_TRUE(init(reader).ok());
+    SplitReadOptions split;
+    split.current_range.__set_columns_from_path({"partition-value"});
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 2);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "partition-value");
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST_F(LoadJsonPipeTest, EmptyOuterArrayIsRejectedBeforeFollowingMessage) {
+    params.file_attributes.__set_strip_outer_array(true);
+    append("[]");
+    append(R"([{"raw_value":"valid"}])");
+    ASSERT_TRUE(_pipe->finish().ok());
+    LoadTableReader reader(source.get(), destination.get());
+    const auto status = prepare(reader);
+    ASSERT_TRUE(status.ok()) << status;
+    Block output(destination->slots(), 0);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    ASSERT_EQ(output.rows(), 1);
+    EXPECT_EQ(output.get_by_position(0).column->get_data_at(0).to_string(), "valid");
+    EXPECT_EQ(io->load_filtered_rows, 1);
+    ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(io->load_filtered_rows, 1);
     ASSERT_TRUE(reader.close().ok());
 }
 
@@ -756,18 +851,7 @@ TEST_F(LoadReaderTest, NativeReadersPreserveValidRowsAroundMalformedRecords) {
 }
 
 TEST_F(LoadReaderTest, NativeJsonMissingFieldUsesDefaultButExplicitNullDoesNot) {
-    anchor_definition = source_definition;
-    anchor_definition.__set_id(12);
-    anchor_definition.__set_slotIdx(1);
-    anchor_definition.__set_columnPos(1);
-    anchor_definition.__set_colName("anchor");
-    anchor_slot = std::make_unique<SlotDescriptor>(anchor_definition);
-    source->add_slot(anchor_slot.get());
-    TFileScanSlotInfo required;
-    required.__set_slot_id(12);
-    required.__set_is_file_slot(true);
-    params.required_slots.push_back(required);
-    params.__set_num_of_columns_from_file(2);
+    add_anchor_source_column();
     params.__set_format_type(TFileFormatType::FORMAT_JSON);
     params.__set_file_type(TFileType::FILE_LOCAL);
     params.__set_compress_type(TFileCompressType::PLAIN);
