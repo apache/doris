@@ -158,18 +158,19 @@ public final class SimpleStructInfo {
     }
 
     private String renderScan(String header) {
-        String token = scanToken(header);
-        String[] parts = header.split(",");
-        StringBuilder sb = new StringBuilder("S{").append(simplifiedTableName(parts[0]));
+        HboScanDescriptor descriptor = HboScanDescriptor.parse(header);
+        String token = scanToken(descriptor);
+        StringBuilder sb = new StringBuilder("S{").append(
+                simplifiedTableName(HboScanDescriptor.unescapeNamePart(descriptor.getTable())));
         Integer count = scanTokenCount.get(token);
         if (count != null && count > 1) {
             sb.append('#').append(scanTokenSeen.merge(token, 1, Integer::sum) - 1);
         }
-        for (int i = 1; i < parts.length; i++) {
-            // keep the pruned partition count, drop the visible version
-            if (parts[i].startsWith("p")) {
-                sb.append(',').append(parts[i]);
-            }
+        // keep the pruned partition selection, drop the visible version and the other identity
+        // components (`#ti:`, `#ra:`), which only tell two scans of one table apart in the full form
+        if (!descriptor.isPartitionSelectionComplete()) {
+            sb.append(",p").append(descriptor.getSelectedPartitions()).append('/')
+                    .append(descriptor.getTotalPartitions());
         }
         return sb.append('}').toString();
     }
@@ -323,14 +324,17 @@ public final class SimpleStructInfo {
      * the entry was measured on.
      */
     private static String scanToken(String header) {
-        HboScanDescriptor descriptor = HboScanDescriptor.parse(header);
+        return scanToken(HboScanDescriptor.parse(header));
+    }
+
+    private static String scanToken(HboScanDescriptor descriptor) {
         return descriptor.isPartitionSelectionComplete() ? descriptor.getTable()
                 : descriptor.getTable() + ",p" + descriptor.getSelectedPartitions()
                         + "/" + descriptor.getTotalPartitions();
     }
 
     private static String tableName(String header) {
-        String fullName = header.split(",")[0];
+        String fullName = HboScanDescriptor.unescapeNamePart(HboScanDescriptor.parse(header).getTable());
         int lastDot = fullName.lastIndexOf('.');
         return lastDot < 0 ? fullName : fullName.substring(lastDot + 1);
     }
