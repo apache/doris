@@ -22,6 +22,8 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -39,6 +41,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.BaseEncoding;
@@ -73,6 +76,20 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
         // CAST(value as type), value is type
         if (cast.getDataType().equals(child.getDataType())) {
             return child;
+        }
+
+        // CAST(parse_to_variant(x) AS variant<template>): type the parse call with the template instead, so
+        // the BE parses the text with the template's DECIMAL paths in hand (the cast would only relabel a
+        // value already parsed without them). Same for try_parse_to_variant.
+        if (cast.getDataType() instanceof VariantType
+                && !((VariantType) cast.getDataType()).getPredefinedFields().isEmpty()) {
+            VariantType target = (VariantType) cast.getDataType();
+            if (child instanceof ParseToVariant) {
+                return ((ParseToVariant) child).withReturnType(target);
+            }
+            if (child instanceof TryParseToVariant) {
+                return ((TryParseToVariant) child).withReturnType(target);
+            }
         }
 
         if (child instanceof Literal) {

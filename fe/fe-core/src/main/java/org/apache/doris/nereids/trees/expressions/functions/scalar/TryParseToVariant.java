@@ -56,6 +56,15 @@ public class TryParseToVariant extends ScalarFunction
         this.returnType = returnType;
     }
 
+    /** The same call typed with {@code type}; the signature is recomputed for the new return type. */
+    public TryParseToVariant withReturnType(VariantType type) {
+        return new TryParseToVariant(child(), type);
+    }
+
+    public VariantType getReturnType() {
+        return returnType;
+    }
+
     @Override
     public TryParseToVariant withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);

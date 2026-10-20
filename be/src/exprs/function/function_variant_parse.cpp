@@ -72,9 +72,13 @@ public:
         auto result_nulls = ColumnUInt8::create(input_rows_count, uint8_t {0});
 
         const IDataType* result_type = remove_nullable(block.get_by_position(result).type).get();
-        DORIS_CHECK(dynamic_cast<const DataTypeVariantV2*>(result_type) != nullptr);
+        const auto* variant_type = dynamic_cast<const DataTypeVariantV2*>(result_type);
+        DORIS_CHECK(variant_type != nullptr);
 
-        JsonStringToVariantEncoder encoder(JsonToVariantOptions::current_config());
+        // Typed by the FE with the destination column's VARIANT type when that column has a template.
+        JsonToVariantOptions options = JsonToVariantOptions::current_config();
+        options.decimal_paths = variant_type->decimal_paths();
+        JsonStringToVariantEncoder encoder(options);
         const StringRef null_json("null", 4);
         for (size_t row = 0; row < input_rows_count; ++row) {
             if (input_nulls != nullptr && (*input_nulls)[row] != 0) {
