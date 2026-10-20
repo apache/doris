@@ -21,7 +21,6 @@ import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -30,8 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -40,10 +37,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -78,7 +73,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
     private Expression rewriteExpression(Expression expr, Plan input) {
         if (expr instanceof Search) {
-            return rewriteSearch((Search) expr, resolveScan((Search) expr, input));
+            return rewriteSearch((Search) expr, input);
         }
 
         // Recursively process children
@@ -93,48 +88,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         return expr;
     }
 
-    /** Bind against visible input slots before subqueries become Apply/Join nodes. */
-    private LogicalOlapScan resolveScan(Search search, Plan input) {
-        Set<ExprId> fieldIds = new HashSet<>();
-        for (SearchDslParser.QsFieldBinding binding : search.getQsPlan().getFieldBindings()) {
-            String fieldName = binding.getFieldName().split("\\.", 2)[0];
-            List<Slot> matches = input.getOutput().stream()
-                    .filter(slot -> slot.getName().equalsIgnoreCase(fieldName))
-                    .collect(Collectors.toList());
-            if (matches.size() != 1) {
-                throw new AnalysisException("search() field '" + fieldName
-                        + "' must resolve to exactly one input column");
-            }
-            fieldIds.add(matches.get(0).getExprId());
-        }
-        List<LogicalOlapScan> scans = new ArrayList<>();
-        collectScans(input, fieldIds, scans);
-        if (fieldIds.isEmpty() || scans.size() != 1) {
-            throw new AnalysisException("search() fields must belong to a single OLAP table scan");
-        }
-        return scans.get(0);
-    }
-
-    private void collectScans(Plan plan, Set<ExprId> fieldIds, List<LogicalOlapScan> scans) {
-        if (plan instanceof LogicalOlapScan) {
-            Set<ExprId> outputIds = plan.getOutput().stream()
-                    .map(Slot::getExprId).collect(Collectors.toSet());
-            if (outputIds.containsAll(fieldIds)) {
-                scans.add((LogicalOlapScan) plan);
-            }
-            return;
-        }
-        // Set operations can map different source columns to the same output name.
-        // A SEARCH DSL binding cannot be shared across those sources.
-        if (plan instanceof LogicalSetOperation) {
-            return;
-        }
-        for (Plan child : plan.children()) {
-            collectScans(child, fieldIds, scans);
-        }
-    }
-
-    private Expression rewriteSearch(Search search, LogicalOlapScan scan) {
+    private Expression rewriteSearch(Search search, Plan input) {
         try {
             // Parse DSL to get field bindings
             SearchDslParser.QsPlan qsPlan = search.getQsPlan();
@@ -158,12 +112,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                     String subcolumnPath = originalFieldName.substring(firstDotPos + 1);
 
                     // Find parent slot
-                    Slot parentSlot = findSlotByName(parentFieldName, scan);
-                    if (parentSlot == null) {
-                        throw new AnalysisException(String.format(
-                                "Parent field '%s' not found in table for search: %s",
-                                parentFieldName, search.getDslString()));
-                    }
+                    Slot parentSlot = findSlotByName(parentFieldName, input);
 
                     // Verify it's a variant type
                     if (!parentSlot.getDataType().isVariantType()) {
@@ -185,12 +134,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                             normalizedParentFieldName, subcolumnPath, normalizedFieldName);
                 } else {
                     // Normal field - find slot directly
-                    Slot slot = findSlotByName(originalFieldName, scan);
-                    if (slot == null) {
-                        throw new AnalysisException(String.format(
-                                "Field '%s' not found in table for search: %s",
-                                originalFieldName, search.getDslString()));
-                    }
+                    Slot slot = findSlotByName(originalFieldName, input);
                     childExpr = slot;
                     normalizedFieldName = slot.getName();
                 }
@@ -213,14 +157,16 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         }
     }
 
-    private Slot findSlotByName(String fieldName, LogicalOlapScan scan) {
-        // Direct match only - variant subcolumns are handled by caller
-        for (Slot slot : scan.getOutput()) {
-            if (slot.getName().equalsIgnoreCase(fieldName)) {
-                return slot;
-            }
+    /** Resolve a field only against the visible input, rejecting missing or ambiguous names. */
+    private Slot findSlotByName(String fieldName, Plan input) {
+        List<Slot> matches = input.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(fieldName))
+                .collect(Collectors.toList());
+        if (matches.size() != 1) {
+            throw new AnalysisException("search() field '" + fieldName
+                    + "' must resolve to exactly one input column");
         }
-        return null;
+        return matches.get(0);
     }
 
     private void normalizePlanFields(SearchDslParser.QsNode node, Map<String, String> normalized) {

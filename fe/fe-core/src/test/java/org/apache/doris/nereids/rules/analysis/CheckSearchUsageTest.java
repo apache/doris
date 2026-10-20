@@ -58,6 +58,10 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
                 + "DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 3\n"
                 + "PROPERTIES ('replication_num' = '1');");
+        createTable("CREATE TABLE test_search_input_other (id INT, body VARCHAR(255), plain VARCHAR(255), "
+                + "payload VARIANT, INDEX idx_body(body) USING INVERTED, "
+                + "INDEX idx_payload(payload) USING INVERTED) DUPLICATE KEY(id) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 3 PROPERTIES ('replication_num' = '1');");
     }
 
     @Test
@@ -319,10 +323,12 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
     @Test
     public void testAmbiguousSearchFieldRejected() {
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
-                PlanChecker.from(connectContext).analyze("SELECT t1.id FROM test_search_table t1 "
-                        + "JOIN test_search_table t2 ON t1.id = t2.id WHERE search('title:hello')"));
-        Assertions.assertTrue(exception.getMessage().contains("exactly one input column"));
+        for (String dsl : new String[] {"TITLE:hello", "V.city:beijing"}) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                    PlanChecker.from(connectContext).analyze("SELECT t1.id FROM test_search_table t1 "
+                            + "JOIN test_search_table t2 ON t1.id = t2.id WHERE search('" + dsl + "')"));
+            Assertions.assertTrue(exception.getMessage().contains("exactly one input column"));
+        }
     }
 
     @Test
@@ -386,6 +392,82 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
                                 .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression))));
             }
         }
+    }
+
+    @Test
+    public void testSearchBindsProjectedAlias() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM (SELECT id, title AS content FROM test_search_table) t "
+                        + "WHERE search('CONTENT:hello')")
+                .matches(logicalFilter().when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && ((SlotReference) e.child(0)).getName().equals("content")))))
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && ((SlotReference) e.child(0)).getOriginalColumn().get().getName().equals("title")))));
+    }
+
+    @Test
+    public void testSearchBindsVariantAlias() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM (SELECT id, indexed_v AS doc FROM test_search_table) t "
+                        + "WHERE search('DOC.city:beijing')")
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression))));
+    }
+
+    @Test
+    public void testSearchBindsUnionOutput() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM (SELECT id, title AS label FROM test_search_table "
+                        + "UNION ALL SELECT id, body FROM test_search_input_other) t WHERE search('label:hello')")
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && ((SlotReference) e.child(0)).getOriginalColumn().get().getName().equals("title")))))
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && ((SlotReference) e.child(0)).getOriginalColumn().get().getName().equals("body")))));
+    }
+
+    @Test
+    public void testSearchCannotBindHiddenColumn() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                PlanChecker.from(connectContext).analyze("SELECT id FROM "
+                        + "(SELECT id, title AS label FROM test_search_table) t WHERE search('title:hello')"));
+        Assertions.assertTrue(exception.getMessage().contains("exactly one input column"));
+    }
+
+    @Test
+    public void testSearchOnComputedAliasRejectedAfterRewrite() {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM (SELECT id, concat(title, 'x') AS label FROM test_search_table) t "
+                        + "WHERE search('label:hellox')");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, checker::rewrite);
+        Assertions.assertTrue(exception.getMessage().contains("search() fields must reference OLAP scan columns directly"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testSearchAcrossTablesRejectedAfterRewrite() {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("SELECT t1.id FROM test_search_table t1 JOIN test_search_input_other t2 ON t1.id = t2.id "
+                        + "WHERE search('title:hello AND body:world')");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, checker::rewrite);
+        Assertions.assertTrue(exception.getMessage().contains("filters directly on an OLAP table scan"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testSearchChecksEachUnionBranchIndex() {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM (SELECT id, title AS label FROM test_search_table "
+                        + "UNION ALL SELECT id, plain FROM test_search_input_other) t WHERE search('label:hello')");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, checker::rewrite);
+        Assertions.assertTrue(exception.getMessage().contains("Field 'plain' has no inverted index"),
+                exception.getMessage());
     }
 
     @Test
