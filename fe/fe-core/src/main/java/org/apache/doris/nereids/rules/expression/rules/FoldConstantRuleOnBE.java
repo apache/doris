@@ -235,6 +235,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     // Some expressions should not do constant folding
     private static boolean shouldSkipFold(Expression expr) {
+        // CAST(NULL AS GEOMETRY), including nested values, has no ST_* function to skip below.
+        // FE cannot decode spatial PValues, and the random folding BE may predate spatial types.
+        if (expr.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            return true;
+        }
         // getResultExpression cannot decode UUID PValues, including UUID inside complex types.
         if (containsUuid(expr.getDataType())) {
             return true;

@@ -20,12 +20,14 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -34,6 +36,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -43,6 +46,22 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class OldCoordinatorTest extends TestWithFeService {
+    @Test
+    public void testSpatialConstructorRejectedBeforeAnyRpc() throws Exception {
+        // Build fragments without executing the query through the new coordinator first.
+        StmtExecutor executor = getSqlStmtExecutor("explain select ST_AsBinary(ST_GeometryFromWKBTyped("
+                + "'0101000000000000000000F03F0000000000000040')) from numbers('number'='2')");
+        Coordinator coordinator = new Coordinator(connectContext, executor.planner());
+        QeProcessorImpl.INSTANCE.registerQuery(coordinator.getQueryId(), new QeProcessorImpl.QueryInfo(coordinator));
+        try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class)) {
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class, coordinator::exec);
+            Assertions.assertTrue(error.getMessage().contains("does not support spatial types"));
+            proxy.verifyNoInteractions();
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(coordinator.getQueryId());
+        }
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

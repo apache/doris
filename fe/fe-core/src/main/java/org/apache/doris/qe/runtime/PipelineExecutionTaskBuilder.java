@@ -23,6 +23,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.qe.CoordinatorContext;
+import org.apache.doris.qe.SpatialBackendSupport;
 import org.apache.doris.qe.protocol.TFastSerializer;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -56,6 +57,8 @@ public class PipelineExecutionTaskBuilder {
 
     private PipelineExecutionTask buildTask(CoordinatorContext coordinatorContext,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
+        SpatialBackendSupport.check(workerToFragmentsParam.values(), workerToFragmentsParam.keySet().stream()
+                .map(worker -> ((BackendWorker) worker).getBackend()).collect(Collectors.toList()));
         BackendServiceProxy backendServiceProxy = BackendServiceProxy.getInstance();
         PipelineExecutionTask pipelineExecutionTask = new PipelineExecutionTask(
                 coordinatorContext,

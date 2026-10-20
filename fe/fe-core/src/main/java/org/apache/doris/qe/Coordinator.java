@@ -1011,6 +1011,13 @@ public class Coordinator implements CoordInterface {
                 fragmentsDoneLatch.addMark(pair.first.asInt(), pair.second);
             }
 
+            // Check every selected backend before sending to any of them, including exchange/sink workers.
+            SpatialBackendSupport.check(beToPipelineExecCtxs.values().stream()
+                            .flatMap(ctxs -> ctxs.getCtxs().stream()).map(ctx -> ctx.rpcParams)
+                            .collect(Collectors.toList()),
+                    beToPipelineExecCtxs.values().stream().map(PipelineExecContexts::getBackend)
+                            .collect(Collectors.toList()));
+
             // 4. send and wait fragments rpc
             // 4.1 serialize fragment
             // unsetFields() must be called serially.

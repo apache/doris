@@ -149,6 +149,8 @@ public class Backend implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private volatile boolean supportsPaimonRustReader;
+    @SerializedName("supportsSpatialTypes")
+    private volatile boolean supportsSpatialTypes;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -263,6 +265,10 @@ public class Backend implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public boolean isSpatialTypesSupported() {
+        return supportsSpatialTypes;
     }
 
     /** Connector-facing capabilities reported by this backend. */
@@ -885,6 +891,11 @@ public class Backend implements Writable {
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            // A legacy heartbeat after downgrade must clear a previously advertised spatial capability.
+            if (supportsSpatialTypes != hbResponse.isSpatialTypesSupported()) {
+                isChanged = true;
+                supportsSpatialTypes = hbResponse.isSpatialTypesSupported();
+            }
             // An absent capability also clears support after a downgrade or legacy heartbeat replay.
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
                 isChanged = true;
