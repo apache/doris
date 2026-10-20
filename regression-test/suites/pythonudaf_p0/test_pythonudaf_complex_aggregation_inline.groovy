@@ -67,6 +67,8 @@ suite("test_pythonudaf_complex_aggregation_inline") {
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "VarianceUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -115,6 +117,8 @@ class VarianceUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "StdDevUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -165,6 +169,8 @@ class StdDevUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MedianUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -210,6 +216,8 @@ class MedianUDAF:
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CollectListUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -250,6 +258,8 @@ class CollectListUDAF:
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RangeUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -299,6 +309,8 @@ class RangeUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "GeometricMeanUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -344,6 +356,8 @@ class GeometricMeanUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "WeightedAvgUDAF",
             "runtime_version" = "${runtime_version}"
         )

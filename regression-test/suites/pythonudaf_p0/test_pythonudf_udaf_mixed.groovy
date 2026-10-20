@@ -58,6 +58,8 @@ suite("test_pythonudf_udaf_mixed") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "final_price",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -77,6 +79,8 @@ def final_price(price, discount):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "double_value",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -96,6 +100,8 @@ def double_value(x):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "get_prefix",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -117,6 +123,8 @@ def get_prefix(s):
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -148,6 +156,8 @@ class SumUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -179,6 +189,8 @@ class CountUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "AvgDoubleUDAF",
             "runtime_version" = "${runtime_version}"
         )

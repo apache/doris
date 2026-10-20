@@ -44,7 +44,7 @@ suite("test_pythonudf_uuid_binary") {
         sql "DROP FUNCTION IF EXISTS ${definition[0]}(${definition[1]})"
         sql """CREATE FUNCTION ${definition[0]}(${definition[1]})
         RETURNS ${definition[1]}
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import uuid
 def validate(value):
@@ -72,7 +72,7 @@ def evaluate(value):
 
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_list(UUID)"
     sql """CREATE FUNCTION py_uuid_binary_list(UUID) RETURNS UUID
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import uuid
 def evaluate(values: list):
@@ -83,7 +83,7 @@ def evaluate(values: list):
 \$\$"""
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_series(UUID)"
     sql """CREATE FUNCTION py_uuid_binary_series(UUID) RETURNS UUID
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import pandas as pd
 import uuid
@@ -95,7 +95,7 @@ def evaluate(values: pd.Series):
 \$\$"""
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_vector_array(ARRAY<UUID>)"
     sql """CREATE FUNCTION py_uuid_binary_vector_array(ARRAY<UUID>) RETURNS ARRAY<UUID>
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import uuid
 def evaluate(rows: list):
@@ -110,7 +110,7 @@ def evaluate(rows: list):
         py_uuid_binary_vector_array(a) FROM python_uuid_binary ORDER BY id"""
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_broadcast(UUID)"
     sql """CREATE FUNCTION py_uuid_binary_broadcast(UUID) RETURNS UUID
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import uuid
 def evaluate(values: list):
@@ -119,7 +119,7 @@ def evaluate(values: list):
     qt_broadcast "SELECT id, py_uuid_binary_broadcast(u) FROM python_uuid_binary ORDER BY id"
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_string(STRING)"
     sql """CREATE FUNCTION py_uuid_binary_string(STRING) RETURNS STRING
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 def evaluate(value):
     if value is not None and not isinstance(value, str):
@@ -141,7 +141,7 @@ def evaluate(value):
     ["value", "values: list"].eachWithIndex { parameter, index ->
         sql "DROP FUNCTION IF EXISTS py_uuid_binary_not_nullable_${index}(UUID)"
         sql """CREATE FUNCTION py_uuid_binary_not_nullable_${index}(UUID) RETURNS UUID
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "always_nullable"="false",
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "always_nullable"="false",
                 "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(${parameter}):
     return None
@@ -155,7 +155,7 @@ def evaluate(${parameter}):
         def functionName = "py_uuid_binary_invalid_${index}"
         sql "DROP FUNCTION IF EXISTS ${functionName}(UUID)"
         sql """CREATE FUNCTION ${functionName}(UUID) RETURNS UUID
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
             AS \$\$
 def evaluate(value):
     return ${expression}
@@ -167,7 +167,7 @@ def evaluate(value):
     }
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_min(UUID)"
     sql """CREATE AGGREGATE FUNCTION py_uuid_binary_min(UUID) RETURNS UUID
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="UuidMin", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="UuidMin", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import uuid
 class UuidMin:
@@ -192,7 +192,7 @@ class UuidMin:
     qt_udaf_null "SELECT py_uuid_binary_min(u) FROM python_uuid_binary WHERE id = 5"
     sql "DROP FUNCTION IF EXISTS py_uuid_binary_rows(UUID)"
     sql """CREATE TABLES FUNCTION py_uuid_binary_rows(UUID) RETURNS ARRAY<UUID>
-        PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
+        PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "pool_size"="1", "symbol"="evaluate", "runtime_version"="${runtimeVersion}")
         AS \$\$
 import uuid
 def evaluate(value):

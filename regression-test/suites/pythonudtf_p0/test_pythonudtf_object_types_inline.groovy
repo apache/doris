@@ -24,6 +24,8 @@ suite("test_pythonudtf_object_types_inline") {
         RETURNS ARRAY<STRUCT<value:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -41,6 +43,8 @@ def evaluate(v):
         RETURNS ARRAY<HLL>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -58,6 +62,8 @@ def evaluate(v):
         RETURNS ARRAY<STRUCT<value:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -75,6 +81,8 @@ def evaluate(v):
         RETURNS ARRAY<STRUCT<value:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -92,6 +100,8 @@ def evaluate(v):
         RETURNS ARRAY<STRUCT<plain:INT, nested:MAP<INT, ARRAY<BITMAP>>>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )

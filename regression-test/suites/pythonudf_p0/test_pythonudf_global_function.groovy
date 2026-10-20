@@ -27,6 +27,8 @@ suite("test_pythonudf_global_function") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -47,6 +49,8 @@ def evaluate(a, b):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -67,6 +71,8 @@ def evaluate(s):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -122,6 +128,8 @@ def evaluate(a, b):
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}"
         )

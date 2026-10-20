@@ -39,6 +39,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.safe_divide",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -79,6 +81,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.check_overflow",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -122,6 +126,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.parse_number",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -163,6 +169,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.check_type",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -206,6 +214,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.safe_array_access",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -247,6 +257,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.compute_stats",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -290,6 +302,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.access_struct_fields",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -333,6 +347,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.slice_string",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -375,6 +391,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.check_text_encoding",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -419,6 +437,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.process_conditional",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -459,6 +479,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.conditional_yield",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -504,6 +526,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.classify_number_range",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -545,6 +569,8 @@ suite("test_pythonudtf_exceptions_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.exceptions_udtf.validate_date",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """

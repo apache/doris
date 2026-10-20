@@ -151,6 +151,8 @@ suite("test_pythonudwf_comprehensive") {
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RunningSumUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -182,6 +184,8 @@ class RunningSumUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RunningAvgUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -219,6 +223,8 @@ class RunningAvgUDWF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RunningCountUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -250,6 +256,8 @@ class RunningCountUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MovingAvgUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -284,6 +292,8 @@ class MovingAvgUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "StdDevUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -322,6 +332,8 @@ class StdDevUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MinUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -356,6 +368,8 @@ class MinUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MaxUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -390,6 +404,8 @@ class MaxUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "FirstValueUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -426,6 +442,8 @@ class FirstValueUDWF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "LastValueUDWF",
             "runtime_version" = "${runtime_version}"
         )
@@ -458,6 +476,8 @@ class LastValueUDWF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "RankUDWF",
             "runtime_version" = "${runtime_version}"
         )

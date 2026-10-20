@@ -33,6 +33,8 @@ suite("test_pythonudtf_sql_integration_inline") {
         RETURNS ARRAY<STRUCT<position:INT, value:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "split_with_position",
             "runtime_version" = "${runtime_version}"
         )
@@ -53,6 +55,8 @@ def split_with_position(text, delimiter):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "generate_range",
             "runtime_version" = "${runtime_version}"
         )
@@ -72,6 +76,8 @@ def generate_range(start, end):
         RETURNS ARRAY<STRUCT<element:INT, element_index:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "explode_with_index",
             "runtime_version" = "${runtime_version}"
         )

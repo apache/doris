@@ -64,6 +64,8 @@ suite("test_pythonudaf_edge_cases") {
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumLargeUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -102,6 +104,8 @@ class SumLargeUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MinValUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -140,6 +144,8 @@ class MinValUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MaxValUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -178,6 +184,8 @@ class MaxValUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountDistinctUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -217,6 +225,8 @@ class CountDistinctUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "ProductUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -260,6 +270,8 @@ class ProductUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "AbsSumUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -298,6 +310,8 @@ class AbsSumUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SafeAvgUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -342,6 +356,8 @@ class SafeAvgUDAF:
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SignSummaryUDAF",
             "runtime_version" = "${runtime_version}"
         )

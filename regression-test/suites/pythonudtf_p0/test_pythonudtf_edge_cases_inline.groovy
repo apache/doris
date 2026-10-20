@@ -33,6 +33,8 @@ suite("test_pythonudtf_edge_cases_inline") {
         RETURNS ARRAY<STRUCT<input_value:INT, is_null:BOOLEAN, result:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "handle_null_int",
             "runtime_version" = "${runtime_version}"
         )
@@ -75,6 +77,8 @@ def handle_null_int(value):
         RETURNS ARRAY<STRUCT<value_type:STRING, length:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "handle_null_string",
             "runtime_version" = "${runtime_version}"
         )
@@ -119,6 +123,8 @@ def handle_null_string(value):
         RETURNS ARRAY<STRUCT<array_type:STRING, size:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "handle_empty_array",
             "runtime_version" = "${runtime_version}"
         )
@@ -166,6 +172,8 @@ def handle_empty_array(arr):
         RETURNS ARRAY<STRUCT<has_name:BOOLEAN, has_age:BOOLEAN, summary:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "handle_null_struct",
             "runtime_version" = "${runtime_version}"
         )
@@ -230,6 +238,8 @@ def handle_null_struct(person):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_empty_table",
             "runtime_version" = "${runtime_version}"
         )
@@ -267,6 +277,8 @@ def process_empty_table(value):
         RETURNS ARRAY<STRUCT<original:INT, generated:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_single_row",
             "runtime_version" = "${runtime_version}"
         )
@@ -308,6 +320,8 @@ def process_single_row(value):
         RETURNS ARRAY<STRUCT<length:INT, first_10:STRING, last_10:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_long_string",
             "runtime_version" = "${runtime_version}"
         )
@@ -353,6 +367,8 @@ def process_long_string(text):
         RETURNS ARRAY<STRUCT<total_elements:INT, sum_value:BIGINT, first_elem:INT, last_elem:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_large_array",
             "runtime_version" = "${runtime_version}"
         )
@@ -399,6 +415,8 @@ def process_large_array(arr):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "output_explosion",
             "runtime_version" = "${runtime_version}"
         )
@@ -445,6 +463,8 @@ def output_explosion(n):
         RETURNS ARRAY<STRUCT<original:INT, category:STRING, is_boundary:BOOLEAN>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_special_numbers",
             "runtime_version" = "${runtime_version}"
         )
@@ -503,6 +523,8 @@ def process_special_numbers(value):
         RETURNS ARRAY<STRUCT<original:DOUBLE, classification:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_special_doubles",
             "runtime_version" = "${runtime_version}"
         )
@@ -565,6 +587,8 @@ def process_special_doubles(value):
         RETURNS ARRAY<STRUCT<length:INT, has_special:BOOLEAN, description:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_special_strings",
             "runtime_version" = "${runtime_version}"
         )
@@ -626,6 +650,8 @@ def process_special_strings(text):
         RETURNS ARRAY<STRUCT<original:DATE, year:INT, is_boundary:BOOLEAN>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_boundary_dates",
             "runtime_version" = "${runtime_version}"
         )

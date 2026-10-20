@@ -53,6 +53,8 @@ suite("test_pythonudtf_forbidden_module") {
             RETURNS ARRAY<STRUCT<original:INT, doubled:INT>>
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${pyPath}",
                 "symbol" = "${forbiddenCase.symbol}",
                 "runtime_version" = "${runtime_version}"
@@ -76,6 +78,8 @@ suite("test_pythonudtf_forbidden_module") {
         RETURNS ARRAY<STRUCT<original:INT, shifted:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "safepkg_udtf.inspect.safe_udtf",
             "runtime_version" = "${runtime_version}"

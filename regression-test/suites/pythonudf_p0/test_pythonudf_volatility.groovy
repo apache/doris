@@ -54,6 +54,8 @@ suite("test_pythonudf_volatility") {
     RETURNS INT
     PROPERTIES (
         "type" = "PYTHON_UDF",
+        "auto_suspend" = "0",
+        "pool_size" = "1",
         "symbol" = "evaluate",
         "runtime_version" = "${runtimeVersion}",
         "volatility" = "immutable",
@@ -72,6 +74,8 @@ def evaluate(x):
     RETURNS INT
     PROPERTIES (
         "type" = "PYTHON_UDF",
+        "auto_suspend" = "0",
+        "pool_size" = "1",
         "symbol" = "evaluate",
         "runtime_version" = "${runtimeVersion}",
         "volatility" = "stable"
@@ -89,6 +93,8 @@ def evaluate(x):
     RETURNS INT
     PROPERTIES (
         "type" = "PYTHON_UDF",
+        "auto_suspend" = "0",
+        "pool_size" = "1",
         "symbol" = "evaluate",
         "runtime_version" = "${runtimeVersion}",
         "volatility" = "volatile"
@@ -106,6 +112,8 @@ def evaluate(x):
     RETURNS INT
     PROPERTIES (
         "type" = "PYTHON_UDF",
+        "auto_suspend" = "0",
+        "pool_size" = "1",
         "symbol" = "evaluate",
         "runtime_version" = "${runtimeVersion}"
     )

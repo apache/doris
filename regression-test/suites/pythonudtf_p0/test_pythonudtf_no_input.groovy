@@ -27,6 +27,8 @@ suite("test_pythonudtf_no_input") {
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "emit_values",
             "runtime_version" = "${runtime_version}"
         )
