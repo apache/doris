@@ -95,11 +95,8 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         sql """ HBO SET LEARNED STATISTICS VALUE=1 TYPE=FILTER_SMALL FINGERPRINT='${fingerprint}'; """
         exception "TYPE is not supported for hbo learned statistics"
     }
-    // a struct info which does not belong to the fingerprint is rejected for the learned scope too
-    test {
-        sql """ HBO SET LEARNED STATISTICS VALUE=1 FINGERPRINT='${fingerprint}' STRUCT='S{internal.hbo_test.hbo_li_r,v2}'; """
-        exception "hbo statistics STRUCT does not match the fingerprint ${fingerprint} for LITERAL_MODE=with_literal, copy the struct= value of the target node from EXPLAIN"
-    }
+    // the struct of a learned entry is its readable form and its scan baseline, not the preimage of its
+    // fingerprint: the pair is not validated against its hash any more
     // a learned entry may carry the struct info of the node it belongs to, so that HBO SHOW
     // STATISTICS can display it (the simplified form by default, the canonical one with FULL)
     try {

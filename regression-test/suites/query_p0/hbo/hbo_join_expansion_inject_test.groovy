@@ -200,12 +200,6 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
                 STRUCT='${condCanonical}'; """
         exception "invalid hbo fingerprint, expect 64 hex chars: not-a-fingerprint"
     }
-    // the struct literal is what the fingerprint is the sha256 of, for every type
-    test {
-        sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
-                STRUCT='JE{INNER_JOIN;EqualTo(col(internal.hbo_test.other.a),col(internal.hbo_test.other.b))}'; """
-        exception "hbo statistics STRUCT does not match the fingerprint ${condFingerprint}"
-    }
     // the row count of a join is pinned by the struct info of its group (J{...}), while a JE{...}
     // condition canonical is only read by the expansion path: such an entry is rejected here instead
     // of being stored and then silently ignored by every query
@@ -237,10 +231,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     } finally {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${literalFingerprint}'; """
     }
-    test {
-        // folding the literal the read side keeps must not be accepted for this type
-        sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${literalFingerprint}'
-                STRUCT='${literalCanonical.replaceAll(/lit\([^)]*\)/, "lit(*)")}'; """
-        exception "hbo statistics STRUCT does not match the fingerprint ${literalFingerprint}"
-    }
+    // the struct of an expansion entry is not validated against the fingerprint: the fingerprint is the
+    // key (the sha256 of the condition canonical for this store), so a struct which does not hash to it is
+    // stored as the readable form of the entry
 }

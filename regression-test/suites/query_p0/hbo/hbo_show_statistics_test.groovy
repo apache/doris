@@ -58,14 +58,13 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         def structCanonical = matcher.group(2)
 
         // a pinned entry must be labelled with the struct info of the node it was taken from: a
-        // missing struct info, or one which does not belong to the fingerprint, is rejected
+        // missing struct info is rejected. The pair itself is not validated against its hash - the
+        // fingerprint is the key, and the struct is the readable form of the node (its scan baseline
+        // is what the freshness comparison reads), so a struct which does not hash to the fingerprint
+        // is not a reason to reject the statement.
         test {
             sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fingerprint}'; """
             exception "hbo statistics STRUCT is required, copy the struct= value of the target node from EXPLAIN"
-        }
-        test {
-            sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fakeFingerprint}' STRUCT='${structCanonical}'; """
-            exception "hbo statistics STRUCT does not match the fingerprint ${fakeFingerprint} for LITERAL_MODE=no_literal, copy the struct= value of the target node from EXPLAIN"
         }
         sql """ HBO SET STATISTICS VALUE=123456 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${fingerprint}'
                 STRUCT='${structCanonical}'; """

@@ -31,10 +31,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.hash.Hashing;
-
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -403,27 +400,13 @@ public class HboStatisticsCommand extends Command {
         // text is therefore used verbatim and never folded - folding a literal the read side keeps would
         // make the sha256 differ from the fingerprint EXPLAIN printed next to the very same text, and the
         // statement would reject a pair the user copied correctly.
-        String canonical = type == PinnedType.JOIN_EXPANSION
-                ? structCanonical : canonicalFor(structCanonical, literalMode);
-        if (isFingerprintOf(targetFingerprint, canonical)) {
-            return canonical;
-        }
-        throw new AnalysisException("hbo statistics STRUCT does not match the fingerprint " + targetFingerprint
-                + " for LITERAL_MODE=" + literalMode.name().toLowerCase(java.util.Locale.ROOT)
-                + ", copy the struct= value of the target node from EXPLAIN");
-    }
-
-    /**
-     * Whether {@code structCanonical} is the struct info the fingerprint was taken from. The scan
-     * baselines (the data state printed inside every scan token) are ignored, exactly like the
-     * fingerprint computation does, so a struct info which was copied before the data moved still
-     * matches its fingerprint - and it then records that older state as the baseline of the entry
-     * (see {@link GroupStructInfo#stripScanBaseline}).
-     */
-
-    private static boolean isFingerprintOf(String targetFingerprint, String structCanonical) {
-        return targetFingerprint.equals(Hashing.sha256()
-                .hashString(GroupStructInfo.stripScanBaseline(structCanonical), StandardCharsets.UTF_8).toString());
+        // the fingerprint is the key and the struct is only its readable form: the entry is registered
+        // under the pasted fingerprint, which the planner compares with the key of its own description
+        // (a structural hash, see GroupStructInfo#getFingerprint), so the two are not derived from one
+        // another anymore and a struct which does not hash to the fingerprint is not rejected. The struct
+        // is still folded for the constant agnostic mode, because that is the form the entry is stored and
+        // displayed with, not because its hash is compared.
+        return type == PinnedType.JOIN_EXPANSION ? structCanonical : canonicalFor(structCanonical, literalMode);
     }
 
     private void validateFingerprint(String targetFingerprint) throws AnalysisException {

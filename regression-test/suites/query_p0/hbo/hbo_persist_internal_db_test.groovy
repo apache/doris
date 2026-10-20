@@ -25,10 +25,9 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
     // racing that load) is not covered here: it needs a FE restart, and it is exercised by the
     // background loader (HboPinnedStatisticsLoader) instead of by a statement.
     def prevPersist = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_persist_pinned_to_internal_db'; """)[0][1].toString()
-    // a pinned entry must carry the struct info its fingerprint was computed from, so the pair
-    // below is self consistent: the fingerprint is the sha256 of the canonical without the data
-    // state of its scans, with the literals folded because the entry is stored constant agnostically
-    // (sha256 of "F{EqualTo(col(internal.hbo_test.hbo_persist_t.a),lit(*))}(S{internal.hbo_test.hbo_persist_t})").
+    // a pinned entry carries the struct info it was labelled with: the fingerprint is the key (a
+    // structural hash of the description, so this synthetic one never matches a query of the suite) and
+    // the struct is its readable form, stored folded because a row count entry is constant agnostic.
     // The root is a filter, not a scan: pinned row counts are looked up at filter, join and
     // aggregation nodes, so an entry keyed by a scan token could never be applied.
     def structCanonical = "F{EqualTo(col(internal.hbo_test.hbo_persist_t.a),lit(1:INT))}" +
