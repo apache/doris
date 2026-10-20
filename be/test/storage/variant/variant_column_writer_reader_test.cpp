@@ -8723,6 +8723,82 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_NE(plan.regular_subcolumns[2].data_type->get_name().find("Array"), std::string::npos);
 }
 
+TEST_F(VariantColumnWriterReaderTest, test_search_distinguishes_unindexed_historical_variant_path) {
+    init_variant_tablet(41005);
+    auto rowset = create_variant_rowset({{R"({"missing":"hit"})", R"({})"}}, 1);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+    auto& segment = segments.front();
+    const auto& parent = segment->tablet_schema()->column(0);
+    ASSERT_TRUE(segment->tablet_schema()->inverted_indexs(parent.unique_id()).empty());
+
+    for (const std::string path : {"missing", "absent"}) {
+        for (const bool negated : {false, true}) {
+            SCOPED_TRACE(path);
+            SCOPED_TRACE(negated);
+            auto leaf = std::make_shared<TabletColumn>();
+            leaf->set_name(parent.name() + "." + path);
+            leaf->set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+            leaf->set_unique_id(-1);
+            leaf->set_parent_unique_id(parent.unique_id());
+            leaf->set_is_nullable(true);
+            leaf->set_path_info(PathInData(leaf->name()));
+            auto schema = std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {leaf});
+            TSearchFieldBinding binding;
+            binding.__set_field_name(leaf->name());
+            binding.__set_is_variant_subcolumn(true);
+            binding.__set_parent_field_name(parent.name());
+            binding.__set_subcolumn_path(path);
+            TSearchClause term;
+            term.__set_clause_type("TERM");
+            term.__set_field_name(leaf->name());
+            term.__set_value("hit");
+            TSearchParam param;
+            param.__set_original_dsl((negated ? "NOT " : "") + leaf->name() + ":hit");
+            param.__set_root(term);
+            param.__set_field_bindings({binding});
+            if (negated) {
+                TSearchClause complement;
+                complement.__set_clause_type("NOT");
+                complement.__set_children({term});
+                param.__set_root(complement);
+            }
+            TExprNode node;
+            node.__set_node_type(TExprNodeType::SEARCH_EXPR);
+            node.__set_type(TSlotDescriptorBuilder().type(TYPE_BOOLEAN).build().slotType);
+            node.__set_search_param(param);
+            auto expr = VSearchExpr::create_shared(node);
+            auto slot = std::make_shared<VSlotRef>();
+            slot->set_node_type(TExprNodeType::SLOT_REF);
+            slot->set_column_id(0);
+            slot->_column_name = &leaf->name();
+            expr->add_child(slot);
+            std::vector<std::unique_ptr<segment_v2::IndexIterator>> no_indexes(1);
+            std::vector<IndexFieldNameAndTypePair> types {
+                    {leaf->name(), std::make_shared<DataTypeString>()}};
+            std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+            OlapReaderStatistics stats;
+            segment_v2::ColumnIteratorOptions opts;
+            opts.stats = &stats;
+            auto scan = std::make_shared<IndexExecContext>(no_indexes, types, status_map, nullptr,
+                                                           segment.get(), opts, schema);
+            VExprContext context(expr);
+            context.set_index_context(scan);
+            const auto status = expr->evaluate_inverted_index(&context, 2);
+            if (path == "missing") {
+                EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
+                EXPECT_FALSE(scan->has_index_result_for_expr(expr.get()));
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                const auto* result = scan->get_index_result_for_expr(expr.get());
+                ASSERT_NE(nullptr, result);
+                EXPECT_EQ(negated ? 2 : 0, result->get_data_bitmap()->cardinality());
+            }
+        }
+    }
+}
+
 TEST_F(VariantColumnWriterReaderTest,
        test_streaming_compaction_writer_streams_regular_array_paths_across_batches) {
     if (!nested_group_write_path_available()) {
