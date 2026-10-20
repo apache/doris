@@ -22,7 +22,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.rest.StmtExecutionAction;
+import org.apache.doris.httpv2.util.ExecutionResultSet;
+import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -30,18 +37,25 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.utframe.TestWithFeService;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+import org.springframework.http.ResponseEntity;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public class ExternalCatalogLookupFailureTest extends TestWithFeService {
     private static final String CATALOG = "lookup_failure_catalog";
@@ -49,10 +63,15 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
     private static final String FAILURE = "Metastore authentication failed";
     private TestExternalCatalog catalog;
     private boolean initializationUnavailable;
+    private boolean failAfterLookup;
 
     @Override
     protected void runBeforeAll() throws Exception {
         executeSql("CREATE USER 'lookup_unprivileged_user'");
+        createDatabase(DATABASE);
+        connectContext.setDatabase(DATABASE);
+        createTable("CREATE TABLE healthy_table (id INT) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1')");
     }
 
     @BeforeEach
@@ -60,8 +79,21 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
         FailingProvider.unavailable = false;
         FailingProvider.lookupCount = 0;
         initializationUnavailable = false;
+        failAfterLookup = false;
         catalog = new TestExternalCatalog(Env.getCurrentEnv().getNextId(), CATALOG, "",
                 new HashMap<>(Map.of("catalog_provider.class", FailingProvider.class.getName())), "") {
+            @Override
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+                ExternalDatabase<? extends ExternalTable> db = super.getDbNullable(dbName);
+                if (failAfterLookup) {
+                    // Invalidate after the first successful probe, before forwarding can publish its default database.
+                    failAfterLookup = false;
+                    resetToUninitialized(false);
+                    initializationUnavailable = true;
+                }
+                return db;
+            }
+
             @Override
             protected void initLocalObjectsImpl() {
                 if (initializationUnavailable) {
@@ -149,6 +181,114 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
         Assertions.assertEquals(MysqlStateType.ERR.name(), result.getStatus());
         Assertions.assertTrue(result.getErrMessage().contains("Access denied for user"), result.getErrMessage());
         Assertions.assertNull(catalog.getProperties().get("metadata_refresh_interval_sec"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testForwardedRepairSurvivesResetAfterSuccessfulLookup(boolean alter) throws Exception {
+        failAfterLookup = true;
+        String sql = alter ? "ALTER CATALOG " + CATALOG + " SET PROPERTIES ('metadata_refresh_interval_sec' = '123')"
+                : "REFRESH CATALOG " + CATALOG;
+        TMasterOpResult result = forward(sql);
+        Assertions.assertTrue(initializationUnavailable, "The successful lookup must trigger the outage");
+        Assertions.assertEquals(MysqlStateType.OK.name(), result.getStatus(), result.getErrMessage());
+        if (alter) {
+            Assertions.assertEquals("123", catalog.getProperties().get("metadata_refresh_interval_sec"));
+        }
+    }
+
+    @Test
+    public void testForwardedActualAccessFailsAfterSuccessfulLookup() throws Exception {
+        failAfterLookup = true;
+        TMasterOpResult result = forward("SHOW TABLES");
+        Assertions.assertTrue(initializationUnavailable);
+        Assertions.assertEquals(MysqlStateType.ERR.name(), result.getStatus());
+        Assertions.assertTrue(result.getErrMessage().contains(FAILURE), result.getErrMessage());
+    }
+
+    @Test
+    public void testForwardedHealthyDefaultStillChecksDatabasePrivilege() throws Exception {
+        TMasterOpResult result = forward("SELECT 1",
+                UserIdentity.createAnalyzedUserIdentWithIp("lookup_unprivileged_user", "%"));
+        Assertions.assertEquals(MysqlStateType.ERR.name(), result.getStatus());
+        Assertions.assertTrue(result.getErrMessage().contains("Access denied"), result.getErrMessage());
+    }
+
+    @Test
+    public void testHttpSchemaIgnoresUnavailableDefaultDatabase() {
+        FailingProvider.unavailable = true;
+        Object schema = Assertions.assertDoesNotThrow(() -> new StmtExecutionAction().querySchema(CATALOG, DATABASE,
+                httpRequest("root"), Mockito.mock(HttpServletResponse.class),
+                "SELECT * FROM internal." + DATABASE + ".healthy_table"));
+        Assertions.assertTrue(schema.toString().contains("CREATE TABLE"), schema.toString());
+        Assertions.assertTrue(schema.toString().contains("healthy_table"), schema.toString());
+        Assertions.assertEquals(CATALOG, ConnectContext.get().getDefaultCatalog());
+        Assertions.assertEquals(DATABASE, ConnectContext.get().getDatabase());
+    }
+
+    @Test
+    public void testHttpSchemaActualDatabaseAccessStillFails() {
+        FailingProvider.unavailable = true;
+        RuntimeException error = Assertions.assertThrows(RuntimeException.class,
+                () -> new StmtExecutionAction().querySchema(CATALOG, DATABASE,
+                        httpRequest("root"), Mockito.mock(HttpServletResponse.class), "SELECT * FROM t"));
+        Assertions.assertTrue(error.toString().contains(FAILURE), error.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testHttpEndpointsRejectUnauthenticatedRequests(boolean schema) {
+        FailingProvider.unavailable = true;
+        StmtExecutionAction action = new StmtExecutionAction();
+        HttpServletRequest request = httpRequest("missing_http_user");
+        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+        Assertions.assertThrows(UnauthorizedException.class, () -> {
+            if (schema) {
+                action.querySchema(CATALOG, DATABASE, request, response,
+                        "SELECT * FROM internal." + DATABASE + ".healthy_table");
+            } else {
+                action.executeSQL(CATALOG, DATABASE, request, response,
+                        "{\"stmt\":\"REFRESH CATALOG " + CATALOG + "\"}");
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testHttpRepairReachesSubmissionWithUnavailableDefaultDatabase(boolean alter) throws Exception {
+        FailingProvider.unavailable = true;
+        StatementSubmitter original = Deencapsulation.getField(StmtExecutionAction.class, StatementSubmitter.class);
+        StatementSubmitter submitter = Mockito.mock(StatementSubmitter.class);
+        Mockito.when(submitter.submit(Mockito.any())).thenReturn(
+                CompletableFuture.completedFuture(new ExecutionResultSet(Map.of())));
+        Deencapsulation.setField(StmtExecutionAction.class, "stmtSubmitter", submitter);
+        String sql = alter ? "ALTER CATALOG " + CATALOG + " SET PROPERTIES ('metadata_refresh_interval_sec' = '123')"
+                : "REFRESH CATALOG " + CATALOG;
+        try {
+            ResponseEntity<?> response = (ResponseEntity<?>) Assertions.assertDoesNotThrow(
+                    () -> new StmtExecutionAction().executeSQL(CATALOG, DATABASE, httpRequest("root"),
+                            Mockito.mock(HttpServletResponse.class), "{\"stmt\":\"" + sql + "\"}"));
+            Assertions.assertEquals(0, ((ResponseBody<?>) response.getBody()).getCode());
+            ArgumentCaptor<StatementSubmitter.StmtContext> submitted =
+                    ArgumentCaptor.forClass(StatementSubmitter.StmtContext.class);
+            Mockito.verify(submitter).submit(submitted.capture());
+            Assertions.assertEquals(sql, submitted.getValue().stmt);
+            Assertions.assertEquals("root", submitted.getValue().user);
+            Assertions.assertEquals(CATALOG, ConnectContext.get().getDefaultCatalog());
+            Assertions.assertEquals(DATABASE, ConnectContext.get().getDatabase());
+        } finally {
+            Deencapsulation.setField(StmtExecutionAction.class, "stmtSubmitter", original);
+        }
+    }
+
+    private HttpServletRequest httpRequest(String user) {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getScheme()).thenReturn("https");
+        Mockito.when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        Mockito.when(request.getHeader("Authorization")).thenReturn("Basic "
+                + Base64.getEncoder().encodeToString((user + ":").getBytes(StandardCharsets.UTF_8)));
+        Mockito.when(request.getHeader("X-Doris-Stream")).thenReturn("false");
+        return request;
     }
 
     private TMasterOpResult forward(String sql) throws Exception {

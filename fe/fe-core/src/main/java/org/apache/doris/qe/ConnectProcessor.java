@@ -35,6 +35,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -43,6 +44,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -54,6 +56,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
@@ -604,7 +607,15 @@ public abstract class ConnectProcessor {
                                     request.getDefaultCatalog(), request.getDefaultDatabase(), e);
                         }
                         if (db != null) {
-                            ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
+                            if (!ctx.getEnv().getAccessManager().checkDbPriv(ctx, ctx.getDefaultCatalog(),
+                                    request.getDefaultDatabase(), PrivPredicate.SHOW)) {
+                                ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                                        ctx.getQualifiedUser(), request.getDefaultDatabase());
+                            }
+                            // Reuse the resolved database: a concurrent refresh can make a second lookup fail
+                            // before a catalog repair statement gets a chance to execute.
+                            ctx.restoreNameSpaceContext(new NameSpaceContext(ctx.getDefaultCatalog(),
+                                    request.getDefaultDatabase(), db.getId()));
                         }
                     }
                 }

@@ -106,6 +106,25 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
     }
 
     @Test
+    public void testFailedSwitchRestoresRememberedNamespace() throws Exception {
+        Env.getCurrentEnv().changeCatalog(connectContext, "internal");
+        connectContext.setDatabase(INTERNAL_DB);
+        NameSpaceContext saved = connectContext.getNameSpaceContext();
+        previousCatalog.makeUnavailable();
+
+        RuntimeException error = Assertions.assertThrows(RuntimeException.class,
+                () -> Env.getCurrentEnv().changeCatalog(connectContext, previousCatalog.getName()));
+        Assertions.assertTrue(error.getMessage().contains(FAILURE), error.getMessage());
+        assertNamespace(saved);
+
+        previousCatalog.unavailable = false;
+        Env.getCurrentEnv().changeCatalog(connectContext, previousCatalog.getName());
+        Assertions.assertEquals(previousCatalog.getName(), connectContext.getDefaultCatalog());
+        Assertions.assertEquals(DATABASE, connectContext.getDatabase());
+        Assertions.assertEquals(previousCatalog.getDbNullable(DATABASE).getId(), connectContext.getCurrentDbId());
+    }
+
+    @Test
     public void testHealthyExternalViewRestoresUnavailablePreviousCatalog() {
         NameSpaceContext saved = connectContext.getNameSpaceContext();
         previousCatalog.makeUnavailable();
