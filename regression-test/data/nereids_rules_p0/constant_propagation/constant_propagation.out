@@ -556,7 +556,7 @@ PhysicalResultSink
 -- !agg_3_shape --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalProject[1 AS `a`, 2 AS `b`]
+----PhysicalProject[2 AS `b`, t1.a]
 ------filter((t1.a = 1) and (t1.b = 2))
 --------PhysicalOlapScan[t1]
 
