@@ -71,26 +71,17 @@ public:
     // Presents the environment the way EKS Pod Identity does: a full URL, a token that exists only
     // as a file, and no relative URI or inline token at all.
     void set_pod_identity(const std::string& full_uri, const std::string& token_file) {
-        unsetenv(Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
-        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN);
-        setenv(Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI, full_uri.c_str(), 1);
-        setenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE, token_file.c_str(), 1);
+        set_environment({nullptr, full_uri.c_str(), nullptr, token_file.c_str()});
     }
 
     // Presents the environment the way ECS does: a relative path against the agent's own address,
     // and no full URI or token file.
     void set_ecs_task_role(const std::string& relative_uri) {
-        unsetenv(Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI);
-        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN);
-        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
-        setenv(Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, relative_uri.c_str(), 1);
+        set_environment({relative_uri.c_str(), nullptr, nullptr, nullptr});
     }
 
     void set_inline_token_endpoint(const std::string& full_uri, const std::string& token) {
-        unsetenv(Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI);
-        unsetenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
-        setenv(Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI, full_uri.c_str(), 1);
-        setenv(Provider::AWS_CONTAINER_AUTHORIZATION_TOKEN, token.c_str(), 1);
+        set_environment({nullptr, full_uri.c_str(), token.c_str(), nullptr});
     }
 
     // Writes a token file and takes responsibility for deleting it. Call it again with the same path
@@ -108,6 +99,17 @@ public:
     }
 
 private:
+    // nullptr unsets a variable; an empty string keeps it set with an empty value.
+    static void set_environment(const std::array<const char*, 4>& values) {
+        for (size_t i = 0; i < kNames.size(); ++i) {
+            if (values[i] != nullptr) {
+                setenv(kNames[i], values[i], 1);
+            } else {
+                unsetenv(kNames[i]);
+            }
+        }
+    }
+
     static constexpr std::array<const char*, 4> kNames {
             Provider::AWS_CONTAINER_CREDENTIALS_RELATIVE_URI,
             Provider::AWS_CONTAINER_CREDENTIALS_FULL_URI,
