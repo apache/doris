@@ -43,7 +43,7 @@ namespace {
 
 using Path = std::vector<std::string_view>;
 
-struct PositionInfo {
+struct ValidationLocation {
     size_t row = 0;
     std::optional<size_t> ordinal;
     std::string_view ordinal_kind;
@@ -65,22 +65,18 @@ std::string path_to_string(const Path& path) {
     return result;
 }
 
-std::string position_to_string(const PositionInfo& position) {
-    std::string result = fmt::format("row {}", position.row);
-    if (position.ordinal.has_value()) {
-        result += fmt::format(", {} {}", position.ordinal_kind, *position.ordinal);
+Status null_violation(const Path& path, const ValidationLocation& location, NonNullReason reason) {
+    std::string position = fmt::format("row {}", location.row);
+    if (location.ordinal.has_value()) {
+        position += fmt::format(", {} {}", location.ordinal_kind, *location.ordinal);
     }
-    return result;
-}
-
-Status null_violation(const Path& path, const PositionInfo& position, NonNullReason reason) {
     return Status::DataQualityError("Iceberg {} '{}' contains NULL at {}",
                                     reason == NonNullReason::MAP_KEY ? "map key" : "required field",
-                                    path_to_string(path), position_to_string(position));
+                                    path_to_string(path), position);
 }
 
-bool requires_validation(const NestedField& field, bool force_required = false) {
-    if (force_required || field.is_required()) {
+bool requires_validation(const NestedField& field) {
+    if (field.is_required()) {
         return true;
     }
     switch (field.field_type()->type_id()) {
@@ -99,12 +95,27 @@ bool requires_validation(const NestedField& field, bool force_required = false) 
     }
 }
 
-Status validate_value(const NestedField& field, const IColumn& column, const DataTypePtr& type,
-                      size_t position, const PositionInfo& position_info, Path& path,
-                      NonNullReason reason);
+template <typename Offsets>
+Status validate_collection_offsets(const Offsets& offsets, size_t position, size_t row,
+                                   std::string_view container_name, const Path& path, size_t* start,
+                                   size_t* end) {
+    if (position >= offsets.size()) {
+        return Status::InternalError(
+                "Iceberg {} field '{}' has {} offsets, but position {} is required", container_name,
+                path_to_string(path), offsets.size(), position);
+    }
+    *start = position == 0 ? 0 : offsets[position - 1];
+    *end = offsets[position];
+    if (*start > *end) {
+        return Status::InternalError(
+                "Iceberg {} field '{}' has invalid offsets at row {}: [{}, {}]", container_name,
+                path_to_string(path), row, *start, *end);
+    }
+    return Status::OK();
+}
 
 Status validate_value(const NestedField& field, const IColumn& column, const DataTypePtr& type,
-                      size_t position, const PositionInfo& position_info, Path& path,
+                      size_t position, const ValidationLocation& location, Path& path,
                       NonNullReason reason) {
     if (position >= column.size()) {
         return Status::InternalError(
@@ -115,7 +126,7 @@ Status validate_value(const NestedField& field, const IColumn& column, const Dat
 
     if (column.is_null_at(position)) {
         if (reason == NonNullReason::MAP_KEY || field.is_required()) {
-            return null_violation(path, position_info, reason);
+            return null_violation(path, location, reason);
         }
         // An optional STRUCT/LIST/MAP is a NULL value in its own right. Its children and
         // elements are masked by the parent NULL and must not be inspected.
@@ -155,8 +166,8 @@ Status validate_value(const NestedField& field, const IColumn& column, const Dat
             }
             path.emplace_back(fields[i].field_name());
             Status status = validate_value(fields[i], struct_column->get_column(i),
-                                           struct_type->get_element(i), position, position_info,
-                                           path, NonNullReason::SCHEMA_REQUIRED);
+                                           struct_type->get_element(i), position, location, path,
+                                           NonNullReason::SCHEMA_REQUIRED);
             path.pop_back();
             RETURN_IF_ERROR(status);
         }
@@ -174,19 +185,15 @@ Status validate_value(const NestedField& field, const IColumn& column, const Dat
                                          path_to_string(path));
         }
         const auto& offsets = array_column->get_offsets();
-        if (position >= offsets.size()) {
-            return Status::InternalError(
-                    "Iceberg LIST field '{}' has {} offsets, but position {} "
-                    "is required",
-                    path_to_string(path), offsets.size(), position);
-        }
-        const size_t start = position == 0 ? 0 : offsets[position - 1];
-        const size_t end = offsets[position];
-        if (start > end || end > array_column->get_data().size()) {
+        size_t start = 0;
+        size_t end = 0;
+        RETURN_IF_ERROR(validate_collection_offsets(offsets, position, location.row, "LIST", path,
+                                                    &start, &end));
+        if (end > array_column->get_data().size()) {
             return Status::InternalError(
                     "Iceberg LIST field '{}' has invalid offsets at row {}: [{}, {}], "
                     "element count {}",
-                    path_to_string(path), position_info.row, start, end,
+                    path_to_string(path), location.row, start, end,
                     array_column->get_data().size());
         }
         const auto& element = field.field_type()->as_list_type()->element_field();
@@ -195,14 +202,14 @@ Status validate_value(const NestedField& field, const IColumn& column, const Dat
         }
         path.emplace_back(element.field_name());
         for (size_t i = start; i < end; ++i) {
-            PositionInfo element_position {
-                    .row = position_info.row,
+            ValidationLocation element_location {
+                    .row = location.row,
                     .ordinal = i - start,
                     .ordinal_kind = "element",
             };
             Status status =
                     validate_value(element, array_column->get_data(), array_type->get_nested_type(),
-                                   i, element_position, path, NonNullReason::SCHEMA_REQUIRED);
+                                   i, element_location, path, NonNullReason::SCHEMA_REQUIRED);
             if (!status.ok()) {
                 path.pop_back();
                 return status;
@@ -223,33 +230,28 @@ Status validate_value(const NestedField& field, const IColumn& column, const Dat
                                          path_to_string(path));
         }
         const auto& offsets = map_column->get_offsets();
-        if (position >= offsets.size()) {
-            return Status::InternalError(
-                    "Iceberg MAP field '{}' has {} offsets, but position {} "
-                    "is required",
-                    path_to_string(path), offsets.size(), position);
-        }
-        const size_t start = position == 0 ? 0 : offsets[position - 1];
-        const size_t end = offsets[position];
-        if (start > end || end > map_column->get_keys().size() ||
-            end > map_column->get_values().size()) {
+        size_t start = 0;
+        size_t end = 0;
+        RETURN_IF_ERROR(validate_collection_offsets(offsets, position, location.row, "MAP", path,
+                                                    &start, &end));
+        if (end > map_column->get_keys().size() || end > map_column->get_values().size()) {
             return Status::InternalError(
                     "Iceberg MAP field '{}' has invalid offsets at row {}: [{}, {}], "
                     "key count {}, value count {}",
-                    path_to_string(path), position_info.row, start, end,
-                    map_column->get_keys().size(), map_column->get_values().size());
+                    path_to_string(path), location.row, start, end, map_column->get_keys().size(),
+                    map_column->get_values().size());
         }
 
         const auto& map_type_desc = field.field_type()->as_map_type();
         path.emplace_back(map_type_desc->key_field().field_name());
         for (size_t i = start; i < end; ++i) {
-            PositionInfo entry_position {
-                    .row = position_info.row,
+            ValidationLocation entry_location {
+                    .row = location.row,
                     .ordinal = i - start,
                     .ordinal_kind = "map entry",
             };
             Status status = validate_value(map_type_desc->key_field(), map_column->get_keys(),
-                                           map_type->get_key_type(), i, entry_position, path,
+                                           map_type->get_key_type(), i, entry_location, path,
                                            NonNullReason::MAP_KEY);
             if (!status.ok()) {
                 path.pop_back();
@@ -264,14 +266,14 @@ Status validate_value(const NestedField& field, const IColumn& column, const Dat
         }
         path.emplace_back(value.field_name());
         for (size_t i = start; i < end; ++i) {
-            PositionInfo entry_position {
-                    .row = position_info.row,
+            ValidationLocation entry_location {
+                    .row = location.row,
                     .ordinal = i - start,
                     .ordinal_kind = "map entry",
             };
             Status status =
                     validate_value(value, map_column->get_values(), map_type->get_value_type(), i,
-                                   entry_position, path, NonNullReason::SCHEMA_REQUIRED);
+                                   entry_location, path, NonNullReason::SCHEMA_REQUIRED);
             if (!status.ok()) {
                 path.pop_back();
                 return status;
@@ -319,13 +321,12 @@ Status validate_write_block(const Schema& schema, const Block& block) {
                     if (!column->is_null_at(row)) {
                         continue;
                     }
-                    PositionInfo position_info {
+                    ValidationLocation location {
                             .row = row,
                             .ordinal = std::nullopt,
                             .ordinal_kind = {},
                     };
-                    Status status =
-                            null_violation(path, position_info, NonNullReason::SCHEMA_REQUIRED);
+                    Status status = null_violation(path, location, NonNullReason::SCHEMA_REQUIRED);
                     path.pop_back();
                     return status;
                 }
@@ -334,13 +335,13 @@ Status validate_write_block(const Schema& schema, const Block& block) {
             continue;
         }
         for (size_t row = 0; row < block.rows(); ++row) {
-            PositionInfo position_info {
+            ValidationLocation location {
                     .row = row,
                     .ordinal = std::nullopt,
                     .ordinal_kind = {},
             };
-            Status status = validate_value(field, *column, column_with_name.type, row,
-                                           position_info, path, NonNullReason::SCHEMA_REQUIRED);
+            Status status = validate_value(field, *column, column_with_name.type, row, location,
+                                           path, NonNullReason::SCHEMA_REQUIRED);
             if (!status.ok()) {
                 path.pop_back();
                 return status;
