@@ -18,10 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.analysis.SearchDslParser;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -33,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -55,13 +50,13 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalOlapScan())
+        return logicalFilter()
                 .when(filter -> ExpressionUtils.containsTypes(filter.getExpressions(), Search.class))
                 .then(this::rewriteSearchExpressions)
                 .toRule(RuleType.REWRITE_SEARCH_TO_SLOTS);
     }
 
-    private Plan rewriteSearchExpressions(LogicalFilter<LogicalOlapScan> filter) {
+    private Plan rewriteSearchExpressions(LogicalFilter<? extends Plan> filter) {
         List<Expression> newExpressions = new ArrayList<>();
 
         for (Expression expr : filter.getExpressions()) {
@@ -76,14 +71,14 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         return filter;
     }
 
-    private Expression rewriteExpression(Expression expr, LogicalOlapScan scan) {
+    private Expression rewriteExpression(Expression expr, Plan input) {
         if (expr instanceof Search) {
-            return rewriteSearch((Search) expr, scan);
+            return rewriteSearch((Search) expr, input);
         }
 
         // Recursively process children
         List<Expression> newChildren = expr.children().stream()
-                .map(child -> rewriteExpression(child, scan))
+                .map(child -> rewriteExpression(child, input))
                 .collect(Collectors.toList());
 
         if (!newChildren.equals(expr.children())) {
@@ -93,7 +88,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         return expr;
     }
 
-    private Expression rewriteSearch(Search search, LogicalOlapScan scan) {
+    private Expression rewriteSearch(Search search, Plan input) {
         try {
             // Parse DSL to get field bindings
             SearchDslParser.QsPlan qsPlan = search.getQsPlan();
@@ -117,12 +112,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                     String subcolumnPath = originalFieldName.substring(firstDotPos + 1);
 
                     // Find parent slot
-                    Slot parentSlot = findSlotByName(parentFieldName, scan);
-                    if (parentSlot == null) {
-                        throw new AnalysisException(String.format(
-                                "Parent field '%s' not found in table for search: %s",
-                                parentFieldName, search.getDslString()));
-                    }
+                    Slot parentSlot = findSlotByName(parentFieldName, input);
 
                     // Verify it's a variant type
                     if (!parentSlot.getDataType().isVariantType()) {
@@ -131,12 +121,6 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                                 parentFieldName, search.getDslString()));
                     }
                     String normalizedParentFieldName = parentSlot.getName();
-
-                    // Check the parent variant column has at least one INVERTED index. The concrete
-                    // subcolumn binding is resolved per-segment in BE, so we only enforce the parent
-                    // level here. See function_search.cpp is_variant_sub branch.
-                    checkInvertedIndexExists(scan.getTable(), normalizedParentFieldName,
-                            search.getDslString(), true);
 
                     // Create ElementAt expression for variant subcolumn
                     // This will be converted to an extracted column slot by VariantSubPathPruning rule
@@ -150,13 +134,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                             normalizedParentFieldName, subcolumnPath, normalizedFieldName);
                 } else {
                     // Normal field - find slot directly
-                    Slot slot = findSlotByName(originalFieldName, scan);
-                    if (slot == null) {
-                        throw new AnalysisException(String.format(
-                                "Field '%s' not found in table for search: %s",
-                                originalFieldName, search.getDslString()));
-                    }
-                    checkInvertedIndexExists(scan.getTable(), slot.getName(), search.getDslString(), false);
+                    Slot slot = findSlotByName(originalFieldName, input);
                     childExpr = slot;
                     normalizedFieldName = slot.getName();
                 }
@@ -179,61 +157,16 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         }
     }
 
-    /**
-     * Ensure the column referenced by a Lucene-syntax SEARCH predicate has an inverted index.
-     * Without this check the BE path would silently fall back to an empty bitmap (i.e. all FALSE),
-     * which is indistinguishable from "no rows matched" to the user. Throw at planning time so the
-     * behavior is consistent with referencing a non-existent column.
-     *
-     * @param table         table backing the LogicalOlapScan
-     * @param columnName    column name (parent column name when isVariantParent)
-     * @param dsl           original DSL, used in the error message
-     * @param isVariantParent true when {@code columnName} is the parent of a variant subcolumn
-     *                        access (e.g. {@code msg.body}); for that case any INVERTED index on
-     *                        the parent column is accepted because the concrete subcolumn binding
-     *                        is resolved per-segment in BE.
-     */
-    private void checkInvertedIndexExists(OlapTable table, String columnName, String dsl,
-            boolean isVariantParent) {
-        Column column = table.getColumn(columnName);
-        if (column == null) {
-            // Field existence is already validated by findSlotByName; if we reach here the schema
-            // changed concurrently. Surface a clear error rather than fall through.
-            throw new AnalysisException(String.format(
-                    "Column '%s' not found in table '%s' for search: %s",
-                    columnName, table.getName(), dsl));
+    /** Resolve a field only against the visible input, rejecting missing or ambiguous names. */
+    private Slot findSlotByName(String fieldName, Plan input) {
+        List<Slot> matches = input.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(fieldName))
+                .collect(Collectors.toList());
+        if (matches.size() != 1) {
+            throw new AnalysisException("search() field '" + fieldName
+                    + "' must resolve to exactly one input column");
         }
-
-        if (isVariantParent) {
-            for (Index index : table.getIndexes()) {
-                if (index.getIndexType() != IndexType.INVERTED) {
-                    continue;
-                }
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty()
-                        && columnName.equalsIgnoreCase(columns.get(0))) {
-                    return;
-                }
-            }
-        } else if (table.getInvertedIndex(column, null) != null) {
-            return;
-        }
-
-        throw new AnalysisException(String.format(
-                "Field '%s' has no inverted index, cannot be used in search: %s. "
-                        + "Create an inverted index on the column first "
-                        + "(ALTER TABLE ... ADD INDEX ... USING INVERTED).",
-                columnName, dsl));
-    }
-
-    private Slot findSlotByName(String fieldName, LogicalOlapScan scan) {
-        // Direct match only - variant subcolumns are handled by caller
-        for (Slot slot : scan.getOutput()) {
-            if (slot.getName().equalsIgnoreCase(fieldName)) {
-                return slot;
-            }
-        }
-        return null;
+        return matches.get(0);
     }
 
     private void normalizePlanFields(SearchDslParser.QsNode node, Map<String, String> normalized) {
