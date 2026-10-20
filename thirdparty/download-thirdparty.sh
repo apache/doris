@@ -753,4 +753,16 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     echo "Finished patching ${CCTZ_SOURCE}"
 fi
 
+# Clang on AArch64 supports __int128. Enable phmap's multiply-based hash mixer
+# instead of falling back to the longer shift/xor implementation.
+if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
+    cd "${TP_SOURCE_DIR}/${PARALLEL_HASHMAP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_aarch64_int128" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
+        touch "${PATCHED_MARK}_aarch64_int128"
+    fi
+    cd -
+    echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} for AArch64 int128"
+fi
+
 # vim: ts=4 sw=4 ts=4 tw=100:
