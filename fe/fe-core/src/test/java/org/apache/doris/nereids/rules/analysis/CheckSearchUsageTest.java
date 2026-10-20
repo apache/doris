@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -46,6 +49,9 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
                 + "  title VARCHAR(255),\n"
                 + "  content TEXT,\n"
                 + "  category VARCHAR(100),\n"
+                + "  v VARIANT,\n"
+                + "  indexed_v VARIANT,\n"
+                + "  INDEX idx_v(indexed_v) USING INVERTED,\n"
                 + "  INDEX idx_title(title) USING INVERTED,\n"
                 + "  INDEX idx_content(content) USING INVERTED\n"
                 + ") ENGINE=OLAP\n"
@@ -317,6 +323,69 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
                 PlanChecker.from(connectContext).analyze("SELECT t1.id FROM test_search_table t1 "
                         + "JOIN test_search_table t2 ON t1.id = t2.id WHERE search('title:hello')"));
         Assertions.assertTrue(exception.getMessage().contains("exactly one input column"));
+    }
+
+    @Test
+    public void testMissingSearchIndexCheckedAfterRewrite() {
+        for (String dsl : new String[] {"category:tech", "title:hello AND category:tech", "v.city:beijing"}) {
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze("SELECT id FROM test_search_table WHERE search('" + dsl + "')");
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class, checker::rewrite);
+            Assertions.assertTrue(exception.getMessage().contains("has no inverted index"), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testVariantIndexCheckedBeforeSubPathPruning() {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM test_search_table WHERE search('v.city:beijing')")
+                .matches(logicalFilter().when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && e.child(0) instanceof ElementAt))));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> checker.applyBottomUp(new CheckAfterRewrite()));
+        Assertions.assertTrue(exception.getMessage().contains("Field 'v' has no inverted index"));
+    }
+
+    @Test
+    public void testVariantIndexCheckedAfterSubPathPruning() {
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM test_search_table WHERE search('v.city:beijing')")
+                .applyCustom(new VariantSubPathPruning())
+                .matches(logicalFilter().when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && e.child(0) instanceof SlotReference
+                                && ((SlotReference) e.child(0)).hasSubColPath()))));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> checker.applyBottomUp(new CheckAfterRewrite()));
+        Assertions.assertTrue(exception.getMessage().contains("Field 'v' has no inverted index"));
+    }
+
+    @Test
+    public void testVariantSearchIndexWithExtractedSlot() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM test_search_table WHERE search('INDEXED_V.city:beijing')")
+                .applyCustom(new VariantSubPathPruning())
+                .applyBottomUp(new CheckAfterRewrite())
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && e.child(0) instanceof SlotReference
+                                && ((SlotReference) e.child(0)).hasSubColPath()
+                                && ((SlotReference) e.child(0)).getOriginalColumn().get().getName()
+                                        .equals("indexed_v")))));
+    }
+
+    @Test
+    public void testEliminatedSearchDoesNotRequireIndex() {
+        for (String dsl : new String[] {"category:tech", "v.city:beijing"}) {
+            for (String condition : new String[] {" AND FALSE", " OR TRUE"}) {
+                PlanChecker.from(connectContext)
+                        .analyze("SELECT id FROM test_search_table WHERE search('" + dsl + "')" + condition)
+                        .rewrite()
+                        .nonMatch(any().when(plan -> plan.getExpressions().stream()
+                                .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression))));
+            }
+        }
     }
 
     @Test

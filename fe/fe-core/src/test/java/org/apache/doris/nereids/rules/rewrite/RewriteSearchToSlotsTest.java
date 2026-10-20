@@ -304,9 +304,8 @@ public class RewriteSearchToSlotsTest {
     }
 
     @Test
-    public void testRewriteSearchThrowsWhenColumnHasNoInvertedIndex() throws Exception {
-        // PlanConstructor.student has the 'name' column but no inverted index on it. The rewrite
-        // must surface a clear error instead of letting BE silently return an empty bitmap.
+    public void testRewriteSearchBindsColumnWithoutInvertedIndex() throws Exception {
+        // Index availability is checked after rewrite; binding only needs the column.
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
                 PlanConstructor.student, ImmutableList.of("db"));
         Search searchFunc = new Search(new StringLiteral("name:alice"));
@@ -315,13 +314,10 @@ public class RewriteSearchToSlotsTest {
                 "rewriteSearch", Search.class, LogicalOlapScan.class);
         rewriteMethod.setAccessible(true);
 
-        InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
-                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan));
-        Assertions.assertNotNull(thrown.getCause());
-        Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
-        Assertions.assertTrue(thrown.getCause().getMessage().contains("inverted index"),
-                "Error message should mention inverted index, got: " + thrown.getCause().getMessage());
-        Assertions.assertTrue(thrown.getCause().getMessage().contains("name"));
+        SearchExpression rewritten = Assertions.assertInstanceOf(SearchExpression.class,
+                rewriteMethod.invoke(rewriteRule, searchFunc, scan));
+        Assertions.assertEquals(1, rewritten.arity());
+        Assertions.assertEquals("name", Assertions.assertInstanceOf(SlotReference.class, rewritten.child(0)).getName());
     }
 
     @Test

@@ -17,7 +17,11 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
@@ -55,6 +59,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.roaringbitmap.RoaringBitmap;
 
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -232,15 +237,71 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 if (!(plan instanceof LogicalFilter) || !(plan.child(0) instanceof LogicalOlapScan)) {
                     throw new AnalysisException("search() is only supported in filters directly on an OLAP table scan");
                 }
-                for (Expression child : expr.children()) {
-                    if (!(child instanceof SlotReference)
-                            && !(child instanceof ElementAt && child.child(0) instanceof SlotReference
-                                    && child.child(1) instanceof StringLiteral)) {
+                LogicalOlapScan scan = (LogicalOlapScan) plan.child(0);
+                SearchExpression search = (SearchExpression) expr;
+                for (Expression child : search.children()) {
+                    SlotReference slot;
+                    if (child instanceof SlotReference) {
+                        slot = (SlotReference) child;
+                    } else if (child instanceof ElementAt && child.child(0) instanceof SlotReference
+                            && child.child(1) instanceof StringLiteral) {
+                        slot = (SlotReference) child.child(0);
+                    } else {
                         throw new AnalysisException("search() fields must reference OLAP scan columns directly");
                     }
+                    // VariantSubPathPruning replaces ElementAt with a slot that retains its parent column.
+                    checkInvertedIndexExists(scan.getTable(), slot.getOriginalColumn().get().getName(),
+                            search.getDslString(), child instanceof ElementAt || slot.hasSubColPath());
                 }
             });
         }
+    }
+
+    /**
+     * Ensure the column referenced by a Lucene-syntax SEARCH predicate has an inverted index.
+     * Without this check the BE path would silently fall back to an empty bitmap (i.e. all FALSE),
+     * which is indistinguishable from "no rows matched" to the user. Throw at planning time so the
+     * behavior is consistent with referencing a non-existent column.
+     *
+     * @param table         table backing the LogicalOlapScan
+     * @param columnName    column name (parent column name when isVariantParent)
+     * @param dsl           original DSL, used in the error message
+     * @param isVariantParent true when {@code columnName} is the parent of a variant subcolumn
+     *                        access (e.g. {@code msg.body}); for that case any INVERTED index on
+     *                        the parent column is accepted because the concrete subcolumn binding
+     *                        is resolved per-segment in BE.
+     */
+    private void checkInvertedIndexExists(OlapTable table, String columnName, String dsl,
+            boolean isVariantParent) {
+        Column column = table.getColumn(columnName);
+        if (column == null) {
+            // Field existence is already validated during SEARCH binding; if we reach here the schema
+            // changed concurrently. Surface a clear error rather than fall through.
+            throw new AnalysisException(String.format(
+                    "Column '%s' not found in table '%s' for search: %s",
+                    columnName, table.getName(), dsl));
+        }
+
+        if (isVariantParent) {
+            for (Index index : table.getIndexes()) {
+                if (index.getIndexType() != IndexType.INVERTED) {
+                    continue;
+                }
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty()
+                        && columnName.equalsIgnoreCase(columns.get(0))) {
+                    return;
+                }
+            }
+        } else if (table.getInvertedIndex(column, null) != null) {
+            return;
+        }
+
+        throw new AnalysisException(String.format(
+                "Field '%s' has no inverted index, cannot be used in search: %s. "
+                        + "Create an inverted index on the column first "
+                        + "(ALTER TABLE ... ADD INDEX ... USING INVERTED).",
+                columnName, dsl));
     }
 
     private void checkMatchIsUsedCorrectly(Plan plan) {
