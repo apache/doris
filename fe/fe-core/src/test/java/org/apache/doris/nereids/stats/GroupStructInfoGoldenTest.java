@@ -60,8 +60,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -447,6 +449,18 @@ public class GroupStructInfoGoldenTest {
                 "the fraction of the second is not in the key: " + one.getCanonical(WITH_LITERAL));
         Assertions.assertTrue(two.getCanonical(WITH_LITERAL).contains("000002"),
                 "the fraction of the second is not in the key: " + two.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
+    void testTheElementsOfAnArrayLiteralKeepTheirBoundaries() {
+        // the two-element array and the one-element array whose value is `a', 'b` hold different rows but
+        // their raw text is one and the same: the elements are written with their own boundaries
+        GroupStructInfo twoElements = built("filter_with_an_array_literal");
+        GroupStructInfo oneElement = built("filter_with_an_ambiguous_array_literal");
+        Assertions.assertNotEquals(twoElements.getFingerprint(WITH_LITERAL),
+                oneElement.getFingerprint(WITH_LITERAL), "two array literals share an exact key");
+        Assertions.assertTrue(twoElements.getCanonical(WITH_LITERAL).contains("%5Blit"),
+                "the elements of the array are not delimited: " + twoElements.getCanonical(WITH_LITERAL));
     }
 
     @Test
@@ -1225,6 +1239,12 @@ public class GroupStructInfoGoldenTest {
                 GroupStructInfoGoldenTest::generateOutputsSwapped));
         cases.add(new PlanCase("repeat_grouping_sets", "repeat of the grouping sets ((a), ()) over a scan",
                 GroupStructInfoGoldenTest::repeatGroupingSets));
+        cases.add(new PlanCase("filter_with_an_array_literal",
+                "a filter over an array literal of two elements",
+                GroupStructInfoGoldenTest::filterWithAnArrayLiteral));
+        cases.add(new PlanCase("filter_with_an_ambiguous_array_literal",
+                "the same filter over one element whose text looks like the two elements of the first",
+                GroupStructInfoGoldenTest::filterWithAnAmbiguousArrayLiteral));
         cases.add(new PlanCase("filter_with_a_null_argument",
                 "a filter whose argument is the NULL literal",
                 GroupStructInfoGoldenTest::filterWithANullArgument));
@@ -1671,6 +1691,29 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t2 = scan(1, "t2");
         return describe(new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN, ImmutableList.of(
                 new EqualTo(t1.getOutput().get(0), t2.getOutput().get(0))), t1, t2, null));
+    }
+
+    private static GroupStructInfo filterWithAnArrayLiteral() {
+        return filterWithAnArrayLiteral("a", "b");
+    }
+
+    private static GroupStructInfo filterWithAnArrayLiteral(String... values) {
+        LogicalOlapScan t1 = scan(0, "t1");
+        List<Literal> elements = new ArrayList<>();
+        for (String value : values) {
+            elements.add(new StringLiteral(value));
+        }
+        Expression array = new Cast(t1.getOutput().get(1), ArrayType.of(StringType.INSTANCE));
+        return describe(new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(array, new ArrayLiteral(elements))), t1));
+    }
+
+    /**
+     * A filter over a one-element array whose element carries the text of two: the text of the value a
+     * list holds (`['a', 'b']`) is the same for `['a', 'b']` and for one element `a', 'b`.
+     */
+    private static GroupStructInfo filterWithAnAmbiguousArrayLiteral() {
+        return filterWithAnArrayLiteral("a', 'b");
     }
 
     private static GroupStructInfo filterWithANullArgument() {

@@ -38,7 +38,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 78, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 80, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -472,6 +472,30 @@ WITH_LITERAL.fingerprint = 43bf5ae5cbf984a64a9ac4650d4f30af1642517d445c6a5ef0f86
 NO_LITERAL.canonical = F{EqualTo(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0,v1,r0})
 NO_LITERAL.shape = F{EqualTo(col(db.t1.name),lit(*))}(S{null.null.t1#ti:0})
 NO_LITERAL.fingerprint = 68b397abfeabd376f1ed9e8219ad77f83588cdbbcbf6c51d9c23a70a8323e9bb
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_with_an_ambiguous_array_literal]
+desc = the same filter over one element whose text looks like the two elements of the first
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(Cast(col(db.t1.name)),lit(%5Blit%28a'%2C 'b%3ATEXT%29%5D:ARRAY<TEXT>))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(Cast(col(db.t1.name)),lit(%5Blit%28a'%2C 'b%3ATEXT%29%5D:ARRAY<TEXT>))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = 0d60950278001d4a8bfbc37f820bf00a238a18238acea88f6afba32b9ef8a81e
+NO_LITERAL.canonical = F{EqualTo(Cast(col(db.t1.name)),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(Cast(col(db.t1.name)),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = bd4e7abb554baac77f8799bf5950b249e3adafc2928424e8ecef5278894fbeb2
+scans = 1
+scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN filter_with_an_array_literal]
+desc = a filter over an array literal of two elements
+valid = true
+skipReason =
+WITH_LITERAL.canonical = F{EqualTo(Cast(col(db.t1.name)),lit(%5Blit%28a%3ATEXT%29%2Clit%28b%3ATEXT%29%5D:ARRAY<TEXT>))}(S{null.null.t1#ti:0,v1,r0})
+WITH_LITERAL.shape = F{EqualTo(Cast(col(db.t1.name)),lit(%5Blit%28a%3ATEXT%29%2Clit%28b%3ATEXT%29%5D:ARRAY<TEXT>))}(S{null.null.t1#ti:0})
+WITH_LITERAL.fingerprint = e21ad2f91cbe38fd8764f623ecb5ec914ece792d0abcb60052beeabfa853d5f3
+NO_LITERAL.canonical = F{EqualTo(Cast(col(db.t1.name)),lit(*))}(S{null.null.t1#ti:0,v1,r0})
+NO_LITERAL.shape = F{EqualTo(Cast(col(db.t1.name)),lit(*))}(S{null.null.t1#ti:0})
+NO_LITERAL.fingerprint = bd4e7abb554baac77f8799bf5950b249e3adafc2928424e8ecef5278894fbeb2
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN filter_with_the_string_null_argument]

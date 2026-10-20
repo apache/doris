@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -2539,6 +2540,23 @@ public class GroupStructInfo {
         }
         if (literal instanceof DateLiteral) {
             return ((DateLiteral) literal).getStringValue();
+        }
+        if (literal instanceof ArrayLiteral) {
+            // the elements of a composite literal are literals themselves, so they are rendered by the
+            // same rule: the text of the value a list holds separates its elements with an apostrophe
+            // which an element may carry, and `['a','b']` would be one text with `['a', 'b']` as a
+            // single element - the boundary each element is written with removes that ambiguity
+            StringBuilder text = new StringBuilder("[");
+            List<Literal> elements = ((ArrayLiteral) literal).getValue();
+            for (int i = 0; i < elements.size(); i++) {
+                if (i > 0) {
+                    text.append(',');
+                }
+                Literal element = elements.get(i);
+                text.append("lit(").append(literalText(element)).append(':')
+                        .append(element.getDataType()).append(')');
+            }
+            return text.append(']').toString();
         }
         return String.valueOf(literal.getValue());
     }
