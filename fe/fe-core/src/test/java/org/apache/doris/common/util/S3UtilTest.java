@@ -17,9 +17,19 @@
 
 package org.apache.doris.common.util;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.doris.common.Config;
 
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.S3Client;
+
+import java.net.URI;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
@@ -27,6 +37,72 @@ import java.util.Arrays;
 import java.util.List;
 
 public class S3UtilTest {
+    private String originalS3ClientHttpScheme;
+
+    @Before
+    public void setUp() {
+        originalS3ClientHttpScheme = Config.s3_client_http_scheme;
+    }
+
+    @After
+    public void tearDown() {
+        Config.s3_client_http_scheme = originalS3ClientHttpScheme;
+    }
+
+    @Test
+    public void testBuildEndpointUrlDefaultsToHttps() {
+        Config.s3_client_http_scheme = "https";
+        Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlUsesConfiguredHttpScheme() {
+        Config.s3_client_http_scheme = "http";
+        Assert.assertEquals("http://127.0.0.1:9000",
+                S3Util.buildEndpointUrl("127.0.0.1:9000"));
+    }
+
+    @Test
+    public void testBuildEndpointUrlPreservesExplicitSchemes() {
+        Config.s3_client_http_scheme = "https";
+        Assert.assertEquals("http://127.0.0.1:9000",
+                S3Util.buildEndpointUrl("http://127.0.0.1:9000"));
+
+        Config.s3_client_http_scheme = "http";
+        Assert.assertEquals("https://s3.us-east-1.amazonaws.com",
+                S3Util.buildEndpointUrl("https://s3.us-east-1.amazonaws.com"));
+    }
+
+    @Test
+    public void testBuildS3ClientAppliesDefaultSchemeAtClientCreation() {
+        Config.s3_client_http_scheme = "https";
+        try (S3Client client = S3Util.buildS3Client(
+                "127.0.0.1:9000", "us-east-1", true,
+                StaticCredentialsProvider.create(AwsBasicCredentials.create("ak", "sk")))) {
+            Assert.assertEquals(URI.create("https://127.0.0.1:9000"),
+                    client.serviceClientConfiguration().endpointOverride().get());
+        }
+    }
+
+
+    @Test
+    public void testBearerTokenClientsApplyConfiguredEndpointScheme() {
+        ExecutionInterceptor interceptor = new ExecutionInterceptor() {};
+        for (String scheme : Arrays.asList("https", "http")) {
+            Config.s3_client_http_scheme = scheme;
+            for (String endpoint : Arrays.asList("127.0.0.1:9000", "http://127.0.0.1:9000",
+                    "https://127.0.0.1:9000")) {
+                URI expected = URI.create(endpoint.contains("://") ? endpoint : scheme + "://" + endpoint);
+                try (S3Client client = S3Util.buildBearerTokenS3Client(endpoint, "us-east1", true, interceptor);
+                        S3AsyncClient asyncClient = S3Util.buildBearerTokenS3AsyncClient(
+                                endpoint, "us-east1", true, interceptor)) {
+                    Assert.assertEquals(expected, client.serviceClientConfiguration().endpointOverride().get());
+                    Assert.assertEquals(expected, asyncClient.serviceClientConfiguration().endpointOverride().get());
+                }
+            }
+        }
+    }
 
     @Test
     public void testExtendGlobNumberRange_simpleRange() {

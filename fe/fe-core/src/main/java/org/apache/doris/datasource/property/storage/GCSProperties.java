@@ -36,7 +36,6 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
-import java.net.URI;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -274,16 +273,16 @@ public class GCSProperties extends AbstractS3CompatibleProperties {
     }
 
     public S3Client createS3Client() {
-        return createS3Client(URI.create(endpoint), Boolean.parseBoolean(usePathStyle));
+        return createS3Client(endpoint, Boolean.parseBoolean(usePathStyle));
     }
 
     @Override
-    public S3Client createS3Client(URI endpoint, boolean usePathStyle) {
+    public S3Client createS3Client(String endpoint, boolean usePathStyle) {
         if (!hasGcpCredential()) {
             return super.createS3Client(endpoint, usePathStyle);
         }
         try {
-            return S3Util.buildBearerTokenS3Client(endpoint.toString(), getRegion(), usePathStyle,
+            return S3Util.buildBearerTokenS3Client(endpoint, getRegion(), usePathStyle,
                     GcpAuth.bearerTokenInterceptor(GcpAuth.createCredentials(getGcpCredential())));
         } catch (Exception e) {
             throw new IllegalStateException("Failed to initialize native GCP authentication", e);

@@ -140,7 +140,7 @@ inline std::string json_scalar_text(const rapidjson::Value& value) {
 inline Status normalize_timestamp_for_doris(PrimitiveType primitive_type,
                                             const cctz::time_zone* timezone, std::string* value) {
     if (primitive_type != TYPE_DATETIME && primitive_type != TYPE_DATETIMEV2 &&
-        primitive_type != TYPE_TIMESTAMPTZ) {
+        primitive_type != TYPE_TIMESTAMPTZ && primitive_type != TYPE_TIMESTAMP_NS) {
         return Status::OK();
     }
     if (const size_t separator = value->find('T'); separator != std::string::npos) {

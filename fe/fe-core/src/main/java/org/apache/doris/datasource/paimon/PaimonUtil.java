@@ -345,7 +345,8 @@ public class PaimonUtil {
                 if (dataType instanceof org.apache.paimon.types.TimestampType) {
                     tsScale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
                     if (tsScale > 6) {
-                        tsScale = 6;
+                        // Preserve sub-microsecond digits for unzoned external timestamps.
+                        return Type.TIMESTAMP_NS;
                     }
                 } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
                     tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
@@ -396,6 +397,21 @@ public class PaimonUtil {
     public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type, boolean enableVarbinaryMapping,
             boolean enableTimestampTzMapping) {
         return paimonPrimitiveTypeToDorisType(type, enableVarbinaryMapping, enableTimestampTzMapping);
+    }
+
+    public static boolean containsTimestampNs(Type type) {
+        if (type.isTimeStampNs()) {
+            return true;
+        } else if (type.isArrayType()) {
+            return containsTimestampNs(((org.apache.doris.catalog.ArrayType) type).getItemType());
+        } else if (type.isMapType()) {
+            org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
+            return containsTimestampNs(mapType.getKeyType()) || containsTimestampNs(mapType.getValueType());
+        } else if (type.isStructType()) {
+            return ((org.apache.doris.catalog.StructType) type).getFields().stream()
+                    .anyMatch(field -> containsTimestampNs(field.getType()));
+        }
+        return false;
     }
 
     public static boolean containsVariant(Type type) {
@@ -838,6 +854,11 @@ public class PaimonUtil {
                 // Format through Doris' target type instead of translating between Paimon's
                 // timestamp text and Doris' partition-literal syntax by hand.
                 TimestampType timestampType = (TimestampType) type;
+                if (timestampType.getPrecision() > 6) {
+                    // Partition metadata must preserve the same precision as the mapped column.
+                    return new org.apache.doris.analysis.TimeStampNsLiteral(
+                            ((Timestamp) value).toLocalDateTime()).getStringValue();
+                }
                 ScalarType dorisType = ScalarType.createDatetimeV2Type(
                         Math.min(timestampType.getPrecision(), 6));
                 return new DateLiteral(((Timestamp) value).toLocalDateTime(), dorisType)

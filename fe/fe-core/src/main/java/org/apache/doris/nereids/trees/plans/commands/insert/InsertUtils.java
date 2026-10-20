@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergUuidWriteConverter;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -527,7 +528,7 @@ public class InsertUtils {
                     NamedExpression defaultExpression = generateDefaultExpression(
                             column, icebergWriteSchemaContext);
                     addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
-                            null, rewriteContext, strictCast);
+                            null, rewriteContext, strictCast, isIcebergSink);
                 }
             } else {
                 if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
@@ -567,7 +568,7 @@ public class InsertUtils {
                             NamedExpression defaultExpression = generateDefaultExpression(
                                     sameNameColumn, icebergWriteSchemaContext);
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
-                                    null, rewriteContext, strictCast);
+                                    null, rewriteContext, strictCast, isIcebergSink);
                         } else {
                             NamedExpression value = resolveIcebergDefaultReferences(
                                     values.get(i), icebergWriteSchemaContext,
@@ -575,7 +576,7 @@ public class InsertUtils {
                             DataType targetType = targetTypeForInlineValue(
                                     sameNameColumn, value, isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, value,
-                                    targetType, rewriteContext, strictCast);
+                                    targetType, rewriteContext, strictCast, isIcebergSink);
                         }
                     }
                 } else {
@@ -593,7 +594,7 @@ public class InsertUtils {
                             NamedExpression defaultExpression = generateDefaultExpression(
                                     columns.get(i), icebergWriteSchemaContext);
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
-                                    null, rewriteContext, strictCast);
+                                    null, rewriteContext, strictCast, isIcebergSink);
                         } else {
                             NamedExpression value = resolveIcebergDefaultReferences(
                                     values.get(i), icebergWriteSchemaContext,
@@ -601,7 +602,7 @@ public class InsertUtils {
                             DataType targetType = targetTypeForInlineValue(
                                     columns.get(i), value, isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, value, targetType,
-                                    rewriteContext, strictCast);
+                                    rewriteContext, strictCast, isIcebergSink);
                         }
                     }
                 }
@@ -752,7 +753,18 @@ public class InsertUtils {
             Optional<ExpressionAnalyzer> analyzer,
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
             NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
-            boolean strictCast) {
+            boolean strictCast, boolean isIcebergSink) {
+        if (isIcebergSink && targetType != null && IcebergUuidWriteConverter.containsUuid(targetType)) {
+            // VALUES normalization runs before BindSink; keep UUID text intact until it can be validated.
+            if (!analyzer.isPresent()) {
+                optimizedRowConstructor.add(value);
+                return;
+            }
+            value = (NamedExpression) analyzer.get().analyze(value,
+                    new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
+            Expression input = value instanceof Alias ? value.child(0) : value;
+            value = new Alias(IcebergUuidWriteConverter.convert(input, targetType), value.getName());
+        }
         if (targetType != null) {
             // In strict cast/insert mode, we don't cast to target varchar type here,
             // we cast to varchar max here and do substring accordingly in BindSink.

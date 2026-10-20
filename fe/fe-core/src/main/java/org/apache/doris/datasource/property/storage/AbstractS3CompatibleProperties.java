@@ -36,7 +36,6 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.lang.reflect.Field;
-import java.net.URI;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -155,7 +154,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
      * and keep their authentication details in the provider-specific properties
      * class. This prevents {@code S3ObjStorage} from accumulating provider checks.
      */
-    public S3Client createS3Client(URI endpoint, boolean usePathStyle) {
+    public S3Client createS3Client(String endpoint, boolean usePathStyle) {
         return S3Util.buildS3Client(endpoint, getRegion(), usePathStyle, getAwsCredentialsProvider());
     }
 

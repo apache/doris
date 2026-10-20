@@ -21,8 +21,8 @@
 \N	841626795E7D351555B835A002E3BF10669DE9B81C95A3D59E10865AC37EA7C3	Dongjoon Hyun
 
 -- !test_4 --
-false	1	1024	65536	9223372036854775807	1.0	-15.0	0x0001020304	hi	{"list":[{"int1":1, "string1":"bye"}, {"int1":2, "string1":"sigh"}]}	[{"int1":3, "string1":"good"}, {"int1":4, "string1":"bad"}]	{}
-true	100	2048	65536	9223372036854775807	2.0	-5.0	0x	bye	{"list":[{"int1":1, "string1":"bye"}, {"int1":2, "string1":"sigh"}]}	[{"int1":100000000, "string1":"cat"}, {"int1":-100000, "string1":"in"}, {"int1":1234, "string1":"hat"}]	{"chani":{"int1":5, "string1":"chani"}, "mauddib":{"int1":1, "string1":"mauddib"}}
+false	1	1024	65536	9223372036854775807	1.0	-15	0x0001020304	hi	{"list":[{"int1":1, "string1":"bye"}, {"int1":2, "string1":"sigh"}]}	[{"int1":3, "string1":"good"}, {"int1":4, "string1":"bad"}]	{}
+true	100	2048	65536	9223372036854775807	2.0	-5	0x	bye	{"list":[{"int1":1, "string1":"bye"}, {"int1":2, "string1":"sigh"}]}	[{"int1":100000000, "string1":"cat"}, {"int1":-100000, "string1":"in"}, {"int1":1234, "string1":"hat"}]	{"chani":{"int1":5, "string1":"chani"}, "mauddib":{"int1":1, "string1":"mauddib"}}
 
 -- !test_5 --
 50000

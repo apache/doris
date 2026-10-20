@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.paimon.PaimonUtil;
@@ -106,8 +107,9 @@ public class ExternalTimestampMappingTest {
     @Test
     public void testPaimonTimestampPrecisionAndSemanticsIgnoreLegacyFlag() {
         for (boolean legacyFlag : new boolean[] {false, true}) {
-            for (int precision : new int[] {0, 3, 6, 9}) {
-                Assert.assertEquals(ScalarType.createDatetimeV2Type(Math.min(precision, 6)),
+            for (int precision : new int[] {0, 3, 6, 7, 8, 9}) {
+                // Unzoned precision above six retains nanos regardless of the legacy flag.
+                Assert.assertEquals(precision > 6 ? Type.TIMESTAMP_NS : ScalarType.createDatetimeV2Type(precision),
                         PaimonUtil.paimonTypeToDorisType(new TimestampType(precision), false, legacyFlag));
                 Assert.assertEquals(ScalarType.createTimeStampTzType(Math.min(precision, 6)),
                         PaimonUtil.paimonTypeToDorisType(new LocalZonedTimestampType(precision), false, legacyFlag));

@@ -37,7 +37,7 @@ suite("test_paimon_table_properties", "p0,external,doris,external_docker,externa
             """
         sql """switch `${catalog_name}`"""
         sql """use `${catalog_name}`.`flink_paimon`"""
-        // SHOW CREATE must retain the LTZ/NTZ distinction from the Paimon logical schema.
+        // SHOW CREATE must retain NTZ scales 7-9 as TIMESTAMP_NS, distinct from microsecond LTZ.
         qt_show_create_table """show create table ${table_name} """
 
         sql """drop catalog if exists ${catalog_name}_with_region"""

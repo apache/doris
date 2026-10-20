@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -120,20 +121,19 @@ public class S3Resource extends Resource {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
 
-        // the endpoint for ping need add uri scheme.
-        String pingEndpoint = properties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://") && !pingEndpoint.startsWith("https://")) {
-            pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
-            properties.put(S3Properties.ENDPOINT, pingEndpoint);
-            properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
-        }
-        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
+        String endpoint = properties.get(S3Properties.ENDPOINT);
+        properties.put(S3Properties.Env.ENDPOINT, endpoint);
+        String region = S3Properties.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
 
         if (needCheck) {
+            Map<String, String> pingProperties = new HashMap<>(properties);
+            String pingEndpoint = S3Util.buildEndpointUrl(endpoint);
+            pingProperties.put(S3Properties.ENDPOINT, pingEndpoint);
+            pingProperties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
             String bucketName = properties.get(S3Properties.BUCKET);
             String rootPath = properties.get(S3Properties.ROOT_PATH);
-            pingS3(bucketName, rootPath, properties);
+            pingS3(bucketName, rootPath, pingProperties);
         }
         // optional
         S3Properties.optionalS3Property(properties);
@@ -281,6 +281,9 @@ public class S3Resource extends Resource {
         if (needCheck) {
             S3Properties.requiredS3PingProperties(effectiveProperties);
             Map<String, String> changedProperties = new HashMap<>(effectiveProperties);
+            String endpoint = S3Util.buildEndpointUrl(changedProperties.get(S3Properties.ENDPOINT));
+            changedProperties.put(S3Properties.ENDPOINT, endpoint);
+            changedProperties.put(S3Properties.Env.ENDPOINT, endpoint);
             pingS3(effectiveProperties.get(S3Properties.BUCKET), effectiveProperties.get(S3Properties.ROOT_PATH),
                     changedProperties);
         }
@@ -301,8 +304,8 @@ public class S3Resource extends Resource {
         String token = properties.getOrDefault(S3Properties.SESSION_TOKEN,
                 this.properties.get(S3Properties.SESSION_TOKEN));
         String endpoint = properties.getOrDefault(S3Properties.ENDPOINT, this.properties.get(S3Properties.ENDPOINT));
-        String pingEndpoint = "http://" + endpoint;
-        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
+        String pingEndpoint = S3Util.buildEndpointUrl(endpoint);
+        String region = S3Properties.getRegionOfEndpoint(endpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
         return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
     }
@@ -345,4 +348,3 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
-

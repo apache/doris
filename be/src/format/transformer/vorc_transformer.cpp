@@ -47,6 +47,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/pod_array.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -242,6 +243,11 @@ Status VOrcTransformer::open() {
         }
     }
 
+    if (orc_serde_utils::has_nanosecond_timestamp(*_schema)) {
+        // ORC and cctz use different ancient local offsets. A UTC wall-clock carrier avoids
+        // shifting nanosecond boundary dates when another session reads the file.
+        _write_options->setTimezoneName("GMT");
+    }
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
         _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
@@ -345,6 +351,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         type = orc::createPrimitiveType(orc::DATE);
         break;
     }
+    case TYPE_TIMESTAMP_NS: {
+        type = orc::createPrimitiveType(orc::TIMESTAMP);
+        type->setAttribute("iceberg.timestamp-unit", "NANOS");
+        break;
+    }
     case TYPE_DATETIMEV2: {
         type = orc::createPrimitiveType(orc::TIMESTAMP);
         break;
@@ -420,6 +431,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         };
         switch (nested_field->field_type()->type_id()) {
         case iceberg::TypeID::UUID:
+            // Native UUID SerDe already emits network-order bytes and retains its annotation.
+            if (primitive_type == TYPE_UUID) {
+                type->setAttribute(ICEBERG_BINARY_TYPE, "UUID");
+                break;
+            }
             use_iceberg_binary_type("UUID");
             break;
         case iceberg::TypeID::FIXED:
@@ -622,6 +638,10 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
         }
     } else if (const auto* ts_stats =
                        dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
+        if (remove_nullable(data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+            // Omit bounds rather than publish microseconds as Iceberg nanoseconds.
+            return false;
+        }
         if (ts_stats->hasMinimum() && ts_stats->hasMaximum()) {
             // ORC stores milliseconds plus a sub-millisecond nanos tail. Dropping that tail
             // makes Iceberg's upper bound smaller than real rows and causes false-negative pruning.
@@ -723,9 +743,9 @@ Status VOrcTransformer::write(const Block& block) {
             normalized_columns.push_back(std::move(raw_column));
             const auto& write_column = normalized_columns.back();
             RETURN_IF_ERROR(_resize_row_batch(col.type, *write_column, root->fields[i]));
-            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_state->timezone(), *write_column,
-                                                            nullptr, root->fields[i], 0, sz, arena,
-                                                            options));
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_write_options->getTimezoneName(),
+                                                            *write_column, nullptr, root->fields[i],
+                                                            0, sz, arena, options));
         }
         root->numElements = sz;
         _writer->add(*row_batch);
@@ -923,6 +943,11 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
 
     switch (nested_field.field_type()->type_id()) {
     case iceberg::TypeID::UUID:
+        if (type->get_primitive_type() == TYPE_UUID) {
+            // Reinterpreting the native integer layout here would swap UUID bytes.
+            *normalized_column = column;
+            return Status::OK();
+        }
         return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
     case iceberg::TypeID::FIXED:
         return normalize_iceberg_fixed_column(column, type, nested_field, normalized_column,

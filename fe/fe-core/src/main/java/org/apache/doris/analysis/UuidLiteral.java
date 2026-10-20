@@ -72,6 +72,14 @@ public class UuidLiteral extends LiteralExpr {
     @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
+        if (needExternalSql && table instanceof org.apache.doris.catalog.JdbcTable
+                && (((org.apache.doris.catalog.JdbcTable) table).getJdbcTableType()
+                        == org.apache.doris.thrift.TOdbcTableType.TRINO
+                    || ((org.apache.doris.catalog.JdbcTable) table).getJdbcTableType()
+                        == org.apache.doris.thrift.TOdbcTableType.PRESTO)) {
+            // Both dialects expose native UUIDs and reject implicit VARCHAR coercion in predicates.
+            return "UUID '" + getStringValue() + "'";
+        }
         return needExternalSql ? "'" + getStringValue() + "'" : toSqlImpl();
     }
 

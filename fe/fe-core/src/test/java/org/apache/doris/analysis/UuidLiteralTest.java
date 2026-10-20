@@ -56,4 +56,28 @@ public class UuidLiteralTest {
                     JdbcScanNode.conjunctExprToString(TOdbcTableType.CLICKHOUSE, predicate, null));
         }
     }
+
+    @Test
+    public void testTrinoAndPrestoUseTypedUuidLiterals() throws Exception {
+        org.apache.doris.catalog.JdbcTable table = org.mockito.Mockito.mock(org.apache.doris.catalog.JdbcTable.class);
+        UuidLiteral value = new UuidLiteral("80000000000000000000000000000000");
+        SlotRef slot = new SlotRef(null, "u");
+        slot.setType(Type.UUID);
+        for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.TRINO, TOdbcTableType.PRESTO)) {
+            org.mockito.Mockito.when(table.getJdbcTableType()).thenReturn(dialect);
+            org.mockito.Mockito.when(table.getProperRemoteColumnName(dialect, "u")).thenReturn("u");
+            Assert.assertEquals("UUID '80000000-0000-0000-0000-000000000000'",
+                    value.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, table));
+            Assert.assertEquals("(u = UUID '80000000-0000-0000-0000-000000000000')",
+                    JdbcScanNode.conjunctExprToString(dialect,
+                            new BinaryPredicate(BinaryPredicate.Operator.EQ, slot, value), table));
+            for (boolean notIn : Arrays.asList(false, true)) {
+                Assert.assertEquals("u" + (notIn ? " NOT" : "")
+                                + " IN (UUID '80000000-0000-0000-0000-000000000000')",
+                        JdbcScanNode.conjunctExprToString(dialect,
+                                new InPredicate(slot, Arrays.asList(value), notIn), table));
+            }
+        }
+    }
+
 }

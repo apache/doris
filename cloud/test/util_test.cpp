@@ -17,8 +17,10 @@
 
 #include "cpp/util.h"
 
+#include <aws/core/client/ClientConfiguration.h>
 #include <bthread/countdown_event.h>
 
+#include <chrono>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -33,6 +35,7 @@
 #include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "recycler/recycler.h"
+#include "recycler/s3_accessor.h"
 #include "recycler/sync_executor.h"
 
 using namespace doris::cloud;
@@ -455,4 +458,31 @@ TEST(UtilTest, test_long_normalize_http_uri) {
     }
 
     EXPECT_EQ(doris::normalize_http_uri(longPath), expected);
+}
+
+TEST(UtilTest, test_set_s3_client_default_http_scheme) {
+    doris::cloud::S3Environment::getInstance();
+    Aws::Client::ClientConfiguration client_config =
+            doris::cloud::S3Environment::getClientConfiguration();
+
+    client_config.endpointOverride = "example.com:9000";
+    doris::set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    doris::set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+
+    client_config.endpointOverride = "http://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTP;
+    doris::set_s3_client_default_http_scheme(client_config, "https");
+    EXPECT_EQ(client_config.endpointOverride, "http://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
+
+    client_config.endpointOverride = "https://example.com:9000";
+    client_config.scheme = Aws::Http::Scheme::HTTPS;
+    doris::set_s3_client_default_http_scheme(client_config, "http");
+    EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
+    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
 }

@@ -1025,7 +1025,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
                     && !restTokenTable
                     && !dvMergeOnRead && !splitDvNotMaterialized
-                    && !orcLtzSchema && !projectedVariant && !externalFileSplit
+                    && !orcLtzSchema && !projectedVariant && !needsNanosecondReader() && !externalFileSplit
                     && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
                     && schemeCapabilityVerified && hdfsBackendVerified
                     && paimonFileStoreTable != null;
@@ -1718,8 +1718,16 @@ public class PaimonScanNode extends FileQueryScanNode {
         return selectFeSplitSizeForBe(fallbackSize, thriftFormat, true);
     }
 
+    private boolean needsNanosecondReader() {
+        // Slots include filter-only columns. JNI retains INT96/ORC nanos, including nested values.
+        return desc.getSlots().stream().anyMatch(slot -> PaimonUtil.containsTimestampNs(slot.getType()));
+    }
+
     @VisibleForTesting
     public boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
+        if (needsNanosecondReader()) {
+            return false;
+        }
         if (!optRawFiles.isPresent()) {
             return false;
         }

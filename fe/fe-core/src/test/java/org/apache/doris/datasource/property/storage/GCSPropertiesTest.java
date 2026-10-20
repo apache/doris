@@ -20,8 +20,10 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.GcpCredentialPB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.storage.auth.GcpCredential;
 import org.apache.doris.datasource.property.storage.auth.GcpCredentialProviderType;
+import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TGcpCredentialProviderType;
 import org.apache.doris.thrift.TObjStorageType;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -591,6 +594,32 @@ public class GCSPropertiesTest {
             try (software.amazon.awssdk.services.s3.S3Client client = storage.createS3Client()) {
                 Assertions.assertNotNull(client);
             }
+        }
+    }
+
+    @Test
+    public void testGcsClientsApplyConfiguredEndpointScheme() throws Exception {
+        String originalScheme = Config.s3_client_http_scheme;
+        try {
+            Config.s3_client_http_scheme = "https";
+            for (String providerType : new String[] {"COMPUTE_ENGINE", "ANONYMOUS"}) {
+                for (String endpoint : new String[] {"127.0.0.1:9000", "http://127.0.0.1:9000"}) {
+                    Map<String, String> props = new HashMap<>();
+                    props.put("provider", "GCP");
+                    props.put(GCSProperties.ENDPOINT, endpoint);
+                    props.put(GCSProperties.CREDENTIAL_PROVIDER_TYPE, providerType);
+                    GCSProperties storage = (GCSProperties) StorageProperties.createPrimary(props);
+                    URI expected = URI.create(endpoint.startsWith("http://") ? endpoint : "https://" + endpoint);
+                    try (S3Client client = storage.createS3Client();
+                            S3ObjStorage objStorage = new S3ObjStorage(storage)) {
+                        Assertions.assertEquals(expected, client.serviceClientConfiguration().endpointOverride().get());
+                        Assertions.assertEquals(expected,
+                                objStorage.getClient().serviceClientConfiguration().endpointOverride().get());
+                    }
+                }
+            }
+        } finally {
+            Config.s3_client_http_scheme = originalScheme;
         }
     }
 

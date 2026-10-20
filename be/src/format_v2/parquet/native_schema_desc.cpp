@@ -853,16 +853,9 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::get_doris_type(
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, nullable);
             break;
         case tparquet::Type::BYTE_ARRAY:
-            if (_enable_mapping_varbinary) {
-                // if physical_schema not set logicalType and converted_type,
-                // we treat BYTE_ARRAY as VARBINARY by default, so that we can read all data directly.
-                ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable);
-            } else {
-                ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
-            }
-            break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+            // Text annotations are handled above; unannotated bytes always retain binary semantics.
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable);
             break;
         default:
             throw Exception(Status::InternalError("Not supported parquet logicalType{}",
@@ -915,6 +908,11 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         // sub-second values are silently truncated by the target SerDe.
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, scale);
     } else if (logicalType.__isset.TIMESTAMP) {
+        if (logicalType.TIMESTAMP.unit.__isset.NANOS && !logicalType.TIMESTAMP.isAdjustedToUTC) {
+            // Materialize nanoseconds before any table cast; DATETIMEV2 would discard the remainder.
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, nullable);
+            return ans;
+        }
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
                 // treat TIMESTAMP with isAdjustedToUTC as TIMESTAMPTZ
@@ -927,10 +925,8 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.UUID) {
-        // UUID is a logical type, so the raw-binary default must not override it.
-        // Preserve table-requested raw carriers for Iceberg equality deletes and defaults.
-        auto uuid_type = _preserve_binary_uuid ? TYPE_STRING : TYPE_UUID;
-        ans.first = DataTypeFactory::instance().create_data_type(uuid_type, nullable, -1, -1, 16);
+        // UUID annotations describe a logical UUID even when binary mapping is enabled.
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_UUID, nullable);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {

@@ -522,7 +522,8 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
-        if (tableType == TOdbcTableType.CLICKHOUSE
+        // SQL Server GUID ordering, like ClickHouse UUID ordering, differs from Doris unsigned order.
+        if ((tableType == TOdbcTableType.CLICKHOUSE || tableType == TOdbcTableType.SQLSERVER)
                 && expr.contains((Expr child) -> child.getType().isUuid())) {
             if (expr instanceof BinaryPredicate) {
                 BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
