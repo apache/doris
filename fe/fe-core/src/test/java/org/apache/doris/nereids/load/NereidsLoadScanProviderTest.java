@@ -399,8 +399,8 @@ public class NereidsLoadScanProviderTest {
 
         // The DOUBLE leaf rules out a lossless JSON identity, so the value is compared by one
         // recursive engine call instead of one expression per field. The typed search is embedded
-        // twice: the NULL search guard and that call. Expanding the fields would parse the whole
-        // search 257 times and convert 256 fields on every parse.
+        // once: the NULL search guard checks the raw input. Expanding the fields would parse the
+        // whole search 257 times and convert 256 fields on every parse.
         NereidsParamCreateContext context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(searchSlot, new NullLiteral())),
                 Pair.of("replace_value", Lists.newArrayList("w", null)));
@@ -415,7 +415,7 @@ public class NereidsLoadScanProviderTest {
                 expression -> expression instanceof Cast
                         && ((Cast) expression).getDataType().equals(complexType)
                         && ((Cast) expression).child() instanceof UnboundSlot);
-        Assertions.assertEquals(2, typedSearches.size(), replaced.toSql());
+        Assertions.assertEquals(1, typedSearches.size(), replaced.toSql());
         for (Cast typedSearch : typedSearches) {
             Assertions.assertEquals(searchSlot, typedSearch.child());
         }
@@ -431,22 +431,51 @@ public class NereidsLoadScanProviderTest {
                 new Column("v", nestedMap, true)));
         StringLiteral search = new StringLiteral("{{1: 2}}");
 
-        // A MAP field parsed out of the STRUCT search text keeps repeated keys, unlike the top
-        // level string cast, so both sides are deduplicated with the last value winning before the
-        // keys and values are compared.
+        // The entire STRUCT is compared by one engine call, which normalizes its nested MAPs on
+        // private columns. A per-field expansion would repeat the full search cast for each MAP.
         NereidsParamCreateContext context = createMappingLoadContext(table,
                 new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
                 Pair.of("replace_value", Lists.newArrayList("{{1: 2}}", null)));
         Expression replaced = context.exprMap.get("v");
         UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
+        Assertions.assertEquals("complex_equals", ((UnboundFunction) condition.child(2)).getName());
+        List<Cast> searches = replaced.collectToList(e -> e instanceof Cast && ((Cast) e).isStrict());
+        Assertions.assertEquals(1, searches.size(), replaced.toSql());
+    }
+
+    @Test
+    public void testArrowWideStructWithMapsParsesSearchOnce() throws Exception {
+        ArrayList<org.apache.doris.catalog.StructField> fields = Lists.newArrayList();
+        for (int i = 0; i < 32; i++) {
+            fields.add(new org.apache.doris.catalog.StructField("m" + i,
+                    new MapType(ScalarType.INT, ScalarType.INT, true, true)));
+        }
+        OlapTable table = mockTable(Arrays.asList(new Column("k", PrimitiveType.INT, true),
+                new Column("v", new org.apache.doris.catalog.StructType(fields), true)));
+        UnboundSlot search = new UnboundSlot("w");
+        Expression replaced = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(search, new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("w", null))).exprMap.get("v");
+        List<Cast> searches = replaced.collectToList(e -> e instanceof Cast && ((Cast) e).isStrict());
+        Assertions.assertEquals(1, searches.size(), replaced.toSql());
+        Assertions.assertEquals(search, searches.get(0).child());
+        Assertions.assertEquals(1, replaced.collectToList(e -> e instanceof UnboundFunction
+                && ((UnboundFunction) e).getName().equals("complex_equals")).size(), replaced.toSql());
+    }
+
+    @Test
+    public void testArrowNativeMapSelfSearchNormalizesBothSides() throws Exception {
+        OlapTable table = mockTable(Arrays.asList(new Column("k", PrimitiveType.INT, true),
+                new Column("v", new MapType(ScalarType.INT, ScalarType.INT, true, true), true)));
+        Expression replaced = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new UnboundSlot("v"), new NullLiteral())),
+                Pair.of("replace_value", Lists.newArrayList("v", null))).exprMap.get("v");
+        UnboundFunction condition = (UnboundFunction) ((Not) replaced.child(1).child(0)).child();
         And equality = (And) condition.child(2);
-        Expression keysEquality = equality.child(0);
-        Assertions.assertTrue(keysEquality instanceof NullSafeEqual, keysEquality.toSql());
-        for (Expression side : keysEquality.children()) {
-            Assertions.assertEquals("map_keys", ((UnboundFunction) side).getName());
-            Expression deduplicated = side.child(0);
-            Assertions.assertEquals("deduplicate_map", ((UnboundFunction) deduplicated).getName());
-            Assertions.assertEquals("element_at", ((UnboundFunction) deduplicated.child(0)).getName());
+        for (Expression comparison : equality.children()) {
+            for (Expression side : comparison.children()) {
+                Assertions.assertEquals("deduplicate_map", ((UnboundFunction) side.child(0)).getName());
+            }
         }
     }
 
@@ -677,12 +706,13 @@ public class NereidsLoadScanProviderTest {
         Assertions.assertEquals(function, ((UnboundFunction) left).getName());
         Assertions.assertEquals(function, ((UnboundFunction) right).getName());
         // The Arrow source keeps repeated keys, so it is deduplicated before the keys and values
-        // are extracted. The search cast already applies the same rule.
+        // are extracted. Normalize the search too: a native MAP slot has a no-op same-type cast.
         Expression deduplicated = left.child(0);
         Assertions.assertTrue(deduplicated instanceof UnboundFunction, deduplicated.toSql());
         Assertions.assertEquals("deduplicate_map", ((UnboundFunction) deduplicated).getName());
         Assertions.assertTrue(deduplicated.child(0) instanceof UnboundSlot, deduplicated.toSql());
-        Expression searchCast = right.child(0);
+        Assertions.assertEquals("deduplicate_map", ((UnboundFunction) right.child(0)).getName());
+        Expression searchCast = right.child(0).child(0);
         Assertions.assertTrue(searchCast instanceof Cast, searchCast.toSql());
         Assertions.assertEquals(complexType, searchCast.getDataType());
         Assertions.assertTrue(((Cast) searchCast).isStrict(), searchCast.toSql());

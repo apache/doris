@@ -37,6 +37,8 @@
 #include "core/field.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_test.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
@@ -217,6 +219,33 @@ TEST_F(FunctionCastTest, test_cast_struct_unchanged_field_with_null_row) {
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
     EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), R"({"f1":1, "f2":2})");
+}
+
+TEST_F(FunctionCastTest, StringToComplexCastChargesScratchBuffer) {
+    constexpr size_t text_size = 9 * 1024 * 1024;
+    auto from_type = std::make_shared<DataTypeString>();
+    auto to_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+    for (const bool strict : {false, true}) {
+        SCOPED_TRACE(strict);
+        auto ctx = create_context(strict);
+        auto source = ColumnHelper::create_column<DataTypeString>({std::string(text_size, 'x')});
+        Block block {{source, from_type, "from"}, {nullptr, to_type, "to"}};
+        auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+        ASSERT_NE(fn, nullptr);
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "ComplexCastScratch");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        auto status = fn(ctx.get(), block, {0}, 1, 1, nullptr);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(status.ok(), !strict) << status;
+        // The invalid first character produces no large output. The peak must still include the
+        // entire owned scratch copy, and that copy must be released on success and error alike.
+        EXPECT_GE(tracker->peak_consumption() - baseline, text_size);
+        EXPECT_LT(tracker->consumption() - baseline, 1024 * 1024);
+    }
 }
 
 TEST_F(FunctionCastTest, StringToComplexCastKeepsSourceText) {

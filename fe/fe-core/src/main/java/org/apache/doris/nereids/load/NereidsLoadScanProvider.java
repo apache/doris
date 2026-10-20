@@ -710,10 +710,9 @@ public class NereidsLoadScanProvider {
             // column, so normalize the native source the same way; otherwise a row that is written
             // as the search value would not match it and would not be replaced.
             Expression leftMap = deduplicateMap(left);
-            // Only the top level search is the string cast, which already deduplicated its keys. A
-            // MAP field of a STRUCT is parsed by the struct SerDe, which leaves repeated keys in
-            // place, so it needs the same normalization as the source.
-            Expression rightMap = topLevel ? right : deduplicateMap(right);
+            // The search may itself be a native MAP slot (even the source slot). Its same-type
+            // cast does not parse or deduplicate it, so normalize both sides, including at top level.
+            Expression rightMap = deduplicateMap(right);
             List<Expression> equalities = Lists.newArrayList(
                     new NullSafeEqual(mapFunction("map_keys", leftMap), mapFunction("map_keys", rightMap)));
             if (supportsStructuralComparison(valueType)) {
@@ -788,8 +787,11 @@ public class NereidsLoadScanProvider {
      * {@code <=>}, so the comparison is only guarded where the search is the whole search.
      */
     private static Expression guardNullSearch(Expression search, Expression equality) {
+        // All top-level searches arrive as a strict cast. A non-NULL value either parses or raises
+        // an error in equality, so its NULL guard can inspect the raw input without parsing it again.
+        Preconditions.checkArgument(search instanceof Cast && ((Cast) search).isStrict());
         return new UnboundFunction("if", Lists.newArrayList(
-                new IsNull(search), new NullLiteral(BooleanType.INSTANCE), equality));
+                new IsNull(search.child(0)), new NullLiteral(BooleanType.INSTANCE), equality));
     }
 
     private static Expression mapFunction(String name, Expression map) {
@@ -872,10 +874,9 @@ public class NereidsLoadScanProvider {
 
     /**
      * Whether {@code Column::compare_at} can compare every leaf of the type, including nested
-     * ARRAY and STRUCT values. A MAP is excluded because its comparison is order-sensitive and
-     * does not deduplicate repeated keys, which the map branch handles explicitly; the sketch and
-     * aggregate state types are excluded because their column only implements the comparison for
-     * tests.
+     * ARRAY and STRUCT values. The engine call normalizes nested MAPs on owned copies before
+     * comparing them. Keep the same MAP key/value capabilities as the explicit map branch; sketch
+     * and aggregate state types are excluded because their comparison is only implemented for tests.
      */
     private static boolean supportsDeepStructuralComparison(DataType type) {
         if (type.isArrayType()) {
@@ -890,7 +891,10 @@ public class NereidsLoadScanProvider {
             return true;
         }
         if (type.isMapType()) {
-            return false;
+            MapType map = (MapType) type;
+            return supportsStructuralComparison(map.getKeyType())
+                    && supportsMapValueComparison(map.getValueType())
+                    && supportsDeepStructuralComparison(map.getValueType());
         }
         return type.isPrimitive() && !type.isJsonType() && !type.isObjectOrVariantType()
                 && !type.isHllType() && !type.isBitmapType()

@@ -25,6 +25,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_struct.h"
+#include "core/pod_array.h"
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
 
@@ -79,7 +80,7 @@ ChildNullMask build_child_null_mask(const NullMap::value_type* parent_null_map,
 
 // Remove the duplicated keys of every map in the column, also the maps inside arrays, structs
 // and map values. The last value of a key wins, as in map().
-static Status deduplicate_map_keys(IColumn& column) {
+Status deduplicate_map_keys(IColumn& column) {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         return deduplicate_map_keys(nullable->get_nested_column());
     }
@@ -269,15 +270,15 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
     // the source column. That column can also be another load target, for example
     // `columns: k, s, s = replace_value(w, NULL), w`, so parsing the borrowed text would rewrite
     // the bytes the same row imports into w. Parse an owned copy instead; reusing the buffer keeps
-    // the copy at one allocation per batch.
-    std::string owned_text;
+    // the capacity across rows. The Doris allocator also charges this scratch space to the query.
+    PaddedPODArray<char> owned_text;
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
             nullable_col_to.insert_default();
         } else {
             auto str = col_from->get_data_at(i);
-            owned_text.assign(str.data, str.size);
-            StringRef parse_text(owned_text);
+            owned_text.assign(str.data, str.data + str.size);
+            StringRef parse_text(owned_text.data(), owned_text.size());
             Status st = to_serde->from_string(parse_text, nested_column, options);
             if (st.ok()) {
                 nullable_col_to.get_null_map_data().push_back(0);
@@ -314,14 +315,14 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
 
     // See cast_from_string_to_complex_type: the nested string SerDe unescapes in place, so the
     // borrowed source text must be copied before it is parsed.
-    std::string owned_text;
+    PaddedPODArray<char> owned_text;
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (null_map && null_map[i]) {
             to_column->insert_default();
         } else {
             auto str = col_from->get_data_at(i);
-            owned_text.assign(str.data, str.size);
-            StringRef parse_text(owned_text);
+            owned_text.assign(str.data, str.data + str.size);
+            StringRef parse_text(owned_text.data(), owned_text.size());
             RETURN_IF_ERROR(to_serde->from_string_strict_mode(parse_text, nested_column, options));
             // fill not null if success
             nullable_col_to.get_null_map_data().push_back(0);
