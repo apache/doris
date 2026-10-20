@@ -53,6 +53,8 @@ public:
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;
     std::span<const float> norm_lengths() const override;
+    Status sum_norm_lengths(uint64_t* out) override;
+    Status sum_norm_lengths_of(std::span<const uint32_t> docs, uint64_t* out) override;
     bool is_live(uint32_t doc) const override;
 
     lucene::index::IndexReader* reader() const { return _reader.get(); }
@@ -66,6 +68,8 @@ private:
     };
 
     void _append_partitions(lucene::index::IndexReader* reader, uint32_t begin);
+    // The field's encoded norms, one per document, or null when it has none.
+    const uint8_t* _norms() const;
 
     std::shared_ptr<lucene::index::IndexReader> _reader;
     std::wstring _field;

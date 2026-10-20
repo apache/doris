@@ -22,6 +22,8 @@
 #include <sstream>
 
 #include "common/exception.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -34,8 +36,15 @@
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
+#include "storage/iterators.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/segment/column_reader.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -89,13 +98,130 @@ void add_term_doc_frequency(
     (*logical_frequencies)[field][logical_term] += doc_frequency;
 }
 
+Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uint32_t> hidden_docs,
+                           index_query::IndexScoringStats* stats) {
+    DORIS_CHECK(stats != nullptr);
+    if (!hidden_docs.empty() && hidden_docs.back() >= stats->doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "hidden row {} is beyond the {} documents of the index", hidden_docs.back(),
+                stats->doc_count);
+    }
+    stats->doc_count -= hidden_docs.size();
+    if (!stats->has_norms) {
+        // Without norms every document stands for one token.
+        stats->token_count = stats->doc_count;
+        return Status::OK();
+    }
+    // The exact token count of the hidden rows is not stored anywhere, and norms hold lengths
+    // only approximately, so count the lengths the norms of the returned rows stand for. A
+    // replica that has compacted the hidden rows away counts the same rows with the same norms.
+    uint64_t all_lengths = 0;
+    RETURN_IF_ERROR(source.sum_norm_lengths(&all_lengths));
+    uint64_t hidden_lengths = 0;
+    RETURN_IF_ERROR(source.sum_norm_lengths_of(hidden_docs, &hidden_lengths));
+    DORIS_CHECK(hidden_lengths <= all_lengths);
+    stats->token_count = all_lengths - hidden_lengths;
+    return Status::OK();
+}
+
+Status exclude_hidden_term_docs(index_query::IndexSource& source, std::string_view term,
+                                std::span<const uint32_t> hidden_docs, uint64_t* doc_frequency) {
+    DORIS_CHECK(doc_frequency != nullptr);
+    uint64_t hidden = 0;
+    RETURN_IF_ERROR(source.scoring_doc_freq_among(term, hidden_docs, &hidden));
+    if (hidden > *doc_frequency) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "term lists {} hidden rows but only {} documents", hidden, *doc_frequency);
+    }
+    *doc_frequency -= hidden;
+    return Status::OK();
+}
+
 } // namespace collection_statistics_detail
+
+namespace {
+
+// The rows of a segment that a scan with `hidden_rows` does not return, ascending.
+Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
+                           const TabletSchema& tablet_schema, const MowHiddenRows& hidden_rows,
+                           const io::IOContext* io_ctx, std::vector<uint32_t>* hidden_docs) {
+    roaring::Roaring hidden;
+    if (hidden_rows.delete_bitmap != nullptr) {
+        hidden = *hidden_rows.delete_bitmap->get_agg(seg.delete_bitmap_key(hidden_rows.version));
+    }
+
+    // A row written with the delete sign stays readable until base compaction removes it, while
+    // queries filter it out by predicate.
+    if (tablet_schema.delete_sign_idx() >= 0) {
+        OlapReaderStatistics stats;
+        SegmentCacheHandle cache_handle;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
+                std::static_pointer_cast<BetaRowset>(rowset), seg.ref(), &cache_handle, true, false,
+                &stats, io_ctx));
+        DORIS_CHECK(cache_handle.get_segments().size() == 1);
+        const auto& segment = cache_handle.get_segments()[0];
+        const TabletColumn& delete_sign = tablet_schema.column(tablet_schema.delete_sign_idx());
+
+        StorageReadOptions read_options(stats);
+        read_options.version = rowset->version();
+        if (io_ctx != nullptr) {
+            read_options.io_ctx = *io_ctx;
+        }
+        std::shared_ptr<segment_v2::ColumnReader> column_reader;
+        RETURN_IF_ERROR(
+                segment->get_column_reader_for_pruning(delete_sign, read_options, &column_reader));
+        bool may_hold_deletes = true;
+        if (column_reader->has_zone_map()) {
+            segment_v2::ZoneMap zone_map;
+            RETURN_IF_ERROR(column_reader->get_segment_zone_map(&zone_map));
+            may_hold_deletes = zone_map.has_not_null && !zone_map.pass_all &&
+                               zone_map.max_value.get<TYPE_TINYINT>() != 0;
+        }
+        if (may_hold_deletes) {
+            std::unique_ptr<segment_v2::ColumnIterator> iterator;
+            RETURN_IF_ERROR(segment->new_column_iterator(delete_sign, &iterator, &read_options));
+            segment_v2::ColumnIteratorOptions iterator_options {
+                    .use_page_cache = !config::disable_storage_page_cache,
+                    .file_reader = segment->file_reader().get(),
+                    .stats = &stats,
+                    .io_ctx = read_options.io_ctx,
+            };
+            RETURN_IF_ERROR(iterator->init(iterator_options));
+            RETURN_IF_ERROR(iterator->seek_to_ordinal(0));
+            auto data_type = DataTypeFactory::instance().create_data_type(delete_sign);
+            constexpr size_t kBatch = 4096;
+            for (uint32_t begin = 0; begin < segment->num_rows();) {
+                size_t rows = std::min<size_t>(kBatch, segment->num_rows() - begin);
+                MutableColumnPtr column = data_type->create_column();
+                bool has_null = false;
+                RETURN_IF_ERROR(iterator->next_batch(&rows, column, &has_null));
+                if (rows == 0) {
+                    return Status::Corruption("segment {} ended after {} of its {} rows",
+                                              segment->id(), begin, segment->num_rows());
+                }
+                const auto& signs = assert_cast<const ColumnInt8&>(*column).get_data();
+                for (size_t i = 0; i < rows; ++i) {
+                    if (signs[i] != 0) {
+                        hidden.add(begin + static_cast<uint32_t>(i));
+                    }
+                }
+                begin += static_cast<uint32_t>(rows);
+            }
+        }
+    }
+
+    hidden_docs->resize(hidden.cardinality());
+    hidden.toUint32Array(hidden_docs->data());
+    return Status::OK();
+}
+
+} // namespace
 
 Status CollectionStatistics::collect(RuntimeState* state,
                                      const std::vector<RowSetSplits>& rs_splits,
                                      const TabletSchemaSPtr& tablet_schema,
                                      const VExprContextSPtrs& common_expr_ctxs_push_down,
-                                     io::IOContext* io_ctx) {
+                                     io::IOContext* io_ctx, const MowHiddenRows* hidden_rows) {
     std::vector<RowsetSharedPtr> rowsets;
     rowsets.reserve(rs_splits.size());
     for (const auto& rs_split : rs_splits) {
@@ -105,14 +231,14 @@ Status CollectionStatistics::collect(RuntimeState* state,
         rowsets.emplace_back(std::move(rowset));
     }
     return collect_full_collection(state, rowsets, tablet_schema, common_expr_ctxs_push_down,
-                                   io_ctx);
+                                   io_ctx, hidden_rows);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) Statistics collection spans rowsets and formats.
 Status CollectionStatistics::collect_full_collection(
         RuntimeState* state, const std::vector<RowsetSharedPtr>& rowsets,
         const TabletSchemaSPtr& tablet_schema, const VExprContextSPtrs& common_expr_ctxs_push_down,
-        io::IOContext* io_ctx) {
+        io::IOContext* io_ctx, const MowHiddenRows* hidden_rows) {
     clear();
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     RETURN_IF_ERROR(
@@ -125,7 +251,8 @@ Status CollectionStatistics::collect_full_collection(
     for (const auto& rowset : rowsets) {
         DORIS_CHECK(rowset != nullptr);
         for (auto seg : rowset->segments()) {
-            auto status = process_segment(rowset, seg, tablet_schema.get(), collect_infos, io_ctx);
+            auto status = process_segment(rowset, seg, tablet_schema.get(), collect_infos,
+                                          hidden_rows, io_ctx);
             if (!status.ok()) {
                 if (tablet_schema->get_inverted_index_storage_format() !=
                             InvertedIndexStorageFormatPB::SNII &&
@@ -242,6 +369,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                                              const RowsetSegmentView& seg,
                                              const TabletSchema* tablet_schema,
                                              const CollectInfoMap& collect_infos,
+                                             const MowHiddenRows* hidden_rows,
                                              io::IOContext* io_ctx) {
     auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
@@ -262,6 +390,12 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     "SNII scoring requires every collection segment: {}", init_status.msg());
         }
         return init_status;
+    }
+
+    std::vector<uint32_t> hidden_docs;
+    if (hidden_rows != nullptr) {
+        RETURN_IF_ERROR(collect_hidden_docs(rowset, seg, *tablet_schema, *hidden_rows, io_ctx,
+                                            &hidden_docs));
     }
 
     if (is_snii) {
@@ -285,6 +419,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
             ::doris::snii::reader::SniiIndexSource source(*logical_reader);
             index_query::IndexScoringStats scoring_stats;
             RETURN_IF_ERROR(source.scoring_stats(&scoring_stats));
+            if (hidden_rows != nullptr) {
+                RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
+                        source, hidden_docs, &scoring_stats));
+            }
             const uint64_t segment_doc_count = scoring_stats.doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
                     ws_field_name, segment_doc_count, scoring_stats.token_count,
@@ -299,6 +437,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
                 uint64_t doc_frequency = 0;
                 RETURN_IF_ERROR(source.scoring_doc_freq(logical_term_bytes, &doc_frequency));
+                if (!hidden_docs.empty()) {
+                    RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
+                            source, logical_term_bytes, hidden_docs, &doc_frequency));
+                }
                 if (doc_frequency > segment_doc_count) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                             "SNII term document frequency {} exceeds segment document count {}",
@@ -361,6 +503,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                                                        ws_field_name, io_ctx);
         index_query::IndexScoringStats scoring_stats;
         RETURN_IF_ERROR(source->scoring_stats(&scoring_stats));
+        if (hidden_rows != nullptr) {
+            RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(*source, hidden_docs,
+                                                                              &scoring_stats));
+        }
         total_segment_docs =
                 std::max(total_segment_docs, static_cast<int32_t>(scoring_stats.doc_count));
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
@@ -387,6 +533,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
             uint64_t doc_frequency = 0;
             RETURN_IF_ERROR(source->scoring_doc_freq(logical_term_bytes, &doc_frequency));
+            if (!hidden_docs.empty()) {
+                RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_term_docs(
+                        *source, logical_term_bytes, hidden_docs, &doc_frequency));
+            }
             collection_statistics_detail::add_term_doc_frequency(&_term_doc_freqs, ws_field_name,
                                                                  logical_term, doc_frequency);
         }
@@ -457,13 +607,14 @@ void CollectionStatistics::copy_collected_from(const CollectionStatistics& other
 Status TabletCollectionStatistics::copy_to(RuntimeState* state,
                                            const TabletSchemaSPtr& tablet_schema,
                                            const VExprContextSPtrs& common_expr_ctxs_push_down,
-                                           io::IOContext* io_ctx,
+                                           io::IOContext* io_ctx, const MowHiddenRows* hidden_rows,
                                            CollectionStatistics* statistics) {
     DORIS_CHECK(statistics != nullptr);
     std::lock_guard lock(_mutex);
     if (!_collected) {
-        _status = _statistics.collect_full_collection(state, _rowsets, tablet_schema,
-                                                      common_expr_ctxs_push_down, io_ctx);
+        // Every scanner of the tablet reads with the same delete bitmap and version.
+        _status = _statistics.collect_full_collection(
+                state, _rowsets, tablet_schema, common_expr_ctxs_push_down, io_ctx, hidden_rows);
         _collected = true;
         // Do not hold the rowsets any longer than needed.
         _rowsets.clear();

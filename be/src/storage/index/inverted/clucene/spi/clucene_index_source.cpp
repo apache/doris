@@ -243,6 +243,58 @@ std::span<const float> CluceneIndexSource::norm_lengths() const {
     return BM25Similarity::lucene_norm_lengths();
 }
 
+// CLucene keeps a field's norms in memory once they are read, as scoring reads them anyway.
+const uint8_t* CluceneIndexSource::_norms() const {
+    if (!_reader->hasNorms(_field.c_str())) {
+        return nullptr;
+    }
+    return _reader->norms(_field.c_str());
+}
+
+Status CluceneIndexSource::sum_norm_lengths(uint64_t* out) {
+    *out = 0;
+    try {
+        const uint8_t* norms = _norms();
+        if (norms == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "field {} has no norms", inverted_index::StringHelper::to_string(_field));
+        }
+        const auto lengths = norm_lengths();
+        for (uint32_t doc = 0, count = doc_count(); doc < count; ++doc) {
+            *out += static_cast<uint64_t>(lengths[norms[doc]]);
+        }
+    } catch (CLuceneError& e) {
+        return clucene_error_status(e.what());
+    }
+    return Status::OK();
+}
+
+Status CluceneIndexSource::sum_norm_lengths_of(std::span<const uint32_t> docs, uint64_t* out) {
+    *out = 0;
+    if (docs.empty()) {
+        return Status::OK();
+    }
+    try {
+        const uint8_t* norms = _norms();
+        if (norms == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "field {} has no norms", inverted_index::StringHelper::to_string(_field));
+        }
+        const auto lengths = norm_lengths();
+        const uint32_t count = doc_count();
+        for (const uint32_t doc : docs) {
+            if (doc >= count) {
+                return Status::Corruption("document {} is beyond the {} documents of the index",
+                                          doc, count);
+            }
+            *out += static_cast<uint64_t>(lengths[norms[doc]]);
+        }
+    } catch (CLuceneError& e) {
+        return clucene_error_status(e.what());
+    }
+    return Status::OK();
+}
+
 bool CluceneIndexSource::is_live(uint32_t doc) const {
     return !_reader->isDeleted(static_cast<int32_t>(doc));
 }

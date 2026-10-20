@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include "common/exception.h"
@@ -49,6 +50,7 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/common/string_helper.h"
+#include "storage/index/inverted/query/spi/fake_index_source.h"
 #include "storage/index/inverted/reader/predicate_collector.h"
 #include "storage/index/inverted/snii/format/phrase_bigram.h"
 #include "storage/index/inverted/snii/query/bm25_scorer.h"
@@ -59,6 +61,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/defer_op.h"
@@ -67,6 +70,8 @@
 namespace doris {
 
 using collection_statistics_detail::add_term_doc_frequency;
+using collection_statistics_detail::exclude_hidden_docs;
+using collection_statistics_detail::exclude_hidden_term_docs;
 using collection_statistics_detail::resolve_snii_scoring_segment;
 using collection_statistics_detail::SniiScoringSegmentStats;
 
@@ -442,7 +447,8 @@ protected:
     }
 
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
-                                   const std::string& segment_path, size_t column_ordinal = 0) {
+                                   const std::string& segment_path, size_t column_ordinal = 0,
+                                   const std::vector<std::string>& rows = {"alpha beta"}) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -467,7 +473,7 @@ protected:
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
         RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
                                                               index_metas[0]));
-        std::vector<Slice> values {Slice("alpha beta")};
+        std::vector<Slice> values(rows.begin(), rows.end());
         RETURN_IF_ERROR(column_writer->add_values(column.name(), values.data(), values.size()));
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
@@ -930,6 +936,250 @@ TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics)
     expect_collected_term(L"2", L"alpha", 1);
 }
 
+// A replica whose segment still holds a row that a later load overwrote must collect the same
+// statistics as a replica that compacted the row away, or the two score every row differently.
+TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
+    auto tablet_schema = create_legacy_v3_schema();
+    // Thirty-one tokens: CLucene's norm holds this length only approximately.
+    std::string overwritten;
+    for (int i = 0; i < 30; ++i) {
+        overwritten += "gamma ";
+    }
+    overwritten += "alpha";
+    const std::string uncompacted_path = test_dir_ + "/hidden_rows_uncompacted_0.dat";
+    const std::string compacted_path = test_dir_ + "/hidden_rows_compacted_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, uncompacted_path, 0,
+                                        {"alpha beta", overwritten, "beta gamma delta"})
+                        .ok());
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, compacted_path, 0,
+                                        {"alpha beta", "beta gamma delta"})
+                        .ok());
+
+    struct Collected {
+        uint64_t doc_count;
+        uint64_t token_count;
+        uint64_t alpha_doc_frequency;
+        uint64_t gamma_doc_frequency;
+        float avg_dl;
+        float alpha_idf;
+    };
+    auto collect = [&](const std::string& segment_path,
+                       const std::vector<uint32_t>& hidden_rows) -> Collected {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset =
+                std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+        rowset->set_num_segments(1);
+        rowset->set_segment_path(0, segment_path);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+        constexpr int64_t kVersion = 5;
+        MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(0),
+                              .version = kVersion};
+        for (const auto seg : rowset->segments()) {
+            for (const uint32_t row : hidden_rows) {
+                hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), row);
+            }
+        }
+        CollectionStatistics stats;
+        const Status status =
+                stats.collect(runtime_state_.get(), splits, tablet_schema,
+                              create_match_expr_contexts("alpha gamma"), nullptr, &hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return {.doc_count = stats.get_doc_num(),
+                .token_count = stats.get_total_term_cnt_by_col(L"1"),
+                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"alpha"),
+                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(L"1", L"gamma"),
+                .avg_dl = stats.get_or_calculate_avg_dl(L"1"),
+                .alpha_idf = stats.get_or_calculate_idf(L"1", L"alpha")};
+    };
+
+    const Collected uncompacted = collect(uncompacted_path, {1});
+    const Collected compacted = collect(compacted_path, {});
+    EXPECT_EQ(uncompacted.doc_count, 2);
+    EXPECT_EQ(uncompacted.token_count, 5);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, 1);
+    EXPECT_EQ(uncompacted.doc_count, compacted.doc_count);
+    EXPECT_EQ(uncompacted.token_count, compacted.token_count);
+    EXPECT_EQ(uncompacted.alpha_doc_frequency, compacted.alpha_doc_frequency);
+    EXPECT_EQ(uncompacted.gamma_doc_frequency, compacted.gamma_doc_frequency);
+    EXPECT_EQ(uncompacted.avg_dl, compacted.avg_dl);
+    EXPECT_EQ(uncompacted.alpha_idf, compacted.alpha_idf);
+
+    // Without the delete bitmap the overwritten row is counted.
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, uncompacted_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                create_match_expr_contexts("alpha gamma"), nullptr)
+                        .ok());
+    expect_collected_stats(L"1", 3, 36);
+    expect_collected_term(L"1", L"alpha", 2);
+}
+
+namespace {
+
+// A cursor listing its documents in the given blocks, a pair standing for a dense range.
+class BlockListCursor final : public index_query::PostingsCursor {
+public:
+    using Block = std::variant<std::vector<uint32_t>, std::pair<uint32_t, uint32_t>>;
+
+    explicit BlockListCursor(std::vector<Block> blocks) : _blocks(std::move(blocks)) {}
+
+    uint32_t doc_freq() const override {
+        uint32_t docs = 0;
+        for (const Block& block : _blocks) {
+            if (const auto* listed = std::get_if<std::vector<uint32_t>>(&block)) {
+                docs += static_cast<uint32_t>(listed->size());
+            } else {
+                const auto& [begin, end] = std::get<std::pair<uint32_t, uint32_t>>(block);
+                docs += end - begin;
+            }
+        }
+        return docs;
+    }
+
+    Status next_block(index_query::PostingsBlock* block, bool* eof) override {
+        *block = {};
+        *eof = _next == _blocks.size();
+        if (*eof) {
+            return Status::OK();
+        }
+        const Block& next = _blocks[_next++];
+        if (const auto* docs = std::get_if<std::vector<uint32_t>>(&next)) {
+            block->docs = *docs;
+        } else {
+            const auto& [begin, end] = std::get<std::pair<uint32_t, uint32_t>>(next);
+            block->dense = true;
+            block->range_begin = begin;
+            block->range_end = end;
+        }
+        return Status::OK();
+    }
+
+    Status seek_block(uint32_t target, index_query::PostingsBlock* block, bool* eof) override {
+        ++seeks;
+        while (_next < _blocks.size() && last_doc(_blocks[_next]) < target) {
+            ++_next;
+        }
+        return next_block(block, eof);
+    }
+
+    Status shallow_seek(uint32_t /*target*/, bool* moved) override {
+        *moved = false;
+        return Status::OK();
+    }
+
+    index_query::BlockBound current_block_bound() const override { return {}; }
+
+    size_t seeks = 0;
+
+private:
+    static uint32_t last_doc(const Block& block) {
+        if (const auto* docs = std::get_if<std::vector<uint32_t>>(&block)) {
+            return docs->back();
+        }
+        return std::get<std::pair<uint32_t, uint32_t>>(block).second - 1;
+    }
+
+    std::vector<Block> _blocks;
+    size_t _next = 0;
+};
+
+} // namespace
+
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsScansSparseAndDenseBlocks) {
+    BlockListCursor cursor({std::vector<uint32_t> {1, 4, 6}, std::pair<uint32_t, uint32_t> {10, 20},
+                            std::vector<uint32_t> {25, 30}, std::vector<uint32_t> {40, 41}});
+    const std::vector<uint32_t> docs {0, 4, 5, 12, 19, 20, 30, 31};
+    uint64_t listed = 0;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, docs, &listed).ok());
+    EXPECT_EQ(listed, 4); // 4, 12, 19 and 30.
+    // As many docs as postings: every block is decoded once, without seeking.
+    EXPECT_EQ(cursor.seeks, 0);
+}
+
+// Few docs among many postings: the cursor seeks to each doc instead of decoding every block.
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsLeapsOverFewDocs) {
+    BlockListCursor cursor(
+            {std::vector<uint32_t> {1, 4, 6}, std::pair<uint32_t, uint32_t> {10, 5000},
+             std::vector<uint32_t> {6000, 7000}, std::vector<uint32_t> {8000, 8001}});
+    const std::vector<uint32_t> docs {4, 4999, 7500};
+    uint64_t listed = 0;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, docs, &listed).ok());
+    EXPECT_EQ(listed, 2); // 4 and 4999.
+    EXPECT_EQ(cursor.seeks, 3);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, CountListedDocsOfNothing) {
+    BlockListCursor cursor({std::vector<uint32_t> {1, 2}});
+    uint64_t listed = 7;
+    ASSERT_TRUE(index_query::count_listed_docs(cursor, {}, &listed).ok());
+    EXPECT_EQ(listed, 0);
+    BlockListCursor empty({});
+    const std::vector<uint32_t> docs {1, 2};
+    ASSERT_TRUE(index_query::count_listed_docs(empty, docs, &listed).ok());
+    EXPECT_EQ(listed, 0);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRows) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(4);
+    source.norms = {{0, 3}, {1, 5}, {2, 2}, {3, 7}};
+    index_query::IndexScoringStats stats {
+            .doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 3};
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 2);
+    EXPECT_EQ(stats.token_count, 5);
+
+    // With nothing hidden the token count still comes from the norms, as on a replica that
+    // compacted the hidden rows away.
+    stats = {.doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs(source, {}, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 4);
+    EXPECT_EQ(stats.token_count, 17);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneTokenPerRow) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(5);
+    index_query::IndexScoringStats stats {
+            .doc_count = 5, .token_count = 9, .has_positions = false, .has_norms = false};
+    const std::vector<uint32_t> hidden {0, 4};
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 3);
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(2);
+    index_query::IndexScoringStats stats {
+            .doc_count = 2, .token_count = 2, .has_positions = true, .has_norms = true};
+    const std::vector<uint32_t> hidden {2};
+    const Status status = exclude_hidden_docs(source, hidden, &stats);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+}
+
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenTermDocsTakesHiddenHoldersOnly) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(6);
+    source.add("alpha", std::vector<uint32_t> {0, 1, 3, 5});
+    const std::vector<uint32_t> hidden {1, 2, 5};
+    uint64_t doc_frequency = 4;
+    ASSERT_TRUE(exclude_hidden_term_docs(source, "alpha", hidden, &doc_frequency).ok());
+    EXPECT_EQ(doc_frequency, 2);
+
+    uint64_t absent = 0;
+    ASSERT_TRUE(exclude_hidden_term_docs(source, "omega", hidden, &absent).ok());
+    EXPECT_EQ(absent, 0);
+}
+
 TEST_F(CollectionStatisticsTest, LegacyV3SkipsMissingSegmentAfterCollectingAvailableStatistics) {
     auto tablet_schema = create_legacy_v3_schema();
     const std::string first_segment_path = test_dir_ + "/legacy_v3_0.dat";
@@ -1289,8 +1539,10 @@ TEST(TabletCollectionStatisticsTest, CollectsOnceAndCopiesToEveryCaller) {
 
     CollectionStatistics first;
     CollectionStatistics second;
-    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, &first).ok());
-    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, &second).ok());
+    EXPECT_TRUE(
+            tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &first).ok());
+    EXPECT_TRUE(
+            tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, nullptr, &second).ok());
 }
 
 // SNII scoring requires only positions and norms; statistics come directly from the stats block.

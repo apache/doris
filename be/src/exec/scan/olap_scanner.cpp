@@ -287,15 +287,23 @@ Status OlapScanner::_prepare_impl() {
                 _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
+        // A merge-on-write scan leaves out rows its segments still hold, which replicas drop
+        // at different times, so the statistics count only the rows the scan returns.
+        std::optional<MowHiddenRows> hidden_rows;
+        if (_tablet_reader_params.delete_bitmap != nullptr) {
+            hidden_rows = MowHiddenRows {.delete_bitmap = _tablet_reader_params.delete_bitmap,
+                                         .version = _tablet_reader_params.version.second};
+        }
+        const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
         if (_tablet_collection_statistics != nullptr) {
             RETURN_IF_ERROR(_tablet_collection_statistics->copy_to(
                     _state, _tablet_reader_params.tablet_schema,
-                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx,
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr,
                     _tablet_reader_params.collection_statistics.get()));
         } else {
             RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                     _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+                    _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx, hidden_rows_ptr));
         }
     }
 
