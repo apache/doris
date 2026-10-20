@@ -39,6 +39,8 @@ suite("test_pythonudf_forbidden_module") {
             RETURNS INT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${pyPath}",
                 "symbol" = "${forbiddenCase.symbol}",
                 "runtime_version" = "${runtime_version}",
@@ -58,6 +60,8 @@ suite("test_pythonudf_forbidden_module") {
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "safepkg_udf.logging.evaluate",
             "runtime_version" = "${runtime_version}",

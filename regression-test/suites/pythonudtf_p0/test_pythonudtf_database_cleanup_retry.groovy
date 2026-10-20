@@ -44,25 +44,27 @@ suite("test_pythonudtf_database_cleanup_retry", "nonConcurrent") {
                 .collect { it.DbId }.unique()
         ids.each { id -> sql "DROP CATALOG RECYCLE BIN WHERE 'DbId' = ${id}" }
     }
-    def createFunction = { zip ->
-        sql """CREATE TABLES FUNCTION py_cleanup_retry(INT) RETURNS ARRAY<INT>
-            PROPERTIES("type"="PYTHON_UDF", "symbol"="drop_udtf.process",
+    def createFunction = { zip, scope ->
+        sql """CREATE ${scope} TABLES FUNCTION py_cleanup_retry(INT) RETURNS ARRAY<INT>
+            PROPERTIES("type"="PYTHON_UDF", "auto_suspend"="0", "symbol"="drop_udtf.process",
                 "file"="file://${zip}", "runtime_version"="${runtime}", "pool_size"="1")"""
     }
-    // Disable idle cleanup so this test verifies task retries.
-    ["force", "recycle"].eachWithIndex { mode, index ->
+    ["force", "recycle", "function"].eachWithIndex { mode, index ->
         def db = "py_udtf_cleanup_retry_${mode}"
+        def scope = mode == "global" ? "GLOBAL" : ""
         try {
+            if (scope) {
+                sql "DROP GLOBAL FUNCTION IF EXISTS py_cleanup_retry(INT)"
+            }
             purgeDatabase(db)
             await("earlier database cleanups did not finish", { cleanupTasks().TotalNum.toInteger() == 0 })
             sql "CREATE DATABASE ${db}"
             sql "USE ${db}"
             def dbId = getDbId(db)
-            createFunction(zipA)
+            createFunction(zipA, scope)
             // Normal and outer functions each need a cleanup task on every backend.
-            def functionCount = sql("SHOW FUNCTIONS LIKE 'py_cleanup_retry%'").size()
+            def functionCount = sql("SHOW ${scope} FUNCTIONS LIKE 'py_cleanup_retry%'").size()
             "qt_before_${index}"("SELECT x FROM (SELECT 10 v) s LATERAL VIEW py_cleanup_retry(v) t AS x UNION ALL SELECT x FROM (SELECT 10 v) s LATERAL VIEW py_cleanup_retry_outer(v) t AS x ORDER BY x")
-            sql "USE ${originalDb}"
 
             def beIds = sql_return_maparray("SHOW BACKENDS").collect { it.BackendId.toString() }
             // Simulate heartbeat failures while Python processes keep running.
@@ -71,7 +73,10 @@ suite("test_pythonudtf_database_cleanup_retry", "nonConcurrent") {
             await("backends were not marked unavailable", {
                 sql_return_maparray("SHOW BACKENDS").every { !it.Alive.toBoolean() }
             })
-            if (mode == "recycle") {
+            if (mode in ["function", "global"]) {
+                sql "DROP ${scope} FUNCTION py_cleanup_retry(INT)"
+            } else if (mode == "recycle") {
+                sql "USE ${originalDb}"
                 sql "DROP DATABASE ${db}"
                 // Recoverable databases retain their function pools.
                 assertEquals(0, cleanupTasks().TotalNum.toInteger())
@@ -79,9 +84,10 @@ suite("test_pythonudtf_database_cleanup_retry", "nonConcurrent") {
                 assertTrue(sql_return_maparray("SHOW CATALOG RECYCLE BIN WHERE NAME = '${db}'")
                         .every { it.DbId.toString() != dbId.toString() })
             } else {
+                sql "USE ${originalDb}"
                 sql "DROP DATABASE ${db} FORCE"
             }
-            await("database cleanup was lost while BE was unavailable", {
+            await("function cleanup was lost while backend was unavailable", {
                 def tasks = cleanupTasks()
                 tasks.TotalNum.toInteger() == beIds.size() * functionCount
                         && tasks.FailedNum.toInteger() == beIds.size() * functionCount
@@ -97,16 +103,21 @@ suite("test_pythonudtf_database_cleanup_retry", "nonConcurrent") {
                 sql_return_maparray("SHOW BACKENDS").every { it.Alive.toBoolean() }
             })
             // The task leaves the queue only after cleanup succeeds and its result is reported.
-            await("BE recovery did not resend and acknowledge database cleanup", {
+            await("backend recovery did not complete function cleanup", {
                 cleanupTasks().TotalNum.toInteger() == 0
             })
-            sql "CREATE DATABASE ${db}"
+            if (mode in ["force", "recycle"]) {
+                sql "CREATE DATABASE ${db}"
+            }
             sql "USE ${db}"
-            createFunction(zipB)
+            createFunction(zipB, scope)
             "qt_after_${index}"("SELECT x FROM (SELECT 10 v) s LATERAL VIEW py_cleanup_retry(v) t AS x UNION ALL SELECT x FROM (SELECT 10 v) s LATERAL VIEW py_cleanup_retry_outer(v) t AS x ORDER BY x")
         } finally {
             GetDebugPoint().disableDebugPointForAllFEs(heartbeatPoint)
             sql "USE ${originalDb}"
+            if (scope) {
+                sql "DROP GLOBAL FUNCTION IF EXISTS py_cleanup_retry(INT)"
+            }
             purgeDatabase(db)
             await("backends did not recover during cleanup", {
                 sql_return_maparray("SHOW BACKENDS").every { it.Alive.toBoolean() }

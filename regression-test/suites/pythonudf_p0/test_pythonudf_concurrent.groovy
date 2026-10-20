@@ -56,6 +56,8 @@ suite("test_pythonudf_concurrent") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "add_int",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -75,6 +77,8 @@ def add_int(a, b):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "multiply_int",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -94,6 +98,8 @@ def multiply_int(a, b):
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "divide_double",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -113,6 +119,8 @@ def divide_double(a, b):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "concat_str",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -132,6 +140,8 @@ def concat_str(s1, s2):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "str_len",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -186,6 +196,8 @@ def str_len(s):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "vec_add",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -204,6 +216,8 @@ def vec_add(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "vec_sub",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -222,6 +236,8 @@ def vec_sub(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "vec_max",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -287,6 +303,8 @@ def vec_max(a: pd.Series, b: pd.Series) -> pd.Series:
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "int_to_str",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -341,5 +359,4 @@ def int_to_str(n):
         try_sql("DROP TABLE IF EXISTS concurrent_udf_test;")
     }
 }
-
 

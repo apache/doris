@@ -66,6 +66,8 @@ CREATE FUNCTION row_to_csv_all(
 RETURNS STRING
 PROPERTIES (
     "type" = "PYTHON_UDF",
+    "auto_suspend" = "0",
+    "pool_size" = "1",
     "symbol" = "row_to_csv_all_impl",
     "always_nullable" = "true",
     "runtime_version" = "${runtime_version}"
@@ -224,6 +226,8 @@ def row_to_csv_all_impl(
             RETURNS STRING
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "auto_suspend" = "0",
+                "pool_size" = "1",
                 "file" = "file://${pyPath}",
                 "symbol" = "python_udf_data_type.row_to_csv_all_impl",
                 "always_nullable" = "true",

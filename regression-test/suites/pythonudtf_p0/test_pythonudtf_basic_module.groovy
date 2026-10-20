@@ -38,6 +38,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.split_string_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -76,6 +78,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.generate_series_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -122,6 +126,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.running_sum_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -164,6 +170,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.explode_json_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -201,6 +209,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.top_n_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -247,6 +257,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.duplicate_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -285,6 +297,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.filter_positive_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -323,6 +337,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.cartesian_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -362,6 +378,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.filter_negative_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -450,6 +468,8 @@ suite("test_pythonudtf_basic_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.basic_udtf.nullable_processor_udtf",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
         );

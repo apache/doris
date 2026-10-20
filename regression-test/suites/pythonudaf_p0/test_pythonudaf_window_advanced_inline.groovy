@@ -67,6 +67,8 @@ suite("test_pythonudaf_window_advanced_inline") {
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "MovingAvgUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -103,6 +105,8 @@ class MovingAvgUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "WindowStdDevUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -143,6 +147,8 @@ class WindowStdDevUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "LastValueUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -177,6 +183,8 @@ class LastValueUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "WindowMinUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -210,6 +218,8 @@ class WindowMinUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "WindowMaxUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -429,6 +439,8 @@ class WindowMaxUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "Percentile50UDAF",
             "runtime_version" = "${runtime_version}"
         )

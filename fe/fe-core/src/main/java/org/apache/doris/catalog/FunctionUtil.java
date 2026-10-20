@@ -62,8 +62,7 @@ public class FunctionUtil {
         for (long backendId : Env.getCurrentSystemInfo().getAllBackendIds(false)) {
             for (Map.Entry<Long, String> function : functionSignatures.entrySet()) {
                 CleanUDFCacheTask task = new CleanUDFCacheTask(backendId, function.getValue(), function.getKey(), true);
-                // A temporarily unavailable backend can miss cleanup after the database is erased.
-                // Queue it for retry when the backend recovers; no database remains to trigger cleanup again.
+                // DROP removes the metadata even if a backend is unavailable, so missed cleanup needs retries.
                 if (AgentTaskQueue.addTask(task)) {
                     batchTask.addTask(task);
                 }

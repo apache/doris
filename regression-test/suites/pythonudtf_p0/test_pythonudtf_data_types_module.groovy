@@ -37,6 +37,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_tinyint",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -74,6 +76,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_smallint",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -111,6 +115,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_bigint",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -148,6 +154,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_float",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -185,6 +193,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_double",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -222,6 +232,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_boolean",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -259,6 +271,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_string",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -296,6 +310,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_date",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -333,6 +349,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_datetime",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -373,6 +391,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_array_int",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -413,6 +433,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_array_string",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -452,6 +474,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_struct",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -492,6 +516,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_multi_types",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -530,6 +556,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_decimal",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -570,6 +598,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_map_string",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -607,6 +637,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_nested_array",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -644,6 +676,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_array_structs",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -681,6 +715,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_struct_array",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -718,6 +754,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.extract_json_fields",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -755,6 +793,8 @@ suite("test_pythonudtf_data_types_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.data_types_udtf.process_complex_struct",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """

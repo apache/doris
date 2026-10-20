@@ -62,6 +62,8 @@ suite("test_pythonudaf_null_handling") {
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountNonNullUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -99,6 +101,8 @@ class CountNonNullUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "SumNullUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -140,6 +144,8 @@ class SumNullUDAF:
         RETURNS STRING
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "FirstNonNullUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -178,6 +184,8 @@ class FirstNonNullUDAF:
         RETURNS BIGINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "CountNullUDAF",
             "runtime_version" = "${runtime_version}"
         )
@@ -215,6 +223,8 @@ class CountNullUDAF:
         RETURNS DOUBLE
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "AvgCoalesceUDAF",
             "runtime_version" = "${runtime_version}"
         )

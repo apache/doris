@@ -27,6 +27,7 @@ suite("test_pythonudf_native_module_cache") {
     sql """
         CREATE FUNCTION py_native_module_cache(INT) RETURNS INT PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
             "file" = "file://${pyPath}",
             "symbol" = "native_module_cache_test.evaluate",
             "runtime_version" = "${runtime_version}",
