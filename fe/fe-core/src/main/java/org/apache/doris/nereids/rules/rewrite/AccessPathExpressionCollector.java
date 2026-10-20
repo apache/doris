@@ -576,9 +576,30 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         Expression argument = arrayMap.getArgument(0);
         if ((argument instanceof Lambda)) {
-            return collectArrayPathInLambda((Lambda) argument, context);
+            Lambda lambda = (Lambda) argument;
+            return collectArrayMapPathInLambda(lambda, context);
         }
         return visit(arrayMap, context);
+    }
+
+    private Void collectArrayMapPathInLambda(Lambda lambda, CollectorContext context) {
+        if (context.getType() == ColumnAccessPathType.META) {
+            // A metadata requirement on the ARRAY_MAP result (OFFSET for cardinality(), NULL for
+            // IS NULL) describes the output ARRAY container, not the lambda elements. The output
+            // container is shaped by the input arrays: array_map copies the first input's offsets
+            // and its null map is the union of all inputs' null maps. Pushing that context into
+            // the lambda body would attach the metadata to the element layer instead, producing
+            // e.g. `arr.*.OFFSET`, which the BE rejects for a struct element (OFFSET metadata is
+            // only supported at array/map/string level). Route the container metadata to the
+            // input arrays, and collect the element paths the lambda actually reads with a fresh
+            // data context so that the elements stay available to the lambda body.
+            for (ArrayItemReference lambdaArgument : lambda.getLambdaArguments()) {
+                continueCollectAccessPath(lambdaArgument.getArrayExpression(), copyContext(context));
+            }
+            return collectArrayPathInLambda(lambda,
+                    new CollectorContext(context.statementContext, context.bottomFilter));
+        }
+        return collectArrayPathInLambda(lambda, context);
     }
 
     @Override

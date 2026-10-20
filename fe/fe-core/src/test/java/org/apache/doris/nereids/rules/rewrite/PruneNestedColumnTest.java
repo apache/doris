@@ -144,6 +144,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  map_arr_col map<string, array<int>>\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table array_map_meta_tbl(\n"
+                + "  id int,\n"
+                + "  a array<struct<v: int>>\n"
+                + ") properties ('replication_num'='1')");
+
         createTable("create table map_array_value_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<\n"
@@ -248,6 +253,58 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 "select cardinality(element_at(a, 1)) from nested_array_tbl",
                 ImmutableList.of(metaPath("a", "*", "OFFSET")),
                 ImmutableList.of(path("a", "*")));
+    }
+
+    @Test
+    public void testCardinalityArrayMapCollectsContainerOffsetPath() throws Exception {
+        // ARRAY_MAP keeps the container shape of its inputs, so cardinality(array_map(...)) must
+        // collect the input array's OFFSET metadata. Passing the OFFSET requirement into the lambda
+        // body instead yields `a.*.OFFSET`, an OFFSET at the struct element level that the BE
+        // rejects; the element data the lambda reads must stay collected as well.
+        assertColumn("select cardinality(array_map(x -> x, a)) from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*"), metaPath("a", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testCardinalityArrayMapOnNestedArrayCollectsContainerOffsetPath() throws Exception {
+        assertColumn("select cardinality(array_map(x -> x, element_at(s, 'arr'))) "
+                        + "from nested_container_tbl",
+                "struct<arr:array<struct<str_field:text,int_field:int>>>",
+                ImmutableList.of(
+                        path("s", "arr", "*"),
+                        metaPath("s", "arr", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testCardinalityArrayMapOnMapValueCollectsValueOffsetPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(array_map(x -> x, element_at(element_at(s, 'm'), 'k'))) "
+                        + "from map_array_value_tbl",
+                ImmutableList.of(
+                        path("s", "m", "KEYS"),
+                        path("s", "m", "VALUES", "*"),
+                        metaPath("s", "m", "VALUES", "OFFSET")),
+                ImmutableList.of(
+                        metaPath("s", "m", "VALUES", "*", "OFFSET")));
+    }
+
+    @Test
+    public void testIsNullArrayMapCollectsContainerNullPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select array_map(x -> x, a) is null from array_map_meta_tbl",
+                ImmutableList.of(metaPath("a", "NULL")),
+                ImmutableList.of(metaPath("a", "*", "NULL")));
+    }
+
+    @Test
+    public void testCardinalityArrayMapKeepsElementFieldTheLambdaReads() throws Exception {
+        assertColumn("select cardinality(array_map(x -> x.v + 1, a)) from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*", "v"), metaPath("a", "OFFSET")),
+                ImmutableList.of());
     }
 
     @Test
