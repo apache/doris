@@ -17,13 +17,16 @@
 
 package org.apache.doris.statistics.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Pair;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.HashSet;
 
 class TableStatsMetaTest {
@@ -57,5 +60,39 @@ class TableStatsMetaTest {
         Assertions.assertEquals(-1, meta.getRowCount(2));
         Assertions.assertEquals(-1, meta.getRowCount(3));
         Assertions.assertEquals(-1, meta.getRowCount(4));
+    }
+
+    @Test
+    void testBaseIndexDeltaRowCountUsesCollectedBaseline() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.doReturn(0L).when(table).getBaseIndexId();
+        Mockito.doReturn("index0").when(table).getIndexNameById(0L);
+        Mockito.doReturn(Lists.newArrayList(0L)).when(table).getIndexIdList();
+        Mockito.doReturn(new HashSet<Column>()).when(table).getSchemaAllIndexes(Mockito.anyBoolean());
+        Mockito.doReturn(new HashSet<>()).when(table).getColumnIndexPairs(Mockito.any());
+
+        TableStatsMeta meta = new TableStatsMeta();
+        meta.updatedRows.set(150);
+
+        // The job was built when the load counter was 100; 50 more rows became visible before the
+        // analyze task ran its COUNT(1), which collected 150 rows.
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setRowCount(150).setUpdateRows(100)
+                .setColName("k1")
+                .setJobColumns(new HashSet<>(Collections.singletonList(Pair.of("index0", "k1"))))
+                .build();
+        jobInfo.addIndexRowCount(0, 150);
+        // What BaseAnalysisTask#runQuery does right after collecting the count (#69281).
+        jobInfo.updateRows = meta.updatedRows.get();
+
+        meta.update(jobInfo, table);
+
+        Assertions.assertEquals(150, meta.getRowCount(0));
+        // The fallback estimate must not add the 50 rows that the collected count already includes.
+        Assertions.assertEquals(0, meta.getBaseIndexDeltaRowCount(table));
+
+        // Without the refresh at collection time the same load would be counted twice.
+        jobInfo.updateRows = 100;
+        meta.update(jobInfo, table);
+        Assertions.assertEquals(50, meta.getBaseIndexDeltaRowCount(table));
     }
 }
