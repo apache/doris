@@ -32,6 +32,15 @@
 
 namespace doris {
 
+struct HttpTransferMetrics {
+    int64_t new_connections = 0;
+    int64_t dns_time_ns = 0;
+    int64_t connect_time_ns = 0;
+    int64_t tls_time_ns = 0;
+    int64_t first_byte_time_ns = 0;
+    int64_t total_time_ns = 0;
+};
+
 // Helper class to access HTTP resource
 class HttpClient {
 public:
@@ -153,6 +162,10 @@ public:
     Status get_content_md5(std::string* md5) const;
 
     CURLcode get_last_curl_code() const { return _last_curl_code; }
+
+    // Metrics for the latest transfer, including failed requests. Read before reset/init.
+    // DNS/first-byte/total are cumulative curl timings; connect/TLS are phase durations.
+    HttpTransferMetrics get_transfer_metrics() const;
 
     // Read the final response header; clear value when the header is absent.
     Status get_response_header(const char* name, std::string* value) const;
