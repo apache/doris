@@ -144,7 +144,7 @@ TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
     VExprContextSPtrs exprs;
-    VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, exprs);
     RuntimeState state;
     state.set_timezone("America/New_York");
     writer._state = &state;
@@ -228,7 +228,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         TDataSink data_sink;
         data_sink.__set_iceberg_table_sink(sink);
         VExprContextSPtrs exprs;
-        VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+        VIcebergTableWriter writer(data_sink, exprs);
         writer._schema = schema;
         auto type = make_nullable(std::make_shared<DataTypeVarbinary>());
         writer._iceberg_partition_columns.emplace_back(
@@ -292,7 +292,7 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
     VExprContextSPtrs exprs;
-    VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, exprs);
     writer._schema = schema;
     writer._iceberg_partition_columns.emplace_back(
             spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},
@@ -338,7 +338,7 @@ TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {
     TIcebergTableSink iceberg_sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(iceberg_sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = schema;
     writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
 
@@ -413,7 +413,7 @@ TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource) {
     TIcebergTableSink iceberg_sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(iceberg_sink);
-    VIcebergTableWriter writer(data_sink, output_exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, output_exprs);
     writer._schema = schema;
     writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
 
@@ -462,7 +462,7 @@ TEST(VIcebergTableWriterTest, UuidStaticPartitionAcceptsCanonicalText) {
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
     VExprContextSPtrs exprs;
-    VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, exprs);
     writer._schema = schema;
     writer._iceberg_partition_columns.emplace_back(
             spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},
