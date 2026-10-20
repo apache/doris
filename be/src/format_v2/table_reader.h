@@ -75,6 +75,10 @@ class RuntimeState;
 
 namespace doris::format {
 
+namespace parquet {
+class ParquetProfileCache;
+}
+
 using DeleteRows = std::vector<int64_t>;
 
 // Row-level predicates on table/global schema. They are rewritten to file-local expressions when
@@ -148,6 +152,7 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
+    parquet::ParquetProfileCache* parquet_profile_cache = nullptr;
     // File formats without complete self-describing metadata, such as CSV, Text, and JSON, need
     // the FE-planned physical file slots to build their file-local schema and deserialize values.
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
@@ -2236,6 +2241,7 @@ protected:
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
+    parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
