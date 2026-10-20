@@ -692,7 +692,7 @@ void CloudTablet::remove_unused_rowsets() {
         // Warmup callbacks use _meta_lock; take it before _gc_mutex, as add_rowsets does.
         std::unique_lock meta_lock(_meta_lock);
         std::lock_guard<std::mutex> lock(_gc_mutex);
-        // 1. remove unused rowsets's cache data and delete bitmap
+        // 1. select unused rowsets and remove their warmup states and delete bitmap
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             auto& rs = it->second;
             if (rs.use_count() > 1) {
@@ -703,7 +703,6 @@ void CloudTablet::remove_unused_rowsets() {
             }
             tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
             _rowset_warm_up_states.erase(rs->rowset_id());
-            rs->clear_cache();
             g_unused_rowsets_count << -1;
             g_unused_rowsets_bytes << -rs->total_disk_size();
             removed_rowsets.push_back(std::move(rs));
@@ -714,7 +713,10 @@ void CloudTablet::remove_unused_rowsets() {
     {
         std::vector<RecycledRowsets> recycled_rowsets;
 
+        // Keep selected rowsets alive here, but release tablet locks before clearing
+        // caches: a compaction batch can synchronously remove many cached blocks.
         for (auto& rs : removed_rowsets) {
+            rs->clear_cache();
             auto index_names = rs->get_index_file_names();
             std::vector<int64_t> segment_ids(rs->rowset_meta()->segment_ids().begin(),
                                              rs->rowset_meta()->segment_ids().end());
