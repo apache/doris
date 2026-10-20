@@ -143,6 +143,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
+        if (request.isPartitionsPrunedToEmpty()) {
+            return Collections.emptyList();
+        }
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return doPlanScan(session, request);
         }
@@ -159,7 +162,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse =
                 session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
-        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
+        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle, request.getRequiredPartitions());
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
             PlanCompleteness completeness = new PlanCompleteness();
@@ -187,7 +190,13 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String tableName = hiveHandle.getTableName();
         recordPruningProfile(hiveHandle);
 
-        List<PartitionScanInfo> partitions = resolvePartitions(hiveHandle);
+        // Typed FE pruning can leave an unfiltered handle when its full view was preloaded before planner
+        // locks. Honor those names directly: do not enumerate or reselect the full partition universe here.
+        List<String> requiredPartitions = request.getRequiredPartitions();
+        List<PartitionScanInfo> partitions = requiredPartitions.isEmpty()
+                ? resolvePartitions(hiveHandle)
+                : convertPartitions(resolveBatchPartitions(hiveHandle, requiredPartitions),
+                        hiveHandle.getPartitionKeyNames());
         if (partitions.isEmpty()) {
             return Collections.emptyList();
         }
@@ -399,7 +408,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             int end = Math.min(partitionNames.size(), nextPartition + partitionBatchSize);
-            partitions = convertPartitions(loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(),
+            partitions = convertPartitions(resolveBatchPartitions(handle,
                     partitionNames.subList(nextPartition, end)), keys).iterator();
             nextPartition = end;
             return true;
@@ -445,11 +454,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Plans the scan for a SINGLE partition batch (see
-     * {@link ConnectorScanPlanProvider#planScanForPartitionBatch}). Unlike {@link #planScan} — which resolves
-     * partitions from {@code handle.getPrunedPartitions()} and IGNORES the passed partition set — this MUST scope
-     * resolution to {@code partitionBatch}: {@code PluginDrivenScanNode} slices the pruned partition NAMES into
-     * batches and calls this once per batch, so inheriting the SPI default (which re-runs the whole-pruned-set
-     * {@link #planScan} per batch) would emit every partition's files once per batch — duplicate rows. The batch
+     * {@link ConnectorScanPlanProvider#planScanForPartitionBatch}). While {@link #planScan} honors the request's
+     * required partitions, this MUST scope resolution to {@code partitionBatch}: {@code PluginDrivenScanNode}
+     * slices the pruned partition NAMES into batches and calls this once per batch. Resolving the request's whole
+     * selection per batch would emit every partition's files once per batch — duplicate rows. The batch
      * strings are the metastore-rendered {@code key=value/...} partition names (the keys of the Nereids
      * selected-partition map), exactly the form {@code hmsClient.getPartitions} accepts, so batch-scoped
      * resolution is a clean {@code getPartitions(batch)} round-trip. Only the non-ACID path is reachable here
@@ -476,6 +484,32 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return ranges;
+    }
+
+    private List<HmsPartitionInfo> resolveBatchPartitions(HiveTableHandle handle, List<String> partitionBatch) {
+        Map<String, HmsPartitionInfo> retained = handle.getPrunedPartitionsByName();
+        if (retained.isEmpty()) {
+            return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
+        }
+        List<HmsPartitionInfo> partitions = new ArrayList<>(partitionBatch.size());
+        boolean covered = true;
+        for (String partitionName : partitionBatch) {
+            HmsPartitionInfo partition = retained.get(partitionName);
+            partitions.add(partition);
+            if (partition == null) {
+                covered = false;
+            }
+        }
+        if (covered) {
+            return partitions;
+        }
+        // The retained map covers exactly what THIS scan's connector predicate admitted, which can be narrower
+        // than the logical selection this batch came from: the connector converter declines an expression the
+        // physical converter strips (e.g. CAST(p AS INT) = 1 becomes the bare p = '1' handle), so a typed
+        // logical prune may legitimately select names the map does not hold, and no HMS mutation is needed for
+        // that. The native map is not proven to cover the logical selection, so resolve the whole batch by name
+        // exactly as the pre-cutover batch path did - one consistent generation, never a mixed one.
+        return loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(), partitionBatch);
     }
 
     /**
@@ -1109,8 +1143,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final boolean firstColumnIsString;
         private final List<String> partitionKeyNames;
         private final List<HmsPartitionInfo> prunedPartitions;
+        private final List<String> requiredPartitions;
 
-        private HiveScanReuseKey(HiveTableHandle handle) {
+        private HiveScanReuseKey(HiveTableHandle handle, List<String> requiredPartitions) {
             // Catalog and query isolation are provided by the statement-scope memo key. The table
             // location identifies the data source of unpartitioned tables, whose prunedPartitions
             // is null.
@@ -1126,6 +1161,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.prunedPartitions = handle.getPrunedPartitions() == null
                     ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitions()));
+            this.requiredPartitions = Collections.unmodifiableList(new ArrayList<>(requiredPartitions));
         }
 
         @Override
@@ -1144,14 +1180,15 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     && Objects.equals(inputFormat, that.inputFormat)
                     && Objects.equals(serializationLib, that.serializationLib)
                     && Objects.equals(partitionKeyNames, that.partitionKeyNames)
-                    && Objects.equals(prunedPartitions, that.prunedPartitions);
+                    && Objects.equals(prunedPartitions, that.prunedPartitions)
+                    && Objects.equals(requiredPartitions, that.requiredPartitions);
         }
 
         @Override
         public int hashCode() {
             return Objects.hash(dbName, tableName, location,
                     inputFormat, serializationLib, firstColumnIsString,
-                    partitionKeyNames, prunedPartitions);
+                    partitionKeyNames, prunedPartitions, requiredPartitions);
         }
 
         @Override

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,14 +46,23 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 
@@ -61,10 +71,12 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -214,8 +226,17 @@ public class CollectRelation implements AnalysisRuleFactory {
             table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
             // Record relation-level metadata so the planner can preload latest external metadata before locking.
             if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
-                statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.get().getScanParams()));
+                Optional<Expression> initialPredicate = initialScanPredicate(cascadesContext,
+                        cascadesContext.getRewritePlan(), unboundRelation.get());
+                statementContext.registerExternalTableForPreload(table,
+                        unboundRelation.get().getTableSnapshot(),
+                        Optional.ofNullable(unboundRelation.get().getScanParams()), initialPredicate.isPresent());
+                if (!unboundRelation.get().getTableSnapshot().isPresent()
+                        && unboundRelation.get().getScanParams() == null) {
+                    statementContext.getExternalTablePreloadInfo(table.getId()).ifPresent(info ->
+                            initialPredicate.ifPresent(predicate ->
+                                    info.registerScanPredicate(unboundRelation.get().getRelationId(), predicate)));
+                }
                 registerRowBinlogTtl(table, unboundRelation.get(), statementContext);
             }
             if (firstLevel) {
@@ -312,8 +333,18 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
+        Set<RelationId> outerFilteredRelations = parentContext.getStatementContext().getExternalTablePreloadInfos()
+                .stream().flatMap(info -> info.getInitialScanPredicates().keySet().stream())
+                .collect(Collectors.toSet());
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(),
                 () -> viewContext.newTableCollector(false).collect());
+        // View binding reparses the definition and allocates new RelationIds. Use the actual collector's
+        // registrations, including CTE and expression-subquery plans that are not ordinary plan children.
+        // Keep unrelated outer aliases intact and preload the view's full fallback before the outer locks.
+        Set<RelationId> collectedRelations = parentContext.getStatementContext().getExternalTablePreloadInfos()
+                .stream().flatMap(info -> info.getInitialScanPredicates().keySet().stream())
+                .filter(relationId -> !outerFilteredRelations.contains(relationId)).collect(Collectors.toSet());
+        parentContext.getStatementContext().markReparsedViewRelationsForPreload(collectedRelations);
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
     }
 
@@ -350,5 +381,71 @@ public class CollectRelation implements AnalysisRuleFactory {
                 statementContext.requireRowBinlogReferenceTso();
             }
         }
+    }
+
+    private boolean isUnderInitialFilter(
+            CascadesContext cascadesContext, Plan plan, UnboundRelation relation) {
+        return initialScanPredicate(cascadesContext, plan, relation).isPresent();
+    }
+
+    private Optional<Expression> initialScanPredicate(CascadesContext context, Plan plan, UnboundRelation relation) {
+        List<Expression> predicates = new ArrayList<>();
+        collectInitialScanPredicates(context, plan, relation, predicates);
+        return predicates.isEmpty() ? Optional.empty() : Optional.of(ExpressionUtils.and(predicates));
+    }
+
+    private void collectInitialScanPredicates(CascadesContext context, Plan plan, UnboundRelation relation,
+            List<Expression> predicates) {
+        if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
+            ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, context);
+            for (Expression conjunct : ((LogicalFilter<?>) plan).getConjuncts()) {
+                Expression folded = FoldConstantRule.evaluate(conjunct, rewriteContext);
+                if (!BooleanLiteral.TRUE.equals(folded) && !folded.getInputSlots().isEmpty()
+                        && folded.getInputSlots().stream().allMatch(slot -> slot instanceof UnboundSlot
+                                && belongsToRelation((UnboundSlot) slot, plan.child(0), relation))) {
+                    predicates.add(folded);
+                }
+            }
+        }
+        for (Plan child : plan.children()) {
+            collectInitialScanPredicates(context, child, relation, predicates);
+        }
+    }
+
+    /** Only descend through shapes where pushing a relation-only WHERE predicate preserves rows. */
+    private boolean isTransparentFilterChild(Plan plan, UnboundRelation relation) {
+        if (plan == relation) {
+            return true;
+        }
+        if (plan instanceof LogicalCheckPolicy || plan instanceof LogicalSubQueryAlias
+                || plan instanceof LogicalFilter) {
+            return isTransparentFilterChild(plan.child(0), relation);
+        }
+        if (plan instanceof LogicalJoin) {
+            JoinType type = ((LogicalJoin<?, ?>) plan).getJoinType();
+            return (type == JoinType.INNER_JOIN || type == JoinType.CROSS_JOIN)
+                    && plan.children().stream().anyMatch(child -> isTransparentFilterChild(child, relation));
+        }
+        return false;
+    }
+
+    private boolean belongsToRelation(UnboundSlot slot, Plan plan, UnboundRelation relation) {
+        List<String> qualifier = slot.getQualifier();
+        if (plan == relation) {
+            List<String> names = relation.getNameParts();
+            return qualifier.isEmpty() || qualifier.size() <= names.size()
+                    && qualifier.equals(names.subList(names.size() - qualifier.size(), names.size()));
+        }
+        if (plan instanceof LogicalSubQueryAlias) {
+            // A direct table alias hides its original name. Derived/projected aliases are not transparent.
+            return isTransparentFilterChild(plan.child(0), relation)
+                    && (qualifier.isEmpty() || qualifier.equals(((LogicalSubQueryAlias<?>) plan).getQualifier()));
+        }
+        if (plan instanceof LogicalJoin && qualifier.isEmpty()) {
+            // Binding must resolve ambiguous bare names; do not guess a branch before analysis.
+            return false;
+        }
+        return plan.children().stream().anyMatch(child -> isTransparentFilterChild(child, relation)
+                && belongsToRelation(slot, child, relation));
     }
 }
