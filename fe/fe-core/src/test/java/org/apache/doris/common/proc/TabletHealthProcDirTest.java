@@ -64,7 +64,6 @@ public class TabletHealthProcDirTest extends TestWithFeService {
 
     @Test
     public void testCloudModeCountsTabletAsHealthy() throws Exception {
-        String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE tbl_proc_health (k INT) DISTRIBUTED BY HASH(k) BUCKETS 1"
                 + " PROPERTIES ('replication_num' = '1')");
 
@@ -83,8 +82,10 @@ public class TabletHealthProcDirTest extends TestWithFeService {
                 Env.getCurrentSystemInfo().getAllBackendIds(true)).status;
         Assertions.assertEquals(TabletStatus.UNRECOVERABLE, localStatus);
 
-        Config.deploy_mode = "cloud";
-        try (MockedStatic<Partition> mockedPartition = Mockito.mockStatic(Partition.class, Mockito.CALLS_REAL_METHODS)) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Partition> mockedPartition = Mockito.mockStatic(Partition.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedPartition.when(() -> Partition.getVisibleVersions(Mockito.anyList())).thenAnswer(invocation -> {
                 List<? extends Partition> partitions = invocation.getArgument(0);
                 return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
@@ -103,8 +104,6 @@ public class TabletHealthProcDirTest extends TestWithFeService {
             Assertions.assertEquals("0", row.get(unrecoverableNumIdx));
             Assertions.assertEquals("0", row.get(changelogMismatchNumIdx));
             Assertions.assertEquals("0", row.get(changelogRedundantNumIdx));
-        } finally {
-            Config.deploy_mode = originDeployMode;
         }
     }
 
