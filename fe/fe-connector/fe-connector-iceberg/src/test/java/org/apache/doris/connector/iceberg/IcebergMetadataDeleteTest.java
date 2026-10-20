@@ -198,6 +198,22 @@ public class IcebergMetadataDeleteTest {
         Assertions.assertEquals(2, dataFilePaths(reload(catalog)).size());
     }
 
+    @Test
+    public void v1TableKeepsTheFormatVersionContract() {
+        InMemoryCatalog catalog = freshCatalog();
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        Table table = catalog.createTable(TABLE_ID, SCHEMA, spec, props("format-version", "1"));
+        table.newAppend().appendFile(dataFile(spec, "s3://b/db1/t1/a.parquet", 10L)).commit();
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+
+        OptionalLong deleted = metadata(catalog).deleteUsingMetadata(
+                SESSION, HANDLE, Optional.empty(), null, () -> false);
+
+        Assertions.assertFalse(deleted.isPresent(),
+                "v1 tables must fall back so the row-level path keeps rejecting row-level deletes");
+        Assertions.assertEquals(snapshotBefore, reload(catalog).currentSnapshot().snapshotId());
+    }
+
     private static IcebergConnectorMetadata metadata(InMemoryCatalog catalog) {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = reload(catalog);

@@ -2027,6 +2027,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (isCancelled.getAsBoolean()) {
             return OptionalLong.empty();
         }
+        if (!(table instanceof BaseTable)
+                || ((BaseTable) table).operations().current().formatVersion() < 2) {
+            // A v1 table has no row-level delete contract (the row-level path fails with
+            // "must have format version 2 or higher for position deletes"); keep that behavior.
+            return OptionalLong.empty();
+        }
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
         Expression deleteExpr = predicate.isPresent()
                 ? wholeFileDeleteExpression(table, session, predicate.get())
@@ -2042,7 +2048,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Candidate planning and delete-manifest reads fan out onto Iceberg's shared worker pool, which needs the
         // plugin Kerberos FileIO; the caller-thread executeAuthenticated scope does not cover those workers.
         Table scanTable = wrapTableForScan(table);
-        if (!readLiveDeleteFiles(scanTable, base).isEmpty()) {
+        if (hasLiveDeleteFiles(scanTable, base)) {
             // The affected-row count is only exact when nothing was hidden before: legacy position deletes,
             // equality deletes (a key is not a row) and stale-delete cleanup all break the summary arithmetic.
             LOG.info("Skipping metadata delete of {}: the table already carries delete files.", table.name());
@@ -2057,7 +2063,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         table.refresh();
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
         Snapshot refreshed = table.currentSnapshot();
-        if (refreshed == null || !readLiveDeleteFiles(scanTable, refreshed).isEmpty()) {
+        if (refreshed == null || hasLiveDeleteFiles(scanTable, refreshed)) {
             return OptionalLong.empty();
         }
         long refreshedSnapshotId = refreshed.snapshotId();
@@ -2065,9 +2071,10 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Use a transaction rather than table.newDelete(): its ops carry the plugin Kerberos FileIO for Iceberg's
         // worker-pool manifest work, and its table view keeps the metadata it committed, so currentSnapshot()
         // below is this delete's own snapshot even if another writer committed meanwhile. The bound identity
-        // fences the final CAS and every retry replay against a table/schema generation change.
+        // and required snapshot fence the final CAS and every retry replay: a concurrent commit aborts the
+        // metadata delete (the row-level fallback then reports an exact affected-row count).
         Transaction transaction = IcebergConnectorTransaction.openTransaction(
-                table, context, null, false, boundWriteMetadataIdentity);
+                table, context, null, false, boundWriteMetadataIdentity, refreshedSnapshotId);
         DeleteFiles deleteFiles = transaction.newDelete().deleteFromRowFilter(deleteExpr);
         if (isCancelled.getAsBoolean()) {
             return OptionalLong.empty();
@@ -2218,22 +2225,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
     }
 
-    /** All live delete files of the base snapshot, copied so they survive the manifest readers. */
-    private static List<DeleteFile> readLiveDeleteFiles(Table table, Snapshot snapshot) {
-        List<DeleteFile> files = new ArrayList<>();
+    /**
+     * Whether the snapshot has any live delete file. Both callers only need presence, so stop at the first live
+     * entry instead of materializing every delete file of every unrelated partition.
+     */
+    private static boolean hasLiveDeleteFiles(Table table, Snapshot snapshot) {
         try {
             for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
                 try (ManifestReader<DeleteFile> reader =
                         ManifestFiles.readDeleteManifest(manifest, table.io(), table.specs())) {
-                    for (DeleteFile file : reader) {
-                        files.add(file.copy());
+                    if (reader.iterator().hasNext()) {
+                        return true;
                     }
                 }
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        return files;
+        return false;
     }
 
     /**

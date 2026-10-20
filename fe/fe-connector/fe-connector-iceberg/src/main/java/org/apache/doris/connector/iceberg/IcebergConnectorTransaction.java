@@ -60,6 +60,7 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.Transactions;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -356,7 +357,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * {@code io()} differs. Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) keep the legacy path.
      */
     private Transaction openTransaction(Table loaded, boolean requireCurrentPartitionSpec) {
-        return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec, null);
+        return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec, null, null);
     }
 
     /**
@@ -366,7 +367,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      */
     static Transaction openTransaction(Table loaded, ConnectorContext context,
             IcebergWriteSchemaContext writeSchemaContext, boolean requireCurrentPartitionSpec,
-            String boundWriteMetadataIdentity) {
+            String boundWriteMetadataIdentity, Long requiredSnapshotId) {
         HadoopAuthenticator auth = context instanceof TcclPinningConnectorContext
                 ? ((TcclPinningConnectorContext) context).getPluginAuthenticator()
                 : null;
@@ -381,10 +382,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             FileIO authIo = new IcebergAuthenticatedFileIO(realOps.io(), auth);
             writeOps = new IcebergAuthenticatedTableOperations(realOps, authIo);
         }
-        if (writeSchemaContext != null || boundWriteMetadataIdentity != null) {
+        if (writeSchemaContext != null || boundWriteMetadataIdentity != null || requiredSnapshotId != null) {
             writeOps = new ValidatingTableOperations(
                     writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name(),
-                    boundWriteMetadataIdentity);
+                    boundWriteMetadataIdentity, requiredSnapshotId);
         }
         if (writeOps == realOps) {
             return loaded.newTransaction();
@@ -414,16 +415,20 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         // Non-null for a whole-file metadata delete: fences the final CAS (including retry replays) against a
         // same-name table replacement or a schema/partition rebind that happened after planning.
         private final String boundWriteMetadataIdentity;
+        // Non-null for a whole-file metadata delete: requires the commit to apply to the exact snapshot the
+        // affected-row preflight inspected, so a concurrent commit aborts instead of changing the removed set.
+        private final Long requiredSnapshotId;
 
         private ValidatingTableOperations(TableOperations delegate,
                 IcebergWriteSchemaContext writeSchemaContext,
                 boolean requireCurrentPartitionSpec, String tableName,
-                String boundWriteMetadataIdentity) {
+                String boundWriteMetadataIdentity, Long requiredSnapshotId) {
             this.delegate = delegate;
             this.writeSchemaContext = writeSchemaContext;
             this.requireCurrentPartitionSpec = requireCurrentPartitionSpec;
             this.tableName = tableName;
             this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
+            this.requiredSnapshotId = requiredSnapshotId;
         }
 
         @Override
@@ -433,7 +438,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
         @Override
         public TableMetadata refresh() {
-            return delegate.refresh();
+            TableMetadata refreshed = delegate.refresh();
+            checkRequiredSnapshot(refreshed);
+            return refreshed;
         }
 
         @Override
@@ -461,7 +468,20 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 throw new DorisConnectorException(
                         "Iceberg write metadata changed after the write was bound; retry the statement");
             }
+            checkRequiredSnapshot(currentMetadata);
             delegate.commit(base, metadata);
+        }
+
+        /** Aborts a retry replay that would apply the delete to a snapshot other than the preflighted one. */
+        private void checkRequiredSnapshot(TableMetadata metadata) {
+            if (requiredSnapshotId == null) {
+                return;
+            }
+            Snapshot current = metadata.currentSnapshot();
+            if (current == null || current.snapshotId() != requiredSnapshotId) {
+                throw new ValidationException(
+                        "Table %s changed since the metadata delete preflight; retry the statement", tableName);
+            }
         }
 
         @Override

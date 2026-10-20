@@ -113,8 +113,19 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
                 "COW scenario ${scenario.name} should not create delete files for ${tableName}, actual=${deleteFiles}")
         }
         if (scenario.mode == "merge-on-read" && formatVersion == 3) {
-            assertTrue(deleteFiles.size() > 0,
-                    "MOR scenario ${scenario.name} should create delete files for ${tableName}")
+            if (scenario.operation == "delete") {
+                // The fixture writes one row per data file, so `delete ... where id = 2` covers a whole file.
+                // Doris commits that as a metadata delete now: the file is dropped and no DV is written.
+                long dataFileCount =
+                        sql("""select count(*) from ${tableName}\$files""")[0][0].toString().toLong()
+                assertTrue(deleteFiles.size() > 0 || dataFileCount == 2,
+                        "MOR scenario ${scenario.name} should create delete files or drop the wholly deleted "
+                                + "data file for ${tableName}, deleteFiles=${deleteFiles}, "
+                                + "dataFiles=${dataFileCount}")
+            } else {
+                assertTrue(deleteFiles.size() > 0,
+                        "MOR scenario ${scenario.name} should create delete files for ${tableName}")
+            }
         }
         deleteFiles.each { row ->
             String filePath = row[0].toString().toLowerCase()
