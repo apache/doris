@@ -460,6 +460,49 @@ public class OlapScanNodeTest {
     }
 
     @Test
+    public void testScanKeyBucketPruneCarriesDistributionHashType() throws Exception {
+        ConnectContext context = Mockito.mock(ConnectContext.class, Mockito.RETURNS_DEEP_STUBS);
+        SessionVariable session = new SessionVariable();
+        Mockito.when(context.getSessionVariable()).thenReturn(session);
+        try (MockedStatic<ConnectContext> contexts = Mockito.mockStatic(ConnectContext.class)) {
+            contexts.when(ConnectContext::get).thenReturn(context);
+            OlapScanNode scanNode = newBucketPruneScanNode(10L, 11L);
+            OlapTable table = scanNode.getOlapTable();
+            Column key = new Column("address", Type.VARCHAR, true, null, false, null, "");
+            Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+            Mockito.when(table.getPartitionInfo()).thenReturn(new SinglePartitionInfo());
+            Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(key));
+            Mockito.when(table.getKeyColumnsByIndexId(1L)).thenReturn(Lists.newArrayList(key));
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, false, Lists.newArrayList(key),
+                            HashDistributionInfo.HashType.IDENTITY));
+            scanNode.setSelectedIndexInfo(1L, true, "");
+            getBucketInfo(scanNode).put(10L, ((long) 128 << Integer.SIZE) | 113L);
+            getBucketInfo(scanNode).put(11L, ((long) 128 << Integer.SIZE) | 67L);
+
+            // An identity table keeps the optimization: BE groups key ranges with the same
+            // canonical-byte hash the tablets were built with, so pruning stays consistent.
+            TOlapScanNode node = new TOlapScanNode();
+            scanNode.setScanKeyBucketPruneParameters(node);
+            Assertions.assertTrue(node.isEnableScanKeyBucketPrune());
+            Assertions.assertEquals(
+                    org.apache.doris.thrift.TDistributionHashType.IDENTITY,
+                    node.getDistributionHashType());
+
+            // A CRC32 table keeps the legacy hash type on the wire.
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, false, Lists.newArrayList(key),
+                            HashDistributionInfo.HashType.CRC32));
+            TOlapScanNode crcNode = new TOlapScanNode();
+            scanNode.setScanKeyBucketPruneParameters(crcNode);
+            Assertions.assertTrue(crcNode.isEnableScanKeyBucketPrune());
+            Assertions.assertEquals(
+                    org.apache.doris.thrift.TDistributionHashType.CRC32,
+                    crcNode.getDistributionHashType());
+        }
+    }
+
+    @Test
     public void testScanKeyBucketPruneRequiresAllTabletMetadata() throws Exception {
         ConnectContext context = Mockito.mock(ConnectContext.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());

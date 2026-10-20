@@ -1106,6 +1106,9 @@ struct TOlapScanNode {
   // equals the sole HASH distribution key, and all scan ranges carry bucket metadata.
   // BE may prune only final inclusive point ranges; absent means disabled.
   29: optional bool enable_scan_key_bucket_prune
+  // Hash function the table's buckets were built with. BE groups point key ranges with the
+  // same function; absent or CRC32 means the legacy raw-byte CRC32 grouping.
+  30: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }
 
 struct TEqJoinCondition {

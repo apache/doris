@@ -19,8 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include "core/column/column_string.h"
 #include "storage/olap_utils.h"
+#include "util/raw_value.h"
 
 namespace doris {
 namespace {
@@ -63,6 +66,62 @@ TEST(ScanKeyBucketPrunerTest, MatchesDistributionHashAndPreservesRangeIdentity) 
         EXPECT_EQ(routed.front(), ranges[i].get());
     }
     EXPECT_TRUE(pruner.ranges_for_bucket(1).empty());
+}
+
+// The identity grouping must match the function the tablet buckets were built with:
+// RawValue::append_identity_bytes (== RawValue::identity_hash and ColumnString's batch
+// identity hash) on the same raw bytes, modulo the bucket count. An explicit CRC32 hash
+// type must keep the legacy grouping byte-for-byte.
+TEST(ScanKeyBucketPrunerTest, IdentityGroupingMatchesRoutingAndCrc32IsUnchanged) {
+    const std::vector<std::string> values {"", "a", "address000001", std::string("a\0b", 3),
+                                           "中文"};
+    auto column = ColumnString::create();
+    std::vector<std::unique_ptr<OlapScanRange>> ranges;
+    for (const auto& value : values) {
+        ranges.push_back(varchar_point(value));
+        column->insert_data(value.data(), value.size());
+    }
+
+    // Expected identity buckets from the shared routing implementation, not from this
+    // pruner's own code path.
+    std::vector<uint32_t> identity_hashes(values.size(), 0);
+    column->update_identity_hash(identity_hashes.data(), 128, nullptr);
+
+    ScanKeyBucketPruner identity_pruner;
+    ASSERT_TRUE(identity_pruner.init(ranges, 128, TDistributionHashType::IDENTITY));
+    size_t routed_count = 0;
+    for (int bucket = 0; bucket < 128; ++bucket) {
+        routed_count += identity_pruner.ranges_for_bucket(bucket).size();
+    }
+    EXPECT_EQ(routed_count, ranges.size());
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        const auto& routed = identity_pruner.ranges_for_bucket(identity_hashes[i] % 128);
+        // A power-of-two bucket count under identity hashing lets low-byte collisions put
+        // several ranges in one bucket; only membership (not uniqueness) is required.
+        EXPECT_NE(std::find(routed.begin(), routed.end(), ranges[i].get()), routed.end());
+    }
+
+    // The same range must land in its own hash's bucket under each grouping, even when the
+    // bucket ordinal collides between the two hash types.
+    ScanKeyBucketPruner crc32_pruner;
+    ASSERT_TRUE(crc32_pruner.init(ranges, 128, TDistributionHashType::CRC32));
+    std::vector<uint32_t> crc32_hashes(values.size(), 0);
+    column->update_crcs_with_value(crc32_hashes.data(), TYPE_VARCHAR,
+                                   static_cast<uint32_t>(values.size()), 0, nullptr);
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        const auto& crc_routed = crc32_pruner.ranges_for_bucket(crc32_hashes[i] % 128);
+        EXPECT_NE(std::find(crc_routed.begin(), crc_routed.end(), ranges[i].get()),
+                  crc_routed.end());
+    }
+    // Default hash type is CRC32 (old FE without the new thrift field), same grouping as the
+    // explicit CRC32 pruner.
+    ScanKeyBucketPruner default_pruner;
+    ASSERT_TRUE(default_pruner.init(ranges, 128));
+    for (size_t i = 0; i < ranges.size(); ++i) {
+        const auto& default_routed = default_pruner.ranges_for_bucket(crc32_hashes[i] % 128);
+        EXPECT_NE(std::find(default_routed.begin(), default_routed.end(), ranges[i].get()),
+                  default_routed.end());
+    }
 }
 
 TEST(ScanKeyBucketPrunerTest, KeepsDuplicatesAndBucketLocalOrder) {

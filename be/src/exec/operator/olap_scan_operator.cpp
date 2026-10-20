@@ -765,7 +765,11 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         p._olap_scan_node.enable_scan_key_bucket_prune) {
         const int32_t bucket_num = _scan_ranges.front()->bucket_num;
         DORIS_CHECK_GT(bucket_num, 0);
-        if (bucket_pruner.init(_cond_ranges, bucket_num)) {
+        // Absent on old FEs, which only ever prune CRC32-distributed tables.
+        const auto hash_type = p._olap_scan_node.__isset.distribution_hash_type
+                                       ? p._olap_scan_node.distribution_hash_type
+                                       : TDistributionHashType::CRC32;
+        if (bucket_pruner.init(_cond_ranges, bucket_num, hash_type)) {
             int64_t routed_ranges = 0;
             for (size_t i = 0; i < _scan_ranges.size(); ++i) {
                 const auto& range = *_scan_ranges[i];

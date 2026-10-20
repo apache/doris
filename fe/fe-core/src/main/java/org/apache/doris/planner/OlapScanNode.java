@@ -1622,6 +1622,13 @@ public class OlapScanNode extends ScanNode {
                 || !keys.get(0).getType().isVarchar() || keys.get(0).isAllowNull()) {
             return;
         }
+        // BE groups point key ranges with the same hash function the table's buckets were
+        // built with; identity tables get their own canonical-byte grouping instead of the
+        // legacy raw-byte CRC32 grouping, so both hash types keep the optimization.
+        node.setDistributionHashType(
+                DataPartition.toTHashType(
+                        ((HashDistributionInfo) olapTable.getDefaultDistributionInfo())
+                                .getHashType()));
         setRuntimeFilterBucketPruneParameters();
         // Missing metadata can deliberately disable attachment (e.g. the debug point).
         // Do not attest eligibility unless every range has its full bucket ordinal/count.
