@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTabletType;
 
+import doris.segment_v2.SegmentV2;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,7 +108,7 @@ public class CloudInternalCatalogTest {
         boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
         try {
             Config.enable_partition_inverted_index_storage_format_rollout = false;
-            OlapFile.TabletMetaCloudPB disabledTabletMeta = createTabletMeta(tablet);
+            OlapFile.TabletMetaCloudPB disabledTabletMeta = createTabletMeta(tablet, TCompressionType.LZ4F);
             Assertions.assertEquals(17, disabledTabletMeta.getSchemaVersion());
             Assertions.assertEquals(17, disabledTabletMeta.getSchema().getSchemaVersion());
             Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
@@ -117,7 +118,7 @@ public class CloudInternalCatalogTest {
             Assertions.assertFalse(disabledTabletMeta.getRsMetas(0).hasInvertedIndexStorageFormat());
 
             Config.enable_partition_inverted_index_storage_format_rollout = true;
-            OlapFile.TabletMetaCloudPB enabledTabletMeta = createTabletMeta(tablet);
+            OlapFile.TabletMetaCloudPB enabledTabletMeta = createTabletMeta(tablet, TCompressionType.LZ4F);
             Assertions.assertTrue(enabledTabletMeta.hasInvertedIndexStorageFormat());
             Assertions.assertEquals(OlapFile.InvertedIndexStorageFormatPB.SNII,
                     enabledTabletMeta.getInvertedIndexStorageFormat());
@@ -298,11 +299,35 @@ public class CloudInternalCatalogTest {
         Mockito.when(systemInfoService.getBackend(backendId)).thenReturn(backend);
     }
 
-    private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet) throws Exception {
+    @Test
+    public void testCreateTabletMetaPreservesCompressionType() throws Exception {
+        assertCompressionPreserved(TCompressionType.LZ4HC, SegmentV2.CompressionTypePB.LZ4HC);
+        assertCompressionPreserved(TCompressionType.LZ4F, SegmentV2.CompressionTypePB.LZ4F);
+    }
+
+    private void assertCompressionPreserved(TCompressionType compressionType,
+            SegmentV2.CompressionTypePB expected) throws Exception {
+        Tablet tablet = Mockito.mock(Tablet.class);
+        Replica replica = Mockito.mock(Replica.class);
+        Mockito.when(tablet.getId()).thenReturn(100L);
+        Mockito.when(tablet.getReplicas()).thenReturn(Collections.singletonList(replica));
+        Mockito.when(replica.getId()).thenReturn(200L);
+
+        OlapFile.TabletMetaCloudPB tabletMeta = createTabletMeta(tablet, compressionType);
+        Assertions.assertEquals(expected, tabletMeta.getSchema().getCompressionType());
+        Assertions.assertEquals(expected, tabletMeta.getRsMetas(0).getTabletSchema().getCompressionType());
+
+        OlapFile.TabletMetaCloudPB restored = OlapFile.TabletMetaCloudPB.parseFrom(tabletMeta.toByteArray());
+        Assertions.assertEquals(expected, restored.getSchema().getCompressionType());
+        Assertions.assertEquals(expected, restored.getRsMetas(0).getTabletSchema().getCompressionType());
+    }
+
+    private OlapFile.TabletMetaCloudPB createTabletMeta(Tablet tablet, TCompressionType compressionType)
+            throws Exception {
         return new CloudInternalCatalog().createTabletMetaBuilder(
                 1L, 2L, 3L, tablet, TTabletType.TABLET_TYPE_DISK, 23, KeysType.DUP_KEYS, (short) 1,
                 Collections.emptySet(), 0.05, Collections.emptyList(), Collections.emptyList(),
-                new DataSortInfo(TSortType.LEXICAL, 0), TCompressionType.LZ4F, TStorageFormat.DEFAULT,
+                new DataSortInfo(TSortType.LEXICAL, 0), compressionType, TStorageFormat.DEFAULT,
                 "", false, false,
                 "table", 0L, false, false, 17, null, "size_based",
                 0L, 0L, 0L, 0L, 0L, false, Collections.emptyList(),

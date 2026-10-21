@@ -34,6 +34,30 @@
 
 namespace doris {
 
+TEST(TabletMetaTest, PreserveCompressionType) {
+    for (const auto& [compression_type, expected] :
+         {std::pair {TCompressionType::LZ4HC, segment_v2::LZ4HC},
+          std::pair {TCompressionType::LZ4F, segment_v2::LZ4F}}) {
+        TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                               TTabletType::TABLET_TYPE_DISK, compression_type);
+        EXPECT_EQ(expected, tablet_meta.tablet_schema()->compression_type());
+
+        TabletMetaPB tablet_meta_pb;
+        tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+        EXPECT_EQ(expected, tablet_meta_pb.schema().compression_type());
+
+        FileHeader<TabletMetaPB> file_header("");
+        file_header.mutable_message()->CopyFrom(tablet_meta_pb);
+        ASSERT_TRUE(file_header.prepare().ok());
+        std::vector<uint8_t> buffer(file_header.size());
+        ASSERT_TRUE(file_header.serialize_to_memory(buffer.data(), buffer.size()).ok());
+
+        TabletMeta restored_tablet_meta;
+        ASSERT_TRUE(restored_tablet_meta.create_from_buffer(buffer.data(), buffer.size()).ok());
+        EXPECT_EQ(expected, restored_tablet_meta.tablet_schema()->compression_type());
+    }
+}
+
 TEST(TabletMetaTest, SaveAndParse) {
     std::string meta_path = "./be/test/storage/test_data/tablet_meta_test.hdr";
 
