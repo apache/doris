@@ -40,7 +40,8 @@ public class S3FileSystem extends S3CompatibleFileSystem {
      * guarantee; it would fail with {@code IllegalAccessError} at runtime.
      */
     public S3FileSystem(S3FileSystemProperties properties, S3ObjStorage objStorage) {
-        super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes());
+        super(objStorage, objStorage.isUsePathStyle(), objStorage.getSupportedSchemes(),
+                properties.isSkipListForDeterministicPath(), properties.getHeadRequestMaxPaths());
         this.properties = properties;
     }
 

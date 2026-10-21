@@ -25,6 +25,22 @@ import java.util.Map;
 class OzoneFileSystemPropertiesTest {
 
     @Test
+    void bind_preservesDeterministicHeadControlsInS3Delegate() {
+        OzoneFileSystemProperties properties = OzoneFileSystemProperties.of(Map.of(
+                "ozone.endpoint", "http://ozone-s3g.local:9878",
+                "ozone.access_key", "ak",
+                "ozone.secret_key", "sk",
+                "s3_skip_list_for_deterministic_path", "false",
+                "s3_head_request_max_paths", "7"));
+        Assertions.assertFalse(properties.isSkipListForDeterministicPath());
+        Assertions.assertEquals(7, properties.getHeadRequestMaxPaths());
+        org.apache.doris.filesystem.s3.S3FileSystemProperties delegate =
+                org.apache.doris.filesystem.s3.S3FileSystemProperties.of(properties.toS3CompatibleKv());
+        Assertions.assertFalse(delegate.isSkipListForDeterministicPath());
+        Assertions.assertEquals(7, delegate.getHeadRequestMaxPaths());
+    }
+
+    @Test
     void bind_appliesLegacyOzoneDefaults() {
         OzoneFileSystemProperties properties = OzoneFileSystemProperties.of(Map.of(
                 "ozone.endpoint", "http://ozone-s3g.local:9878",

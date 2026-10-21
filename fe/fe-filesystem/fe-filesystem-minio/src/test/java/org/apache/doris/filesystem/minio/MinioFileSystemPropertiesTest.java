@@ -25,6 +25,22 @@ import java.util.Map;
 class MinioFileSystemPropertiesTest {
 
     @Test
+    void bind_preservesDeterministicHeadControlsInS3Delegate() {
+        MinioFileSystemProperties properties = MinioFileSystemProperties.of(Map.of(
+                "minio.endpoint", "http://minio.local:9000",
+                "minio.access_key", "ak",
+                "minio.secret_key", "sk",
+                "s3_skip_list_for_deterministic_path", "false",
+                "s3_head_request_max_paths", "7"));
+        Assertions.assertFalse(properties.isSkipListForDeterministicPath());
+        Assertions.assertEquals(7, properties.getHeadRequestMaxPaths());
+        org.apache.doris.filesystem.s3.S3FileSystemProperties delegate =
+                org.apache.doris.filesystem.s3.S3FileSystemProperties.of(properties.toS3CompatibleKv());
+        Assertions.assertFalse(delegate.isSkipListForDeterministicPath());
+        Assertions.assertEquals(7, delegate.getHeadRequestMaxPaths());
+    }
+
+    @Test
     void bind_appliesLegacyMinioDefaults() {
         MinioFileSystemProperties properties = MinioFileSystemProperties.of(Map.of(
                 "minio.endpoint", "http://127.0.0.1:9000",

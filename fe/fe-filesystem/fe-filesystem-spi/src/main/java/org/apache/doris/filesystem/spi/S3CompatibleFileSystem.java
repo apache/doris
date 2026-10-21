@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,6 +36,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,14 +61,29 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
     private static final Comparator<String> UTF8_BINARY_ORDER = S3CompatibleFileSystem::compareUtf8Binary;
 
+    private final boolean skipListForDeterministicPath;
+    private final int maxDeterministicHeadPaths;
+
     private final boolean usePathStyle;
     private final Set<String> supportedSchemes;
 
     protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle,
             Set<String> supportedSchemes) {
+        this(objStorage, usePathStyle, supportedSchemes, true,
+                S3CompatibleFileSystemProperties.DEFAULT_HEAD_REQUEST_MAX_PATHS);
+    }
+
+    protected S3CompatibleFileSystem(ObjStorage<?> objStorage, boolean usePathStyle,
+            Set<String> supportedSchemes, boolean skipListForDeterministicPath, int maxDeterministicHeadPaths) {
         super(objStorage);
+        if (maxDeterministicHeadPaths < 0) {
+            throw new IllegalArgumentException(
+                    "maxDeterministicHeadPaths must be greater than or equal to 0");
+        }
         this.usePathStyle = usePathStyle;
         this.supportedSchemes = supportedSchemes;
+        this.skipListForDeterministicPath = skipListForDeterministicPath;
+        this.maxDeterministicHeadPaths = maxDeterministicHeadPaths;
     }
 
     @Override
@@ -868,7 +885,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * construct is not safely enumerable, it falls back to the conservative longest static prefix.
      */
     protected static List<String> expandedGlobListPrefixes(String globPattern) {
-        List<String> prefixes = expandGlobListPrefixes(globPattern, true);
+        List<String> prefixes = expandGlobListPrefixes(globPattern, true, MAX_EXPANDED_GLOB_LIST_PREFIXES);
         return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
     }
 
@@ -880,7 +897,8 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return expandedGlobListPrefixes(globPattern);
     }
 
-    private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
+    private static List<String> expandGlobListPrefixes(
+            String globPattern, boolean allowPartialPrefix, int maxExpansions) {
         List<String> prefixes = new ArrayList<>();
         prefixes.add("");
         int i = 0;
@@ -894,17 +912,20 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
                     appendLiteral(prefixes, globPattern.charAt(i + 1));
                     i += 2;
                 } else {
+                    if (!allowPartialPrefix) {
+                        return null;
+                    }
                     appendLiteral(prefixes, c);
                     i++;
                 }
                 continue;
             }
             if (c == '[') {
-                PrefixExpansion charClass = expandCharacterClass(globPattern, i);
+                PrefixExpansion charClass = expandCharacterClass(globPattern, i, maxExpansions);
                 if (charClass == null) {
                     return allowPartialPrefix ? compactPrefixes(prefixes) : null;
                 }
-                prefixes = appendAlternatives(prefixes, charClass.values);
+                prefixes = appendAlternatives(prefixes, charClass.values, maxExpansions);
                 if (prefixes == null) {
                     return null;
                 }
@@ -912,11 +933,11 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
                 continue;
             }
             if (c == '{') {
-                PrefixExpansion brace = expandBraceGroup(globPattern, i);
+                PrefixExpansion brace = expandBraceGroup(globPattern, i, maxExpansions);
                 if (brace == null) {
                     return allowPartialPrefix ? compactPrefixes(prefixes) : null;
                 }
-                prefixes = appendAlternatives(prefixes, brace.values);
+                prefixes = appendAlternatives(prefixes, brace.values, maxExpansions);
                 if (prefixes == null) {
                     return null;
                 }
@@ -937,9 +958,10 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         }
     }
 
-    private static List<String> appendAlternatives(List<String> prefixes, List<String> alternatives) {
+    private static List<String> appendAlternatives(
+            List<String> prefixes, List<String> alternatives, int maxExpansions) {
         long expandedSize = (long) prefixes.size() * alternatives.size();
-        if (expandedSize > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+        if (expandedSize > maxExpansions) {
             return null;
         }
         List<String> expanded = new ArrayList<>((int) expandedSize);
@@ -951,7 +973,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return expanded;
     }
 
-    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex) {
+    private static PrefixExpansion expandCharacterClass(String globPattern, int openIndex, int maxExpansions) {
         int closeIndex = findClosingBracket(globPattern, openIndex);
         if (closeIndex < 0 || closeIndex == openIndex + 1) {
             return null;
@@ -978,9 +1000,9 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             if (i + 2 < closeIndex && globPattern.charAt(i + 1) == '-') {
                 char rangeEnd = globPattern.charAt(i + 2);
                 int step = current <= rangeEnd ? 1 : -1;
-                for (char ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
-                    values.add(String.valueOf(ch));
-                    if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                for (int ch = current; step > 0 ? ch <= rangeEnd : ch >= rangeEnd; ch += step) {
+                    values.add(String.valueOf((char) ch));
+                    if (values.size() > maxExpansions) {
                         return null;
                     }
                 }
@@ -1016,7 +1038,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return false;
     }
 
-    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex) {
+    private static PrefixExpansion expandBraceGroup(String globPattern, int openIndex, int maxExpansions) {
         int closeIndex = findClosingBrace(globPattern, openIndex);
         if (closeIndex < 0) {
             return null;
@@ -1028,12 +1050,12 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         }
         List<String> values = new ArrayList<>();
         for (String alternative : alternatives) {
-            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false);
+            List<String> expandedAlternative = expandGlobListPrefixes(alternative, false, maxExpansions);
             if (expandedAlternative == null) {
                 return null;
             }
             values.addAll(expandedAlternative);
-            if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+            if (values.size() > maxExpansions) {
                 return null;
             }
         }
@@ -1047,6 +1069,13 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             if (c == '\\') {
                 i++;
                 continue;
+            }
+            if (c == '[') {
+                int bracketEnd = findClosingBracket(globPattern, i);
+                if (bracketEnd > i) {
+                    i = bracketEnd;
+                    continue;
+                }
             }
             if (c == '{') {
                 depth++;
@@ -1069,6 +1098,13 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
             if (c == '\\') {
                 i++;
                 continue;
+            }
+            if (c == '[') {
+                int bracketEnd = findClosingBracket(content, i);
+                if (bracketEnd > i) {
+                    i = bracketEnd;
+                    continue;
+                }
             }
             if (c == '{') {
                 depth++;
@@ -1140,6 +1176,76 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return Pattern.compile(globToRegex(GlobPattern.expandNumericRanges(keyPattern)));
     }
 
+    private static List<String> expandDeterministicKeyPattern(String pattern, int maxPaths) {
+        if (maxPaths <= 0 || pattern.isEmpty() || pattern.endsWith(DIR_MARKER_SUFFIX)) {
+            return null;
+        }
+        List<String> expanded = expandGlobListPrefixes(pattern, false, maxPaths);
+        if (expanded == null || expanded.stream().anyMatch(key -> key.isEmpty() || key.endsWith(DIR_MARKER_SUFFIX))) {
+            return null;
+        }
+        List<String> keys = new ArrayList<>(new LinkedHashSet<>(expanded));
+        keys.sort(UTF8_BINARY_ORDER);
+        return keys;
+    }
+
+    private RemoteObject headObjectIfPresent(String path) throws IOException {
+        try {
+            return objStorage.headObject(path);
+        } catch (IOException e) {
+            if (isNotFoundError(e)) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
+    private GlobListing globListDeterministicKeys(String bucket, String patternPrefix, String base,
+            List<String> keys, String startAfter, long maxBytes, long maxFiles) throws IOException {
+        List<FileEntry> files = new ArrayList<>();
+        long totalSize = 0L;
+        boolean reachLimit = false;
+        String nextMatchAfterLimit = "";
+        String lastMatchedKey = "";
+        String lastSkippedKey = null;
+        boolean probedKeyAfterStart = false;
+        for (String key : keys) {
+            if (startAfter != null && !startAfter.isEmpty() && UTF8_BINARY_ORDER.compare(key, startAfter) <= 0) {
+                lastSkippedKey = key;
+                continue;
+            }
+            probedKeyAfterStart = true;
+            RemoteObject obj = headObjectIfPresent(base + key);
+            if (obj == null) {
+                continue;
+            }
+            String objectKey = obj.getKey();
+            if (reachLimit) {
+                nextMatchAfterLimit = objectKey;
+                break;
+            }
+            files.add(new FileEntry(
+                    Location.of(base + objectKey),
+                    obj.getSize(),
+                    false,
+                    obj.getModificationTime(),
+                    List.of()));
+            totalSize += obj.getSize();
+            lastMatchedKey = objectKey;
+            if ((maxFiles > 0 && files.size() >= maxFiles)
+                    || (maxBytes > 0 && totalSize >= maxBytes)) {
+                reachLimit = true;
+            }
+        }
+        if (!probedKeyAfterStart && lastSkippedKey != null) {
+            // Incremental readers may have consumed all deterministic keys already. Keep a
+            // HEAD probe here so credential changes are still surfaced without requiring ListBucket.
+            headObjectIfPresent(base + lastSkippedKey);
+        }
+        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
+        return new GlobListing(files, bucket, patternPrefix, maxFile);
+    }
+
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
@@ -1151,11 +1257,20 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String base = uriBase(uri, parsed);
 
         String expandedKeyPattern = GlobPattern.expandNumericRanges(keyPattern);
+        Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
+        if (skipListForDeterministicPath) {
+            List<String> deterministicKeys = expandDeterministicKeyPattern(
+                    expandedKeyPattern, maxDeterministicHeadPaths);
+            if (deterministicKeys != null) {
+                return globListDeterministicKeys(bucket, longestNonGlobPrefix(keyPattern), base,
+                        deterministicKeys, startAfter, maxBytes, maxFiles);
+            }
+        }
+
         // Translate the glob to a regex and match against the raw object storage key. We do NOT
         // route through java.nio.file.Paths because (a) on Windows the filesystem
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
-        Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
         String listPrefix = globListPrefix(expandedKeyPattern);
         List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
 

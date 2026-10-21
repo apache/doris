@@ -28,6 +28,22 @@ import java.util.Map;
 class GcsFileSystemPropertiesTest {
 
     @Test
+    void bind_preservesDeterministicHeadControlsInS3Delegate() {
+        GcsFileSystemProperties properties = GcsFileSystemProperties.of(Map.of(
+                "gs.endpoint", "https://storage.googleapis.com",
+                "gs.access_key", "ak",
+                "gs.secret_key", "sk",
+                "s3_skip_list_for_deterministic_path", "false",
+                "s3_head_request_max_paths", "7"));
+        Assertions.assertFalse(properties.isSkipListForDeterministicPath());
+        Assertions.assertEquals(7, properties.getHeadRequestMaxPaths());
+        org.apache.doris.filesystem.s3.S3FileSystemProperties delegate =
+                org.apache.doris.filesystem.s3.S3FileSystemProperties.of(properties.toS3CompatibleKv());
+        Assertions.assertFalse(delegate.isSkipListForDeterministicPath());
+        Assertions.assertEquals(7, delegate.getHeadRequestMaxPaths());
+    }
+
+    @Test
     void bind_appliesLegacyGcsDefaults() {
         GcsFileSystemProperties properties = GcsFileSystemProperties.of(Map.of(
                 "gs.access_key", "ak",
