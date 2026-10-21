@@ -69,6 +69,7 @@ suite("test_iceberg_delete_unpartitioned_evolution",
     assertSparkDorisResultEquals(expectedConsecutiveDrops, sql("""
         select a from ordinary_consecutive_drops order by a
     """))
+    qt_ordinary_consecutive_drops """select a from ordinary_consecutive_drops order by a"""
 
     // REPLACE retains historical spec 0 while writing new files under an unpartitioned spec.
     // Spark's replace transaction exercises the same Iceberg metadata transition as Trino RTAS.
