@@ -2238,51 +2238,51 @@ Status VariantSubcolumnWriter::finalize() {
         non_null_value_size =
                 _v1_column->get_subcolumns().get_root()->data.get_non_null_value_size();
     } else {
-    DataTypePtr storage_type;
-    TabletSchema::SubColumnInfo subcolumn_info;
-    const PathInData relative_path = get_column()->path_info_ptr()->copy_pop_front();
-    if (variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
-                                               parent_column.unique_id(), relative_path.get_path(),
-                                               &subcolumn_info)) {
-        storage_type = DataTypeFactory::instance().create_data_type(subcolumn_info.column);
-    }
-
-    // Merge the types inferred by independent chunks; the result is what a single builder would
-    // have inferred for the whole segment.
-    DataTypePtr merged_type;
-    bool has_values = false;
-    for (auto& chunk : _chunks) {
-        if (chunk.builder->non_null_rows() == 0) {
-            continue;
+        DataTypePtr storage_type;
+        TabletSchema::SubColumnInfo subcolumn_info;
+        const PathInData relative_path = get_column()->path_info_ptr()->copy_pop_front();
+        if (variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
+                                                   parent_column.unique_id(),
+                                                   relative_path.get_path(), &subcolumn_info)) {
+            storage_type = DataTypeFactory::instance().create_data_type(subcolumn_info.column);
         }
-        has_values = true;
-        RETURN_IF_ERROR(chunk.builder->convert_to(
-                normalize_variant_path_integer_widths(chunk.builder->type())));
-        merged_type = merged_type == nullptr
-                              ? chunk.builder->type()
-                              : variant_path_least_common_type(merged_type, chunk.builder->type());
-    }
 
-    publish_builder = has_values;
-    if (publish_builder) {
-        publish_builder =
-                !variant_path_type_contains_nothing(merged_type) ||
-                (storage_type != nullptr && !variant_path_type_contains_nothing(storage_type));
-    }
-
-    if (!publish_builder) {
-        flush_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT,
-                                                                  true /* is_nullable */);
-    } else {
-        flush_type = storage_type != nullptr ? storage_type : merged_type;
+        // Merge the types inferred by independent chunks; the result is what a single builder would
+        // have inferred for the whole segment.
+        DataTypePtr merged_type;
+        bool has_values = false;
         for (auto& chunk : _chunks) {
             if (chunk.builder->non_null_rows() == 0) {
                 continue;
             }
-            RETURN_IF_ERROR(chunk.builder->convert_to(flush_type));
-            non_null_value_size += chunk.builder->rowids().size();
+            has_values = true;
+            RETURN_IF_ERROR(chunk.builder->convert_to(
+                    normalize_variant_path_integer_widths(chunk.builder->type())));
+            merged_type = merged_type == nullptr ? chunk.builder->type()
+                                                 : variant_path_least_common_type(
+                                                           merged_type, chunk.builder->type());
         }
-    }
+
+        publish_builder = has_values;
+        if (publish_builder) {
+            publish_builder =
+                    !variant_path_type_contains_nothing(merged_type) ||
+                    (storage_type != nullptr && !variant_path_type_contains_nothing(storage_type));
+        }
+
+        if (!publish_builder) {
+            flush_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT,
+                                                                      true /* is_nullable */);
+        } else {
+            flush_type = storage_type != nullptr ? storage_type : merged_type;
+            for (auto& chunk : _chunks) {
+                if (chunk.builder->non_null_rows() == 0) {
+                    continue;
+                }
+                RETURN_IF_ERROR(chunk.builder->convert_to(flush_type));
+                non_null_value_size += chunk.builder->rowids().size();
+            }
+        }
     }
 
     TabletColumn flush_column = variant_util::get_column_by_type(
