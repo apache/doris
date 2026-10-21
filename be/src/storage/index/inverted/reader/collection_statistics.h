@@ -87,7 +87,8 @@ private:
     Status admit_snii_scoring_segment(const std::wstring& field_name, uint64_t index_doc_count,
                                       uint64_t sum_total_term_freq, bool has_positions,
                                       bool has_norms,
-                                      SniiScoringSegmentAccumulator* segment_accumulator);
+                                      SniiScoringSegmentAccumulator* segment_accumulator,
+                                      bool is_analyzed = true);
     void commit_snii_scoring_segment(SniiScoringSegmentAccumulator&& segment_accumulator);
     void clear();
 
@@ -121,12 +122,12 @@ struct SniiScoringSegmentStats {
     uint64_t token_count = 0;
 };
 
-// SNII scoring requires positions (which provide term frequencies) and norms. The current writer
-// emits norms for every analyzed index with positions. Older segments without norms return
-// NOT_SUPPORTED until an index rebuild or compaction supplies them.
+// Analyzed SNII indexes need positions and norms. Keyword indexes can use unit
+// frequency and norm when those sections are absent.
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
                                                              uint64_t sum_total_term_freq,
-                                                             bool has_positions, bool has_norms);
+                                                             bool has_positions, bool has_norms,
+                                                             bool is_analyzed = true);
 
 void add_term_doc_frequency(
         std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>*
