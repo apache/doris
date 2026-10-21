@@ -414,17 +414,17 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
     void testIvmOutputPredicatesSkipHiddenColumns(boolean showHiddenColumns) throws Exception {
         initMvRewriteSession();
         boolean originalEnableTableStream = Config.enable_table_stream;
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         boolean originalShowHiddenColumns = connectContext.getSessionVariable().showHiddenColumns();
         Config.enable_table_stream = true;
-        // master gates ROW-binlog table creation behind enable_feature_binlog; the IVM base table needs it.
-        Config.enable_feature_binlog = true;
+        // Changelog table creation is gated behind enable_feature_changelog; the IVM base table needs it.
+        Config.enable_feature_changelog = true;
         try {
             dropMvByNereids("drop materialized view if exists mv_relation_implied_ivm");
             dropTableWithSql("drop table if exists relation_implied_ivm_base");
             createTable("create table relation_implied_ivm_base (id bigint, score bigint) "
                     + "duplicate key(id) distributed by hash(id) buckets 1 "
-                    + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                    + "properties('replication_num' = '1', 'changelog.enable' = 'true')");
             createMvByNereids("create materialized view mv_relation_implied_ivm "
                     + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                     + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -458,7 +458,7 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
         } finally {
             connectContext.getSessionVariable().setShowHiddenColumns(originalShowHiddenColumns);
             Config.enable_table_stream = originalEnableTableStream;
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
             dropMvByNereids("drop materialized view if exists mv_relation_implied_ivm");
             dropTableWithSql("drop table if exists relation_implied_ivm_base");
         }
