@@ -183,6 +183,11 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
+    // The exprIds which a rule renamed while it rewrote the body of a CTE producer, keyed by the previous exprId.
+    // The consumers of that CTE map their slots to the outputs of the producer by exprId and are rewritten before
+    // the producer subtree, so every rule which renames an output of a producer body has to publish it here, and
+    // RewriteCteChildren refreshes the consumer maps with it. ConstantPropagation is currently the only publisher.
+    private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
@@ -772,6 +777,19 @@ public class StatementContext implements Closeable {
         return rewrittenCteConsumer;
     }
 
+    /**
+     * Record that a rule renamed exprIds while it rewrote the body of a CTE producer. Rules may rename more than
+     * once, so the mappings are accumulated instead of replaced, and a reader has to follow the chain to its end.
+     */
+    public void addProducerExprIdRemap(CTEId cteId, Map<ExprId, ExprId> renamedExprIds) {
+        producerExprIdRemap.computeIfAbsent(cteId, k -> new HashMap<>()).putAll(renamedExprIds);
+    }
+
+    /** The exprIds renamed while rewriting the body of a CTE producer, keyed by their previous exprId. */
+    public Map<ExprId, ExprId> getProducerExprIdRemap(CTEId cteId) {
+        return producerExprIdRemap.getOrDefault(cteId, Collections.emptyMap());
+    }
+
     /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
     public void clearCteEnvironment() {
         cteIdToConsumers.clear();
@@ -782,6 +800,7 @@ public class StatementContext implements Closeable {
         cteIdToConsumerGroup.clear();
         rewrittenCteProducer.clear();
         rewrittenCteConsumer.clear();
+        producerExprIdRemap.clear();
     }
 
     /**
@@ -796,7 +815,8 @@ public class StatementContext implements Closeable {
                 new HashMap<>(consumerIdToLimitRows),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
-                new HashMap<>(rewrittenCteConsumer));
+                new HashMap<>(rewrittenCteConsumer),
+                copyMapOfMaps(producerExprIdRemap));
     }
 
     /** Restore CTE-related environment from snapshot. */
@@ -824,6 +844,17 @@ public class StatementContext implements Closeable {
 
         rewrittenCteConsumer.clear();
         rewrittenCteConsumer.putAll(snapshot.rewrittenCteConsumer);
+
+        producerExprIdRemap.clear();
+        producerExprIdRemap.putAll(snapshot.producerExprIdRemap);
+    }
+
+    private static <K, V, W> Map<K, Map<V, W>> copyMapOfMaps(Map<K, Map<V, W>> source) {
+        Map<K, Map<V, W>> copied = new HashMap<>();
+        for (Map.Entry<K, Map<V, W>> entry : source.entrySet()) {
+            copied.put(entry.getKey(), new HashMap<>(entry.getValue()));
+        }
+        return copied;
     }
 
     private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
@@ -852,6 +883,7 @@ public class StatementContext implements Closeable {
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
         private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
+        private final Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap;
 
         /**
          * cte related structures in StatementContext
@@ -864,7 +896,8 @@ public class StatementContext implements Closeable {
                 Map<RelationId, Long> consumerIdToLimitRows,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
-                Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
+                Map<CTEId, LogicalPlan> rewrittenCteConsumer,
+                Map<CTEId, Map<ExprId, ExprId>> producerExprIdRemap) {
             this.cteIdToConsumers = cteIdToConsumers;
             this.cteIdToOutputIds = cteIdToOutputIds;
             this.cteIdToProducer = cteIdToProducer;
@@ -873,6 +906,7 @@ public class StatementContext implements Closeable {
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
             this.rewrittenCteConsumer = rewrittenCteConsumer;
+            this.producerExprIdRemap = producerExprIdRemap;
         }
     }
 
