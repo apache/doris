@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
+#include <string>
 
 #include "common/factory_creator.h"
 #include "common/multi_version.h"
@@ -51,8 +53,9 @@ public:
         memory_context_->set_resource_ctx(this);
         io_context_->set_resource_ctx(this);
         task_controller_->set_resource_ctx(this);
+        _track_if_leak_check_enabled();
     }
-    ~ResourceContext() = default;
+    ~ResourceContext();
 
     // Only return the raw pointer to the caller, so that the caller should not save it to other variables.
     CPUContext* cpu_context() const { return cpu_context_.get(); }
@@ -99,7 +102,27 @@ public:
         resource_profile_.set(std::move(resource_profile));
     }
 
+    // Memleak-check mode only (config::enable_graceful_exit_check, where doris_main destroys
+    // everything on exit so that LeakSanitizer can check the heap): returns one line per
+    // resource context that is still alive, at most `max_contexts` of them, or an empty string
+    // if there is none. LeakSanitizer reports a context that was never released only by its
+    // allocation stack, which is the same for every query; the task id printed here tells which
+    // query or load it belonged to. Call it at shutdown, when no context is being created.
+    static std::string describe_live_contexts(size_t max_contexts);
+
+    // For the end of a graceful exit in memleak-check mode: logs describe_live_contexts() to
+    // be.WARNING and to stderr (be.out, where the LeakSanitizer report follows), or one INFO line
+    // if no context is alive, and returns what it logged. The description is built on a thread
+    // of its own and the caller never touches a context: a pointer to a leaked context left on
+    // the caller's stack would be found by LeakSanitizer, which would then take the context for
+    // referenced and stop reporting it, while the stack of a finished thread is not scanned.
+    static std::string log_live_contexts();
+
 private:
+    // Registers this context for describe_live_contexts() when memleak-check mode is on.
+    void _track_if_leak_check_enabled();
+    std::string _describe(long references_held_elsewhere) const;
+
     // The controller's init value is nullptr, it means the resource context will ignore this controller.
     std::unique_ptr<CPUContext> cpu_context_ = nullptr;
     std::unique_ptr<MemoryContext> memory_context_ = nullptr;
@@ -108,6 +131,8 @@ private:
 
     WorkloadGroupPtr _workload_group = nullptr;
     MultiVersion<RuntimeProfile> resource_profile_;
+    // Whether this context is registered for describe_live_contexts().
+    bool _tracked = false;
 };
 
 } // namespace doris

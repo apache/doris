@@ -73,8 +73,7 @@ public class DataTrait {
     }
 
     public boolean isDependent(Set<Slot> dominate, Set<Slot> dependency) {
-        return fdDg.findValidFuncDeps(Sets.union(dependency, dominate))
-                .isFuncDeps(dominate, dependency);
+        return fdDg.isDependent(dominate, dependency);
     }
 
     public boolean isUnique(Slot slot) {

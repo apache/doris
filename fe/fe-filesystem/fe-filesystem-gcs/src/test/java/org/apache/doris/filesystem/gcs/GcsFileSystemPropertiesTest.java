@@ -17,9 +17,12 @@
 
 package org.apache.doris.filesystem.gcs;
 
+import org.apache.doris.filesystem.properties.FsCacheKeys;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 class GcsFileSystemPropertiesTest {
@@ -123,6 +126,30 @@ class GcsFileSystemPropertiesTest {
                 cfg.get("fs.s3a.aws.credentials.provider"));
         Assertions.assertEquals("ak", cfg.get("fs.s3a.access.key"));
         Assertions.assertEquals("sk", cfg.get("fs.s3a.secret.key"));
+    }
+
+    @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        GcsFileSystemProperties properties = GcsFileSystemProperties.of(Map.of(
+                "gs.access_key", "ak",
+                "gs.secret_key", "sk"));
+        GcsFileSystemProperties otherCredentials = GcsFileSystemProperties.of(Map.of(
+                "gs.access_key", "other-ak",
+                "gs.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("gs", "s3", "s3a")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
     }
 
     @Test

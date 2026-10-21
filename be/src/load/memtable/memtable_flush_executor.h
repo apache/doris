@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
+#include "storage/binlog.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -64,7 +65,12 @@ struct SharedMemtable {
     std::once_flag block_once;
     Status block_status;
     std::shared_ptr<Block> block;
-    RowsetWriterContext* rowset_ctx = nullptr;
+    // Owns the segment LSN map so cleanup in ~SharedMemtable stays valid even when
+    // the FlushToken's last reference drops inside PartOfGroupMemtableFlushTask::run()
+    // before the thread pool destroys the task (and with it this SharedMemtable).
+    // A null map means this group writes no per-row LSNs (see GroupRowsetWriter::init,
+    // which creates the map exactly when LSN allocation is needed).
+    std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map;
     bool has_allocated_lsns = false;
 
     std::atomic<int> finished_sub_task_count {0};
@@ -93,13 +99,16 @@ class FlushToken : public std::enable_shared_from_this<FlushToken> {
     ENABLE_FACTORY_CREATOR(FlushToken);
 
 public:
-    FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr)
-            : _flush_status(Status::OK()), _thread_pool(thread_pool), _wg_wptr(wg_sptr) {}
+    FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr,
+               std::shared_ptr<AtomicStatus> load_cancel_status = nullptr)
+            : _flush_status(Status::OK()),
+              _load_cancel_status(std::move(load_cancel_status)),
+              _thread_pool(thread_pool),
+              _wg_wptr(wg_sptr) {}
 
     Status submit(std::shared_ptr<MemTable> mem_table);
 
-    // error has happens, so we cancel this token
-    // And remove all tasks in the queue.
+    // Stop flush work and wait for running tasks. Queued tasks skip flushing when dispatched.
     void cancel();
 
     // wait all tasks in token to be completed.
@@ -119,6 +128,8 @@ public:
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
 private:
+    Status _get_load_cancel_status() const;
+
     void _shutdown_flush_token() { _shutdown.store(true); }
     bool _is_shutdown() { return _shutdown.load(); }
     void _wait_submit_task_finish();
@@ -149,6 +160,7 @@ private:
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     std::shared_mutex _flush_status_lock;
     Status _flush_status;
+    const std::shared_ptr<AtomicStatus> _load_cancel_status;
 
     FlushStatistic _stats;
 
@@ -192,7 +204,8 @@ public:
     Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
                               std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority,
                               std::shared_ptr<WorkloadGroup> wg_sptr,
-                              std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr);
+                              std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr,
+                              std::shared_ptr<AtomicStatus> load_cancel_status = nullptr);
 
     // return true if it already has any flushing task
     bool check_and_inc_has_any_flushing_task() {

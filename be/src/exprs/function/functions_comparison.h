@@ -41,6 +41,7 @@
 #include "core/decimal_comparison.h"
 #include "core/field.h"
 #include "core/memcmp_small.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/function/function.h"
@@ -49,6 +50,7 @@
 #include "exprs/vexpr.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -292,16 +294,43 @@ inline Op symmetric_op(Op op) {
     __builtin_unreachable();
 }
 
-inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
-                                    Op op) {
-    auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+// Return true when `L <op> R` cannot be TRUE for any row, given that every non-null value of the
+// left operand lies in [lmin, lmax] and every non-null value of the right operand lies in
+// [rmin, rmax]. This only compares the four bounds: callers must already have rejected zone maps
+// whose bounds are unusable and columns that hold no non-null value at all.
+//
+// The slot-vs-literal path passes the literal as the degenerate range [literal, literal], which
+// reduces every branch below to the plain slot-vs-literal test it replaced.
+inline bool range_vs_range_no_match(const Field& lmin, const Field& lmax, const Field& rmin,
+                                    const Field& rmax, Op op) {
+    switch (op) {
+    case Op::EQ:
+        // Disjoint ranges cannot share a value.
+        return lmin > rmax || rmin > lmax;
+    case Op::NE:
+        // Only provable when both sides collapse to the same single value.
+        return lmin == lmax && rmin == rmax && lmin == rmin;
+    case Op::LT:
+        return lmin >= rmax;
+    case Op::LE:
+        return lmin > rmax;
+    case Op::GT:
+        return rmin >= lmax;
+    case Op::GE:
+        return rmin > lmax;
+    }
+    __builtin_unreachable();
+}
 
-    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal->slot_index,
-                                                              slot_literal->slot_type);
+inline ZoneMapFilterResult evaluate_slot_literal(const ZoneMapEvalContext& ctx,
+                                                 const expr_zonemap::SlotLiteral& slot_literal,
+                                                 Op op) {
+    auto slot_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_literal.slot_index,
+                                                              slot_literal.slot_type);
     if (slot_type == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
-    auto zone_map_ptr = ctx.zone_map(slot_literal->slot_index);
+    auto zone_map_ptr = ctx.zone_map(slot_literal.slot_index);
     if (zone_map_ptr == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
@@ -313,42 +342,95 @@ inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSP
         return unsupported_zonemap_filter(ctx);
     }
 
-    const auto effective_op = slot_literal->literal_on_left ? symmetric_op(op) : op;
-    const auto& literal = slot_literal->literal;
+    const auto effective_op = slot_literal.literal_on_left ? symmetric_op(op) : op;
+    const auto& literal = slot_literal.literal;
     const bool literal_is_nan = literal.is_nan();
     const bool hidden_nan_can_match = (effective_op == Op::EQ && literal_is_nan) ||
                                       (effective_op == Op::NE && !literal_is_nan) ||
                                       (effective_op == Op::GT && !literal_is_nan) ||
                                       effective_op == Op::GE;
-    if (ctx.floating_nan_count_unknown(slot_literal->slot_index) && hidden_nan_can_match) {
+    if (ctx.floating_nan_count_unknown(slot_literal.slot_index) && hidden_nan_can_match) {
         // Parquet bounds omit NaNs, so only operators that cannot match a hidden NaN may prune.
         return unsupported_zonemap_filter(ctx);
     }
-    switch (effective_op) {
-    case Op::EQ:
-        return literal < zone_map.min_value || zone_map.max_value < literal
-                       ? ZoneMapFilterResult::kNoMatch
-                       : ZoneMapFilterResult::kMayMatch;
-    case Op::NE:
-        return zone_map.min_value == literal && zone_map.max_value == literal
-                       ? ZoneMapFilterResult::kNoMatch
-                       : ZoneMapFilterResult::kMayMatch;
-    case Op::LT:
-        return zone_map.min_value >= literal ? ZoneMapFilterResult::kNoMatch
-                                             : ZoneMapFilterResult::kMayMatch;
-    case Op::LE:
-        return zone_map.min_value > literal ? ZoneMapFilterResult::kNoMatch
-                                            : ZoneMapFilterResult::kMayMatch;
-    case Op::GT:
-        return zone_map.max_value <= literal ? ZoneMapFilterResult::kNoMatch
-                                             : ZoneMapFilterResult::kMayMatch;
-    case Op::GE:
-        return zone_map.max_value < literal ? ZoneMapFilterResult::kNoMatch
-                                            : ZoneMapFilterResult::kMayMatch;
-    }
+    return range_vs_range_no_match(zone_map.min_value, zone_map.max_value, literal, literal,
+                                   effective_op)
+                   ? ZoneMapFilterResult::kNoMatch
+                   : ZoneMapFilterResult::kMayMatch;
+}
 
-    // keep this to avoid compile failure with g++.
-    __builtin_unreachable();
+inline ZoneMapFilterResult evaluate_slot_slot(const ZoneMapEvalContext& ctx,
+                                              const expr_zonemap::SlotSlot& slot_slot, Op op) {
+    const auto left_type = expr_zonemap::fetch_compatible_slot_type(ctx, slot_slot.left_slot_index,
+                                                                    slot_slot.left_type);
+    const auto right_type = expr_zonemap::fetch_compatible_slot_type(
+            ctx, slot_slot.right_slot_index, slot_slot.right_type);
+    if (left_type == nullptr || right_type == nullptr) {
+        // The context skips a slot entirely when the segment cannot apply predicates on it.
+        return unsupported_zonemap_filter(ctx);
+    }
+    const auto left_zone_map = ctx.zone_map(slot_slot.left_slot_index);
+    const auto right_zone_map = ctx.zone_map(slot_slot.right_slot_index);
+    if (left_zone_map == nullptr || right_zone_map == nullptr) {
+        // A slot can be present with a data type but no zone map, so this is a separate check.
+        return unsupported_zonemap_filter(ctx);
+    }
+    // A column holding no non-null value makes the comparison NULL on every row, which never
+    // satisfies a WHERE conjunct. This must run before the range checks below: an all-null zone map
+    // leaves min/max default-constructed as TYPE_NULL, which the range checks would fatal on.
+    if (!left_zone_map->has_not_null || !right_zone_map->has_not_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    if (!expr_zonemap::range_stats_usable_for_zonemap(*left_zone_map, left_type) ||
+        !expr_zonemap::range_stats_usable_for_zonemap(*right_zone_map, right_type)) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    // A native string zone-map max of exactly MAX_ZONE_MAP_INDEX_SIZE bytes was bumped upward,
+    // and may also have been truncated (segments written before the carry fix may hold a bump
+    // that wrapped on 0xff), so a bound of that length is not a reliable fence for a two-sided
+    // proof. A shorter bound is the exact value; the bump never changes the length, so this also
+    // rejects those wrapped bounds.
+    // The test only decides whether to trust the bound as a fence. A Parquet-sourced string bound
+    // shorter than the cap is not necessarily exact, but it is a spec-conservative min/max, which
+    // is all a range proof needs; do not tighten this to assume exactness below the cap.
+    // data_types_compatible pairs strings only with strings, so checking one side's type is enough
+    // to know all four bounds are strings.
+    if (is_string_type(remove_nullable(left_type)->get_primitive_type())) {
+        auto is_untruncated = [](const Field& f) {
+            return f.get<TYPE_STRING>().size() < MAX_ZONE_MAP_INDEX_SIZE;
+        };
+        if (!is_untruncated(left_zone_map->min_value) ||
+            !is_untruncated(left_zone_map->max_value) ||
+            !is_untruncated(right_zone_map->min_value) ||
+            !is_untruncated(right_zone_map->max_value)) {
+            return unsupported_zonemap_filter(ctx);
+        }
+    }
+    // Parquet bounds omit NaN without recording how many were skipped, so a zone map that looks
+    // like a single point may still hide one, which would flip the NE rule from false to true. The
+    // slot-vs-literal path can reason per operator because it knows whether the literal is NaN;
+    // with two slots there is no literal, so bail out for every operator instead.
+    if (ctx.floating_nan_count_unknown(slot_slot.left_slot_index) ||
+        ctx.floating_nan_count_unknown(slot_slot.right_slot_index)) {
+        return unsupported_zonemap_filter(ctx);
+    }
+    return range_vs_range_no_match(left_zone_map->min_value, left_zone_map->max_value,
+                                   right_zone_map->min_value, right_zone_map->max_value, op)
+                   ? ZoneMapFilterResult::kNoMatch
+                   : ZoneMapFilterResult::kMayMatch;
+}
+
+inline ZoneMapFilterResult evaluate(const ZoneMapEvalContext& ctx, const VExprSPtrs& arguments,
+                                    Op op) {
+    if (auto slot_literal = expr_zonemap::extract_slot_and_literal(arguments);
+        slot_literal.has_value()) {
+        return evaluate_slot_literal(ctx, *slot_literal, op);
+    }
+    auto slot_slot = expr_zonemap::extract_slot_and_slot(arguments);
+    // can_evaluate_zonemap_filter accepts exactly the two shapes handled above, so reaching this
+    // point means the capability gate and this evaluator went out of sync.
+    DORIS_CHECK(slot_slot.has_value());
+    return evaluate_slot_slot(ctx, *slot_slot, op);
 }
 
 inline bool can_evaluate(const VExprSPtrs& arguments) {
@@ -374,6 +456,40 @@ inline bool can_evaluate(const VExprSPtrs& arguments) {
     }
 
     return true;
+}
+
+// Accept a comparison whose both operands are slot references. Kept separate from can_evaluate on
+// purpose: can_evaluate also gates dictionary filtering and can_evaluate_equality, and both of
+// those dereference extract_slot_and_literal behind a DORIS_CHECK, so widening it would abort on a
+// slot-vs-slot expression. Only can_evaluate_zonemap_filter ORs this in.
+inline bool can_evaluate_slot_slot(const VExprSPtrs& arguments) {
+    auto slot_slot = expr_zonemap::extract_slot_and_slot(arguments);
+    if (!slot_slot.has_value()) {
+        return false;
+    }
+    DORIS_CHECK(slot_slot->left_type != nullptr);
+    DORIS_CHECK(slot_slot->right_type != nullptr);
+    // Reject types whose slot-slot bounds cannot be compared safely:
+    // - VARBINARY: v1 Parquet produces a TYPE_STRING bound for it, which
+    //   range_stats_usable_for_zonemap aborts on instead of falling back.
+    // - VARIANT: a segment types a path slot by its inferred leaf type (a typed `v.a` is INT), so
+    //   fetch_compatible_slot_type's check against the VARIANT expression type would fail.
+    // - ARRAY/MAP/STRUCT, JSONB, aggregate states: Field orders every pair of them as equal.
+    // A truncated string bound is rejected later, in evaluate_slot_slot, by its length.
+    const auto excluded = [](const DataTypePtr& type) {
+        const auto primitive_type = remove_nullable(type)->get_primitive_type();
+        return is_varbinary(primitive_type) || primitive_type == TYPE_VARIANT ||
+               primitive_type == TYPE_JSONB || is_complex_type(primitive_type) ||
+               is_var_len_object(primitive_type);
+    };
+    if (excluded(slot_slot->left_type) || excluded(slot_slot->right_type)) {
+        return false;
+    }
+    // The two zone maps' Fields are compared directly and Field comparison throws on mismatched
+    // non-string types, so reject incompatible column pairs here. A pair differing only by width or
+    // decimal scale never reaches this point anyway, because the optimizer inserts a cast and a
+    // cast is not a VSlotRef.
+    return expr_zonemap::data_types_compatible(slot_slot->left_type, slot_slot->right_type);
 }
 
 inline bool can_evaluate_equality(const VExprSPtrs& arguments, Op op) {
@@ -636,6 +752,92 @@ private:
         return Status::OK();
     }
 
+    template <typename TemporalValue>
+    static int compare_timestamp_ns_with_temporal(const TimeStampNsValue& timestamp,
+                                                  const TemporalValue& temporal,
+                                                  uint32_t temporal_nanosecond) {
+        const auto timestamp_datetime = timestamp.to_datetime();
+        const auto compare_part = [](auto left, auto right) {
+            if (left < right) {
+                return -1;
+            }
+            if (left > right) {
+                return 1;
+            }
+            return 0;
+        };
+        int comparison = compare_part(static_cast<int64_t>(timestamp_datetime.year()),
+                                      static_cast<int64_t>(temporal.year()));
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.month(), temporal.month());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.day(), temporal.day());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.hour(), temporal.hour());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.minute(), temporal.minute());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp_datetime.second(), temporal.second());
+        }
+        if (comparison == 0) {
+            comparison = compare_part(timestamp.nanosecond(), temporal_nanosecond);
+        }
+        return comparison;
+    }
+
+    template <PrimitiveType TemporalPType, bool timestamp_ns_on_left>
+    Status execute_timestamp_ns_temporal(FunctionContext* context, Block& block, uint32_t result,
+                                         const ColumnPtr& left_column,
+                                         const ColumnPtr& right_column,
+                                         size_t input_rows_count) const {
+        static_assert(TemporalPType == TYPE_DATE || TemporalPType == TYPE_DATEV2 ||
+                      TemporalPType == TYPE_DATETIME || TemporalPType == TYPE_DATETIMEV2 ||
+                      TemporalPType == TYPE_TIMESTAMPTZ);
+        const auto& timestamp_column = timestamp_ns_on_left ? left_column : right_column;
+        const auto& temporal_column = timestamp_ns_on_left ? right_column : left_column;
+        auto [timestamp_unpacked, timestamp_is_const] = unpack_if_const(timestamp_column);
+        auto [temporal_unpacked, temporal_is_const] = unpack_if_const(temporal_column);
+        const auto& timestamps =
+                assert_cast<const ColumnTimeStampNs&>(*timestamp_unpacked).get_data();
+        using TemporalColumn = typename PrimitiveTypeTraits<TemporalPType>::ColumnType;
+        using TemporalValue = typename PrimitiveTypeTraits<TemporalPType>::CppType;
+        const auto& temporals = assert_cast<const TemporalColumn&>(*temporal_unpacked).get_data();
+
+        auto result_column = ColumnUInt8::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const auto& timestamp = timestamps[timestamp_is_const ? 0 : row];
+            const auto& temporal =
+                    reinterpret_cast<const TemporalValue&>(temporals[temporal_is_const ? 0 : row]);
+            int comparison;
+            if constexpr (TemporalPType == TYPE_TIMESTAMPTZ) {
+                const auto utc_datetime = temporal.utc_dt();
+                const cctz::civil_second utc_civil(utc_datetime.year(), utc_datetime.month(),
+                                                   utc_datetime.day(), utc_datetime.hour(),
+                                                   utc_datetime.minute(), utc_datetime.second());
+                const auto utc_time = cctz::convert(utc_civil, cctz::utc_time_zone());
+                const auto local_civil = cctz::convert(utc_time, context->state()->timezone_obj());
+                // Keep the signed civil year across date boundaries. NULL payloads are
+                // normalized without validation; the nullable framework masks their results.
+                comparison = compare_timestamp_ns_with_temporal(timestamp, local_civil,
+                                                                utc_datetime.microsecond() * 1000);
+            } else {
+                comparison = compare_timestamp_ns_with_temporal(timestamp, temporal,
+                                                                temporal.microsecond() * 1000);
+            }
+            if constexpr (!timestamp_ns_on_left) {
+                comparison = -comparison;
+            }
+            result_data[row] = Op<TYPE_INT>::apply(comparison, 0);
+        }
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
 public:
     String get_name() const override { return name; }
 
@@ -649,8 +851,11 @@ public:
     }
 
     bool can_evaluate_zonemap_filter(const VExprSPtrs& arguments) const override {
-        return comparison_zonemap_detail::op_from_name(name).has_value() &&
-               comparison_zonemap_detail::can_evaluate(arguments);
+        if (!comparison_zonemap_detail::op_from_name(name).has_value()) {
+            return false;
+        }
+        return comparison_zonemap_detail::can_evaluate(arguments) ||
+               comparison_zonemap_detail::can_evaluate_slot_slot(arguments);
     }
 
     ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx,
@@ -754,6 +959,9 @@ public:
         return Status::OK();
     }
 
+    // Keep all primitive-type pairs in one dispatch point so every comparison operator shares the
+    // same mixed TIMESTAMP_NS semantics.
+    // NOLINTNEXTLINE(readability-function-size)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& col_with_type_and_name_left = block.get_by_position(arguments[0]);
@@ -766,6 +974,26 @@ public:
 
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
+
+#define EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE)                                          \
+    if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&                                 \
+        right_type->get_primitive_type() == TYPE) {                                             \
+        return execute_timestamp_ns_temporal<TYPE, true>(context, block, result, col_left_ptr,  \
+                                                         col_right_ptr, input_rows_count);      \
+    }                                                                                           \
+    if (left_type->get_primitive_type() == TYPE &&                                              \
+        right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {                                \
+        return execute_timestamp_ns_temporal<TYPE, false>(context, block, result, col_left_ptr, \
+                                                          col_right_ptr, input_rows_count);     \
+    }
+
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATE)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATEV2)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATETIME)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_DATETIMEV2)
+        EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON(TYPE_TIMESTAMPTZ)
+
+#undef EXECUTE_TIMESTAMP_NS_TEMPORAL_COMPARISON
 
         /// The case when arguments are the same (tautological comparison). Return constant.
         /// NOTE: Nullable types are special case. (BTW, this function use default implementation for Nullable, so Nullable types cannot be here. Check just in case.)
@@ -794,7 +1022,8 @@ public:
         }
 
         auto can_compare = [](PrimitiveType t) -> bool {
-            return is_int_or_bool(t) || is_float_or_double(t) || is_ip(t) || is_date_type(t);
+            return is_int_or_bool(t) || is_float_or_double(t) || is_ip(t) || is_date_type(t) ||
+                   is_timestamp_ns_type(t);
         };
 
         if (can_compare(left_type->get_primitive_type()) &&
@@ -815,6 +1044,8 @@ public:
             return execute_num_type<TYPE_DATEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATETIMEV2:
             return execute_num_type<TYPE_DATETIMEV2>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_TIMESTAMP_NS:
+            return execute_num_type<TYPE_TIMESTAMP_NS>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TIMESTAMPTZ:
             return execute_num_type<TYPE_TIMESTAMPTZ>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TINYINT:
@@ -831,6 +1062,8 @@ public:
             return execute_num_type<TYPE_IPV4>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_IPV6:
             return execute_num_type<TYPE_IPV6>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_UUID:
+            return execute_num_type<TYPE_UUID>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_FLOAT:
             return execute_num_type<TYPE_FLOAT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DOUBLE:

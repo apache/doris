@@ -17,8 +17,8 @@
 
 package org.apache.doris.http;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import javax.activation.MimetypesFileTypeMap;
 
@@ -30,9 +30,9 @@ public class MimeTypeTest {
         mimeTypesMap.addMimeTypes("text/html html htm");
         mimeTypesMap.addMimeTypes("application/javascript js");
         mimeTypesMap.addMimeTypes("text/css css");
-        Assert.assertEquals("text/css", mimeTypesMap.getContentType("/fe/webroot/static/datatables_bootstrap.css"));
-        Assert.assertEquals("application/javascript", mimeTypesMap.getContentType("/fe/webroot/static/web.js"));
-        Assert.assertEquals("text/html", mimeTypesMap.getContentType("/fe/webroot/index.html"));
-        Assert.assertEquals("text/html", mimeTypesMap.getContentType("/fe/webroot/index.htm"));
+        Assertions.assertEquals("text/css", mimeTypesMap.getContentType("/fe/webroot/static/datatables_bootstrap.css"));
+        Assertions.assertEquals("application/javascript", mimeTypesMap.getContentType("/fe/webroot/static/web.js"));
+        Assertions.assertEquals("text/html", mimeTypesMap.getContentType("/fe/webroot/index.html"));
+        Assertions.assertEquals("text/html", mimeTypesMap.getContentType("/fe/webroot/index.htm"));
     }
 }

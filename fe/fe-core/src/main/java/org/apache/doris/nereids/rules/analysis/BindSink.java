@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -37,12 +38,16 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.VariantWritePlanValidator;
+import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -72,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -88,11 +94,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
-import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -120,6 +123,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * bind an unbound logicalTableSink represent the target table of an insert command
@@ -179,9 +183,11 @@ public class BindSink implements AnalysisRuleFactory {
         boolean needExtraSeqCol = isPartialUpdate && !childHasSeqCol && table.hasSequenceCol()
                 && table.getSequenceMapCol() != null
                 && sink.getColNames().contains(table.getSequenceMapCol());
+        Set<String> missingIvmHiddenColumns = getMissingIvmHiddenColumns(table, sink.getColNames(), child);
         // 1. bind target columns: from sink's column names to target tables' Columns
         Pair<List<Column>, Integer> bindColumnsResult =
                 bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol,
+                        missingIvmHiddenColumns,
                         sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT, isDeletePartialUpdate);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
@@ -250,7 +256,7 @@ public class BindSink implements AnalysisRuleFactory {
                 // 1. it's a load job with `partial_columns=true`
                 // 2. UPDATE and DELETE, planner will automatically add these hidden columns
                 // 3. session value `require_sequence_in_insert` is false
-                if (!haveInputSeqCol && !isPartialUpdate && (
+                if (!haveInputSeqCol && !isIncrementalIvmTable(table) && !isPartialUpdate && (
                         boundSink.getDmlCommandType() != DMLCommandType.UPDATE
                                 && boundSink.getDmlCommandType() != DMLCommandType.DELETE) && (
                         boundSink.getDmlCommandType() != DMLCommandType.INSERT
@@ -267,7 +273,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(
-                ctx, table, isPartialUpdate, isDeletePartialUpdate, boundSink, child);
+                ctx, table, isPartialUpdate, isDeletePartialUpdate, boundSink, child, missingIvmHiddenColumns);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(
                 table.getFullSchema(), child, columnToOutput);
         List<Column> columns = new ArrayList<>(table.getFullSchema().size());
@@ -308,10 +314,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
-        ConnectContext connCtx = ConnectContext.get();
-        final boolean truncateString = needTruncateStringWhenInsert
-                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
-                && !SessionVariable.enableStrictCast();
+        final boolean truncateString = needTruncateStringWhenInsert && truncatesStringOnInsert();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -357,16 +360,18 @@ public class BindSink implements AnalysisRuleFactory {
         return fullOutputProject;
     }
 
+    /**
+     * Whether the session lets an INSERT write a string into a shorter CHAR / VARCHAR column cut to the column
+     * length, counted in code points (the {@link Substring} above), instead of as is.
+     */
+    public static boolean truncatesStringOnInsert() {
+        ConnectContext connCtx = ConnectContext.get();
+        return (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
+    }
+
     @VisibleForTesting
     static Expression coerceSinkExpression(Expression expression, DataType targetType) {
-        if (!Config.enable_variant_v2
-                && expression.getDataType() instanceof ConnectorComputeVariantType
-                && targetType instanceof VariantType
-                && !(targetType instanceof ConnectorComputeVariantType)) {
-            // JSONB is the executable carrier shared by compute-only V2 and legacy Variant;
-            // a direct cast crosses incompatible physical columns at CTAS/MTMV sink boundaries.
-            return new Cast(new Cast(expression, JsonType.INSTANCE), targetType);
-        }
         return TypeCoercionUtils.castIfNotSameType(expression, targetType);
     }
 
@@ -375,20 +380,45 @@ public class BindSink implements AnalysisRuleFactory {
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
         return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
-                boundSink, child, sinkTargetFullSchema(boundSink.getTargetTable()));
+                boundSink, child, sinkTargetFullSchema(boundSink.getTargetTable()),
+                Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
     }
 
     private static Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, targetSchema, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, Set<String> missingIvmHiddenColumns) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, sinkTargetFullSchema(boundSink.getTargetTable()), missingIvmHiddenColumns);
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
+            Set<String> missingIvmHiddenColumns) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, targetSchema, missingIvmHiddenColumns, Maps.newHashMap());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
+            Set<String> missingIvmHiddenColumns, Map<String, Expression> materializedColumnValues) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
-        Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
-        for (int i = 0; i < child.getOutput().size(); ++i) {
-            columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
-        }
+        Map<Column, NamedExpression> columnToChildOutput = getColumnToChildOutput(boundSink, child,
+                missingIvmHiddenColumns);
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<String, NamedExpression> columnToReplaced = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
@@ -408,12 +438,21 @@ public class BindSink implements AnalysisRuleFactory {
                 shadowColumns.add(column);
                 continue;
             }
-            if (columnToChildOutput.containsKey(column)
+            if (materializedColumnValues.containsKey(column.getName())) {
+                Expression value = materializedColumnValues.get(column.getName());
+                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                        ConnectorWriteValueConverter.convert(column, value),
+                        DataType.fromCatalogType(column.getType())), column.getName());
+                columnToOutput.put(column.getName(), output);
+                columnToReplaced.put(column.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
+            } else if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                        ConnectorWriteValueConverter.convert(column, columnToChildOutput.get(column)),
+                        DataType.fromCatalogType(column.getType())),
                         column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -441,6 +480,25 @@ public class BindSink implements AnalysisRuleFactory {
                         columnToReplaced.put(column.getName(), seqColumn.toSlot());
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
+                } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
+                    // Which default applies follows from the table model: the unique-key model's row lsn
+                    // is the row identity its deletes reply on, while an append-only detail MV's is its own
+                    // binlog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
+                    Expression hiddenDefault = ((MTMV) table).isIvmAppendOnlyDupTable()
+                            ? IvmUtil.getAppendOnlyDupHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()))
+                            : IvmUtil.getCommonHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()));
+                    Alias output = new Alias(hiddenDefault, column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
+                } else if (missingIvmHiddenColumns.contains(column.getName())) {
+                    Alias output = new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())),
+                            column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
                 } else if (isPartialUpdate) {
                     // If the current load is a partial update, the values of unmentioned
                     // columns will be filled in SegmentWriter. And the output of sink node
@@ -484,13 +542,13 @@ public class BindSink implements AnalysisRuleFactory {
                     try {
                         Expression unboundDefaultValue = new NereidsParser().parseExpression(
                                 column.getDefaultValueSql());
-                        Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                        Expression defaultValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundDefaultValue);
-                        if (defualtValueExpression instanceof Alias) {
-                            defualtValueExpression = ((Alias) defualtValueExpression).child();
+                        if (defaultValueExpression instanceof Alias) {
+                            defaultValueExpression = ((Alias) defaultValueExpression).child();
                         }
                         Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                defaultValueExpression, DataType.fromCatalogType(column.getType()))),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());
@@ -588,6 +646,34 @@ public class BindSink implements AnalysisRuleFactory {
         return columnToOutput;
     }
 
+    private static Map<Column, NamedExpression> getColumnToChildOutput(LogicalTableSink<?> boundSink, LogicalPlan child,
+            Set<String> missingIvmHiddenColumns) {
+        Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
+        if (missingIvmHiddenColumns.isEmpty()) {
+            for (int i = 0; i < child.getOutput().size(); ++i) {
+                columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
+            }
+            return columnToChildOutput;
+        }
+
+        int childIdx = 0;
+        for (Column column : boundSink.getCols()) {
+            if (childIdx >= child.getOutput().size()) {
+                break;
+            }
+            if (missingIvmHiddenColumns.contains(column.getName())) {
+                continue;
+            }
+            NamedExpression childOutput = child.getOutput().get(childIdx);
+            columnToChildOutput.put(column, childOutput);
+            childIdx++;
+        }
+        if (childIdx != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        return columnToChildOutput;
+    }
+
     private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
         UnboundBlackholeSink<?> sink = ctx.root;
         LogicalPlan child = ((LogicalPlan) sink.child());
@@ -656,17 +742,16 @@ public class BindSink implements AnalysisRuleFactory {
                             + ", query output: " + child.getOutput().size());
         }
 
-        // Build columnToOutput mapping and reuse getOutputProjectByCoercion for type cast,
-        // same as OlapTable INSERT INTO.
-        Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
+        // TVF schemas mirror query output positions; display names can repeat and must not identify values.
+        ImmutableList.Builder<NamedExpression> outputBuilder = ImmutableList.builderWithExpectedSize(cols.size());
         for (int i = 0; i < cols.size(); i++) {
             Column col = cols.get(i);
             NamedExpression childExpr = (NamedExpression) child.getOutput().get(i);
             Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
                     childExpr, DataType.fromCatalogType(col.getType())), col.getName());
-            columnToOutput.put(col.getName(), output);
+            outputBuilder.add(output);
         }
-        LogicalProject<?> projectWithCast = getOutputProjectByCoercion(cols, child, columnToOutput);
+        LogicalProject<?> projectWithCast = new LogicalProject<>(outputBuilder.build(), child);
 
         List<NamedExpression> outputExprs = projectWithCast.getOutput().stream()
                 .map(NamedExpression.class::cast)
@@ -699,7 +784,7 @@ public class BindSink implements AnalysisRuleFactory {
      * stay in the connector (iceberg). A connector {@link DorisConnectorException} is surfaced as the
      * analysis-time {@link AnalysisException} the legacy native path threw, preserving the user-facing message
      * and the exception type. The literal-value check is connector-agnostic and stays here, where the Nereids
-     * expression is available. Plumbing mirrors {@code IcebergRowLevelDmlTransform.checkPluginMode}.
+     * expression is available. Plumbing mirrors {@code PositionDeleteRowLevelDmlTransform.checkPluginMode}.
      */
     private void checkConnectorStaticPartitions(PluginDrivenExternalTable table,
             Map<String, Expression> staticPartitions, Set<String> staticPartitionColNames) {
@@ -799,6 +884,14 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> canonical = Sets.newLinkedHashSet();
         for (String name : staticPartitions.keySet()) {
             Column column = findColumn(schema, name);
+            // Text casts preserve raw bytes in the row, while partition metadata decodes hex.
+            // Require typed bytes so these two representations cannot silently disagree.
+            Expression value = staticPartitions.get(name);
+            if (column != null && column.getType().isVarbinaryType()
+                    && !(value instanceof VarBinaryLiteral) && !(value instanceof NullLiteral)) {
+                throw new AnalysisException("Static VARBINARY partition values must use a binary literal or NULL: "
+                        + name);
+            }
             if (!canonical.add(column != null ? column.getName() : name)) {
                 throw new AnalysisException("Duplicate partition column: " + name);
             }
@@ -832,6 +925,15 @@ public class BindSink implements AnalysisRuleFactory {
         // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
         // Deliberately fed the RAW (user-typed) names, so a connector message quotes what the user wrote.
         checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
+        if (staticPartitions != null) {
+            Map<String, Expression> normalized = Maps.newLinkedHashMap();
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                Column column = findColumn(resolvedTargetSchema, entry.getKey());
+                normalized.put(entry.getKey(), column == null ? entry.getValue()
+                        : ConnectorWriteValueConverter.convert(column, entry.getValue()));
+            }
+            staticPartitions = normalized;
+        }
 
         // Resolve the user-typed static-partition names to their canonical schema names before they are used
         // to exclude / reject bound columns below. Runs AFTER the connector validated them.
@@ -847,6 +949,31 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetWriteSchema = resolvedTargetSchema.stream()
                 .filter(column -> isConnectorSinkWriteColumn(column, sink.isRewrite()))
                 .collect(ImmutableList.toImmutableList());
+        if (sink.getRowChangeSpec().isPresent()) {
+            ConnectorChangelogMode changelogMode = table.getConnectorChangelogMode()
+                    .orElseThrow(() -> new AnalysisException(
+                            "Connector changelog write mode is not configured for table " + table.getName()));
+            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema, table,
+                    table.getConnectorRowLevelPrimaryKeyColumns(), changelogMode,
+                    sink.getRowChangeSpec().get(), child, ctx.cascadesContext);
+            List<NamedExpression> outputExpressions = child.getOutput().stream()
+                    .map(NamedExpression.class::cast)
+                    .collect(ImmutableList.toImmutableList());
+            if (outputExpressions.size() != targetWriteSchema.size() + 1) {
+                throw new AnalysisException("Connector changelog sink must produce an operation column and "
+                        + targetWriteSchema.size() + " table columns, but got " + outputExpressions.size());
+            }
+            // The operation column precedes one column per table column.
+            List<Integer> tableColumnOrdinals = IntStream.rangeClosed(1, targetWriteSchema.size()).boxed()
+                    .collect(ImmutableList.toImmutableList());
+            VariantWritePlanValidator.validateNoLossyCoercion(
+                    targetWriteSchema, child, tableColumnOrdinals, ctx.cascadesContext.getCteContext());
+            return new LogicalConnectorTableSink<>(database, table, targetWriteSchema,
+                    targetMetadata.getPartitionColumns(), targetMetadata.getWriteMetadataIdentity(),
+                    targetWriteSchema, outputExpressions, sink.getDMLCommandType(), false,
+                    true,
+                    Optional.empty(), Optional.empty(), child);
+        }
         if (sink.isRewrite()) {
             List<NamedExpression> rewriteOutputs = selectConnectorRewriteOutputs(
                     targetWriteSchema, child.getOutput());
@@ -878,6 +1005,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+        VariantWritePlanValidator.validateNoLossyCoercion(bindColumns, child, ctx.cascadesContext.getCteContext());
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any
@@ -888,12 +1016,13 @@ public class BindSink implements AnalysisRuleFactory {
             // trailing partition columns by position, so they must sit at their full-schema (tail)
             // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
             // partition columns by their full-schema position, so the child must be in full-schema order.
-            Map<String, NamedExpression> columnToOutput = getColumnToOutput(
-                    ctx, table, false, false, boundSink, child, targetWriteSchema);
+            Map<String, Expression> materializedStaticPartitionValues =
+                    Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
-                // Connectors that consume the partition value FROM THE ROW must write the static partition value
-                // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
-                // so re-project the PARTITION-clause literal here (mirrors the retired legacy iceberg bind).
+                // Connectors that consume the partition value FROM THE ROW must supply the static partition value
+                // before getColumnToOutput validates omitted non-null columns (mirrors the retired legacy iceberg
+                // bind). Supplying it afterwards would incorrectly report that a non-null partition column has no
+                // default value.
                 // Two reasons put a connector here — its files retain the column (Iceberg), or its files strip
                 // the column but the BE derives the partition DIRECTORY from the row value (Hive, where a NULL
                 // would become __HIVE_DEFAULT_PARTITION__). Connectors that STRIP partition columns and refill
@@ -902,14 +1031,13 @@ public class BindSink implements AnalysisRuleFactory {
                 for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                     Column column = findColumn(targetWriteSchema, entry.getKey());
                     if (column != null) {
-                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(
-                                entry.getValue(), DataType.fromCatalogType(column.getType()));
-                        // Key and alias use the canonical schema name, so they line up with
-                        // getOutputProjectByCoercion, which looks columnToOutput up by getFullSchema() names.
-                        columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                        materializedStaticPartitionValues.put(column.getName(), entry.getValue());
                     }
                 }
             }
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(
+                    ctx, table, false, false, boundSink, child, targetWriteSchema,
+                    Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER), materializedStaticPartitionValues);
             LogicalProject<?> fullOutputProject =
                     getOutputProjectByCoercion(targetWriteSchema, child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);
@@ -956,6 +1084,12 @@ public class BindSink implements AnalysisRuleFactory {
                     .filter(col -> !staticPartitionColNames.contains(col.getName()))
                     .filter(col -> isConnectorSinkWriteColumn(col, isRewrite))
                     .collect(ImmutableList.toImmutableList());
+        }
+        Set<String> specifiedColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (String columnName : colNames) {
+            if (!specifiedColumnNames.add(columnName)) {
+                throw new AnalysisException("Column '" + columnName + "' specified twice");
+            }
         }
         return colNames.stream().map(cn -> {
             Column column = findColumn(targetSchema, cn);
@@ -1034,7 +1168,8 @@ public class BindSink implements AnalysisRuleFactory {
             Column column = bindColumns.get(i);
             NamedExpression outputExpr = child.getOutput().get(i);
             Alias output = new Alias(
-                    TypeCoercionUtils.castIfNotSameType(outputExpr, DataType.fromCatalogType(column.getType())),
+                    TypeCoercionUtils.castIfNotSameType(ConnectorWriteValueConverter.convert(column, outputExpr),
+                            DataType.fromCatalogType(column.getType())),
                     column.getName());
             columnToOutput.put(column.getName(), output);
         }
@@ -1146,7 +1281,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     // bindTargetColumns means bind sink node's target columns' names to target table's columns
     private Pair<List<Column>, Integer> bindTargetColumns(OlapTable table, List<String> colsName,
-            boolean childHasSeqCol, boolean needExtraSeqCol, boolean isGroupCommit, boolean isDeletePartialUpdate) {
+            boolean childHasSeqCol, boolean needExtraSeqCol, Set<String> missingIvmHiddenColumns,
+            boolean isGroupCommit, boolean isDeletePartialUpdate) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         if (colsName.isEmpty()) {
             // ATTN: group commit without column list should return all base index column
@@ -1155,7 +1291,7 @@ public class BindSink implements AnalysisRuleFactory {
                     .filter(c -> isGroupCommit || validColumn(c, childHasSeqCol))
                     .collect(ImmutableList.toImmutableList()), 0);
         } else {
-            int extraColumnsNum = (needExtraSeqCol ? 1 : 0);
+            int extraColumnsNum = (needExtraSeqCol ? 1 : 0) + missingIvmHiddenColumns.size();
             List<String> processedColsName = Lists.newArrayList(colsName);
             for (Column col : table.getFullSchema()) {
                 if (col.hasOnUpdateDefaultValue()) {
@@ -1190,6 +1326,23 @@ public class BindSink implements AnalysisRuleFactory {
     private boolean validColumn(Column column, boolean isNeedSequenceCol) {
         return (column.isVisible() || (isNeedSequenceCol && column.isSequenceColumn()))
                 && !column.isMaterializedViewColumn();
+    }
+
+    private static boolean isIncrementalIvmTable(TableIf table) {
+        return table instanceof MTMV && ((MTMV) table).isIvm();
+    }
+
+    private Set<String> getMissingIvmHiddenColumns(OlapTable table, List<String> sinkColumns, LogicalPlan child) {
+        if (!isIncrementalIvmTable(table)) {
+            return Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        }
+        Set<String> childOutputNames = child.getOutput().stream()
+                .map(NamedExpression::getName)
+                .collect(Collectors.toCollection(() -> Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER)));
+        return sinkColumns.stream()
+                .filter(IvmUtil::isIvmHiddenColumn)
+                .filter(columnName -> !childOutputNames.contains(columnName))
+                .collect(Collectors.toCollection(() -> Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER)));
     }
 
     private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {

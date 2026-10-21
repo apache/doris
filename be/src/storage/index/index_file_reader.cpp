@@ -22,8 +22,8 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_compound_reader.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
@@ -132,6 +132,11 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
                         "CLuceneError occur when close idx file {}, error msg: {}",
                         index_file_full_path, err.what());
             }
+        }
+        // Lazy open can surface a missing file as a read error; keep NotFound distinguishable
+        if (err.number() == CL_ERR_FileNotFound) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index file {} is not found.", index_file_full_path);
         }
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occur when init idx file {}, error msg: {}", index_file_full_path,
@@ -318,6 +323,11 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
             // 3. read file in DorisCompoundReader
             compound_reader.reset(new DorisCompoundReader(index_input, _read_buffer_size));
         } catch (CLuceneError& err) {
+            // Lazy open can surface a missing file as a read error; keep NotFound distinguishable
+            if (err.number() == CL_ERR_FileNotFound) {
+                return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                        "inverted index file {} is not found.", index_file_path));
+            }
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}", index_file_path,
                     err.what()));

@@ -128,4 +128,26 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
         sql "select json_insert('1', '\$.', 4);"
         exception "Json path error: Invalid Json Path for value"
     }
+
+    // arguments must be a JSON document followed by path/value pairs, so an even count is rejected by FE
+    test {
+        sql "select json_insert('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+
+    test {
+        sql "select json_insert('{}', '\$.a', 1, '\$.b', 2, '\$.c');"
+        exception "number of arguments must be odd, but got 6"
+    }
+
+    test {
+        sql "select jsonb_insert('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+
+    test {
+        sql "explain select json_insert('{}', '\$.a', 1, '\$.b');"
+        exception "number of arguments must be odd, but got 4"
+    }
+    qt_insert_odd_arity_ok """select json_insert('{}', '\$.a', 1), json_insert('{}', '\$.a', 1, '\$.b', 2), jsonb_insert('{}', '\$.a', 1, '\$.b', 2);"""
 }

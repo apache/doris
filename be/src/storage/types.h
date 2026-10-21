@@ -41,7 +41,6 @@
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
 #include "core/value/vdatetime_value.h"
-#include "exprs/function/cast/cast_to_timestamptz.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "util/slice.h"
@@ -173,6 +172,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     using UnsignedCppType = uint64_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
     using CppType = uint64_t;
     using UnsignedCppType = uint64_t;
@@ -189,6 +193,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
+};
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID> {
     using CppType = uint128_t;
     using UnsignedCppType = uint128_t;
 };
@@ -292,6 +301,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {};
 
 template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID>
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_UUID> {};
+
+template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {};
 
@@ -306,6 +319,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {};
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
@@ -421,10 +437,12 @@ inline size_t field_type_size(FieldType field_type) {
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_DATETIME)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_DATEV2)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_DATETIMEV2)
+        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMESTAMP_NS)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMEV2)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_TIMESTAMPTZ)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_IPV4)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_IPV6)
+        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_UUID)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_CHAR)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_VARCHAR)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_STRING)

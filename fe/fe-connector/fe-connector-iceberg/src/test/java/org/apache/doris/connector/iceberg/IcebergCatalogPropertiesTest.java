@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +37,21 @@ import java.util.Map;
  * catalog that stops coming back after a restart.
  */
 public class IcebergCatalogPropertiesTest {
+
+    @Test
+    public void alterToleratesPersistedFutureWeightEntryButValidatesKnownValues() {
+        Map<String, String> current = props("iceberg.catalog.type", "hadoop", "warehouse", "s3://bucket/wh",
+                "meta.cache.iceberg.future_entry.max-weight", "future-format");
+        IcebergConnectorProvider provider = new IcebergConnectorProvider();
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(current));
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(current));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("meta.cache.iceberg.partiton.max-weight", "64MB")));
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("comment", "updated")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("meta.cache.iceberg.table.max-weight", "invalid")));
+    }
 
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
@@ -111,13 +127,31 @@ public class IcebergCatalogPropertiesTest {
         // read false and silently drop the BINARY->VARBINARY / TIMESTAMPTZ mapping for every table.
         // MUTATION: binding an underscore key name -> red.
         IcebergCatalogProperties off = IcebergCatalogProperties.of(Collections.emptyMap());
-        Assertions.assertFalse(off.isEnableMappingVarbinary());
-        Assertions.assertFalse(off.isEnableMappingTimestampTz());
+        Assertions.assertTrue(off.isEnableMappingVarbinary());
+        Assertions.assertTrue(off.isEnableMappingTimestampTz());
 
         IcebergCatalogProperties on = IcebergCatalogProperties.of(props(
                 "enable.mapping.varbinary", "true", "enable.mapping.timestamp_tz", "TRUE"));
         Assertions.assertTrue(on.isEnableMappingVarbinary());
         Assertions.assertTrue(on.isEnableMappingTimestampTz(), "parsing must stay case-insensitive");
+    }
+
+    @Test
+    public void createTimeRulesRejectTheApacheHttpClientType() {
+        // WHY: iceberg-aws's "apache" client needs an AWS SDK newer than Doris ships; accepting it would only defer
+        // the failure to a NoClassDefFoundError on the first S3 or Glue call. The rebuild path (of()) must still
+        // accept it so an existing catalog comes back. MUTATION: dropping the check -> accepted -> red.
+        Map<String, String> p = props("iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh",
+                HttpClientProperties.CLIENT_TYPE, "Apache");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergCatalogProperties.of(p).checkCreateTimeOnlyRules());
+        Assertions.assertTrue(e.getMessage().contains(HttpClientProperties.CLIENT_TYPE),
+                "the message must name the offending key: " + e.getMessage());
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(p));
+        Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(props(
+                "iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh",
+                HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION))
+                .checkCreateTimeOnlyRules());
     }
 
     @Test
@@ -147,6 +181,20 @@ public class IcebergCatalogPropertiesTest {
                 "a hadoop catalog without a warehouse must be refused at CREATE");
         Assertions.assertDoesNotThrow(() -> IcebergCatalogProperties.of(props(
                 "iceberg.catalog.type", "hadoop", "warehouse", "s3://bucket/wh")).checkCreateTimeOnlyRules());
+    }
+
+    @Test
+    public void createTimeRulesRejectExternalCatalogNameForDlf() {
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergCatalogProperties.of(props(
+                        "iceberg.catalog.type", "dlf",
+                        "external_catalog.name", "root",
+                        "dlf.access_key", "ak",
+                        "dlf.secret_key", "sk",
+                        "dlf.endpoint", "dlf.cn-hangzhou.aliyuncs.com"))
+                        .checkCreateTimeOnlyRules());
+
+        Assertions.assertTrue(e.getMessage().contains("external_catalog.name"), e.getMessage());
     }
 
     @Test

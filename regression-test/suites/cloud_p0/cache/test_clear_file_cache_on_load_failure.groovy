@@ -15,71 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import groovy.json.JsonSlurper
+import org.apache.doris.regression.util.WarmupMetricsUtils
 
 suite("test_clear_file_cache_on_load_failure", "nonConcurrent") {
     if (!isCloudMode()) {
         return
     }
 
+    String originalAutoAnalyze = sql("SHOW GLOBAL VARIABLES LIKE 'enable_auto_analyze'")[0][1].toString()
+    assertTrue(originalAutoAnalyze.toLowerCase() in ["true", "false", "1", "0"],
+            "Unexpected auto-analyze setting: ${originalAutoAnalyze}")
+    onFinish {
+        sql "SET GLOBAL enable_auto_analyze = ${originalAutoAnalyze}"
+        logger.info("Restored enable_auto_analyze=${originalAutoAnalyze}")
+    }
+
     // Clear any existing debug points
     GetDebugPoint().clearDebugPointsForAllFEs()
     GetDebugPoint().clearDebugPointsForAllBEs()
 
-    // Helper function to clear file cache on all backends
-    def clearFileCache = { ip, port ->
-        def url = "http://${ip}:${port}/api/file_cache?op=clear&sync=true"
-        def response = new URL(url).text
-        def json = new JsonSlurper().parseText(response)
-        if (json.status != "OK") {
-            throw new RuntimeException("Clear cache on ${ip}:${port} failed: ${json.status}")
+    def getCacheBackends = {
+        return (sql """SHOW BACKENDS""").collect { be ->
+            [ip: be[1], httpPort: be[4], brpcPort: be[5]]
         }
     }
 
-    def clearFileCacheOnAllBackends = {
-        def backends = sql """SHOW BACKENDS"""
-        for (be in backends) {
-            def ip = be[1]
-            def port = be[4]
-            clearFileCache(ip, port)
+    def requestFileCacheClearOnAllBackends = {
+        getCacheBackends().each { be ->
+            WarmupMetricsUtils.clearFileCache(be.ip.toString(), be.httpPort.toString())
         }
-        // Wait for async clear to complete
-        sleep(5000)
     }
 
-    // Helper function to get brpc metrics
-    def getBrpcMetrics = { ip, port, name ->
-        def url = "http://${ip}:${port}/brpc_metrics"
-        try {
-            def metrics = new URL(url).text
-            def matcher = metrics =~ ~"${name}\\s+(\\d+)"
-            if (matcher.find()) {
-                return matcher[0][1] as long
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to get brpc metrics from ${ip}:${port}: ${e.message}")
-        }
-        return 0L
-    }
-
-    // Helper function to get index queue cache size
-    def getIndexQueueSize = { ip, port ->
-        return getBrpcMetrics(ip, port, "file_cache_index_queue_cache_size")
-    }
-
-    // Helper function to get total index queue cache size across all backends
-    def getTotalIndexQueueSize = {
-        def backends = sql """SHOW BACKENDS"""
-        long totalSize = 0
-        for (be in backends) {
-            def ip = be[1]
-            def brpcPort = be[5]
-            def size = getIndexQueueSize(ip, brpcPort)
-            totalSize += size
-            logger.info("BE ${ip}:${brpcPort} index_queue_size = ${size}")
-        }
-        return totalSize
-    }
+    def cacheSizeMetric = "file_cache_cache_size"
 
     // Create test table with file cache enabled
     def tableName = "test_load_failure_cache"
@@ -101,30 +68,37 @@ suite("test_clear_file_cache_on_load_failure", "nonConcurrent") {
         // Disable auto analyze to avoid internal loads affecting cache size
         sql """SET GLOBAL enable_auto_analyze = false"""
 
-        // Clear file cache and wait for it to complete
-        clearFileCacheOnAllBackends()
-        sleep(3000)
+        requestFileCacheClearOnAllBackends()
 
-        // Get initial cache size
-        def initialCacheSize = getTotalIndexQueueSize()
+        // sync=true synchronously removes releasable blocks, but it does not guarantee that
+        // blocks still held by readers or writers have all been recycled. Use a stable metric
+        // snapshot as the baseline and verify cache-size increments instead of requiring zero.
+        def initialCacheSize = WarmupMetricsUtils.waitForBackendMetricSumStable(
+                getCacheBackends(),
+                cacheSizeMetric,
+                10000,
+                60000)
         logger.info("Initial file cache size: ${initialCacheSize}")
 
         // First, do a successful load to establish baseline
         sql """INSERT INTO ${tableName} VALUES (1, 'test1', 100)"""
-        // Wait for cache metrics to update
-        sleep(5000)
 
-        def afterSuccessfulLoadSize = getTotalIndexQueueSize()
+        def afterSuccessfulLoadSize = WarmupMetricsUtils.waitForBackendMetricSum(
+                getCacheBackends(),
+                cacheSizeMetric,
+                { value -> value > initialCacheSize },
+                120000,
+                "Cache should increase after successful load. Initial: ${initialCacheSize}")
         logger.info("Cache size after successful load: ${afterSuccessfulLoadSize}")
-        assertTrue(afterSuccessfulLoadSize > initialCacheSize,
-            "Cache should increase after successful load. Initial: ${initialCacheSize}, After: ${afterSuccessfulLoadSize}")
 
-        // Clear cache again to reset
-        clearFileCacheOnAllBackends()
-        sleep(3000)
-
-        def afterClearSize = getTotalIndexQueueSize()
-        logger.info("Cache size after clear: ${afterClearSize}")
+        // The successful load may populate the cache asynchronously. Wait until it is stable,
+        // then use that value as the baseline for the failed-load cache-size increment.
+        afterSuccessfulLoadSize = WarmupMetricsUtils.waitForBackendMetricSumStable(
+                getCacheBackends(),
+                cacheSizeMetric,
+                10000,
+                60000)
+        logger.info("Stable cache size before failed load: ${afterSuccessfulLoadSize}")
 
         // Enable debug point to make commit_rowset return error
         GetDebugPoint().enableDebugPointForAllBEs("LoadChannel.add_batch.failed")
@@ -137,17 +111,22 @@ suite("test_clear_file_cache_on_load_failure", "nonConcurrent") {
         }
 
         // Wait for cleanup to complete and cache metrics to update
-        sleep(5000)
+        def afterFailedLoadSize = WarmupMetricsUtils.waitForBackendMetricSumStable(
+                getCacheBackends(),
+                cacheSizeMetric,
+                10000,
+                60000)
 
         // Get cache size after failed load
-        def afterFailedLoadSize = getTotalIndexQueueSize()
         logger.info("Cache size after failed load: ${afterFailedLoadSize}")
 
-        // Verify cache size has not increased
-        assertTrue(afterFailedLoadSize == afterClearSize,
+        // Pre-existing deleting blocks may be recycled during this interval, so a negative
+        // delta is valid. A failed load must not add cache bytes over the stable baseline.
+        def failedLoadCacheSizeDelta = afterFailedLoadSize - afterSuccessfulLoadSize
+        assertTrue(failedLoadCacheSizeDelta <= 0,
             "Cache should not increase after failed load. " +
-            "Before: ${afterClearSize}, After: ${afterFailedLoadSize}, " +
-            "Difference: ${afterFailedLoadSize - afterClearSize}")
+            "Before: ${afterSuccessfulLoadSize}, After: ${afterFailedLoadSize}, " +
+            "Difference: ${failedLoadCacheSizeDelta}")
 
         logger.info("Test passed: File cache was properly cleared after load failure")
     } finally {

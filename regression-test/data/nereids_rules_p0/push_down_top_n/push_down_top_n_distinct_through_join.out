@@ -45,3 +45,10 @@ PhysicalResultSink
 6
 7
 
+-- !partial_prefix_asc --
+1	0	10
+
+-- !partial_prefix_desc_offset --
+6	0	60
+7	0	70
+

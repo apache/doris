@@ -22,6 +22,8 @@
 
 #include "common/compare.h"
 #include "core/accurate_comparison.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -29,6 +31,7 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/jsonb_value.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/json/path_in_data.h"
@@ -91,6 +94,50 @@ bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys)
     return dec_less_or_equal<TYPE_DECIMAL128I>(x, y, xs, ys);
 }
 
+namespace {
+// Expression literals can outlive decoder pages and source columns.
+// Keep the view first for Field::get(), and fit ownership into the existing Field storage.
+struct OwnedBinaryField {
+    StringView view;
+    char* bytes = nullptr;
+    size_t byte_size = 0;
+
+    explicit OwnedBinaryField(const StringView& value) {
+        // Inline views already own their bytes; preserve their allocation-free representation.
+        if (value.isInline()) {
+            view = value;
+            return;
+        }
+        // Charge retained payloads and deep-copy peaks through Doris's checked allocator.
+        // Keep a standard-layout owner so the leading view remains accessible via Field::get().
+        bytes = static_cast<char*>(Allocator<false> {}.alloc(value.size()));
+        byte_size = value.size();
+        memcpy(bytes, value.data(), value.size());
+        view = StringView(bytes, value.size());
+    }
+    OwnedBinaryField(const OwnedBinaryField&) = delete;
+    OwnedBinaryField& operator=(const OwnedBinaryField&) = delete;
+    OwnedBinaryField& operator=(OwnedBinaryField&& other) noexcept {
+        release_bytes();
+        view = other.view;
+        bytes = std::exchange(other.bytes, nullptr);
+        byte_size = std::exchange(other.byte_size, 0);
+        return *this;
+    }
+    ~OwnedBinaryField() { release_bytes(); }
+
+private:
+    void release_bytes() const {
+        if (bytes != nullptr) {
+            // Field::get() exposes a mutable view; release the original allocation size.
+            Allocator<false> {}.free(bytes, byte_size);
+        }
+    }
+};
+static_assert(std::is_standard_layout_v<OwnedBinaryField>);
+static_assert(offsetof(OwnedBinaryField, view) == 0);
+} // namespace
+
 template <PrimitiveType Type>
 void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
     // In both Field and PODArray, small types may be stored as wider types,
@@ -99,7 +146,12 @@ void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
     // we must initialize the entire wide stored type, and not just the
     // nominal type.
     using StorageType = typename PrimitiveTypeTraits<Type>::CppType;
-    new (&storage) StorageType(std::move(x));
+    if constexpr (Type == TYPE_VARBINARY) {
+        static_assert(sizeof(OwnedBinaryField) <= sizeof(storage));
+        new (&storage) OwnedBinaryField(x);
+    } else {
+        new (&storage) StorageType(std::move(x));
+    }
     type = Type;
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
 }
@@ -112,7 +164,11 @@ void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x
     // we must initialize the entire wide stored type, and not just the
     // nominal type.
     using StorageType = typename PrimitiveTypeTraits<Type>::CppType;
-    new (&storage) StorageType(x);
+    if constexpr (Type == TYPE_VARBINARY) {
+        new (&storage) OwnedBinaryField(x);
+    } else {
+        new (&storage) StorageType(x);
+    }
     type = Type;
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
 }
@@ -124,6 +180,9 @@ void Field::create(Field&& field) {
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         create_concrete<TYPE_DATETIMEV2>(std::move(field.template get<TYPE_DATETIMEV2>()));
+        return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        create_concrete<TYPE_TIMESTAMP_NS>(std::move(field.template get<TYPE_TIMESTAMP_NS>()));
         return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(std::move(field.template get<TYPE_DATEV2>()));
@@ -160,6 +219,9 @@ void Field::create(Field&& field) {
         return;
     case PrimitiveType::TYPE_IPV6:
         create_concrete<TYPE_IPV6>(std::move(field.template get<TYPE_IPV6>()));
+        return;
+    case PrimitiveType::TYPE_UUID:
+        create_concrete<TYPE_UUID>(std::move(field.template get<TYPE_UUID>()));
         return;
     case PrimitiveType::TYPE_FLOAT:
         create_concrete<TYPE_FLOAT>(std::move(field.template get<TYPE_FLOAT>()));
@@ -238,6 +300,8 @@ Field& Field::operator=(const Field& rhs) {
     if (this != &rhs) {
         if (type != rhs.type) {
             destroy();
+            // A failed allocation while changing types must leave a destructible Field.
+            type = TYPE_NULL;
             create(rhs);
         } else {
             assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
@@ -253,6 +317,9 @@ void Field::create(const Field& field) {
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         create_concrete<TYPE_DATETIMEV2>(field.template get<TYPE_DATETIMEV2>());
+        return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        create_concrete<TYPE_TIMESTAMP_NS>(field.template get<TYPE_TIMESTAMP_NS>());
         return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(field.template get<TYPE_DATEV2>());
@@ -289,6 +356,9 @@ void Field::create(const Field& field) {
         return;
     case PrimitiveType::TYPE_IPV6:
         create_concrete<TYPE_IPV6>(field.template get<TYPE_IPV6>());
+        return;
+    case PrimitiveType::TYPE_UUID:
+        create_concrete<TYPE_UUID>(field.template get<TYPE_UUID>());
         return;
     case PrimitiveType::TYPE_FLOAT:
         create_concrete<TYPE_FLOAT>(field.template get<TYPE_FLOAT>());
@@ -415,6 +485,9 @@ void Field::assign(Field&& field) {
     case PrimitiveType::TYPE_DATETIMEV2:
         assign_concrete<TYPE_DATETIMEV2>(std::move(field.template get<TYPE_DATETIMEV2>()));
         return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        assign_concrete<TYPE_TIMESTAMP_NS>(std::move(field.template get<TYPE_TIMESTAMP_NS>()));
+        return;
     case PrimitiveType::TYPE_DATETIME:
         assign_concrete<TYPE_DATETIME>(std::move(field.template get<TYPE_DATETIME>()));
         return;
@@ -450,6 +523,9 @@ void Field::assign(Field&& field) {
         return;
     case PrimitiveType::TYPE_IPV6:
         assign_concrete<TYPE_IPV6>(std::move(field.template get<TYPE_IPV6>()));
+        return;
+    case PrimitiveType::TYPE_UUID:
+        assign_concrete<TYPE_UUID>(std::move(field.template get<TYPE_UUID>()));
         return;
     case PrimitiveType::TYPE_FLOAT:
         assign_concrete<TYPE_FLOAT>(std::move(field.template get<TYPE_FLOAT>()));
@@ -524,6 +600,9 @@ void Field::assign(const Field& field) {
     case PrimitiveType::TYPE_DATETIMEV2:
         assign_concrete<TYPE_DATETIMEV2>(field.template get<TYPE_DATETIMEV2>());
         return;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        assign_concrete<TYPE_TIMESTAMP_NS>(field.template get<TYPE_TIMESTAMP_NS>());
+        return;
     case PrimitiveType::TYPE_DATETIME:
         assign_concrete<TYPE_DATETIME>(field.template get<TYPE_DATETIME>());
         return;
@@ -559,6 +638,9 @@ void Field::assign(const Field& field) {
         return;
     case PrimitiveType::TYPE_IPV6:
         assign_concrete<TYPE_IPV6>(field.template get<TYPE_IPV6>());
+        return;
+    case PrimitiveType::TYPE_UUID:
+        assign_concrete<TYPE_UUID>(field.template get<TYPE_UUID>());
         return;
     case PrimitiveType::TYPE_FLOAT:
         assign_concrete<TYPE_FLOAT>(field.template get<TYPE_FLOAT>());
@@ -634,12 +716,20 @@ void Field::assign(const Field& field) {
 /// Assuming same types.
 template <PrimitiveType Type>
 void Field::assign_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
+    if constexpr (Type == TYPE_VARBINARY) {
+        *reinterpret_cast<OwnedBinaryField*>(&storage) = OwnedBinaryField(x);
+        return;
+    }
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<Type>::CppType*>(&storage);
     *ptr = std::forward<typename PrimitiveTypeTraits<Type>::CppType>(x);
 }
 
 template <PrimitiveType Type>
 void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x) {
+    if constexpr (Type == TYPE_VARBINARY) {
+        *reinterpret_cast<OwnedBinaryField*>(&storage) = OwnedBinaryField(x);
+        return;
+    }
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<Type>::CppType*>(&storage);
     *ptr = std::forward<const typename PrimitiveTypeTraits<Type>::CppType>(x);
 }
@@ -671,6 +761,10 @@ const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
 
 template <PrimitiveType T>
 void Field::destroy() {
+    if constexpr (T == TYPE_VARBINARY) {
+        reinterpret_cast<OwnedBinaryField*>(&storage)->~OwnedBinaryField();
+        return;
+    }
     using TargetType = typename PrimitiveTypeTraits<T>::CppType;
     DCHECK(T == type || ((is_string_type(type) && is_string_type(T))))
             << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
@@ -709,6 +803,9 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
     case PrimitiveType::TYPE_DATETIMEV2:
         return get<PrimitiveType::TYPE_DATETIMEV2>().to_date_int_val() <=>
                rhs.get<PrimitiveType::TYPE_DATETIMEV2>().to_date_int_val();
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return get<PrimitiveType::TYPE_TIMESTAMP_NS>() <=>
+               rhs.get<PrimitiveType::TYPE_TIMESTAMP_NS>();
     case PrimitiveType::TYPE_DATEV2:
         return get<PrimitiveType::TYPE_DATEV2>().to_date_int_val() <=>
                rhs.get<PrimitiveType::TYPE_DATEV2>().to_date_int_val();
@@ -733,6 +830,8 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
         return get<TYPE_LARGEINT>() <=> rhs.get<TYPE_LARGEINT>();
     case PrimitiveType::TYPE_IPV6:
         return get<TYPE_IPV6>() <=> rhs.get<TYPE_IPV6>();
+    case PrimitiveType::TYPE_UUID:
+        return get<TYPE_UUID>() <=> rhs.get<TYPE_UUID>();
     case PrimitiveType::TYPE_IPV4:
         return get<TYPE_IPV4>() <=> rhs.get<TYPE_IPV4>();
     case PrimitiveType::TYPE_FLOAT:
@@ -827,6 +926,7 @@ std::string_view Field::as_string_view() const {
     // MATCH_PRIMITIVE_TYPE(TYPE_QUANTILE_STATE);
     MATCH_PRIMITIVE_TYPE(TYPE_DATEV2);
     MATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_TIMESTAMP_NS);
     MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32);
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64);
@@ -838,6 +938,7 @@ std::string_view Field::as_string_view() const {
     MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL256);
     MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
     MATCH_PRIMITIVE_TYPE(TYPE_IPV6);
+    MATCH_PRIMITIVE_TYPE(TYPE_UUID);
     MATCH_PRIMITIVE_TYPE(TYPE_UINT32);
     MATCH_PRIMITIVE_TYPE(TYPE_UINT64);
     // MATCH_PRIMITIVE_TYPE(TYPE_FIXED_LENGTH_OBJECT);
@@ -884,6 +985,8 @@ std::string Field::to_debug_string(int scale) const {
         return CastToString::from_datev2(get<TYPE_DATEV2>());
     case PrimitiveType::TYPE_DATETIMEV2:
         return CastToString::from_datetimev2(get<TYPE_DATETIMEV2>(), scale);
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return get<TYPE_TIMESTAMP_NS>().to_string();
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return CastToString::from_timestamptz(get<TYPE_TIMESTAMPTZ>(), scale);
     case PrimitiveType::TYPE_DECIMALV2:
@@ -900,6 +1003,8 @@ std::string Field::to_debug_string(int scale) const {
         return CastToString::from_ip(get<TYPE_IPV4>());
     case PrimitiveType::TYPE_IPV6:
         return CastToString::from_ip(get<TYPE_IPV6>());
+    case PrimitiveType::TYPE_UUID:
+        return UUIDValue::to_string(get<TYPE_UUID>());
     default:
         throw Exception(Status::FatalError("type not supported for to_debug_string, type={}",
                                            get_type_name()));
@@ -928,6 +1033,8 @@ std::string Field::to_debug_string(int scale) const {
             typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType && rhs);                           \
     template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                              \
             typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType && rhs);                       \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMP_NS>(                                            \
+            typename PrimitiveTypeTraits<TYPE_TIMESTAMP_NS>::CppType && rhs);                     \
     template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                               \
             typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType && rhs);                        \
     template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                               \
@@ -974,6 +1081,8 @@ std::string Field::to_debug_string(int scale) const {
             const typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType& rhs);                       \
     template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                              \
             const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType& rhs);                   \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMP_NS>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_TIMESTAMP_NS>::CppType& rhs);                 \
     template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                             \
             const typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType& rhs);                  \
     template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                             \
@@ -1012,6 +1121,10 @@ std::string Field::to_debug_string(int scale) const {
                                               rhs);                                               \
     template void Field::FUNC_NAME<TYPE_IPV6>(                                                    \
             const typename PrimitiveTypeTraits<TYPE_IPV6>::CppType& rhs);                         \
+    template void Field::FUNC_NAME<TYPE_UUID>(typename PrimitiveTypeTraits<TYPE_UUID>::CppType && \
+                                              rhs);                                               \
+    template void Field::FUNC_NAME<TYPE_UUID>(                                                    \
+            const typename PrimitiveTypeTraits<TYPE_UUID>::CppType& rhs);                         \
     template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                                 \
             typename PrimitiveTypeTraits<TYPE_BOOLEAN>::CppType && rhs);                          \
     template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                                 \
@@ -1071,6 +1184,7 @@ DECLARE_FUNCTION(TYPE_DATE)
 DECLARE_FUNCTION(TYPE_DATETIME)
 DECLARE_FUNCTION(TYPE_DATEV2)
 DECLARE_FUNCTION(TYPE_DATETIMEV2)
+DECLARE_FUNCTION(TYPE_TIMESTAMP_NS)
 DECLARE_FUNCTION(TYPE_TIMESTAMPTZ)
 DECLARE_FUNCTION(TYPE_DECIMAL32)
 DECLARE_FUNCTION(TYPE_DECIMAL64)
@@ -1087,6 +1201,7 @@ DECLARE_FUNCTION(TYPE_QUANTILE_STATE)
 DECLARE_FUNCTION(TYPE_ARRAY)
 DECLARE_FUNCTION(TYPE_IPV4)
 DECLARE_FUNCTION(TYPE_IPV6)
+DECLARE_FUNCTION(TYPE_UUID)
 DECLARE_FUNCTION(TYPE_BOOLEAN)
 DECLARE_FUNCTION(TYPE_FLOAT)
 DECLARE_FUNCTION(TYPE_DOUBLE)

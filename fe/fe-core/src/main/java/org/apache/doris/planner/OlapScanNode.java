@@ -100,6 +100,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -422,7 +423,7 @@ public class OlapScanNode extends ScanNode {
 
     private Collection<Long> distributionPrune(
             List<Column> schema,
-            List<Long> tabletIdsInOrder,
+            MaterializedIndex index,
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
         if (pruneTablesByNereids) {
@@ -434,7 +435,8 @@ public class OlapScanNode extends ScanNode {
             // getTablet hash lookups (most returning null), which dominates plan time
             // when both partition count and pruned tablet count are large.
             List<Long> result = new ArrayList<>();
-            for (Long id : tabletIdsInOrder) {
+            for (Tablet tablet : index.getTablets()) {
+                long id = tablet.getId();
                 if (nereidsPrunedTabletIds.contains(id)) {
                     result.add(id);
                 }
@@ -445,7 +447,7 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(schema, tabletIdsInOrder,
+                distributionPruner = new HashDistributionPruner(schema, index,
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
@@ -580,13 +582,17 @@ public class OlapScanNode extends ScanNode {
                         parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
                 Pair<Long, Long> update = getPartitionOffset(partition.getId());
                 if (update != null) {
+                    // push down tso range as half-open [startTso, endTso) bounds
                     if (update.first != null) {
                         paloRange.setStartTso(update.first);
                     }
-                    if (update.second != null) {
-                        paloRange.setEndTso(update.second);
-                    } else {
-                        paloRange.setEndTso(partition.getTso());
+                    // No end recorded: fall back to the current committed TSO. toExclusiveBound
+                    // returns null for a partition that never got a real TSO (getTso() == -1), in
+                    // which case we leave endTso unset (no upper bound) instead of using -1.
+                    Long endTso = update.second != null
+                            ? update.second : TSOTimestamp.toExclusiveBound(partition.getTso());
+                    if (endTso != null) {
+                        paloRange.setEndTso(endTso);
                     }
                 }
                 if (binlogScanType != TBinlogScanType.NONE) {
@@ -1019,10 +1025,9 @@ public class OlapScanNode extends ScanNode {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
             Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
-                    allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
+                    selectedTable, partition.getDistributionInfo(), isNereids && !isPointQuery);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
@@ -1058,14 +1063,17 @@ public class OlapScanNode extends ScanNode {
                     }
                 }
             } else {
-                tablets.addAll(selectedTable.getTablets());
-                scanTabletIds.addAll(allTabletIds);
+                for (Tablet tablet : selectedTable.getTablets()) {
+                    tablets.add(tablet);
+                    scanTabletIds.add(tablet.getId());
+                }
             }
 
             if (!isPointQuery) {
+                List<Tablet> allTablets = selectedTable.getTablets();
                 int bucketNum = partition.getDistributionInfo().getBucketNum();
-                for (int i = 0; i < allTabletIds.size(); i++) {
-                    tabletId2BucketInfo.put(allTabletIds.get(i), encodeBucketInfo(i, bucketNum));
+                for (int i = 0; i < allTablets.size(); i++) {
+                    tabletId2BucketInfo.put(allTablets.get(i).getId(), encodeBucketInfo(i, bucketNum));
                 }
             }
 
@@ -1520,6 +1528,7 @@ public class OlapScanNode extends ScanNode {
         if (hasRfDrivingBucketPruning()) {
             setRuntimeFilterBucketPruneParameters();
         }
+        setScanKeyBucketPruneParameters(msg.olap_scan_node);
         super.toThrift(msg);
     }
 
@@ -1577,6 +1586,35 @@ public class OlapScanNode extends ScanNode {
             }
         }
         return false;
+    }
+
+    @VisibleForTesting
+    synchronized void setScanKeyBucketPruneParameters(TOlapScanNode node) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || !context.getSessionVariable().enableScanKeyBucketPrune
+                || isPointQuery() || tableSample != null || scanParams != null
+                || olapTable instanceof OlapTableWrapper
+                || selectedIndexId != olapTable.getBaseIndexId()
+                || olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                || !(olapTable.getDefaultDistributionInfo() instanceof HashDistributionInfo)
+                || olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            return;
+        }
+        List<Column> keys = olapTable.getKeyColumnsByIndexId(selectedIndexId);
+        List<Column> distributionColumns =
+                ((HashDistributionInfo) olapTable.getDefaultDistributionInfo()).getDistributionColumns();
+        if (keys.size() != 1 || distributionColumns.size() != 1
+                || !keys.get(0).equals(distributionColumns.get(0))
+                || !keys.get(0).getType().isVarchar() || keys.get(0).isAllowNull()) {
+            return;
+        }
+        setRuntimeFilterBucketPruneParameters();
+        // Missing metadata can deliberately disable attachment (e.g. the debug point).
+        // Do not attest eligibility unless every range has its full bucket ordinal/count.
+        if (scanRangeLocations.stream().allMatch(locations ->
+                locations.getScanRange().getPaloScanRange().isSetBucketNum())) {
+            node.setEnableScanKeyBucketPrune(true);
+        }
     }
 
     @VisibleForTesting
@@ -1961,14 +1999,6 @@ public class OlapScanNode extends ScanNode {
         return scanParams;
     }
 
-    public long getIncrementalScanEndTime() {
-        if (scanParams != null && scanParams.incrementalRead()
-                && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {
-            return parseChangeTimestamp(scanParams.getMapParams().get(OLAP_END_TIMESTAMP));
-        }
-        return 0;
-    }
-
     public static long parseChangeTimestamp(String ts) {
         if (ts != null) {
             long changeTimestamp;
@@ -1979,6 +2009,9 @@ public class OlapScanNode extends ScanNode {
             }
             if (changeTimestamp < 0) {
                 throw new ParseException("Invalid TIMESTAMP format in incr clause: " + ts);
+            }
+            if (changeTimestamp > TSOTimestamp.MAX_PHYSICAL_TIMESTAMP) {
+                throw new ParseException("Timestamp exceeds supported TSO range: " + ts);
             }
             return changeTimestamp;
         }

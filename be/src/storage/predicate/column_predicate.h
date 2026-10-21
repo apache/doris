@@ -54,31 +54,6 @@ enum class PredicateType {
     LIKE = 14,
 };
 
-template <PrimitiveType primitive_type, typename ResultType>
-ResultType get_zone_map_value(void* data_ptr) {
-    ResultType res;
-    // DecimalV2's storage value is different from predicate or compute value type
-    // need convert it to DecimalV2Value
-    if constexpr (primitive_type == PrimitiveType::TYPE_DECIMALV2) {
-        decimal12_t decimal_12_t_value;
-        memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
-        res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
-    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
-        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        uint24_t date;
-        memcpy(&date, data_ptr, sizeof(uint24_t));
-        res.from_olap_date(date);
-    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATETIME) {
-        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        uint64_t datetime;
-        memcpy(&datetime, data_ptr, sizeof(uint64_t));
-        res.from_olap_datetime(datetime);
-    } else {
-        memcpy(reinterpret_cast<void*>(&res), data_ptr, sizeof(ResultType));
-    }
-    return res;
-}
-
 inline std::string type_to_string(PredicateType type) {
     switch (type) {
     case PredicateType::UNKNOWN:

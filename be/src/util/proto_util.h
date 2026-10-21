@@ -67,6 +67,18 @@ void transmit_blockv2(PBackendService_Stub* stub, std::unique_ptr<Closure> closu
 }
 
 template <typename Closure>
+void transmit_serialized_block(PBackendService_Stub* stub, std::unique_ptr<Closure> closure) {
+    // SerializedRequest bypasses brpc's protobuf serializer, including request compression.
+    // Exchange compresses column_values before preparing the shared protobuf fragment.
+    DCHECK_EQ(closure->cntl_->request_compress_type(), brpc::COMPRESS_TYPE_NONE);
+    static const auto* method = PBackendService::descriptor()->FindMethodByName("transmit_block");
+    closure->cntl_->http_request().Clear();
+    stub->channel()->CallMethod(method, closure->cntl_.get(), closure->request_.get(),
+                                closure->response_.get(), closure.get());
+    closure.release();
+}
+
+template <typename Closure>
 Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure,
                              TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));

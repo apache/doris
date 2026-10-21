@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 /**
- * Abstract visitor base class for {@link Expr} and all 39 concrete subclasses.
+ * Abstract visitor base class for {@link Expr} and all concrete subclasses.
  * Follows the same {@code <R, C>} pattern as
  * {@code org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor}.
  *
@@ -69,6 +69,10 @@ public abstract class ExprVisitor<R, C> {
         return visit(expr, context);
     }
 
+    public R visitTimeStampNsLiteral(TimeStampNsLiteral expr, C context) {
+        return visit(expr, context);
+    }
+
     public R visitTimeV2Literal(TimeV2Literal expr, C context) {
         return visit(expr, context);
     }
@@ -90,6 +94,10 @@ public abstract class ExprVisitor<R, C> {
     }
 
     public R visitIPv6Literal(IPv6Literal expr, C context) {
+        return visit(expr, context);
+    }
+
+    public R visitUuidLiteral(UuidLiteral expr, C context) {
         return visit(expr, context);
     }
 

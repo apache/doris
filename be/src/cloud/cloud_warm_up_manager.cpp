@@ -46,7 +46,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/tablet/tablet.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
@@ -297,7 +297,7 @@ void CloudWarmUpManager::handle_jobs() {
                     continue;
                 }
 
-                int64_t expiration_time = tablet_meta->ttl_seconds();
+                int64_t expiration_time = tablet_meta->file_cache_ttl_expiration_time();
                 if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
                     LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                               << ", skip it";

@@ -26,8 +26,8 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.gson.JsonParseException;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -65,22 +65,24 @@ public class DataSourcePropertiesTest {
         }
     }
 
-    @Test(expected = JsonParseException.class)
+    @Test
     public void testNotSupportDataSourceSerializatio() throws IOException {
-        TestDataSourceProperties testDataSourceProperties = new TestDataSourceProperties(Maps.newHashMap());
-        File file = new File("./test_datasource_properties");
+        Assertions.assertThrows(JsonParseException.class, () -> {
+            TestDataSourceProperties testDataSourceProperties = new TestDataSourceProperties(Maps.newHashMap());
+            File file = new File("./test_datasource_properties");
 
-        file.createNewFile();
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(file.toPath()))) {
-            String json = GsonUtils.GSON.toJson(testDataSourceProperties);
-            Text.writeString(out, json);
-            out.flush();
-        }
+            file.createNewFile();
+            try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(file.toPath()))) {
+                String json = GsonUtils.GSON.toJson(testDataSourceProperties);
+                Text.writeString(out, json);
+                out.flush();
+            }
 
-        try (DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()))) {
-            String json = Text.readString(dis);
-            GsonUtils.GSON.fromJson(json, AbstractDataSourceProperties.class);
-        }
+            try (DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()))) {
+                String json = Text.readString(dis);
+                GsonUtils.GSON.fromJson(json, AbstractDataSourceProperties.class);
+            }
+        });
     }
 
     class TestDataSourceProperties extends AbstractDataSourceProperties {

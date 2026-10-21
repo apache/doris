@@ -27,8 +27,10 @@
 //            existing one, DELETE on a delete sign), AFTER rebuilt for a fixed
 //            partial update, the BEFORE image mirroring history, the
 //            zero-value-column no-op, and the sequence-column source path
-//   Rejects* flexible partial update, a fixed partial update of the wrong
-//            width, a missing source schema, and a negative segment id
+//   Flexible partial update materialization through the MoW derive stage,
+//            including aligned LSN and operation output
+//   Rejects* a fixed partial update of the wrong width, a missing source
+//            schema, and a negative segment id
 //
 // Oracle values are ported from the deleted RowBinlogSegmentWriter.
 
@@ -39,6 +41,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "storage/binlog.h"
@@ -117,11 +120,6 @@ protected:
         add_col(5, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(6, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(7, BINLOG_OP_COL, "BIGINT", false, false);
-        // init_from_pb reads this straight from the PB (it is not inferred from
-        // the column name). [k1,v1,v2,__BEFORE__v1__,__BEFORE__v2__,TSO,LSN,OP]
-        pb.set_binlog_tso_col_idx(5);
-        pb.set_binlog_lsn_col_idx(6);
-        pb.set_binlog_op_col_idx(7);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -164,9 +162,6 @@ protected:
         add_col(1, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(2, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(3, BINLOG_OP_COL, "BIGINT", false, false);
-        pb.set_binlog_tso_col_idx(1);
-        pb.set_binlog_lsn_col_idx(2);
-        pb.set_binlog_op_col_idx(3);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -280,9 +275,6 @@ protected:
         add_col(2, BINLOG_TSO_COL, "BIGINT", false, true);
         add_col(3, BINLOG_LSN_COL, "BIGINT", false, false);
         add_col(4, BINLOG_OP_COL, "BIGINT", false, false);
-        pb.set_binlog_tso_col_idx(2);
-        pb.set_binlog_lsn_col_idx(3);
-        pb.set_binlog_op_col_idx(4);
 
         auto schema = std::make_shared<TabletSchema>();
         schema->init_from_pb(pb);
@@ -482,9 +474,6 @@ TEST_F(RowBinlogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     add_system_column(10, BINLOG_TSO_COL, true);
     add_system_column(11, BINLOG_LSN_COL, false);
     add_system_column(12, BINLOG_OP_COL, false);
-    binlog_pb.set_binlog_tso_col_idx(4);
-    binlog_pb.set_binlog_lsn_col_idx(5);
-    binlog_pb.set_binlog_op_col_idx(6);
     auto binlog_schema = std::make_shared<TabletSchema>();
     binlog_schema->init_from_pb(binlog_pb);
 
@@ -681,10 +670,6 @@ TEST_F(RowBinlogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     add_col(&binlog_pb, 4, BINLOG_TSO_COL, "BIGINT", false, false, true);
     add_col(&binlog_pb, 5, BINLOG_LSN_COL, "BIGINT", false, false, false);
     add_col(&binlog_pb, 6, BINLOG_OP_COL, "BIGINT", false, false, false);
-    // init_from_pb reads these straight from the PB, not from the column names
-    binlog_pb.set_binlog_tso_col_idx(4);
-    binlog_pb.set_binlog_lsn_col_idx(5);
-    binlog_pb.set_binlog_op_col_idx(6);
     auto binlog_schema = std::make_shared<TabletSchema>();
     binlog_schema->init_from_pb(binlog_pb);
     ASSERT_EQ(binlog_schema->binlog_lsn_col_idx(), 5);
@@ -1393,16 +1378,25 @@ TEST_F(RowBinlogDeriveTest, MowSeqSourceSeqLosesStillReadsHistory) {
 }
 
 // ===========================================================================
-// §5.4 Reject / negative paths.
+// §5.4 Flexible support and reject / negative paths.
 // ===========================================================================
 
-// N4 (B9): binlog<row> does not support flexible partial update.
-TEST_F(RowBinlogDeriveTest, MowRejectsFlexiblePartialUpdate) {
-    auto binlog_tablet =
-            create_binlog_tablets(/*tablet_id=*/8501, TKeysType::DUP_KEYS, /*mow=*/false).binlog;
-    ASSERT_TRUE(binlog_tablet != nullptr);
-    auto binlog_schema = binlog_tablet->tablet_schema();
-    auto source_schema = create_binlog_pu_source_schema();
+// A flexible partial update reaches the same MoW derive stage as a fixed
+// partial update, but materializes its full AFTER row from the skip bitmap.
+TEST_F(RowBinlogDeriveTest, MowMaterializesFlexiblePartialUpdate) {
+    TabletSchemaPB source_pb;
+    create_flexible_mow_schema()->to_schema_pb(&source_pb);
+    source_pb.mutable_column(source_pb.delete_sign_idx())->set_visible(false);
+    source_pb.mutable_column(source_pb.skip_bitmap_col_idx())->set_visible(false);
+    auto source_schema = std::make_shared<TabletSchema>();
+    source_schema->init_from_pb(source_pb);
+
+    TabletSchemaPB binlog_pb;
+    create_binlog_seq_schema()->to_schema_pb(&binlog_pb);
+    binlog_pb.mutable_column(0)->set_name("k");
+    binlog_pb.mutable_column(1)->set_name("v");
+    auto binlog_schema = std::make_shared<TabletSchema>();
+    binlog_schema->init_from_pb(binlog_pb);
     auto probe_tablet = make_tablet(source_schema, /*tablet_id=*/8502);
     auto mow = make_mow_context(100, {});
 
@@ -1425,7 +1419,7 @@ TEST_F(RowBinlogDeriveTest, MowRejectsFlexiblePartialUpdate) {
     cfg.source.is_transient_rowset_writer = false;
     cfg.source.mow_context = mow;
     cfg.write_before = false;
-    register_segment_lsns(rwc, 2);
+    register_segment_lsns(rwc, 1);
 
     auto chain = build_transform_chain(rwc);
     EXPECT_EQ(chain.stage_names(), (std::vector<std::string_view> {"MowRowBinlogDerive"}));
@@ -1435,19 +1429,25 @@ TEST_F(RowBinlogDeriveTest, MowRejectsFlexiblePartialUpdate) {
     ctx.mow_context = mow;
     ctx.partial_update_info = pui;
 
-    Block block = source_schema->create_storage_block({0, 1});
+    Block block = source_schema->create_storage_block();
     {
         auto guard = block.mutate_columns_scoped();
         auto& cols = guard.mutable_columns();
         int32_t k = 1, v1 = 10;
+        int8_t delete_sign = 0;
         cols[0]->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
         cols[1]->insert_data(reinterpret_cast<const char*>(&v1), sizeof(int32_t));
+        cols[2]->insert_data(reinterpret_cast<const char*>(&delete_sign), sizeof(int8_t));
+        assert_cast<ColumnBitmap*>(cols[3].get())->insert_value(BitmapValue {});
     }
 
-    auto st = chain.apply(ctx, &block);
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("does not support flexible partial update"), std::string::npos)
-            << st;
+    ASSERT_TRUE(chain.apply(ctx, &block).ok());
+    ASSERT_EQ(block.columns(), binlog_schema->num_columns());
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(read_int(block, 0, 0), 1);
+    EXPECT_EQ(read_int(block, 1, 0), 10);
+    EXPECT_EQ(read_lsn(block, binlog_schema->binlog_lsn_col_idx(), 0), 1000);
+    EXPECT_EQ(read_op(block, binlog_schema->binlog_op_col_idx(), 0), ROW_BINLOG_APPEND);
 }
 
 // N5/N6 (B10): the fixed-PU MoW derive rejects a block that is too narrow

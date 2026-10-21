@@ -20,6 +20,7 @@
 #include <gen_cpp/FrontendService_types.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -44,6 +45,8 @@ public:
     static std::vector<SchemaScanner::ColumnDesc> _s_processlist_columns;
 
 private:
+    static void _fit_row_to_columns(std::vector<std::string>& row);
+
     Status _fill_block_impl(Block* block);
 
     TShowProcessListResult _process_list_result;

@@ -38,7 +38,9 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -52,6 +54,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.tso.MasterTsoProvider;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -64,6 +67,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -304,6 +308,53 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
     }
 
     @Test
+    public void testUserInsertRejectsIvmInternalTableStream() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_stream");
+        String streamName = IvmUtil.streamName(12345L,
+                db.getTableOrDdlException("tbl_stream_base").getFullQualifiers());
+        createTable("create stream if not exists test_stream." + streamName
+                + " on table test_stream.tbl_stream_base\n"
+                + "properties('show_initial_rows' = 'true')");
+        String sql = "insert into test_stream.tbl_target select * from test_stream." + streamName;
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+        connectContext.setStartTime();
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> command.initPlan(connectContext, executor, true));
+        Assertions.assertTrue(ex.getMessage().contains("IVM internal table stream cannot be used in INSERT INTO"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testFastInsertIntoValuesAllowsMissingAnalyzedPlan() throws Exception {
+        connectContext.getStatementContext().setIvmRewriteContext(Optional.empty());
+        boolean originalFastAnalyze = connectContext.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+        connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(true);
+        try {
+            String sql = "insert into test_stream.tbl_target values (1, 2)";
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertTrue(logicalPlan instanceof InsertIntoTableCommand);
+
+            connectContext.setStartTime();
+            UUID uuid = UUID.randomUUID();
+            connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            InsertIntoTableCommand command = (InsertIntoTableCommand) logicalPlan;
+            Assertions.assertNotNull(command.initPlan(connectContext, executor, false));
+        } finally {
+            connectContext.getSessionVariable().setEnableFastAnalyzeInsertIntoValues(originalFastAnalyze);
+        }
+    }
+
+    @Test
     public void testUnprotectedUpdateAdvancesPartitionOffsetAndConsumptionTime() throws Exception {
         // (B1) When no historicalPartitionTSO is present, unprotectedUpdateStreamUpdate should
         // advance partitionOffset to the committed `next` TSO, record partitionConsumptionTime,
@@ -516,7 +567,10 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Config.cloud_unique_id = "cloud_table_stream_ut";
             Config.meta_service_endpoint = "127.0.0.1:20121";
             Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", cloudSystemInfo);
-            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+            try (MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                    MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+                // The read-state fixture uses offsets 100..130; keep the TTL reference in the same clock.
+                mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(130L);
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
                 Mockito.when(proxy.getTableStreamOffset(Mockito.any()))
                         .thenAnswer(invocation -> buildReadStateResponse(invocation.getArgument(0)));
@@ -529,7 +583,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         org.apache.doris.nereids.exceptions.AnalysisException.class,
                         () -> allPartitionsCommand.initPlan(
                                 connectContext, new StmtExecutor(connectContext, allPartitionsSql), true));
-                Assertions.assertTrue(exception.getMessage().contains("Use stream PARTITION"));
+                Assertions.assertTrue(exception.getMessage().contains("Use stream PARTITION"), exception.getMessage());
 
                 String p1Sql = "insert into test_stream.tbl_target "
                         + "select * from test_stream.s1 partition (p1)";
@@ -700,12 +754,12 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 org.apache.doris.nereids.exceptions.AnalysisException exception = Assertions.assertThrows(
                         org.apache.doris.nereids.exceptions.AnalysisException.class,
                         () -> Deencapsulation.invoke(
-                                CloudTableStreamReadStateHook.class, "resolve", analyzedPlan));
+                                CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan));
                 Assertions.assertTrue(exception.getMessage()
                         .contains("did not return all Cloud Table Stream bindings"));
                 Assertions.assertTrue(wrappers.stream().noneMatch(OlapTableStreamWrapper::hasCloudReadStates));
 
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 Assertions.assertTrue(wrappers.stream().allMatch(OlapTableStreamWrapper::hasCloudReadStates));
                 ArgumentCaptor<Cloud.GetTableStreamOffsetRequest> requestCaptor =
                         ArgumentCaptor.forClass(Cloud.GetTableStreamOffsetRequest.class);
@@ -770,8 +824,11 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                 connectContext.setQueryId(
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", checker.getPlan());
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", checker.getPlan());
                 checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
+                // PlanChecker bypasses the planner prefetch; match the mock read-state clock.
+                checker.getCascadesContext().getStatementContext()
+                        .getOrRegisterRowBinlogReferenceTso(() -> 130L);
                 checker.rewrite();
 
                 List<Plan> tmpPlans = checker.getCascadesContext().getStatementContext()
@@ -847,7 +904,10 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
+                // PlanChecker bypasses the planner prefetch; match the mock read-state clock.
+                checker.getCascadesContext().getStatementContext()
+                        .getOrRegisterRowBinlogReferenceTso(() -> 130L);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);
@@ -912,7 +972,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                         new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
                 PlanChecker checker = PlanChecker.from(connectContext).analyze(sql);
                 Plan analyzedPlan = checker.getPlan();
-                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "resolve", analyzedPlan);
+                Deencapsulation.invoke(CloudTableStreamReadStateHook.class, "installReadStates", analyzedPlan);
                 checker.rewrite();
 
                 List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzedPlan);

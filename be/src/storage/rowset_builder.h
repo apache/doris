@@ -67,7 +67,7 @@ public:
         return Status::NotSupported("BaseRowsetBuilder::commit_txn not implemented");
     }
 
-    Status cancel();
+    virtual Status cancel(const Status& st = Status::Cancelled("rowset builder cancelled"));
 
     const std::shared_ptr<RowsetWriter>& rowset_writer() const { return _rowset_writer; }
 
@@ -206,6 +206,8 @@ public:
 
     Status wait_calc_delete_bitmap() override;
 
+    Status cancel(const Status& st) override;
+
     Status commit_txn() override;
 
     const BaseTabletSPtr& tablet_sptr() const override { return _txn_rs_builder->tablet_sptr(); }
@@ -226,6 +228,8 @@ public:
 private:
     // txn rowset builder will manage txn; other builders will add their
     // rowsets into here.
+    StorageEngine& _engine;
+    int64_t _row_binlog_tablet_id;
     std::shared_ptr<RowsetBuilder> _txn_rs_builder;
     std::shared_ptr<RowsetBuilder> _row_binlog_rowset_builder;
 };

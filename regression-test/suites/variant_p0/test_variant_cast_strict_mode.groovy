@@ -26,7 +26,7 @@
 
 suite("test_variant_cast_strict_mode", "variant_type") {
 
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_doc_mode = false """
 
     def variant_src = "test_variant_cast_strict_mode_src"

@@ -330,6 +330,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options, Fiel
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
         M(FieldType::OLAP_FIELD_TYPE_DATEV2)
         M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+        M(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS)
         M(FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
@@ -337,6 +338,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options, Fiel
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
         M(FieldType::OLAP_FIELD_TYPE_IPV4)
         M(FieldType::OLAP_FIELD_TYPE_IPV6)
+        M(FieldType::OLAP_FIELD_TYPE_UUID)
 #undef M
     default:
         return Status::NotSupported("unsupported type for bloom filter index: {}",

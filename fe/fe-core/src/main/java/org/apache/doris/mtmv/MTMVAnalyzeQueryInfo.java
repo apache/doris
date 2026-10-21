@@ -17,24 +17,43 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
 import java.util.List;
+import java.util.Map;
 
 public class MTMVAnalyzeQueryInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
+    private List<String> keys;
+    private Map<String, String> properties;
+    // set when IVM rewrite is enabled; carries normalizedPlan + aggMeta
+    private IvmRewriteResult ivmRewriteResult;
+    // The plan the query was analysed into. Kept for the callers that have to ask what the query reads
+    // rather than only that it reads something; set by MTMVPlanUtil#analyzeQueryWithSql.
+    private Plan analyzedPlan;
 
-    public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
-            MTMVRelation relation) {
+    public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, List<String> keys,
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation, Map<String, String> properties,
+            IvmRewriteResult ivmRewriteResult, Plan analyzedPlan) {
         this.columnDefinitions = columnDefinitions;
+        this.keys = keys;
         this.mvPartitionInfo = mvPartitionInfo;
         this.relation = relation;
+        this.properties = properties;
+        this.ivmRewriteResult = ivmRewriteResult;
+        this.analyzedPlan = analyzedPlan;
     }
 
     public List<ColumnDefinition> getColumnDefinitions() {
         return columnDefinitions;
+    }
+
+    public List<String> getKeys() {
+        return keys;
     }
 
     public MTMVPartitionInfo getMvPartitionInfo() {
@@ -43,5 +62,22 @@ public class MTMVAnalyzeQueryInfo {
 
     public MTMVRelation getRelation() {
         return relation;
+    }
+
+    public IvmRewriteResult getIvmRewriteResult() {
+        return ivmRewriteResult;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public Plan getAnalyzedPlan() {
+        return analyzedPlan;
+    }
+
+    /** Convenience accessor — returns the normalized plan, or null if IVM is not active. */
+    public Plan getIvmNormalizedPlan() {
+        return ivmRewriteResult != null ? ivmRewriteResult.getNormalizedPlan() : null;
     }
 }

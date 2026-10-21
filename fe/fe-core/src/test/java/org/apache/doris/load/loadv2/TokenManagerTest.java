@@ -21,13 +21,13 @@ import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class TokenManagerTest {
 
-    @Before
+    @BeforeEach
     public void runBefore() {
         FeConstants.runningUnitTest = true;
     }
@@ -37,7 +37,7 @@ public class TokenManagerTest {
         TokenManager tokenManager = new TokenManager();
         tokenManager.start();
         String token = tokenManager.acquireToken();
-        Assert.assertTrue(tokenManager.checkAuthToken(token));
+        Assertions.assertTrue(tokenManager.checkAuthToken(token));
     }
 
     @Test
@@ -46,7 +46,7 @@ public class TokenManagerTest {
         tokenManager.start();
         String token1 = tokenManager.acquireToken();
         String token2 = tokenManager.acquireToken();
-        Assert.assertNotNull(token1);
-        Assert.assertEquals(token1, token2);
+        Assertions.assertNotNull(token1);
+        Assertions.assertEquals(token1, token2);
     }
 }

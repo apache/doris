@@ -62,7 +62,7 @@ public final class ConnectorMetadataCache<V> {
      *                  {@code null}, treated as empty (defaults apply).
      */
     public ConnectorMetadataCache(String engine, String entryName, Map<String, String> props) {
-        this(new CatalogMetaCache(), engine + "." + entryName, engine, entryName, props);
+        this(CatalogMetaCache.unmanaged(), engine + "." + entryName, engine, entryName, props);
     }
 
     public ConnectorMetadataCache(
@@ -73,20 +73,34 @@ public final class ConnectorMetadataCache<V> {
 
     public ConnectorMetadataCache(CatalogMetaCache owner, String cacheName, String engine, String entryName,
             Map<String, String> props, Function<ConnectorTableKey, ScopePath> scopeResolver) {
+        this(owner, cacheName, engine, entryName, props, scopeResolver, MetaCacheSizeEstimators.reflective());
+    }
+
+    public ConnectorMetadataCache(CatalogMetaCache owner, String cacheName, String engine, String entryName,
+            Map<String, String> props, Function<ConnectorTableKey, ScopePath> scopeResolver,
+            MetaCacheSizeEstimator<ConnectorTableKey, V> sizeEstimator) {
         this.owner = Objects.requireNonNull(owner, "owner can not be null");
         Objects.requireNonNull(engine, "engine can not be null");
         Objects.requireNonNull(entryName, "entryName can not be null");
         Map<String, String> properties = props == null ? Collections.emptyMap() : props;
         CacheSpec spec = CacheSpec.fromProperties(properties, engine, entryName,
                 CacheSpec.of(true, DEFAULT_TTL_SECOND, DEFAULT_CAPACITY));
-        this.entry = owner.create(MetaCacheDefinition
+        MetaCacheDefinition.Builder<ConnectorTableKey, V> builder = MetaCacheDefinition
                 .<ConnectorTableKey, V>builder(cacheName, spec, scopeResolver)
-                .build());
+                .budgetGroup(entryName);
+        if (sizeEstimator != null) {
+            builder.sizeEstimator(sizeEstimator);
+        }
+        this.entry = owner.create(builder.build());
     }
 
     /** Caching is on only when the resolved {@link CacheSpec} is effectively enabled (see {@link #entry}'s spec). */
     public boolean isEnabled() {
         return entry.isEnabled();
+    }
+
+    public boolean isWeightBounded() {
+        return entry.isWeightBounded();
     }
 
     /**

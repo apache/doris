@@ -97,6 +97,26 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
         Assertions.assertEquals("hdfs://127.0.0.1:8020", sinkOptions.getBrokerProperties().get("fs.defaultFS"));
     }
 
+    @Test
+    public void testNativeUuidOrcSchemaUsesBinaryRecursively() throws Exception {
+        createTable("CREATE TABLE uuid_outfile (id INT, u UUID, a ARRAY<UUID>,"
+                + "m MAP<UUID,UUID>, s STRUCT<k:UUID>, text STRING) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1')");
+        String sql = "select * from uuid_outfile into outfile 'hdfs://127.0.0.1:8020/tmp/uuid_' "
+                + "format as orc properties ('hadoop.username'='doris')";
+        PlanFragment fragment = getOutputFragment(sql);
+        Field field = ResultFileSink.class.getDeclaredField("fileSinkOptions");
+        field.setAccessible(true);
+        TResultFileSinkOptions sinkOptions = (TResultFileSinkOptions) field.get(fragment.getSink());
+        Assertions.assertEquals("struct<id:int,u:binary,a:array<binary>,m:map<binary,binary>,"
+                + "s:struct<k:binary>,text:string>", sinkOptions.getOrcSchema());
+        Exception exception = Assertions.assertThrows(Exception.class, () -> getOutputFragment(
+                "select u from uuid_outfile into outfile 'hdfs://127.0.0.1:8020/tmp/uuid_text_' "
+                        + "format as orc properties ('hadoop.username'='doris','schema'='u,string')"));
+        Assertions.assertTrue(exception.getMessage().contains("should use binary"), exception.getMessage());
+    }
+
     private PlanFragment getOutputFragment(String sql) throws Exception {
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);

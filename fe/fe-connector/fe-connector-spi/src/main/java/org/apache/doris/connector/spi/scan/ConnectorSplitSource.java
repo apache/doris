@@ -32,8 +32,8 @@ import java.io.Closeable;
  *
  * <p>Implementations MUST defer the heavy planning (e.g. iceberg {@code TableScan.planFiles()})
  * until ranges are actually consumed, and MUST release the underlying resources in {@link #close()}.
- * Instances are single-pass and not thread-safe; the engine drives one source from a single
- * background task.</p>
+ * Instances are single-pass and not thread-safe; the engine advances and closes each source
+ * serially. Successive batches may run on different background workers.</p>
  */
 public interface ConnectorSplitSource extends Closeable {
 

@@ -54,9 +54,6 @@ struct TTabletSchema {
     25: optional list<Types.TColumnGroup> seq_map
     26: optional i32 commit_tso_col_idx = -1
     27: optional i32 row_lsn_col_idx = -1
-    28: optional i32 binlog_tso_idx = -1
-    29: optional i32 binlog_lsn_idx = -1
-    30: optional i32 binlog_op_idx = -1
 }
 
 // this enum stands for different storage format in src_backends
@@ -106,7 +103,7 @@ enum TCredProviderType {
     ENV = 3,  // EnvironmentAWSCredentialsProvider
     SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
     WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
-    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    CONTAINER = 6,  // GeneralHTTPCredentialsProvider, for ECS task roles and EKS Pod Identity
     ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 
@@ -213,6 +210,8 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
     5: optional TBinlogFormat binlog_format;
     6: optional bool need_historical_value;
+    // Monotonic FE-journaled generation; reject delayed ROW retention updates.
+    7: optional i64 config_version;
 }
 
 struct TCreateTabletReq {

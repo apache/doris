@@ -24,7 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
@@ -140,13 +140,16 @@ public abstract class AnalyzeCommand extends Command implements ForwardWithSync 
 
     /**
      * Validate analyze command properties.
+     *
+     * <p>{@code WITH HOT VALUE} is deliberately not validated against the analysis method. The flag
+     * only selects the hot value template of a full analyze; a sample analyze collects hot values
+     * depending on the estimator it picks per column at execution time (DUJ1 does, the linear
+     * estimator does not), which cannot be known here. The combination is therefore accepted, and
+     * the flag simply has no effect on a sample analyze.
      */
     public void validate(ConnectContext ctx) throws UserException {
         if (analyzeProperties != null) {
             analyzeProperties.check();
-        }
-        if (analyzeProperties.hasCollectHotValue() && getAnalysisMethod() == AnalysisInfo.AnalysisMethod.SAMPLE) {
-            throw new AnalysisException("Sample analyze always collects hot value");
         }
     }
 

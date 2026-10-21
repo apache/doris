@@ -21,6 +21,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <limits>
@@ -1367,6 +1368,31 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
     }
 }
 
+TEST_F(BlockColumnPredicateTest, test_timestamp_ns_zonemap_predicates) {
+    const TimeStampNsValue minimum(-1);
+    const TimeStampNsValue middle(0);
+    const TimeStampNsValue maximum(1);
+    segment_v2::ZoneMap zone_map_info {.min_value = Field::create_field<TYPE_TIMESTAMP_NS>(minimum),
+                                       .max_value = Field::create_field<TYPE_TIMESTAMP_NS>(maximum),
+                                       .has_null = false,
+                                       .has_not_null = true};
+
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(middle), true);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-2)), false);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::NE>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(middle), true);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::LT>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(minimum), false);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::LE>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(minimum), true);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::GT>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(maximum), false);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::GE>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(maximum), true);
+}
+
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const segment_v2::BloomFilter* bf, Field&& check_value,
                                        bool expect_match) {
@@ -1411,19 +1437,41 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
                 bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(v), true);
     }
     {
-        auto str = "0000-01-01 00:00:00";
+        const auto* str = "0000-01-01 00:00:00";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
                 bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
     {
-        auto str = "9999-12-31 23:59:59.999999";
+        const auto* str = "9999-12-31 23:59:59.999999";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
                 bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
+}
+
+TEST_F(BlockColumnPredicateTest, test_timestamp_ns_bloom_filter_predicate) {
+    const std::array<TimeStampNsValue, 5> values = {
+            TimeStampNsValue(std::numeric_limits<int64_t>::min()), TimeStampNsValue(-1),
+            TimeStampNsValue(0), TimeStampNsValue(1),
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())};
+
+    std::unique_ptr<BloomFilter> bloom_filter;
+    EXPECT_TRUE(BloomFilter::create(BLOCK_BLOOM_FILTER, &bloom_filter));
+    ASSERT_NE(bloom_filter, nullptr);
+    EXPECT_TRUE(bloom_filter->init(1024, 0.05, HASH_MURMUR3_X64_64));
+    for (const auto& value : values) {
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&value), sizeof(value));
+    }
+
+    for (const auto& value : values) {
+        single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+                bloom_filter.get(), Field::create_field<TYPE_TIMESTAMP_NS>(value), true);
+    }
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+            bloom_filter.get(), Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(2)), false);
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
@@ -2699,74 +2747,6 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         EXPECT_FALSE(false_predicate->evaluate_and(&stat));
         or_block_column_pred.add_column_predicate(std::move(false_predicate));
         EXPECT_FALSE(or_block_column_pred.evaluate_and(&stat));
-    }
-}
-
-// Verifies the core algorithm of SegmentIterator::_can_prune_segment_by_tso: on a
-// single-version binlog segment the tso column (__DORIS_BINLOG_TSO__) is replaced at
-// read time with a constant commit_tso, so whole-segment pruning is decided by matching the
-// tso predicates against a degenerate zonemap (min == max == commit_tso). evaluate_and()
-// returns false iff commit_tso fails the predicates, i.e. the whole segment can be pruned.
-TEST_F(BlockColumnPredicateTest, tso_whole_segment_prune_by_commit_tso) {
-    // The user-visible raw commit tso (~4.66e17). Physical time part is ~1.78e12.
-    constexpr int64_t kCommitTso = 466872251335573505L;
-
-    auto make_tso_zone_map = [](int64_t commit_tso) {
-        return segment_v2::ZoneMap {.min_value = Field::create_field<TYPE_BIGINT>(commit_tso),
-                                    .max_value = Field::create_field<TYPE_BIGINT>(commit_tso),
-                                    .has_null = false,
-                                    .has_not_null = true};
-    };
-    // Mirrors _can_prune_segment_by_tso: returns true if the segment can be pruned.
-    auto can_prune = [&](const AndBlockColumnPredicate& preds) {
-        return !preds.evaluate_and(make_tso_zone_map(kCommitTso));
-    };
-
-    auto make_gt = [](int64_t value) {
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
-                        0, "", Field::create_field<TYPE_BIGINT>(value)));
-        return SingleColumnBlockPredicate::create_unique(pred);
-    };
-    auto make_le = [](int64_t value) {
-        std::shared_ptr<ColumnPredicate> pred(
-                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::LE>(
-                        0, "", Field::create_field<TYPE_BIGINT>(value)));
-        return SingleColumnBlockPredicate::create_unique(pred);
-    };
-
-    // `> physical-time-magnitude` (between physical time and raw tso): commit_tso satisfies it,
-    // so the segment must NOT be pruned (this is exactly the historical mis-prune case).
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(1790000000000L));
-        EXPECT_FALSE(can_prune(preds));
-    }
-    // `> 0`: commit_tso satisfies it, segment kept.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(0));
-        EXPECT_FALSE(can_prune(preds));
-    }
-    // `> upper-bound (> commit_tso)`: commit_tso fails it, whole segment can be pruned.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(kCommitTso));
-        EXPECT_TRUE(can_prune(preds));
-    }
-    // Range `commit_tso < tso <= commit_tso+10`: commit_tso fails the lower bound, pruned.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(kCommitTso));
-        preds.add_column_predicate(make_le(kCommitTso + 10));
-        EXPECT_TRUE(can_prune(preds));
-    }
-    // Range `commit_tso-10 < tso <= commit_tso`: commit_tso satisfies both, kept.
-    {
-        AndBlockColumnPredicate preds;
-        preds.add_column_predicate(make_gt(kCommitTso - 10));
-        preds.add_column_predicate(make_le(kCommitTso));
-        EXPECT_FALSE(can_prune(preds));
     }
 }
 

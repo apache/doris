@@ -23,10 +23,10 @@ import org.apache.doris.common.util.InternalHttpsUtils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -45,14 +45,14 @@ public class HttpUtilsTest {
     private String originalKeyStorePath;
     private HttpServer httpServer;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         originalEnableHttps = Config.enable_https;
         originalKeyStorePath = Config.key_store_path;
         resetCachedSslContext();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         Config.enable_https = originalEnableHttps;
         Config.key_store_path = originalKeyStorePath;
@@ -88,9 +88,9 @@ public class HttpUtilsTest {
 
         try {
             HttpUtils.doGet(REFUSED_PORT_URL_HTTP, null);
-            Assert.fail("Expected a connection failure against the refused port");
+            Assertions.fail("Expected a connection failure against the refused port");
         } catch (RuntimeException e) {
-            Assert.fail("Should not have attempted to build the HTTPS client for an http:// URL: "
+            Assertions.fail("Should not have attempted to build the HTTPS client for an http:// URL: "
                     + e.getMessage());
         } catch (IOException expected) {
             // Plain client hit the network and failed there, never touching the broken keystore.
@@ -105,12 +105,13 @@ public class HttpUtilsTest {
 
         try {
             HttpUtils.doGet(REFUSED_PORT_URL_HTTPS, null);
-            Assert.fail("Expected SSLContext build failure before any connection attempt");
+            Assertions.fail("Expected SSLContext build failure before any connection attempt");
         } catch (RuntimeException e) {
-            Assert.assertTrue("Failure should come from the missing keystore, not an unrelated error",
-                    e.getMessage() != null && e.getMessage().contains("doris_ssl_certificate.keystore"));
+            Assertions.assertTrue(
+                    e.getMessage() != null && e.getMessage().contains("doris_ssl_certificate.keystore"),
+                    "Failure should come from the missing keystore, not an unrelated error");
         } catch (IOException e) {
-            Assert.fail("Expected the HTTPS client's keystore failure, not a network-level error: "
+            Assertions.fail("Expected the HTTPS client's keystore failure, not a network-level error: "
                     + e.getMessage());
         }
     }
@@ -119,14 +120,14 @@ public class HttpUtilsTest {
     public void testHeadSuccess() throws IOException {
         final long totalSize = 12345L;
         String url = startServer(exchange -> {
-            Assert.assertEquals("HEAD", exchange.getRequestMethod());
+            Assertions.assertEquals("HEAD", exchange.getRequestMethod());
             exchange.getResponseHeaders().add("Content-Length", String.valueOf(totalSize));
             exchange.sendResponseHeaders(200, -1);
             exchange.close();
         });
 
         long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
-        Assert.assertEquals(totalSize, size);
+        Assertions.assertEquals(totalSize, size);
     }
 
     @Test
@@ -137,7 +138,7 @@ public class HttpUtilsTest {
                 sendEmpty(exchange, 403);
                 return;
             }
-            Assert.assertEquals("bytes=0-0", exchange.getRequestHeaders().getFirst("Range"));
+            Assertions.assertEquals("bytes=0-0", exchange.getRequestHeaders().getFirst("Range"));
             exchange.getResponseHeaders().add("Content-Range", "bytes 0-0/" + data.length);
             exchange.sendResponseHeaders(206, 1);
             try (OutputStream os = exchange.getResponseBody()) {
@@ -146,7 +147,7 @@ public class HttpUtilsTest {
         });
 
         long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
-        Assert.assertEquals(data.length, size);
+        Assertions.assertEquals(data.length, size);
     }
 
     @Test
@@ -165,7 +166,7 @@ public class HttpUtilsTest {
         });
 
         long size = HttpUtils.getHttpFileSize(url, Collections.emptyMap());
-        Assert.assertEquals(data.length, size);
+        Assertions.assertEquals(data.length, size);
     }
 
     @Test
@@ -174,9 +175,9 @@ public class HttpUtilsTest {
 
         try {
             HttpUtils.getHttpFileSize(url, Collections.emptyMap());
-            Assert.fail("Expected IOException");
+            Assertions.fail("Expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("Failed to get file size"));
+            Assertions.assertTrue(e.getMessage().contains("Failed to get file size"));
         }
     }
 
@@ -196,7 +197,7 @@ public class HttpUtilsTest {
             }
         });
 
-        Assert.assertEquals(totalSize, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
+        Assertions.assertEquals(totalSize, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
     }
 
     @Test
@@ -225,7 +226,7 @@ public class HttpUtilsTest {
             sendEmpty(exchange, 416);
         });
 
-        Assert.assertEquals(0, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
+        Assertions.assertEquals(0, HttpUtils.getHttpFileSize(url, Collections.emptyMap()));
     }
 
     private void assertInvalidContentRange(String contentRange) throws IOException {
@@ -245,9 +246,9 @@ public class HttpUtilsTest {
 
         try {
             HttpUtils.getHttpFileSize(url, Collections.emptyMap());
-            Assert.fail("Expected IOException");
+            Assertions.fail("Expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("Content-Range"));
+            Assertions.assertTrue(e.getMessage().contains("Content-Range"));
         }
     }
 
@@ -255,15 +256,15 @@ public class HttpUtilsTest {
     public void testNullOrEmptyUriRejected() {
         try {
             HttpUtils.getHttpFileSize(null, Collections.emptyMap());
-            Assert.fail("Expected IllegalArgumentException for null uri");
+            Assertions.fail("Expected IllegalArgumentException for null uri");
         } catch (IllegalArgumentException | IOException e) {
-            Assert.assertTrue(e instanceof IllegalArgumentException);
+            Assertions.assertTrue(e instanceof IllegalArgumentException);
         }
         try {
             HttpUtils.getHttpFileSize("   ", Collections.emptyMap());
-            Assert.fail("Expected IllegalArgumentException for blank uri");
+            Assertions.fail("Expected IllegalArgumentException for blank uri");
         } catch (IllegalArgumentException | IOException e) {
-            Assert.assertTrue(e instanceof IllegalArgumentException);
+            Assertions.assertTrue(e instanceof IllegalArgumentException);
         }
     }
 }

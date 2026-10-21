@@ -21,6 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.metacache.ExternalCatalogMetaCache;
@@ -43,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
@@ -91,6 +96,7 @@ public class ExternalMetaCacheMgr {
     private ExternalRowCountCache rowCountCache;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        MetaCacheGovernance.configureGlobalMaxWeight(configuredGlobalMaxWeight());
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
@@ -116,6 +122,17 @@ public class ExternalMetaCacheMgr {
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
         registerBuiltinEngineCaches();
+    }
+
+    private static OptionalLong configuredGlobalMaxWeight() {
+        String configured = Config.external_meta_cache_max_weight;
+        long parsed = CacheSpec.parseWeight(configured, "external_meta_cache_max_weight",
+                true, Runtime.getRuntime().maxMemory());
+        if (configured.trim().endsWith("%") && parsed == 0L) {
+            throw new IllegalArgumentException(
+                    "external_meta_cache_max_weight percentage must be greater than 0%");
+        }
+        return parsed == 0L ? OptionalLong.empty() : OptionalLong.of(parsed);
     }
 
     private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
@@ -155,28 +172,29 @@ public class ExternalMetaCacheMgr {
     }
 
     public void prepareCatalog(long catalogId) {
-        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
-        if (catalogProperties == null) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog == null) {
             logMissingCatalogSkip(catalogId, "prepareCatalog");
             return;
         }
-        routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
+        synchronized (catalog) {
+            Map<String, String> catalogProperties = findCatalogProperties(catalog);
+            routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
+        }
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine) {
-        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
-        if (catalogProperties == null) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog == null) {
             logMissingCatalogSkip(catalogId, "prepareCatalogByEngine");
             return;
         }
-        prepareCatalogByEngine(catalogId, engine, catalogProperties);
-    }
-
-    public void prepareCatalogByEngine(long catalogId, String engine, Map<String, String> catalogProperties) {
-        Map<String, String> safeCatalogProperties = catalogProperties == null
-                ? Maps.newHashMap()
-                : Maps.newHashMap(catalogProperties);
-        routeSpecifiedEngine(engine, cache -> cache.initCatalog(catalogId, safeCatalogProperties));
+        // Property snapshot and runtime publication share ALTER's retirement monitor. A snapshot captured
+        // before ALTER must never reinstall an obsolete catalog budget after its old runtime was removed.
+        synchronized (catalog) {
+            Map<String, String> catalogProperties = findCatalogProperties(catalog);
+            routeSpecifiedEngine(engine, cache -> cache.initCatalog(catalogId, catalogProperties));
+        }
     }
 
     public void invalidateCatalog(long catalogId) {
@@ -218,6 +236,10 @@ public class ExternalMetaCacheMgr {
         routeSpecifiedEngine(engine, cache -> safeInvalidate(
                 cache, catalogId, "removeCatalogByEngine",
                 () -> cache.invalidateCatalog(catalogId)));
+    }
+
+    public boolean isEngineRegistered(String engine) {
+        return cacheTypes.containsKey(engine);
     }
 
     /**
@@ -331,6 +353,15 @@ public class ExternalMetaCacheMgr {
         allCacheTypes().forEach(externalMetaCache -> externalMetaCache.stats(catalogId)
                 .forEach((entryName, entryStats) -> stats.add(
                         new CatalogMetaCacheStats(externalMetaCache.engine(), entryName, entryStats))));
+        for (CatalogMetaCache cache : MetaCacheGovernance.catalogCaches(catalogId)) {
+            if (ENGINE_DEFAULT.equals(cache.engine()) || ENGINE_DORIS.equals(cache.engine())) {
+                continue;
+            }
+            for (Map.Entry<String, MetaCache<?, ?>> entry : cache.entries().entrySet()) {
+                stats.add(new CatalogMetaCacheStats(
+                        cache.engine(), entry.getKey(), MetaCacheEntryStats.from(entry.getValue())));
+            }
+        }
         stats.sort(Comparator.comparing(CatalogMetaCacheStats::getEngineName)
                 .thenComparing(CatalogMetaCacheStats::getEntryName));
         return stats;
@@ -404,12 +435,7 @@ public class ExternalMetaCacheMgr {
         action.run();
     }
 
-    @Nullable
-    private Map<String, String> findCatalogProperties(long catalogId) {
-        CatalogIf<?> catalog = getCatalog(catalogId);
-        if (catalog == null) {
-            return null;
-        }
+    private Map<String, String> findCatalogProperties(CatalogIf<?> catalog) {
         Map<String, String> props = catalog.getProperties() == null
                 ? Maps.newHashMap()
                 : Maps.newHashMap(catalog.getProperties());

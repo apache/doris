@@ -21,6 +21,11 @@
 ################################################################
 set -ex
 
+# The container healthcheck tests for this file, so nothing may be left of the previous boot: a `docker restart`
+# keeps the filesystem, and a marker surviving it would report the stack healthy while setup.sh is still
+# rebuilding the admin install. install_doris_service_def.sh writes it back at the end.
+rm -f /tmp/doris-ranger-ready
+
 cd $RANGER_HOME
 ./setup.sh
 echo "Installing Doris Ranger plugins"

@@ -17,19 +17,14 @@
 
 // A SNII inverted index on a VARIANT column written through the V2 writer.
 //
-// The other SNII variant suites all go through the V1 writer: DataTypeVariant::create_column()
-// returns a ColumnVariant, and it is the column's runtime type -- not a config -- that selects
-// V1 or V2 (variant_writer_helpers.cpp, classify_variant_writer_input). Only a ColumnVariantV2,
-// which parse_to_variant() produces, reaches VariantV2ColumnWriter. So without this suite the V2
-// writer had no SNII coverage at all.
+// parse_to_variant() produces the physical V2 variant column that reaches VariantV2ColumnWriter.
+// This suite keeps SNII coverage pinned directly on that writer path.
 //
 // No BE code is SNII-specific on that path: V2 prepares its sub-column writers through the same
-// variant_writer_helpers::prepare_subcolumn_writer_target as V1, which calls
-// variant_util::inherit_index and hands the shared IndexFileWriter down, and every
-// write_inverted_index() ends at IndexColumnWriter::create, which routes on storage format. This
-// suite pins that the shared path really does serve SNII, rather than leaving it inferred.
+// variant_writer_helpers::prepare_subcolumn_writer_target, which calls variant_util::inherit_index
+// and hands the shared IndexFileWriter down, and every write_inverted_index() ends at
+// IndexColumnWriter::create, which routes on storage format.
 suite("test_variant_v2_snii_index", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
         def tblName = "variant_v2_snii_index"
         def typedInventors = "cast(inventors['inventors'] as array<text>)"
 
@@ -93,5 +88,5 @@ suite("test_variant_v2_snii_index", "p0,nonConcurrent") {
         }
 
         sql "DROP TABLE IF EXISTS ${tblName}"
-    }
+
 }

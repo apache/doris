@@ -37,6 +37,7 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/spill/spill_file_manager.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/exec_env.h"
@@ -305,7 +306,7 @@ void QueryContext::set_memory_sufficient(bool sufficient) {
     }
 }
 
-void QueryContext::cancel(Status new_status, int fragment_id) {
+void QueryContext::cancel(Status new_status) {
     if (!_exec_status.update(new_status)) {
         return;
     }
@@ -343,7 +344,21 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     }
 
     set_ready_to_execute(new_status);
-    cancel_all_pipeline_context(new_status, fragment_id);
+
+    // Copy the fragment contexts under the map lock, then cancel them after releasing it. Fragment
+    // cancellation may take task-level locks and must not run while holding the query map lock.
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
+    {
+        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+        for (auto& entry : _fragment_id_to_pipeline_ctx) {
+            ctx_to_cancel.push_back(entry.second);
+        }
+    }
+    for (auto& f_context : ctx_to_cancel) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->cancel(new_status);
+        }
+    }
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {
@@ -364,24 +379,6 @@ void QueryContext::set_first_error_msg(std::string error_msg) {
 std::string QueryContext::get_first_error_msg() {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     return _first_error_msg;
-}
-
-void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
-    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
-    {
-        std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-        for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
-            if (fragment_id == f_id) {
-                continue;
-            }
-            ctx_to_cancel.push_back(f_context);
-        }
-    }
-    for (auto& f_context : ctx_to_cancel) {
-        if (auto pipeline_ctx = f_context.lock()) {
-            pipeline_ctx->cancel(reason);
-        }
-    }
 }
 
 std::string QueryContext::print_all_pipeline_context() {
@@ -409,6 +406,21 @@ std::string QueryContext::print_all_pipeline_context() {
         }
     }
     return fmt::to_string(debug_string_buffer);
+}
+
+std::shared_ptr<AIExecutionStatistics> QueryContext::get_ai_statistics(int fragment_id) {
+    std::scoped_lock lock(_ai_statistics_mutex);
+    auto& statistics = _ai_statistics[fragment_id];
+    if (!statistics) {
+        statistics = std::make_shared<AIExecutionStatistics>();
+    }
+    return statistics;
+}
+
+std::shared_ptr<AIExecutionStatistics> QueryContext::find_ai_statistics(int fragment_id) const {
+    std::scoped_lock lock(_ai_statistics_mutex);
+    auto it = _ai_statistics.find(fragment_id);
+    return it == _ai_statistics.end() ? nullptr : it->second;
 }
 
 void QueryContext::set_pipeline_context(const int fragment_id,
@@ -472,6 +484,13 @@ void QueryContext::_report_query_profile() {
     std::lock_guard<std::mutex> lg(_profile_mutex);
 
     for (auto& [fragment_id, fragment_profile] : _profile_map) {
+        // Recursive CTE stages reuse fragment IDs, but the saved profile is the first stage's
+        // detached snapshot. Refresh only AI counters from their owner, which accumulates all stages.
+        if (auto statistics = find_ai_statistics(fragment_id)) {
+            const int profile_level =
+                    _query_options.__isset.profile_level ? _query_options.profile_level : 2;
+            statistics->update_profile_snapshot(*fragment_profile.front(), profile_level);
+        }
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile = nullptr;
 
         if (_load_channel_profile_map.contains(fragment_id)) {

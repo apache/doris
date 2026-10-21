@@ -822,6 +822,7 @@ public class ThriftPlansBuilder {
                 List<TRecCTETarget> targets = new ArrayList<>();
                 // reset infos for all instances of child fragments (used to reset state)
                 List<TRecCTEResetInfo> fragmentsToReset = new ArrayList<>();
+                Set<String> resetFragmentKeys = new HashSet<>();
                 // The recursive side is under the right child; collect all fragments
                 List<PlanFragment> childFragments = new ArrayList<>();
                 recursiveCteNode.getChild(1).getChild(0).getFragment().collectAll(PlanFragment.class::isInstance,
@@ -845,6 +846,11 @@ public class ThriftPlansBuilder {
                                 String.format("can't find TNetworkAddress for fragment %d", childFragmentId));
                     }
                     for (TNetworkAddress address : tNetworkAddresses) {
+                        String resetFragmentKey = childFragmentId.asInt() + "@"
+                                + address.getHostname() + ":" + address.getPort();
+                        if (!resetFragmentKeys.add(resetFragmentKey)) {
+                            continue;
+                        }
                         TRecCTEResetInfo tRecCTEResetInfo = new TRecCTEResetInfo();
                         tRecCTEResetInfo.setFragmentId(childFragmentId.asInt());
                         tRecCTEResetInfo.setAddr(address);

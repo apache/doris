@@ -30,9 +30,9 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.List;
@@ -88,14 +88,14 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         // First verify that the configuration of the test cluster is valid.
         Set<Pair<Long, Long>> partitionIds = Sets.newHashSet();
         for (TestClusterConfig.PartitionPerBeReplicas p : tcc.partitionReplicas) {
-            Assert.assertEquals(tcc.beIds.size(), p.numReplicasByServer.size());
+            Assertions.assertEquals(tcc.beIds.size(), p.numReplicasByServer.size());
             partitionIds.add(Pair.of(p.partitionId, p.indexId));
         }
-        Assert.assertEquals(partitionIds.size(), tcc.partitionReplicas.size());
+        Assertions.assertEquals(partitionIds.size(), tcc.partitionReplicas.size());
 
         // Check for uniqueness of the tablet servers' identifiers.
         Set<Long> beIdSet = new HashSet<>(tcc.beIds);
-        Assert.assertEquals(tcc.beIds.size(), beIdSet.size());
+        Assertions.assertEquals(tcc.beIds.size(), beIdSet.size());
 
         ClusterBalanceInfo balance = new ClusterBalanceInfo();
 
@@ -118,7 +118,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
 
             Long maxCount = info.beByReplicaCount.keySet().last();
             Long minCount = info.beByReplicaCount.keySet().first();
-            Assert.assertTrue(maxCount >= minCount);
+            Assertions.assertTrue(maxCount >= minCount);
             balance.partitionInfoBySkew.put(maxCount - minCount, info);
         }
         return balance;
@@ -127,11 +127,11 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
     private void verifyMoves(List<TestClusterConfig> configs) {
         for (TestClusterConfig config : configs) {
             List<PartitionMove> moves = algo.getNextMoves(clusterConfigToClusterBalanceInfo(config), 0);
-            Assert.assertEquals(moves, config.expectedMoves);
+            Assertions.assertEquals(moves, config.expectedMoves);
         }
     }
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Configurator.setLevel("org.apache.doris.clone.TwoDimensionalGreedyAlgo", Level.WARN);
     }
@@ -149,22 +149,22 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         try {
             TwoDimensionalGreedyRebalanceAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {
-            Assert.assertSame(e.getClass(), IllegalStateException.class);
+            Assertions.assertSame(e.getClass(), IllegalStateException.class);
             LOG.info(e.getMessage());
         }
         // beByTotalReplicaCount should be modified
-        Assert.assertEquals(0, beByTotalReplicaCount.keySet().stream().filter(skew -> skew != 10L).count());
+        Assertions.assertEquals(0, beByTotalReplicaCount.keySet().stream().filter(skew -> skew != 10L).count());
 
         // invalid info of partition
         skewMap.put(6L, new PartitionBalanceInfo(11L, 22L));
         try {
             TwoDimensionalGreedyRebalanceAlgo.applyMove(move, beByTotalReplicaCount, skewMap);
         } catch (Exception e) {
-            Assert.assertSame(e.getClass(), IllegalStateException.class);
+            Assertions.assertSame(e.getClass(), IllegalStateException.class);
             LOG.warn(e.getMessage());
         }
         // beByTotalReplicaCount should be modified
-        Assert.assertEquals(0, beByTotalReplicaCount.keySet().stream().filter(skew -> skew != 10L).count());
+        Assertions.assertEquals(0, beByTotalReplicaCount.keySet().stream().filter(skew -> skew != 10L).count());
     }
 
     @Test
@@ -173,7 +173,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         try {
             algo.getNextMoves(new ClusterBalanceInfo(), 0);
         } catch (Exception e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         try {
@@ -183,7 +183,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
                 }
             }, 0);
         } catch (Exception e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         try {
@@ -194,9 +194,9 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
                     beByTotalReplicaCount.put(1L, 10002L);
                 }
             }, -1);
-            Assert.fail("Exception will be thrown in GetNextMoves");
+            Assertions.fail("Exception will be thrown in GetNextMoves");
         } catch (Exception e) {
-            Assert.assertSame(e.getClass(), IllegalArgumentException.class);
+            Assertions.assertSame(e.getClass(), IllegalArgumentException.class);
             LOG.info(e.getMessage());
         }
     }
