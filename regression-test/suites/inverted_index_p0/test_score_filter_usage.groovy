@@ -105,6 +105,29 @@ suite("test_score_filter_usage", "p0") {
         exception "limit + offset overflows the long range"
     }
 
+    // An ordinary TopN on a key computed from score() keeps its TopN filter above the scan, which
+    // computes the score after it applies its filters. One tablet is read in many batches.
+    sql "DROP TABLE IF EXISTS test_score_filter_usage_topn"
+    sql """
+        CREATE TABLE test_score_filter_usage_topn (
+            id INT,
+            grp INT,
+            c1 TEXT,
+            INDEX idx_c1 (c1) USING INVERTED PROPERTIES ("parser" = "english")
+        ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(grp) BUCKETS 4
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_score_filter_usage_topn
+        SELECT number, 1, CASE WHEN number = 100 THEN 'rare' WHEN number = 15000 THEN 'rare rare rare rare rare'
+            ELSE 'common filler words' END
+        FROM numbers("number" = "20000")
+    """
+    order_qt_score_derived_topn """
+        SELECT /*+ SET_VAR(topn_filter_ratio=1000000, batch_size=32) */ id, CAST(score() AS INT) AS k
+        FROM test_score_filter_usage_topn WHERE c1 MATCH 'rare' AND id % 2 = 0 ORDER BY k DESC LIMIT 1
+    """
+
     // Window functions of the same SELECT see the score of each row.
     order_qt_window_same_select """
         SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn

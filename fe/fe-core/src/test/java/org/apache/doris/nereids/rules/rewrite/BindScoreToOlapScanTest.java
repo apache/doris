@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
@@ -155,6 +156,26 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 "SELECT c2, max(score())" + from + " GROUP BY c2",
                 "SELECT c2, max(score())" + from + " GROUP BY ROLLUP(c2)"}) {
             assertScoreUsageError(query, BindScoreToOlapScan.AGGREGATE_ERROR);
+        }
+    }
+
+    @Test
+    void testTopNFilterOnScoreStaysAboveTheScan() {
+        // The scan computes the score after it applies its filters, so a TopN filter on the score would read zero.
+        double topnFilterRatio = connectContext.getSessionVariable().topnFilterRatio;
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        try {
+            for (String key : new String[] {"CAST(score() AS INT)", "id"}) {
+                PlanChecker checker = PlanChecker.from(connectContext)
+                        .analyze("SELECT id, " + key + " AS k FROM score_usage_V2 WHERE c1 MATCH 'apple'"
+                                + " AND id % 2 = 0 ORDER BY k DESC LIMIT 1")
+                        .rewrite().implement();
+                new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
+                Assertions.assertEquals(key.equals("id"),
+                        !checker.getCascadesContext().getTopnFilterContext().getTopnFilters().isEmpty(), key);
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = topnFilterRatio;
         }
     }
 

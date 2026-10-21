@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
@@ -241,7 +242,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
-        if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+        if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
+                && !readsScore(relation, ctx.probeExpr)) {
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null || ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable() == null
@@ -258,6 +260,13 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan, PushDownContext ctx) {
         return visitPhysicalRelation(lazyScan, ctx);
+    }
+
+    // The scan computes score() after it applies its filters, so a TopN filter on the score would read zero.
+    private static boolean readsScore(PhysicalRelation relation, Expression probeExpr) {
+        return relation instanceof PhysicalOlapScan && ((PhysicalOlapScan) relation).getVirtualColumns().stream()
+                .anyMatch(column -> column.containsType(Score.class)
+                        && probeExpr.getInputSlots().contains(column.toSlot()));
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {

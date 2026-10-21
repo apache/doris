@@ -36,6 +36,9 @@
 1	sweet	0.4700036
 2	sour	0.4700036
 
+-- !score_derived_topn --
+15000	14
+
 -- !window_same_select --
 1	0.4700036	1
 2	0.4700036	2
