@@ -42,13 +42,14 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/function/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "exprs/function/function.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "service/http/http_client.h"
-#include "util/security.h"
+#include "util/defer_op.h"
 #include "util/string_util.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -66,6 +67,14 @@ public:
     }
 
     bool is_blockable() const override { return true; }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+            // Release this execution context's cached clients.
+            context->set_function_state(scope, nullptr);
+        }
+        return Status::OK();
+    }
 
     bool use_default_implementation_for_nulls() const final { return false; }
 
@@ -89,7 +98,11 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        auto* executor = get_executor(context);
         if (block.get_by_position(arguments[0]).column->only_null()) {
+            if (executor->statistics()) {
+                executor->statistics()->record_input(input_rows_count, input_rows_count);
+            }
             block.get_by_position(result).column =
                     block.get_by_position(result).type->create_column_const(input_rows_count,
                                                                             Field());
@@ -169,53 +182,41 @@ protected:
         }
     }
 
-    // Executes one HTTP POST request and validates transport-level success.
-    Status do_send_request(HttpClient* client, const std::string& request_body,
-                           std::string& response, const AIResource& config,
-                           std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
-        RETURN_IF_ERROR(client->init(config.endpoint, false));
-
-        QueryContext* query_ctx = context->state()->get_query_ctx();
-        int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
-        if (remaining_query_time <= 0) {
-            return Status::TimedOut("Query timeout exceeded before AI request");
+    static AIRequestExecutor* get_executor(FunctionContext* context) {
+        // Retain the cache across batches/Blocks, including Blocks with only NULL inputs.
+        auto* executor = static_cast<AIRequestExecutor*>(
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        if (executor == nullptr) {
+            auto* runtime_state = context->state();
+            // Disabled profiles need the connection cache, but no statistics owner.
+            auto statistics = runtime_state->enable_profile()
+                                      ? runtime_state->get_query_ctx()->get_ai_statistics(
+                                                runtime_state->fragment_id())
+                                      : nullptr;
+            auto state = std::make_shared<AIRequestExecutor>(std::move(statistics));
+            executor = state.get();
+            context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                        std::move(state));
         }
-
-        client->set_timeout_ms(remaining_query_time * 1000);
-
-        if (!config.api_key.empty()) {
-            RETURN_IF_ERROR(adapter->set_authentication(client));
-        }
-
-        Status st = client->execute_post_request(request_body, &response);
-        long http_status = client->get_http_status();
-
-        if (!st.ok()) {
-            LOG(INFO) << "AI HTTP request failed before status validation, provider="
-                      << config.provider_type << ", model=" << config.model_name
-                      << ", endpoint=" << mask_token(config.endpoint)
-                      << ", exec_status=" << st.to_string() << ", response_body=" << response;
-            return st;
-        }
-        if (http_status != 200) {
-            return Status::HttpError(
-                    "http status code is not 200, code={}, url={}, response_body={}", http_status,
-                    mask_token(config.endpoint), response);
-        }
-        return Status::OK();
+        return executor;
     }
 
-    // Sends the request with retry mechanism for handling transient failures
+    static void record_input(FunctionContext* context, size_t rows,
+                             const ColumnUInt8::MutablePtr& null_map) {
+        if (const auto& statistics = get_executor(context)->statistics()) {
+            const int64_t skipped = null_map ? std::count_if(null_map->get_data().begin(),
+                                                             null_map->get_data().end(),
+                                                             [](UInt8 value) { return value != 0; })
+                                             : 0;
+            statistics->record_input(rows, skipped);
+        }
+    }
+
     Status send_request_to_llm(const std::string& request_body, std::string& response,
                                const AIResource& config, std::shared_ptr<AIAdapter>& adapter,
                                FunctionContext* context) const {
-        return HttpClient::execute_with_retry(config.max_retries, config.retry_delay_second,
-                                              [this, &request_body, &response, &config, &adapter,
-                                               context](HttpClient* client) -> Status {
-                                                  return this->do_send_request(client, request_body,
-                                                                               response, config,
-                                                                               adapter, context);
-                                              });
+        return get_executor(context)->execute(request_body, response, config, *adapter,
+                                              context->state()->get_query_ctx());
     }
 
     // Provider-reusable helper for string-returning functions.
@@ -234,6 +235,14 @@ protected:
 #ifdef BE_TEST
         const char* test_result = std::getenv("AI_TEST_RESULT");
         if (test_result != nullptr) {
+            const auto& statistics = get_executor(context)->statistics();
+            const auto parse_start = statistics ? MonotonicNanos() : 0;
+            bool parse_failed = true;
+            Defer record_parse([&] {
+                if (statistics) {
+                    statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+                }
+            });
             std::vector<std::string> parsed_test_response;
             RETURN_IF_ERROR(
                     adapter->parse_response(std::string(test_result), parsed_test_response));
@@ -246,6 +255,7 @@ protected:
                         batch_prompts.size(), parsed_test_response.size());
             }
             results = std::move(parsed_test_response);
+            parse_failed = false;
             return Status::OK();
         }
         if (config.provider_type == "MOCK") {
@@ -270,6 +280,14 @@ protected:
 
         std::string response;
         RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        bool parse_failed = true;
+        Defer record_parse([&] {
+            if (statistics) {
+                statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+            }
+        });
         RETURN_IF_ERROR(adapter->parse_response(response, parsed_response));
         if (parsed_response.empty()) {
             return Status::InternalError("AI returned empty result");
@@ -285,7 +303,20 @@ protected:
                     batch_prompts.size(), parsed_response.size());
         }
         results = std::move(parsed_response);
+        parse_failed = false;
         return Status::OK();
+    }
+
+    Status append_results_with_statistics(FunctionContext* context,
+                                          const std::vector<std::string>& results,
+                                          IColumn& column) const {
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        Status status = assert_cast<const Derived&>(*this).append_batch_results(results, column);
+        if (statistics) {
+            statistics->record_parse(MonotonicNanos() - parse_start, !status.ok());
+        }
+        return status;
     }
 
     // Provider-reusable helper for string-returning functions.
@@ -317,6 +348,8 @@ protected:
                             .column);
         }
 
+        record_input(context, input_rows_count, result_null_map);
+
         if (result_null_map &&
             !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
             block.get_by_position(result).column =
@@ -347,8 +380,8 @@ protected:
                     std::vector<std::string> batch_results;
                     RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results,
                                                                 config, adapter, context));
-                    RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                            batch_results, *col_result));
+                    RETURN_IF_ERROR(
+                            append_results_with_statistics(context, batch_results, *col_result));
                     batch_prompts.clear();
                     current_batch_size = 2;
                 }
@@ -358,8 +391,8 @@ protected:
                 std::vector<std::string> single_results;
                 RETURN_IF_ERROR(this->execute_batch_request(single_prompts, single_results, config,
                                                             adapter, context));
-                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        single_results, *col_result));
+                RETURN_IF_ERROR(
+                        append_results_with_statistics(context, single_results, *col_result));
                 continue;
             }
 
@@ -369,8 +402,8 @@ protected:
                 std::vector<std::string> batch_results;
                 RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
                                                             adapter, context));
-                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        batch_results, *col_result));
+                RETURN_IF_ERROR(
+                        append_results_with_statistics(context, batch_results, *col_result));
                 batch_prompts.clear();
                 current_batch_size = 2;
                 additional_size = entry_size;
@@ -384,8 +417,7 @@ protected:
             std::vector<std::string> batch_results;
             RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
                                                         adapter, context));
-            RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(batch_results,
-                                                                                    *col_result));
+            RETURN_IF_ERROR(append_results_with_statistics(context, batch_results, *col_result));
         }
 
         if (!result_null_map) {

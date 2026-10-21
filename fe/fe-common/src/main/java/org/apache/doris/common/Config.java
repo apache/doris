@@ -980,16 +980,18 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
-     * row binlog replica missing marker timeout.
+     * changelog replica missing marker timeout.
      */
+    // ATTN(changelog-rename): formerly "tablet_binlog_missing_timeout_second"
     @ConfField(mutable = true, masterOnly = true)
-    public static long tablet_binlog_missing_timeout_second = 20 * 60;
+    public static long tablet_changelog_missing_timeout_second = 20 * 60;
 
     /**
-     * row binlog replica missing marker max times.
+     * changelog replica missing marker max times.
      */
+    // ATTN(changelog-rename): formerly "tablet_binlog_missing_max_times"
     @ConfField(mutable = true, masterOnly = true)
-    public static int tablet_binlog_missing_max_times = 5;
+    public static int tablet_changelog_missing_max_times = 5;
 
     /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
@@ -2028,9 +2030,13 @@ public class Config extends ConfigBase {
             = ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
     // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
     public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 17;
+    // Older backends reject the iceberg_transform external sink partition function.
+    public static final int ICEBERG_TRANSFORM_ROUTING_MIN_BE_EXEC_VERSION = 18;
+    // Older backends cannot hash VARBINARY values in a shuffle or partition exchange.
+    public static final int VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION = 19;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2595,6 +2601,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, description = "Whether to enable the binlog feature for databases/tables by default")
     public static boolean force_enable_feature_binlog = false;
+
+    // ATTN(changelog-rename): formerly "enable_feature_binlog" (non-CCR uses)
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to enable the changelog feature, including the commit TSO")
+    public static boolean enable_feature_changelog = false;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Set the "
             + "maximum " + "byte " + "length " + "of a " + "binlog " + "message")
@@ -3571,10 +3582,25 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
-                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
-                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
-                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+                    + "longer exists, when loading the image, in the tablet rebalancer round, and once per replayed "
+                    + "batch of backend-removal journals (on Followers too, since each FE applies this locally). "
+                    + "Those entries are already ignored at query time (the replica is rehashed), so they only "
+                    + "waste FE memory and image size. Set to false to keep the legacy leaking behavior. "
+                    + "Default is true.")
     public static boolean enable_cloud_replica_stale_route_clean = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Start time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. Used with "
+            + "`cloud_tablet_rebalancer_stale_route_clean_end_time` to decide the window. Only gates the "
+            + "rebalancer's own sweep -- image loading and replayed backend-removal batches always clean "
+            + "regardless of this window. If set to the same value as the end time (the default), the "
+            + "rebalancer sweeps any time it would otherwise sweep, i.e. the window is unrestricted.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+
+    @ConfField(mutable = true, masterOnly = true, description = "End time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. See "
+            + "`cloud_tablet_rebalancer_stale_route_clean_start_time`.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
 
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "

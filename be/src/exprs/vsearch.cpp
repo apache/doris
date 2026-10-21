@@ -25,7 +25,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
-#include "exprs/function/function_search.h"
+#include "exprs/function/search/function_search.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"

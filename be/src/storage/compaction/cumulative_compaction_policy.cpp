@@ -23,9 +23,10 @@
 #include <ostream>
 #include <string>
 
+#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
@@ -436,9 +437,32 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
     } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
         return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
-    } else if (compaction_policy == CUMULATIVE_BINLOG_POLICY) {
-        return std::make_shared<BinlogCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_CHANGELOG_POLICY) {
+        return std::make_shared<ChangelogCumulativeCompactionPolicy>();
     }
+    LOG_EVERY_N(WARNING, 100) << "unknown compaction policy " << compaction_policy
+                              << ", fall back to " << CUMULATIVE_SIZE_BASED_POLICY;
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+}
+
+std::shared_ptr<CumulativeCompactionPolicy>
+CumulativeCompactionPolicyFactory::get_cumulative_compaction_policy(
+        const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
+                policies,
+        std::string_view compaction_policy, int64_t tablet_id) {
+    auto it = policies.find(compaction_policy);
+    if (it != policies.end()) {
+        return it->second;
+    }
+    // An unknown name must not reach unordered_map::at(): its std::out_of_range is not caught
+    // on the compaction scheduler threads, so the BE would abort, and abort again after every
+    // restart. Example: a tablet meta persisted by a build that used another policy name.
+    LOG_EVERY_N(WARNING, 100) << "unknown compaction policy " << compaction_policy << " of tablet "
+                              << tablet_id << ", fall back to " << CUMULATIVE_SIZE_BASED_POLICY;
+    // Every policy table registers the size-based policy, see
+    // StorageEngine::_update_cumulative_compaction_policy().
+    auto size_based = policies.find(CUMULATIVE_SIZE_BASED_POLICY);
+    DORIS_CHECK(size_based != policies.end());
+    return size_based->second;
 }
 } // namespace doris

@@ -1106,6 +1106,7 @@ public abstract class Type {
             case VARCHAR:
             case STRING:
             case HLL:
+            case VARBINARY:
                 return t.getLength();
             default:
                 return null;

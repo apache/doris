@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
@@ -63,6 +66,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The table {@link PaimonScanPlanProvider#getScanNodeProperties} serializes to the BE must carry no
@@ -116,14 +120,34 @@ public class PaimonBackendBoundTableTest {
         FileStoreTable table = newTable(warehouse, catalogEnvironment(catalog), C1);
 
         PaimonWriteBinding binding = PaimonWriteBinding.create(
-                dataHandle(), table, Collections.emptyMap(), false,
-                Collections.emptyMap(), Collections.emptySet());
+                dataHandle(), table, Collections.emptyMap(),
+                writeHandle(false, Collections.emptyMap(), Collections.emptySet()), true);
         FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
 
         Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
         Assertions.assertNull(backendTable.catalogEnvironment().catalogLoader());
-        Assertions.assertEquals(table.schema(), backendTable.schema());
+        // The BE table also tells the writer whether to pad CHAR values; its schema is the FE one otherwise.
+        Map<String, String> backendOptions = new HashMap<>(backendTable.schema().options());
+        Assertions.assertEquals("true", backendOptions.remove(PaimonWriteBinding.DORIS_WRITE_CHAR_PADDING));
+        Assertions.assertEquals(table.schema(), backendTable.schema().copy(backendOptions));
         Assertions.assertEquals(table.location(), backendTable.location());
+    }
+
+    @Test
+    public void writeBindingTellsOnlyTheBackendWhetherToPadCharValues(@TempDir Path warehouse)
+            throws Exception {
+        // The BE writer reads doris.write.char-padding from the table it deserializes (PaimonWriteSchema); the FE
+        // committer's table goes without it. MUTATION: not setting the option -> red.
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        FileStoreTable table = newTable(warehouse, catalogEnvironment(catalog), C1);
+        for (boolean charPadding : new boolean[] {true, false}) {
+            PaimonWriteBinding binding = PaimonWriteBinding.create(dataHandle(), table, Collections.emptyMap(),
+                    writeHandle(false, Collections.emptyMap(), Collections.emptySet()), charPadding);
+
+            Assertions.assertEquals(String.valueOf(charPadding),
+                    deserializeTable(binding.getSerializedTable()).options().get("doris.write.char-padding"));
+            Assertions.assertFalse(binding.getTable().options().containsKey("doris.write.char-padding"));
+        }
     }
 
     @Test
@@ -138,9 +162,9 @@ public class PaimonBackendBoundTableTest {
         Map<String, String> requested = Collections.singletonMap("pt", "NULL");
 
         PaimonWriteBinding literal = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), false, requested, Collections.emptySet());
+                Collections.emptyMap(), writeHandle(true, requested, Collections.emptySet()), true);
         PaimonWriteBinding sqlNull = PaimonWriteBinding.create(dataHandle(), table,
-                Collections.emptyMap(), false, requested, Collections.singleton("pt"));
+                Collections.emptyMap(), writeHandle(true, requested, Collections.singleton("pt")), true);
 
         Assertions.assertEquals("NULL", literal.getStaticPartition().get("pt"));
         Assertions.assertEquals(table.coreOptions().partitionDefaultName(),
@@ -815,6 +839,40 @@ public class PaimonBackendBoundTableTest {
 
     private static PaimonTableHandle dataHandle() {
         return new PaimonTableHandle("db", "tbl", Collections.emptyList(), Collections.emptyList());
+    }
+
+    /**
+     * A write whose static partition values need no cast, so the handle's default cast spec applies. Only an
+     * overwrite resolves the static partition.
+     */
+    private static ConnectorWriteHandle writeHandle(boolean overwrite, Map<String, String> staticPartition,
+            Set<String> nullKeys) {
+        return new ConnectorWriteHandle() {
+            @Override
+            public ConnectorTableHandle getTableHandle() {
+                return null;
+            }
+
+            @Override
+            public List<ConnectorColumn> getColumns() {
+                return Collections.emptyList();
+            }
+
+            @Override
+            public boolean isOverwrite() {
+                return overwrite;
+            }
+
+            @Override
+            public Map<String, String> getStaticPartitionSpec() {
+                return staticPartition;
+            }
+
+            @Override
+            public Set<String> getStaticPartitionNullKeys() {
+                return nullKeys;
+            }
+        };
     }
 
     private static PaimonTableHandle sysHandle(String sysTableType, FileStoreTable base) {

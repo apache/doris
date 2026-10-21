@@ -118,6 +118,8 @@ public:
 
     ~BaseBetaRowsetWriter() override;
 
+    void cancel_calc_delete_bitmap(const Status& st) override;
+
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_block(const Block* block) override;
@@ -338,9 +340,9 @@ private:
     std::atomic<int> _segcompaction_status {ErrorCode::OK};
 };
 
-class RowBinlogRowsetWriter : public BetaRowsetWriter {
+class ChangelogRowsetWriter : public BetaRowsetWriter {
 public:
-    RowBinlogRowsetWriter(StorageEngine& engine);
+    ChangelogRowsetWriter(StorageEngine& engine);
 };
 
 } // namespace doris

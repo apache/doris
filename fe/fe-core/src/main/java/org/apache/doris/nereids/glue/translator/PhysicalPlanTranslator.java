@@ -36,9 +36,9 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -97,7 +97,6 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -224,7 +223,7 @@ import org.apache.doris.tablefunction.HttpTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -261,7 +260,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -342,7 +340,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
         Plan upstream = distribute.child(); // now they're in one fragment but will be split by ExchangeNode.
-        PlanFragment upstreamFragment = upstream.accept(this, context);
+        // The exchange keeps the upstream fragment apart from any fragment-merging ancestor,
+        // so an aggregate fused into BucketedAggregationNode below it is safe.
+        int fragmentMergeChildDepth = context.enterExchangeBoundary();
+        PlanFragment upstreamFragment;
+        try {
+            upstreamFragment = upstream.accept(this, context);
+        } finally {
+            context.exitExchangeBoundary(fragmentMergeChildDepth);
+        }
         List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
 
         DistributionSpec targetDistribution = distribute.getDistributionSpec();
@@ -3133,19 +3139,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     /**
      * Adds the columns the storage reader needs beyond the query's projection, routing to the one
-     * case the table and read mode call for: row-binlog bookkeeping, the snapshot commit TSO, or
+     * case the table and read mode call for: changelog bookkeeping, the snapshot commit TSO, or
      * the merge sequence column. No SQL statement names any of them.
      */
     private void preserveStorageSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds,
             boolean requireSequenceForLazyMaterialization) {
-        if (scanNode.getOlapTable() instanceof RowBinlogTableWrapper
+        if (scanNode.getOlapTable() instanceof OlapChangelogTableWrapper
                 && scanNode.getScanParams() != null
                 && scanNode.getScanParams().incrementalRead()) {
-            preserveRowBinlogSemanticSlots(scanNode, requiredSlotIds);
+            preserveChangelogSemanticSlots(scanNode, requiredSlotIds);
             return;
         }
         if (scanNode.getOlapTable() instanceof OlapTableWrapper
-                && !(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+                && !(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
             preserveSnapshotCommitTsoSlot(scanNode, requiredSlotIds);
         }
         preserveMergeSequenceSlots(scanNode, requiredSlotIds, requireSequenceForLazyMaterialization);
@@ -3176,11 +3182,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * DETAIL needs BEFORE images only for projected values. APPEND_ONLY never groups and needs
      * neither keys nor BEFORE images.
      */
-    private void preserveRowBinlogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
-        RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) scanNode.getOlapTable();
-        TBinlogScanType scanType = OlapScanNode.parseBinlogScanType(
+    private void preserveChangelogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) scanNode.getOlapTable();
+        TChangelogScanType scanType = OlapScanNode.parseChangelogScanType(
                 scanNode.getScanParams(), wrapper.getOriginTable());
-        if (scanType == TBinlogScanType.NONE) {
+        if (scanType == TChangelogScanType.NONE) {
             return;
         }
 
@@ -3190,9 +3196,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toMap(
                         slot -> slot.getColumn().getName(), slot -> slot, (left, right) -> left));
 
-        preserveStorageSlot(slotByName.get(Column.BINLOG_TSO_COL), requiredSlotIds);
-        preserveStorageSlot(slotByName.get(Column.BINLOG_OPERATION_COL), requiredSlotIds);
-        if (scanType == TBinlogScanType.APPEND_ONLY) {
+        preserveStorageSlot(slotByName.get(Column.CHANGELOG_TSO_COL), requiredSlotIds);
+        preserveStorageSlot(slotByName.get(Column.CHANGELOG_OP_COL), requiredSlotIds);
+        if (scanType == TChangelogScanType.APPEND_ONLY) {
             return;
         }
 
@@ -3203,15 +3209,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        if (!wrapper.getOriginTable().getBinlogConfig().getNeedHistoricalValue()) {
-            // Row-binlog schemas without historical values have no before-image columns, so there
+        if (!wrapper.getOriginTable().getChangelogConfig().getNeedHistoricalValue()) {
+            // Changelog schemas without historical values have no before-image columns, so there
             // are no before-image storage dependencies to preserve.
             return;
         }
-        boolean preserveCompleteRow = scanType == TBinlogScanType.MIN_DELTA;
+        boolean preserveCompleteRow = scanType == TChangelogScanType.MIN_DELTA;
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
-            if (column == null || column.isKey() || isRowBinlogInternalColumn(column)
+            if (column == null || column.isKey() || isChangelogInternalColumn(column)
                     || (!preserveCompleteRow && !requiredSlotIds.contains(slot.getId()))) {
                 continue;
             }
@@ -3221,12 +3227,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
-    private boolean isRowBinlogInternalColumn(Column column) {
+    private boolean isChangelogInternalColumn(Column column) {
         String columnName = column.getName();
-        return columnName.startsWith(Column.BINLOG_BEFORE_PREFIX)
-                || columnName.equals(Column.BINLOG_LSN_COL)
-                || columnName.equals(Column.BINLOG_OPERATION_COL)
-                || columnName.equals(Column.BINLOG_TSO_COL);
+        return Column.isChangelogBeforeColumn(columnName)
+                || columnName.equals(Column.CHANGELOG_LSN_COL)
+                || columnName.equals(Column.CHANGELOG_OP_COL)
+                || columnName.equals(Column.CHANGELOG_TSO_COL);
     }
 
     /**
@@ -3387,43 +3393,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade, no UDAF
-        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
-            return false;
-        }
-        // Must be one-phase: GLOBAL + INPUT_TO_RESULT
-        if (aggregate.getAggPhase() != AggPhase.GLOBAL
-                || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
-            return false;
-        }
-        // BucketedAggregationNode always finalizes into the output tuple slot
-        // types (need_finalize=true, isPartial=false), so fusing an aggregate
-        // whose functions produce buffers (partial) would fail the BE
-        // result-type check: the slot type of a buffer-producing function is
-        // Varchar while the function's final return type (e.g. DOUBLE for
-        // stddev) is what insert_result_into writes. The one-phase GLOBAL
-        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
-        // the node itself is INPUT_TO_RESULT but its non-distinct functions
-        // run in INPUT_TO_BUFFER mode — and must stay on the regular
-        // AggregationNode path, which serializes when isPartial.
-        if (containsPartialAggFunction(aggregate)) {
-            return false;
-        }
-        // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
-        // BucketedAggregationNode has no sort-info field, so fusing would drop
-        // the aggregate ORDER BY contract. Only aggregates supporting two-phase
-        // execution can be safely fused.
-        if (!supportsTwoPhaseAgg(aggregate)) {
-            return false;
-        }
-        // BucketedAggregationNode does not support sortByGroupKey (PushTopnToAgg
-        // optimization). Regular AggregationNode fills sort info; fusing would drop it.
-        if (aggregate.getTopnPushInfo() != null) {
-            return false;
-        }
         // Child must be PhysicalDistribute with hash distribution matching group keys
         Plan child = aggregate.child(0);
         if (!(child instanceof PhysicalDistribute)) {
+            return false;
+        }
+        // Shared eligibility (also used by the regulator, the cost model and the
+        // output property deriver):
+        // session var, single-BE, GROUP BY, spill / query cache off, smooth upgrade,
+        // no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial (buffer-producing)
+        // function, two-phase capable functions, no pushed TopN, child hash-distributed
+        // by exactly the GROUP BY keys. A distribute on a strict subset of them
+        // (agg_shuffle_use_parent_key) must be kept: the parent consumes the aggregate
+        // without an exchange and relies on that distribution.
+        if (!AggregateUtils.isBucketedHashAggFusible(aggregate,
+                ((PhysicalDistribute<?>) child).getDistributionSpec())) {
             return false;
         }
         // Bucketed fusion bypasses the distribute/exchange and builds directly on the
@@ -3441,28 +3425,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // UnassignedJobBuilder: "Not supported multiple scan multiple OlapTable but
         // not contains colocate join or bucket shuffle join"), and fusing over a
         // nested aggregate would break the bucket alignment between stages.
-        if (!isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
+        if (!AggregateUtils.isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
             return false;
         }
-        // The parent is a fragment-merging node (join / set-op) that consumes this
-        // fragment without an exchange boundary: fusing removes the exchange that
-        // keeps the scan in its own fragment, so multiple scans would end up in the
-        // same fragment and the scan-assignment would fail. Only fuse when the
-        // parent chain keeps an exchange boundary (e.g. a top-level aggregate).
-        if (context.isInFragmentMergeChild()) {
-            return false;
-        }
-        DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
-        if (!(distSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        List<ExprId> distKeys = ((DistributionSpecHash) distSpec).getOrderedShuffledColumns();
-        List<ExprId> groupByKeys = aggregate.getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .map(SlotReference::getExprId)
-                .collect(Collectors.toList());
-        return distKeys.equals(groupByKeys);
+        // The parent is a fragment-merging node (join / set-op / recursive union) that
+        // consumes this fragment without an exchange boundary: fusing removes the
+        // exchange that keeps the scan in its own fragment, so multiple scans would end
+        // up in the same fragment and the scan-assignment would fail. A distribute
+        // between the merging node and this aggregate clears the context (see
+        // visitPhysicalDistribute), because its exchange keeps the fused fragment apart.
+        return !context.isInFragmentMergeChild();
     }
 
     /** Returns true if the plan subtree contains a physical CTE consumer. */
@@ -3472,94 +3444,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         for (Plan child : plan.children()) {
             if (containsCTEConsumer(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if the plan subtree is a unary pipeline over exactly one olap
-     * scan, i.e. it translates into a single-scan fragment that bucketed fusion
-     * can safely build upon. Subtrees containing fragment-merging or
-     * distribution-changing nodes (join / set-op / CTE / nested aggregate /
-     * storage-layer aggregate) are rejected.
-     */
-    private boolean isSingleOlapScanPipeline(Plan plan) {
-        if (plan instanceof PhysicalOlapScan) {
-            return true;
-        }
-        if (plan instanceof PhysicalHashJoin
-                || plan instanceof PhysicalNestedLoopJoin
-                || plan instanceof PhysicalSetOperation
-                || plan instanceof PhysicalCTEConsumer
-                || plan instanceof PhysicalCTEAnchor
-                || plan instanceof PhysicalHashAggregate
-                || plan instanceof PhysicalStorageLayerAggregate) {
-            return false;
-        }
-        if (plan.children().size() == 1) {
-            return isSingleOlapScanPipeline(plan.child(0));
-        }
-        return false;
-    }
-
-    /**
-     * Check whether all aggregate functions in this physical hash aggregate
-     * support two-phase execution. One-phase-only aggregates (e.g. GROUP_CONCAT
-     * with ORDER BY) cannot be bucketed because BucketedAggregationNode does not
-     * carry sort-info metadata (aggSortInfos); fusing them would drop the
-     * aggregate ORDER BY contract and produce unordered results.
-     */
-    private boolean supportsTwoPhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundOnePhaseOnly = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof OrderExpression) {
-                    // Any aggregate function with an internal ORDER BY
-                    // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
-                    // metadata, which BucketedAggregationNode does not carry.
-                    foundOnePhaseOnly.set(true);
-                    return true;
-                }
-                if (c instanceof AggregateExpression) {
-                    AggregateFunction func = ((AggregateExpression) c).getFunction();
-                    if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
-                        foundOnePhaseOnly.set(true);
-                        return true;
-                    }
-                }
-                return false;
-            });
-            if (foundOnePhaseOnly.get()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check whether the aggregate's output contains any buffer-producing
-     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
-     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
-     * functions: it always finalizes into the output tuple slot types, while a
-     * buffer-producing function's slot type is the serialized Varchar type
-     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
-     * for stddev) into that String column fails the BE result-type check.
-     */
-    private boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundPartial = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof AggregateExpression) {
-                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
-                        foundPartial.set(true);
-                    }
-                    return true;
-                }
-                return false;
-            });
-            if (foundPartial.get()) {
                 return true;
             }
         }

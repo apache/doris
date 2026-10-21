@@ -747,14 +747,14 @@ void StorageEngine::stop() {
     }
 
     _stop_background_threads_latch.count_down();
-    _stop_row_binlog_ttl_scanner();
+    _stop_changelog_ttl_scanner();
 #define THREAD_JOIN(thread) \
     if (thread) {           \
         thread->join();     \
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
-    THREAD_JOIN(_binlog_compaction_tasks_producer_thread);
+    THREAD_JOIN(_changelog_compaction_tasks_producer_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -784,8 +784,8 @@ void StorageEngine::stop() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
-    if (_binlog_compaction_thread_pool) {
-        _binlog_compaction_thread_pool->shutdown();
+    if (_changelog_compaction_thread_pool) {
+        _changelog_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {

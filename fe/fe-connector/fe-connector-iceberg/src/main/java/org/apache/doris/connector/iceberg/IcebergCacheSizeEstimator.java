@@ -246,7 +246,10 @@ final class IcebergCacheSizeEstimator {
     }
 
     static long estimateManifestKey(IcebergManifestEntryKey key) {
-        return add(MANIFEST_KEY_SHALLOW_BYTES, JvmSizeUtils.stringSize(key.getManifestPath()));
+        long bytes = add(MANIFEST_KEY_SHALLOW_BYTES, JvmSizeUtils.stringSize(key.getManifestPath()));
+        // The key retains its bound partition type. A non-empty value's files share it, but an empty value (a delete
+        // manifest whose entries are all DELETED) holds nothing that would account for it.
+        return add(bytes, estimateIcebergType(key.getPartitionType()));
     }
 
     static long estimateManifestValue(ManifestCacheValue value) {

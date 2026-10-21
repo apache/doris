@@ -21,15 +21,19 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
+import sys
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 SUBMISSION_FILE = "review-submission.json"
 REJECTION_FILE = "review-submission-rejected.json"
+API_ERRORS_FILE = "review-api-errors.jsonl"
 RUN_FILE = "review-run.json"
 RESULT_FILE = "review-result.json"
 PRIORITY = re.compile(r"^\[P([0-3])\]\s+\S")
@@ -91,18 +95,66 @@ def validate_submission(value):
     return value
 
 
+def diagnostic_text(value):
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    value = value or ""
+    # These are the credentials consumed by gh. Artifacts do not inherit the
+    # GitHub Actions log masker, so remove them before persisting API output.
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
+        token = os.environ.get(name)
+        if token:
+            value = value.replace(token, "[REDACTED]")
+    value = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+)\b", "[REDACTED]", value)
+    return value[:65536] + ("\n[truncated after 65536 characters]" if len(value) > 65536 else "")
+
+
+class GitHubAPIError(ValueError):
+    def __init__(self, path, method, error, stdout=None, stderr=None):
+        self.details = {
+            "method": method, "path": path, "error_type": type(error).__name__,
+            "returncode": getattr(error, "returncode", None),
+            "timeout_seconds": getattr(error, "timeout", None),
+            "stdout": diagnostic_text(stdout), "stderr": diagnostic_text(stderr),
+        }
+        message = (
+            f"GitHub API {method} {path} failed ({type(error).__name__}, "
+            f"exit={self.details['returncode']}, timeout={self.details['timeout_seconds']}); "
+            f"stderr={json.dumps(self.details['stderr'][:1000])}; "
+            f"stdout={json.dumps(self.details['stdout'][:1000])}"
+        )
+        self.details["message"] = message
+        super().__init__(message)
+
+
 def api(path, remaining, *, payload=None, paginated=False):
     command = ["gh", "api", path]
     if paginated:
         command += ["--paginate", "--slurp"]
     if payload is not None:
         command += ["--method", "POST", "--input", "-"]
-    result = subprocess.run(
-        command, input=json.dumps(payload) if payload is not None else None,
-        capture_output=True, text=True, check=True, timeout=min(30, remaining()),
-    )
-    value = json.loads(result.stdout)
+    method = "POST" if payload is not None else "GET"
+    try:
+        result = subprocess.run(
+            command, input=json.dumps(payload) if payload is not None else None,
+            capture_output=True, text=True, check=True, timeout=min(30, remaining()),
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise GitHubAPIError(path, method, error, error.stdout, error.stderr) from None
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise GitHubAPIError(path, method, error, result.stdout, result.stderr) from None
     return [item for page in value for item in page] if paginated else value
+
+
+def with_api_failure(context, reason):
+    diagnostics = context / API_ERRORS_FILE
+    if diagnostics.exists():
+        with diagnostics.open() as handle:
+            first = json.loads(next(handle))
+        reason += f"; first recorded API failure: {first['message']} (see {API_ERRORS_FILE})"
+    return reason
 
 
 def check_target(run, remaining):
@@ -160,6 +212,21 @@ def review_payload(submission, run, root, remaining):
 
 
 def verify_completion(context, run, remaining, *, submit=False, submission=None):
+    try:
+        return _verify_completion(context, run, remaining, submit=submit, submission=submission)
+    except GitHubAPIError as error:
+        diagnostic = dict(error.details, recorded_at=datetime.now(timezone.utc).isoformat(),
+                          repository=run["repository"], pr_number=run["pr_number"],
+                          head_sha=run["head_sha"], base_sha=run["base_sha"])
+        # Append rather than replace: later readback failures must not erase the
+        # original POST response. Neither this log nor the intent proves delivery.
+        with (context / API_ERRORS_FILE).open("a") as handle:
+            handle.write(json.dumps(diagnostic) + "\n")
+        print(f"Review API diagnostic: {json.dumps(diagnostic)}", file=sys.stderr, flush=True)
+        raise
+
+
+def _verify_completion(context, run, remaining, *, submit=False, submission=None):
     """Never infer completion from an unowned review or a local result file."""
     path = context / SUBMISSION_FILE
     if submission is None:
@@ -186,7 +253,9 @@ def verify_completion(context, run, remaining, *, submit=False, submission=None)
             write_json(context / REJECTION_FILE, {"reason": reason, "submission": submission})
             raise ValueError(reason)
         if path.exists():
-            raise ValueError("Final submission was attempted but cannot be verified; refusing to repost")
+            raise ValueError(with_api_failure(
+                context, "Final submission was attempted but cannot be verified; refusing to repost"
+            ))
         # Persist the complete intent before POST: if the response is lost, the
         # runner can read back this exact review without repeating the write.
         # Exclusive creation also prevents two accidental simultaneous helper
@@ -197,7 +266,9 @@ def verify_completion(context, run, remaining, *, submit=False, submission=None)
         matching = [r for r in api(f"{root}/reviews", remaining, paginated=True)
                     if marker in (r.get("body") or "")]
     if len(matching) != 1:
-        raise ValueError("Could not verify exactly one final review from this invocation")
+        raise ValueError(with_api_failure(
+            context, "Could not verify exactly one final review from this invocation"
+        ))
     review = matching[0]
     expected_state = "CHANGES_REQUESTED" if payload["event"] == "REQUEST_CHANGES" else "COMMENTED"
     if (review.get("user", {}).get("login") != "github-actions[bot]"

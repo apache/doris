@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
@@ -740,8 +740,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 if (logicalScan instanceof LogicalOlapScan
-                        && ((LogicalOlapScan) logicalScan).getTable() instanceof RowBinlogTableWrapper
-                        && RowBinlogTableWrapper.isRowBinlogSyntheticColumn(column)) {
+                        && ((LogicalOlapScan) logicalScan).getTable() instanceof OlapChangelogTableWrapper
+                        && OlapChangelogTableWrapper.isChangelogSyntheticColumn(column)) {
                     return canNotPush;
                 }
                 PrimitiveType colType = column.getType().getPrimitiveType();

@@ -55,7 +55,7 @@ public class AIProperties extends BaseProperties {
     public static final String DEFAULT_TEMPERATURE = "-1";
     public static final String DEFAULT_MAX_TOKEN = "-1";
     public static final String DEFAULT_MAX_RETRIES = "3";
-    public static final String DEFAULT_RETRY_DELAY_SECOND = "0";
+    public static final String DEFAULT_RETRY_DELAY_SECOND = "1";
     public static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
     public static final String DEFAULT_DIMENSIONS = "-1";
 

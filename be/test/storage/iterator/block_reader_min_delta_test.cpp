@@ -20,15 +20,15 @@
 #include <limits>
 #include <vector>
 
-#include "storage/iterator/binlog_block_reader_utils.h"
+#include "storage/iterator/changelog_block_reader_utils.h"
 
 namespace doris {
 
-using ResultType = binlog::AggregateFunctionMinDelta::ResultType;
+using ResultType = changelog::AggregateFunctionMinDelta::ResultType;
 
 class BlockReaderMinDeltaTest : public testing::Test {};
 TEST_F(BlockReaderMinDeltaTest, ValidOperationPairs) {
-    // Cover the 3x3 valid row binlog op pairs to keep the min-delta mapping stable.
+    // Cover the 3x3 valid changelog op pairs to keep the min-delta mapping stable.
     struct Case {
         int64_t first_op;
         int64_t last_op;
@@ -36,20 +36,20 @@ TEST_F(BlockReaderMinDeltaTest, ValidOperationPairs) {
     };
 
     const Case cases[] = {
-            {ROW_BINLOG_APPEND, ROW_BINLOG_APPEND, ResultType::INSERT},
-            {ROW_BINLOG_APPEND, ROW_BINLOG_UPDATE, ResultType::INSERT},
-            {ROW_BINLOG_APPEND, ROW_BINLOG_DELETE, ResultType::SKIP},
-            {ROW_BINLOG_UPDATE, ROW_BINLOG_APPEND, ResultType::UPDATE_BEFORE_AFTER},
-            {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE, ResultType::UPDATE_BEFORE_AFTER},
-            {ROW_BINLOG_UPDATE, ROW_BINLOG_DELETE, ResultType::DELETE},
-            {ROW_BINLOG_DELETE, ROW_BINLOG_APPEND, ResultType::UPDATE_BEFORE_AFTER},
-            {ROW_BINLOG_DELETE, ROW_BINLOG_UPDATE, ResultType::UPDATE_BEFORE_AFTER},
-            {ROW_BINLOG_DELETE, ROW_BINLOG_DELETE, ResultType::DELETE},
+            {CHANGELOG_OP_APPEND, CHANGELOG_OP_APPEND, ResultType::INSERT},
+            {CHANGELOG_OP_APPEND, CHANGELOG_OP_UPDATE, ResultType::INSERT},
+            {CHANGELOG_OP_APPEND, CHANGELOG_OP_DELETE, ResultType::SKIP},
+            {CHANGELOG_OP_UPDATE, CHANGELOG_OP_APPEND, ResultType::UPDATE_BEFORE_AFTER},
+            {CHANGELOG_OP_UPDATE, CHANGELOG_OP_UPDATE, ResultType::UPDATE_BEFORE_AFTER},
+            {CHANGELOG_OP_UPDATE, CHANGELOG_OP_DELETE, ResultType::DELETE},
+            {CHANGELOG_OP_DELETE, CHANGELOG_OP_APPEND, ResultType::UPDATE_BEFORE_AFTER},
+            {CHANGELOG_OP_DELETE, CHANGELOG_OP_UPDATE, ResultType::UPDATE_BEFORE_AFTER},
+            {CHANGELOG_OP_DELETE, CHANGELOG_OP_DELETE, ResultType::DELETE},
     };
 
     for (const auto& c : cases) {
         EXPECT_EQ(c.expected,
-                  binlog::AggregateFunctionMinDelta::calculate_result(c.first_op, c.last_op))
+                  changelog::AggregateFunctionMinDelta::calculate_result(c.first_op, c.last_op))
                 << "first_op=" << c.first_op << ", last_op=" << c.last_op;
     }
 }
@@ -64,33 +64,34 @@ TEST_F(BlockReaderMinDeltaTest, InvalidOperationFallback) {
                                       std::numeric_limits<int64_t>::max()};
 
     for (int64_t invalid_op : invalid_values) {
-        EXPECT_EQ(
-                ResultType::UPDATE_BEFORE_AFTER,
-                binlog::AggregateFunctionMinDelta::calculate_result(invalid_op, ROW_BINLOG_APPEND))
+        EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
+                  changelog::AggregateFunctionMinDelta::calculate_result(invalid_op,
+                                                                         CHANGELOG_OP_APPEND))
                 << "invalid first_op=" << invalid_op;
-        EXPECT_EQ(
-                ResultType::UPDATE_BEFORE_AFTER,
-                binlog::AggregateFunctionMinDelta::calculate_result(ROW_BINLOG_DELETE, invalid_op))
+        EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
+                  changelog::AggregateFunctionMinDelta::calculate_result(CHANGELOG_OP_DELETE,
+                                                                         invalid_op))
                 << "invalid last_op=" << invalid_op;
     }
 }
 
 TEST_F(BlockReaderMinDeltaTest, SemanticScenarios) {
     // Scenario 1: insert then delete yields no net change.
-    EXPECT_EQ(ResultType::SKIP, binlog::AggregateFunctionMinDelta::calculate_result(
-                                        ROW_BINLOG_APPEND, ROW_BINLOG_DELETE));
+    EXPECT_EQ(ResultType::SKIP, changelog::AggregateFunctionMinDelta::calculate_result(
+                                        CHANGELOG_OP_APPEND, CHANGELOG_OP_DELETE));
 
     // Scenario 2: update then delete emits DELETE (with pre-delete snapshot values).
-    EXPECT_EQ(ResultType::DELETE, binlog::AggregateFunctionMinDelta::calculate_result(
-                                          ROW_BINLOG_UPDATE, ROW_BINLOG_DELETE));
+    EXPECT_EQ(ResultType::DELETE, changelog::AggregateFunctionMinDelta::calculate_result(
+                                          CHANGELOG_OP_UPDATE, CHANGELOG_OP_DELETE));
 
     // Scenario 3: delete then re-add means the key existed before the window and is treated as UPDATE.
-    EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER, binlog::AggregateFunctionMinDelta::calculate_result(
-                                                       ROW_BINLOG_DELETE, ROW_BINLOG_APPEND));
+    EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
+              changelog::AggregateFunctionMinDelta::calculate_result(CHANGELOG_OP_DELETE,
+                                                                     CHANGELOG_OP_APPEND));
 }
 
 TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
-    // Model same-key row binlog ops read from multiple rowsets in commit order.
+    // Model same-key changelog ops read from multiple rowsets in commit order.
     // The min-delta result depends on the first and last op for that key, regardless of rowset boundaries.
     auto calc_from_rowsets = [](const std::vector<std::vector<int64_t>>& rowsets) -> ResultType {
         bool found = false;
@@ -105,35 +106,35 @@ TEST_F(BlockReaderMinDeltaTest, CrossRowsetSameKeyScenarios) {
                 last_op = op;
             }
         }
-        return found ? binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op)
+        return found ? changelog::AggregateFunctionMinDelta::calculate_result(first_op, last_op)
                      : ResultType::SKIP;
     };
 
     // Scenario 1: key1 updated in rowset-1 and updated again in rowset-2 -> UPDATE_BEFORE_AFTER.
     EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
-              calc_from_rowsets({{ROW_BINLOG_UPDATE}, {ROW_BINLOG_UPDATE}}));
+              calc_from_rowsets({{CHANGELOG_OP_UPDATE}, {CHANGELOG_OP_UPDATE}}));
 
     // Scenario 2: key1 appended/updated in rowset-1, then updated in rowset-2 -> INSERT.
-    EXPECT_EQ(ResultType::INSERT,
-              calc_from_rowsets({{ROW_BINLOG_APPEND, ROW_BINLOG_UPDATE}, {ROW_BINLOG_UPDATE}}));
+    EXPECT_EQ(ResultType::INSERT, calc_from_rowsets({{CHANGELOG_OP_APPEND, CHANGELOG_OP_UPDATE},
+                                                     {CHANGELOG_OP_UPDATE}}));
 
     // Scenario 3: key1 appended in one rowset and deleted in a later rowset -> SKIP.
-    EXPECT_EQ(ResultType::SKIP, calc_from_rowsets({{ROW_BINLOG_APPEND}, {ROW_BINLOG_DELETE}}));
+    EXPECT_EQ(ResultType::SKIP, calc_from_rowsets({{CHANGELOG_OP_APPEND}, {CHANGELOG_OP_DELETE}}));
 
     // Scenario 4: key1 deleted first, then appended in later rowset -> UPDATE_BEFORE_AFTER.
     EXPECT_EQ(ResultType::UPDATE_BEFORE_AFTER,
-              calc_from_rowsets({{ROW_BINLOG_DELETE}, {ROW_BINLOG_APPEND}}));
+              calc_from_rowsets({{CHANGELOG_OP_DELETE}, {CHANGELOG_OP_APPEND}}));
 
     // Scenario 5: empty rowsets around the same key should not affect folding.
     EXPECT_EQ(ResultType::DELETE,
-              calc_from_rowsets({{}, {ROW_BINLOG_UPDATE}, {}, {ROW_BINLOG_DELETE}, {}}));
+              calc_from_rowsets({{}, {CHANGELOG_OP_UPDATE}, {}, {CHANGELOG_OP_DELETE}, {}}));
 }
 
-TEST_F(BlockReaderMinDeltaTest, RowBinlogOperationCodeLayoutGuard) {
+TEST_F(BlockReaderMinDeltaTest, ChangelogOperationCodeLayoutGuard) {
     // The implementation uses op codes as 2D lookup indices, so guard the op layout to prevent implicit OOB.
-    EXPECT_EQ(0, ROW_BINLOG_APPEND);
-    EXPECT_EQ(1, ROW_BINLOG_UPDATE);
-    EXPECT_EQ(2, ROW_BINLOG_DELETE);
+    EXPECT_EQ(0, CHANGELOG_OP_APPEND);
+    EXPECT_EQ(1, CHANGELOG_OP_UPDATE);
+    EXPECT_EQ(2, CHANGELOG_OP_DELETE);
 }
 
 // Contract test for the group-boundary rule in BlockReader::_min_delta_next_block. A MIN_DELTA
@@ -144,7 +145,7 @@ TEST_F(BlockReaderMinDeltaTest, RowBinlogOperationCodeLayoutGuard) {
 //
 // The subtle bug this guards against: the reader used to split groups on IteratorRowRef::is_same,
 // which the segment merge sets only for CROSS-segment same-key matches (it drives dedup). When a
-// compaction / row-binlog LMax quick-merge folds a key's whole change chain into ONE segment, those
+// compaction / changelog LMax quick-merge folds a key's whole change chain into ONE segment, those
 // consecutive same-key rows carry is_same = false, so an is_same-based grouping shatters one key
 // into many single-row groups. The fix groups by comparing the leading key columns directly.
 namespace {
@@ -166,7 +167,7 @@ std::vector<ResultType> fold_by_is_same(const std::vector<QmRow>& rows) {
             last_op = rows[j].op;
             ++j;
         }
-        out.push_back(binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op));
+        out.push_back(changelog::AggregateFunctionMinDelta::calculate_result(first_op, last_op));
         i = j;
     }
     return out;
@@ -184,7 +185,7 @@ std::vector<ResultType> fold_by_key(const std::vector<QmRow>& rows) {
             last_op = rows[j].op;
             ++j;
         }
-        out.push_back(binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op));
+        out.push_back(changelog::AggregateFunctionMinDelta::calculate_result(first_op, last_op));
         i = j;
     }
     return out;
@@ -198,10 +199,10 @@ TEST_F(BlockReaderMinDeltaTest, GroupBoundaryUsesKeyNotIsSame) {
     //   key 2: UPDATE, UPDATE          -> folds to UPDATE_BEFORE_AFTER
     //   key 3: APPEND, DELETE          -> folds to SKIP
     const std::vector<QmRow> rows = {
-            {1, ROW_BINLOG_APPEND, false}, {1, ROW_BINLOG_UPDATE, false},
-            {1, ROW_BINLOG_UPDATE, false}, {2, ROW_BINLOG_UPDATE, false},
-            {2, ROW_BINLOG_UPDATE, false}, {3, ROW_BINLOG_APPEND, false},
-            {3, ROW_BINLOG_DELETE, false},
+            {1, CHANGELOG_OP_APPEND, false}, {1, CHANGELOG_OP_UPDATE, false},
+            {1, CHANGELOG_OP_UPDATE, false}, {2, CHANGELOG_OP_UPDATE, false},
+            {2, CHANGELOG_OP_UPDATE, false}, {3, CHANGELOG_OP_APPEND, false},
+            {3, CHANGELOG_OP_DELETE, false},
     };
 
     // Grouping by key yields exactly one folded change per key.
@@ -225,9 +226,9 @@ TEST_F(BlockReaderMinDeltaTest, GroupBoundaryMixedIsSameStillGroupsByKey) {
     //   key 1: APPEND(false), UPDATE(true), UPDATE(false)  -> INSERT
     //   key 2: UPDATE(false), DELETE(false)                -> DELETE
     const std::vector<QmRow> rows = {
-            {1, ROW_BINLOG_APPEND, false}, {1, ROW_BINLOG_UPDATE, true},
-            {1, ROW_BINLOG_UPDATE, false}, {2, ROW_BINLOG_UPDATE, false},
-            {2, ROW_BINLOG_DELETE, false},
+            {1, CHANGELOG_OP_APPEND, false}, {1, CHANGELOG_OP_UPDATE, true},
+            {1, CHANGELOG_OP_UPDATE, false}, {2, CHANGELOG_OP_UPDATE, false},
+            {2, CHANGELOG_OP_DELETE, false},
     };
 
     const std::vector<ResultType> by_key = fold_by_key(rows);

@@ -92,7 +92,7 @@ public:
     };
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
 
@@ -184,7 +184,7 @@ private:
 
         size_t offset = 0;
         auto* state = reinterpret_cast<LocaleDayMonthNameState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         const char* const* names_ptr = nullptr;
         if constexpr (std::is_same_v<Transform, DayNameImpl<Transform::OpArgType>>) {
             names_ptr = state->day_names;

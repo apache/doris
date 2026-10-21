@@ -211,6 +211,18 @@ uint64_t UnifiedSparseColumnWriter::estimate_buffer_size() const {
     return size;
 }
 
+uint64_t UnifiedSparseColumnWriter::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    uint64_t size = 0;
+    if (_single_writer) {
+        size += std::invoke(getter, _single_writer.get());
+    }
+    for (const auto& w : _bucket_writers) {
+        size += std::invoke(getter, w.get());
+    }
+    return size;
+}
+
 Status UnifiedSparseColumnWriter::finish() {
     if (_single_writer) {
         RETURN_IF_ERROR(_single_writer->finish());
@@ -346,6 +358,17 @@ uint64_t VariantDocWriter::estimate_buffer_size() const {
     }
     for (const auto& writer : _doc_value_column_writers) {
         size += writer->estimate_buffer_size();
+    }
+    return size;
+}
+
+uint64_t VariantDocWriter::get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const {
+    uint64_t size = 0;
+    for (const auto& writer : _subcolumn_writers) {
+        size += std::invoke(getter, writer.get());
+    }
+    for (const auto& writer : _doc_value_column_writers) {
+        size += std::invoke(getter, writer.get());
     }
     return size;
 }
@@ -518,6 +541,11 @@ Status VariantColumnWriterImpl::write_bloom_filter_index() {
 
 uint64_t VariantColumnWriterImpl::estimate_buffer_size() {
     return _v2_writer ? _v2_writer->estimate_buffer_size() : 0;
+}
+
+uint64_t VariantColumnWriterImpl::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    return _v2_writer->get_total_data_pages_bytes(getter);
 }
 
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,

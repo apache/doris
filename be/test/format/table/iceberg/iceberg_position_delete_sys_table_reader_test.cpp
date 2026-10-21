@@ -85,7 +85,7 @@ SlotDescriptor* make_slot(ObjectPool* pool, int id, std::string name, DataTypePt
 Block make_output_block(const std::vector<SlotDescriptor*>& slots) {
     Block block;
     for (const auto* slot : slots) {
-        auto type = slot->get_data_type_ptr();
+        auto type = slot->type();
         block.insert(ColumnWithTypeAndName(type->create_column(), type, slot->col_name()));
     }
     return block;

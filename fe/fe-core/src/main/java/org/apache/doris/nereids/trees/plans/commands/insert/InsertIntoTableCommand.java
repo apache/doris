@@ -353,9 +353,9 @@ public class InsertIntoTableCommand extends Command
 
             List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
             if (!infos.isEmpty()) {
-                if (!Config.enable_feature_binlog) {
+                if (!Config.enable_feature_changelog) {
                     throw new AnalysisException("Insert plan with Table stream failed."
-                            + " should enable binlog feature in FE config.");
+                            + " should enable changelog feature in FE config.");
                 }
                 // put offset into executor
                 insertExecutor.setStreamUpdateInfos(infos);
@@ -631,6 +631,7 @@ public class InsertIntoTableCommand extends Command
                 // commit at the branch (iceberg validates it in beginWrite). The guard above already
                 // rejected @branch for connectors without supportsWriteBranch().
                 branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                pluginCtx.setBoundTargetSchema(((PhysicalConnectorTableSink<?>) physicalSink).getBoundTargetSchema());
                 if (pluginCtx.getStaticPartitionSpec().isEmpty()
                         && originLogicalQuery instanceof UnboundConnectorTableSink) {
                     UnboundConnectorTableSink<?> pluginSink =

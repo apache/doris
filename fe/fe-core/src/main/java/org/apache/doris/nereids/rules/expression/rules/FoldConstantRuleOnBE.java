@@ -79,6 +79,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
 import org.apache.doris.proto.Types.PScalarType;
@@ -296,6 +297,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             // literal. Also preserve cast(null as dataType) for callers such as CTAS.
             if (!CheckCast.check(cast.child().getDataType(), cast.getDataType(),
                     cast.isStrict() || SessionVariable.enableStrictCast()) || cast.child().isNullLiteral()) {
+                return true;
+            }
+            // FoldConstantRuleOnFE leaves a cast of VARBINARY bytes for BE when no FE string literal can carry
+            // its result (see VarBinaryLiteral.castValueToString). Folding the cast here would build that literal
+            // from the BE result anyway: getResultExpression decodes invalid UTF-8 as U+FFFD, and FE string
+            // code treats a NUL byte or a supplementary character unlike BE.
+            if (TypeCoercionUtils.hasVarBinaryType(cast.child().getDataType())) {
                 return true;
             }
         }
@@ -554,7 +562,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new StringLiteral(resultContent.getStringValue(i));
+                // BE sends the bytes of a string as they are, but a FE string literal holds only valid UTF-8:
+                // getStringValue(i) would turn other bytes, such as the 0xFF of unhex('FF'), into U+FFFD.
+                // Leave such a result unfolded, so that BE evaluates the expression.
+                ByteString bytesValue = resultContent.getStringValueBytes(i);
+                if (!bytesValue.isValidUtf8()) {
+                    return Collections.emptyList();
+                }
+                Literal literal = new StringLiteral(bytesValue.toStringUtf8());
                 res.add(literal);
             }
         } else if (type.isArrayType()) {

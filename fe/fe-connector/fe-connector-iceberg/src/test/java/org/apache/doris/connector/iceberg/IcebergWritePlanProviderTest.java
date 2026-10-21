@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
@@ -85,6 +86,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -111,47 +113,91 @@ public class IcebergWritePlanProviderTest {
             Collections.singletonMap("iceberg.catalog.type", "hadoop");
 
     @Test
-    public void rejectsVariantDataWritesButAllowsDeleteOnlyMerge() {
-        ConnectorColumn nestedVariant = new ConnectorColumn("payload",
-                ConnectorType.structOf(Collections.singletonList("nested"),
-                        Collections.singletonList(ConnectorType.of("VARIANT"))),
-                null, true, null);
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergWritePlanProvider.validateWriteSchema(
-                        Collections.singletonList(nestedVariant), true));
-        Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
-                Collections.singletonList(nestedVariant), false));
+    public void variantDataWritesNeedUnshreddedFormatThreeParquetTables() {
+        // A write of data files whose target holds a VARIANT, at the root or nested, as plain VARIANT or as the
+        // VARIANT_COMPUTE_V2 carrier the engine hands to the write path, needs format-version 3 and unshredded
+        // Parquet data files. A write without data files (DELETE, a delete-only MERGE) and a target without a
+        // VARIANT are not checked. MUTATION: dropping the VARIANT_COMPUTE_V2 arm of containsVariant -> red.
+        ConnectorType carrier = ConnectorType.of("VARIANT_COMPUTE_V2");
+        ConnectorColumn id = new ConnectorColumn("id", ConnectorType.of("INT"), null, true, null);
+        List<ConnectorColumn> variants = Arrays.asList(
+                new ConnectorColumn("v", ConnectorType.of("VARIANT"), null, true, null),
+                new ConnectorColumn("v", carrier, null, true, null),
+                new ConnectorColumn("payload", ConnectorType.structOf(Collections.singletonList("nested"),
+                        Collections.singletonList(carrier)), null, true, null));
+        Map<String, String> unshredded = Collections.emptyMap();
+        for (ConnectorColumn variant : variants) {
+            List<ConnectorColumn> columns = Arrays.asList(id, variant);
+            Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateVariantWrite(
+                    columns, true, 3, FileFormat.PARQUET, unshredded), variant.getType().toString());
+            assertVariantWriteRejected(columns, 2, FileFormat.PARQUET, unshredded,
+                    "Iceberg VARIANT writes require table format-version 3, but found 2");
+            assertVariantWriteRejected(columns, 3, FileFormat.ORC, unshredded,
+                    "Iceberg VARIANT writes require Parquet data files, but found ORC");
+            assertVariantWriteRejected(columns, 3, FileFormat.PARQUET,
+                    Collections.singletonMap("write.parquet.shred-variants", "true"),
+                    "Doris currently supports only unshredded Iceberg VARIANT writes");
+            Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateVariantWrite(
+                    columns, false, 2, FileFormat.ORC, unshredded), variant.getType().toString());
+        }
+        Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateVariantWrite(
+                Collections.singletonList(id), true, 2, FileFormat.ORC, unshredded));
+    }
 
-        ConnectorColumn id = new ConnectorColumn(
-                "id", ConnectorType.of("INT"), null, true, null);
-        WriteHandle partialInsert = new WriteHandle(new IcebergTableHandle("db1", "t2"))
-                .columns(Collections.singletonList(id))
-                .boundTargetColumns(Arrays.asList(id, nestedVariant));
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergWritePlanProvider.validateWriteSchema(partialInsert));
+    private static void assertVariantWriteRejected(List<ConnectorColumn> columns, int formatVersion,
+            FileFormat fileFormat, Map<String, String> writerProperties, String message) {
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWritePlanProvider.validateVariantWrite(
+                        columns, true, formatVersion, fileFormat, writerProperties));
+        Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
     }
 
     @Test
-    public void rejectsRootAndNestedComputeVariantCarrier() {
-        // The engine hands an Iceberg VARIANT column to the write path as the VARIANT_COMPUTE_V2 carrier
-        // (ConnectorColumnConverter), not as plain VARIANT, so the read-only gate must recognize the carrier
-        // both as a root column and nested in a complex type. MUTATION: dropping the VARIANT_COMPUTE_V2 arm
-        // of containsVariant -> red.
-        ConnectorType carrier = ConnectorType.of("VARIANT_COMPUTE_V2");
-        ConnectorColumn rootVariant = new ConnectorColumn("v", carrier, null, true, null);
-        ConnectorColumn nestedVariant = new ConnectorColumn("payload",
-                ConnectorType.structOf(Collections.singletonList("nested"), Collections.singletonList(carrier)),
-                null, true, null);
-        for (ConnectorColumn column : Arrays.asList(rootVariant, nestedVariant)) {
-            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> IcebergWritePlanProvider.validateWriteSchema(Collections.singletonList(column), true),
-                    column.getName());
-            Assertions.assertTrue(exception.getMessage().contains("VARIANT")
-                    && exception.getMessage().contains("read-only"), exception.getMessage());
-            // A delete-only MERGE writes no data file, so the same schema stays usable for it.
-            Assertions.assertDoesNotThrow(() -> IcebergWritePlanProvider.validateWriteSchema(
-                    Collections.singletonList(column), false), column.getName());
-        }
+    public void planWriteWritesVariantsOnlyToFormatThreeParquetTables() {
+        // An INSERT whose column list omits the VARIANT column still binds the whole target schema, so the table it
+        // writes is checked. A v3 Parquet table takes the write, with the VARIANT in the schema JSON BE parses and
+        // column metrics collected for it although it is the only column with metrics, while a v3 ORC table and a
+        // shredding Parquet table reject it. MUTATION: collecting metrics only for primitive fields -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.VariantType.get()));
+        InMemoryCatalog catalog = freshCatalog();
+        Map<String, String> props = new HashMap<>();
+        props.put("format-version", "3");
+        props.put("write.format.default", "parquet");
+        props.put("write.data.path", "oss://bucket/wh/db1/variants/data");
+        props.put("write.metadata.metrics.default", "none");
+        props.put("write.metadata.metrics.column.payload", "counts");
+        Table parquet = catalog.createTable(TableIdentifier.of("db1", "variants"), schema,
+                PartitionSpec.unpartitioned(), props);
+        TIcebergTableSink sink = planSink(parquet, contextWithStorage(), variantInsert(parquet, "variants"));
+        Assertions.assertTrue(sink.getSchemaJson().contains("\"type\":\"variant\""), sink.getSchemaJson());
+        Assertions.assertTrue(sink.isCollectColumnStats());
+
+        props.put("write.format.default", "orc");
+        Table orc = catalog.createTable(TableIdentifier.of("db1", "orc_variants"), schema,
+                PartitionSpec.unpartitioned(), props);
+        DorisConnectorException orcError = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(orc, contextWithStorage(), variantInsert(orc, "orc_variants")));
+        Assertions.assertTrue(orcError.getMessage().contains("require Parquet data files, but found ORC"),
+                orcError.getMessage());
+
+        props.put("write.format.default", "parquet");
+        props.put("write.parquet.shred-variants", "true");
+        Table shredded = catalog.createTable(TableIdentifier.of("db1", "shredded_variants"), schema,
+                PartitionSpec.unpartitioned(), props);
+        DorisConnectorException shredError = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(shredded, contextWithStorage(), variantInsert(shredded, "shredded_variants")));
+        Assertions.assertTrue(shredError.getMessage().contains("unshredded"), shredError.getMessage());
+    }
+
+    /** An INSERT into {@code id} only, bound to the whole write schema of the table. */
+    private static WriteHandle variantInsert(Table table, String tableName) {
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", tableName);
+        List<ConnectorColumn> columns = providerFor(table, context).getWriteColumns(
+                sessionFor(table, context), tableHandle, Optional.empty()).orElseThrow(AssertionError::new);
+        return new WriteHandle(tableHandle).columns(columns.subList(0, 1)).boundTargetColumns(columns);
     }
 
     private static InMemoryCatalog freshCatalog() {
@@ -376,6 +422,33 @@ public class IcebergWritePlanProviderTest {
         GenericRecord structDefault = GenericRecord.create(structType);
         structDefault.setField("payload", ByteBuffer.wrap(new byte[] {(byte) 0x80, 0x00, (byte) 0xff}));
         Assertions.assertEquals("named_struct('payload', X'8000FF')",
+                IcebergWriteSchemaContext.toDorisSql(structType, structDefault, false, false));
+    }
+
+    @Test
+    public void variantWriteDefaultsMustBeNull() {
+        // An optional VARIANT column without a write-default writes NULL and a required one has no default, while a
+        // VARIANT write-default other than NULL is rejected; a STRUCT default keeps its VARIANT child NULL.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "optional_payload", Types.VariantType.get()),
+                Types.NestedField.required(2, "required_payload", Types.VariantType.get()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "variant_defaults"), schema,
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.variant_defaults", Optional.empty(), false, false);
+        Assertions.assertEquals("NULL", writeContext.getColumns().get(0).getDefaultValueSql());
+        Assertions.assertNull(writeContext.getColumns().get(1).getDefaultValueSql());
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergWriteSchemaContext.toDorisSql(Types.VariantType.get(), "{}", false, false));
+        Assertions.assertTrue(exception.getMessage().contains("Iceberg VARIANT write-default must be NULL"),
+                exception.getMessage());
+
+        Types.StructType structType = Types.StructType.of(
+                Types.NestedField.optional(3, "payload", Types.VariantType.get()));
+        GenericRecord structDefault = GenericRecord.create(structType);
+        structDefault.set(0, null);
+        Assertions.assertEquals("named_struct('payload', NULL)",
                 IcebergWriteSchemaContext.toDorisSql(structType, structDefault, false, false));
     }
 
@@ -999,6 +1072,27 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteStaticPartitionKeysTheRenamedPartitionField() {
+        // ADD PARTITION KEY id AS id_identity: the engine keys the spec by the SOURCE column (the identifier Spark
+        // resolves for a static PARTITION clause, and the one an identity value can be materialized through), while
+        // the BE writer matches static_partition_values against the partition FIELD name. Shipping "id" unchanged
+        // would make BE treat the write as dynamic, so the planner must rewrite the key to the field name.
+        // MUTATION: dropping the rewrite -> {"id"="7"} != {"id_identity"="7"} -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), schema,
+                PartitionSpec.builderFor(schema).identity("id", "id_identity").build(),
+                Collections.singletonMap("write.format.default", "parquet"));
+
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).overwrite(true)
+                        .writeContext(Collections.singletonMap("id", "7")));
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"), sink.getStaticPartitionValues());
+    }
+
+    @Test
     public void planWriteStaticPartitionNullMarkerReachesSink() {
         Table table = partitionedSortedTable(freshCatalog());
         WriteHandle handle = new WriteHandle(new IcebergTableHandle("db1", "t1"))
@@ -1489,6 +1583,146 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals("payload", field.getSourceColumnName(),
                 "merge exchange must route a nested source through its bound top-level struct slot");
         Assertions.assertEquals(Integer.valueOf(3), field.getSourceId());
+    }
+
+    // ───────────────────────────── getWriteDistribution (partition-hash INSERT routing) ─────────────────────────────
+    //
+    // WHY: without a declared distribution a partitioned INSERT is spread randomly, so every writer opens a file for
+    // every partition it sees and the write fails once one writer holds more than
+    // table_sink_partition_write_max_partition_nums_per_writer (128) open partitions. The BE iceberg_transform
+    // function hashes the transformed partition value, so one partition reaches one writer.
+
+    @Test
+    public void getWriteDistributionRoutesByTheIcebergTransform() {
+        Table table = bucketPartitionedTable(freshCatalog());
+        ConnectorWriteDistribution distribution = providerFor(table, contextWithStorage())
+                .getWriteDistribution(sessionFor(table, contextWithStorage()), new IcebergTableHandle("db1", "tb"));
+
+        Assertions.assertNotNull(distribution, "a partitioned INSERT must be routed by its partition value");
+        Assertions.assertEquals(ConnectorWriteDistribution.Mode.EXTERNAL_HASH, distribution.getMode());
+        // The route column is the source column ("id"), not the partition field ("id_bucket"): fe-core binds it to
+        // the sink output, and the BE applies the transform.
+        Assertions.assertEquals(Collections.singletonList("id"), distribution.getRouteColumns());
+        Assertions.assertEquals("iceberg_transform", distribution.getPartitionFunction());
+        Assertions.assertEquals(Collections.singletonMap("transforms", "bucket[16]"),
+                distribution.getPartitionFunctionOptions());
+        Assertions.assertEquals(ConnectorWriteDistribution.WriterAssignment.SKEWED, distribution.getWriterAssignment());
+    }
+
+    @Test
+    public void getWriteDistributionCarriesEveryPartitionFieldInSpecOrder() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()),
+                Types.NestedField.optional(3, "ts", Types.TimestampType.withoutZone()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "multi_field"), schema,
+                PartitionSpec.builderFor(schema).day("ts").identity("name").bucket("id", 4).build());
+
+        ConnectorWriteDistribution distribution = providerFor(table, contextWithStorage())
+                .getWriteDistribution(sessionFor(table, contextWithStorage()),
+                        new IcebergTableHandle("db1", "multi_field"));
+
+        // The BE pairs the i-th route expression with the i-th transform, so both lists follow the spec order.
+        Assertions.assertEquals(Arrays.asList("ts", "name", "id"), distribution.getRouteColumns());
+        Assertions.assertEquals(Collections.singletonMap("transforms", "day,identity,bucket[4]"),
+                distribution.getPartitionFunctionOptions());
+    }
+
+    @Test
+    public void getWriteDistributionKeepsRandomWritesWhenRoutingIsUnavailable() {
+        InMemoryCatalog catalog = freshCatalog();
+        partitionedSortedTable(catalog);
+        Table unpartitioned = unpartitionedUnsortedTable(catalog);
+        Assertions.assertNull(providerFor(unpartitioned, contextWithStorage()).getWriteDistribution(
+                sessionFor(unpartitioned, contextWithStorage()), new IcebergTableHandle("db1", "t2")));
+
+        // The route columns are top-level sink outputs; a nested source has none, so keep the random write.
+        // MUTATION: resolving the nested source to its top-level struct column -> routes by "payload" -> red.
+        Schema nestedSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "part", Types.IntegerType.get()))));
+        Table nested = catalog.createTable(TableIdentifier.of("db1", "nested_partition"), nestedSchema,
+                PartitionSpec.builderFor(nestedSchema).bucket("payload.part", 8).build());
+        Assertions.assertNull(providerFor(nested, contextWithStorage()).getWriteDistribution(
+                sessionFor(nested, contextWithStorage()), new IcebergTableHandle("db1", "nested_partition")));
+
+        // A backend older than exec version 18 rejects iceberg_transform, so the INSERT keeps the random write it
+        // already runs there. MUTATION: dropping the version gate -> red.
+        Table partitioned = bucketPartitionedTable(catalog);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "tb");
+        Assertions.assertNull(providerFor(partitioned, contextWithStorage()).getWriteDistribution(
+                sessionFor(partitioned, contextWithStorage()).beExecVersion(17), handle));
+        Assertions.assertNotNull(providerFor(partitioned, contextWithStorage()).getWriteDistribution(
+                sessionFor(partitioned, contextWithStorage()).beExecVersion(18), handle));
+    }
+
+    @Test
+    public void getWriteDistributionUsesTheStatementPinnedSchema() {
+        Table table = bucketPartitionedTable(freshCatalog());
+        IcebergWritePlanProvider provider = providerFor(table, contextWithStorage());
+        WriteSession session = sessionFor(table, contextWithStorage());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "tb");
+        // Binding the INSERT pins the write schema for the statement; the sink output carries its column names.
+        provider.getWriteColumns(session, handle, Optional.empty());
+        table.updateSchema().renameColumn("id", "renamed_id").commit();
+
+        // MUTATION: reading the live table instead of the pinned schema -> routes by "renamed_id", which the bound
+        // sink output does not have -> red.
+        Assertions.assertEquals(Collections.singletonList("id"),
+                provider.getWriteDistribution(session, handle).getRouteColumns());
+    }
+
+    @Test
+    public void getWriteDistributionRoutesBinaryPartitionValuesOnlyOnBackendsThatHashThem() {
+        // The exchange hashes the transformed value. A backend below exec version 19 cannot hash the BE column of a
+        // BINARY or FIXED value, so routing identity(binary_key) there fails the INSERT once it has two writers;
+        // such a write keeps random writes. bucket() turns the bytes into an INT, so it is routed from version 18.
+        // MUTATION: dropping the version check -> identity_binary routes at 18 -> red; skipping BINARY and FIXED
+        // unconditionally -> nothing routes at 19 -> red.
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "binary_key", Types.BinaryType.get()),
+                Types.NestedField.optional(3, "fixed_key", Types.FixedType.ofLength(4)));
+        Map<String, PartitionSpec> binaryValued = new LinkedHashMap<>();
+        binaryValued.put("identity_binary", PartitionSpec.builderFor(schema).identity("binary_key").build());
+        binaryValued.put("truncate_binary", PartitionSpec.builderFor(schema).truncate("binary_key", 1).build());
+        binaryValued.put("identity_fixed", PartitionSpec.builderFor(schema).identity("fixed_key").build());
+        // One binary-valued field is enough: the route hashes every field of the spec together.
+        binaryValued.put("int_and_binary",
+                PartitionSpec.builderFor(schema).identity("id").identity("binary_key").build());
+        Map<String, List<String>> routeColumns = new LinkedHashMap<>();
+        routeColumns.put("identity_binary", Collections.singletonList("binary_key"));
+        routeColumns.put("truncate_binary", Collections.singletonList("binary_key"));
+        routeColumns.put("identity_fixed", Collections.singletonList("fixed_key"));
+        routeColumns.put("int_and_binary", Arrays.asList("id", "binary_key"));
+        Map<String, String> transforms = new LinkedHashMap<>();
+        transforms.put("identity_binary", "identity");
+        transforms.put("truncate_binary", "truncate[1]");
+        transforms.put("identity_fixed", "identity");
+        transforms.put("int_and_binary", "identity,identity");
+        for (Map.Entry<String, PartitionSpec> entry : binaryValued.entrySet()) {
+            String name = entry.getKey();
+            Table table = catalog.createTable(TableIdentifier.of("db1", name), schema, entry.getValue());
+            IcebergTableHandle handle = new IcebergTableHandle("db1", name);
+            Assertions.assertNull(providerFor(table, contextWithStorage()).getWriteDistribution(
+                    sessionFor(table, contextWithStorage()).beExecVersion(18), handle), name);
+            ConnectorWriteDistribution distribution = providerFor(table, contextWithStorage()).getWriteDistribution(
+                    sessionFor(table, contextWithStorage()).beExecVersion(19), handle);
+            Assertions.assertEquals(routeColumns.get(name), distribution.getRouteColumns(), name);
+            Assertions.assertEquals(Collections.singletonMap("transforms", transforms.get(name)),
+                    distribution.getPartitionFunctionOptions(), name);
+        }
+
+        Table bucketed = catalog.createTable(TableIdentifier.of("db1", "bucket_binary"), schema,
+                PartitionSpec.builderFor(schema).bucket("binary_key", 16).build());
+        ConnectorWriteDistribution distribution = providerFor(bucketed, contextWithStorage()).getWriteDistribution(
+                sessionFor(bucketed, contextWithStorage()).beExecVersion(18),
+                new IcebergTableHandle("db1", "bucket_binary"));
+        Assertions.assertEquals(Collections.singletonList("binary_key"), distribution.getRouteColumns());
+        Assertions.assertEquals(Collections.singletonMap("transforms", "bucket[16]"),
+                distribution.getPartitionFunctionOptions());
     }
 
     @Test
@@ -2194,6 +2428,7 @@ public class IcebergWritePlanProviderTest {
         // Default to a live memoizing scope so a v3 row-level DML does not trip planWrite's NONE fail-loud; the
         // dedicated fail-loud test forces NONE via noScope().
         private ConnectorStatementScope statementScope = new TestStatementScope();
+        private int beExecVersion = Integer.MAX_VALUE;
 
         WriteSession(ConnectorTransaction txn) {
             this(txn, "q");
@@ -2202,6 +2437,16 @@ public class IcebergWritePlanProviderTest {
         WriteSession(ConnectorTransaction txn, String queryId) {
             this.txn = txn;
             this.queryId = queryId;
+        }
+
+        WriteSession beExecVersion(int version) {
+            this.beExecVersion = version;
+            return this;
+        }
+
+        @Override
+        public int getBeExecVersion() {
+            return beExecVersion;
         }
 
         /** Shares an explicit scope (so a test can pre-fill the rewritable-delete supply the write then reads). */

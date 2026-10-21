@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -87,7 +89,8 @@ Status execute_single_pattern(const TQueryOptions& query_options, const std::str
     context->set_constant_cols(constant_columns);
 
     Function function;
-    RETURN_IF_ERROR(function.open(context.get(), FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(
+            function.open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
     Block block;
     block.insert({std::move(values), string_type, "value"});
@@ -146,7 +149,7 @@ void check_constant_pattern_batch(const std::vector<std::string>& values,
     context->set_constant_cols(constant_columns);
 
     Function function;
-    auto status = function.open(context.get(), FunctionContext::THREAD_LOCAL);
+    auto status = function.open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     Block block;
@@ -622,8 +625,10 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
         fn_ctx->set_constant_cols(
                 {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
         ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
 
         auto result_col = block.get_by_position(2).column;
@@ -637,8 +642,8 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
                     << "input: '" << str << "', pattern: '" << pattern << "'";
         }
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", R"(["18", "17"])");
@@ -700,15 +705,17 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
         fn_ctx->set_constant_cols(
                 {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
         ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
 
         EXPECT_TRUE(block.get_by_position(2).column->is_null_at(0))
                 << "Expected null for null_str=" << null_str << " null_pattern=" << null_pattern;
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     // NULL input string → null result
@@ -738,13 +745,93 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
         fn_ctx->set_constant_cols(
                 {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         // Invalid pattern should cause open() to fail for THREAD_LOCAL scope
-        EXPECT_NE(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        EXPECT_NE(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
+}
+
+// Patterns RE2 rejects (lookahead here) are compiled by Boost once extended regex is
+// enabled. A zero-width Boost match must be stepped over from the matched position,
+// otherwise the same position is matched and extracted again.
+TEST(FunctionLikeTest, regexp_extract_all_boost_zero_width_match) {
+    auto str_type = std::make_shared<DataTypeString>();
+
+    auto run_case = [&](const std::string& func_name, const DataTypePtr& return_type,
+                        const std::string& str, const std::string& pattern,
+                        const std::string& expected) {
+        auto col_str = ColumnString::create();
+        col_str->insert_data(str.data(), str.size());
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data(pattern.data(), pattern.size());
+
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        TQueryOptions query_options = fn_ctx->state()->query_options();
+        query_options.__set_enable_extended_regex(true);
+        fn_ctx->state()->set_query_options(query_options);
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+
+        auto result_col = block.get_by_position(2).column;
+        ASSERT_TRUE(result_col.get() != nullptr);
+        ASSERT_FALSE(result_col->is_null_at(0));
+        EXPECT_EQ(expected, return_type->to_string(*result_col, 0))
+                << func_name << " input: '" << str << "', pattern: '" << pattern << "'";
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    };
+
+    auto string_type = make_nullable(std::make_shared<DataTypeString>());
+    auto array_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+    // The lookahead matches once, at the last position; it must not be extracted twice.
+    run_case("regexp_extract_all", string_type, "ba", "(?=(a))", "['a']");
+    run_case("regexp_extract_all_array", array_type, "ba", "(?=(a))", R"(["a"])");
+    // Zero-width matches at distinct positions are all still found, exactly once each.
+    run_case("regexp_extract_all", string_type, "aba", "(?=(a))", "['a','a']");
+    run_case("regexp_extract_all_array", array_type, "aba", "(?=(a))", R"(["a", "a"])");
+    run_case("regexp_extract_all", string_type, "aaa", "(?=(a))", "['a','a','a']");
+    run_case("regexp_extract_all_array", array_type, "aaa", "(?=(a))", R"(["a", "a", "a"])");
+    // Non-zero-width Boost matches keep advancing past the whole match.
+    run_case("regexp_extract_all", string_type, "foo123bar456baz", "(\\d{3})(?=bar|baz)",
+             "['123','456']");
+    run_case("regexp_extract_all_array", array_type, "foo123bar456baz", "(\\d{3})(?=bar|baz)",
+             R"(["123", "456"])");
+    // The text before a zero-width match stays visible to lookbehind at the next position.
+    run_case("regexp_extract_all", string_type, "aa", "(?<=(a))", "['a','a']");
+    run_case("regexp_extract_all_array", array_type, "aa", "(?<=(a))", R"(["a", "a"])");
+    // After an empty match, a consuming match at the same position is still tried.
+    run_case("regexp_extract_all", string_type, "xa", "((?<=x)|a)", "['','a']");
+    run_case("regexp_extract_all_array", array_type, "xa", "((?<=x)|a)", R"(["", "a"])");
+    // Resuming after a zero-width match must not let `^` anchor in the middle of the input
+    // (the string form renders "no match" as an empty string).
+    run_case("regexp_extract_all", string_type, "xxa?b", "(?<=a)|^(b)", "");
+    run_case("regexp_extract_all_array", array_type, "xxa?b", "(?<=a)|^(b)", "[]");
 }
 
 TEST(FunctionLikeTest, split_by_regexp_preserves_original_anchor) {
@@ -890,16 +977,18 @@ TEST(FunctionLikeTest, regexp_invalid_column_pattern_fails) {
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(constant_cols);
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
         auto st = func->execute(fn_ctx, block, arguments, result, strs.size());
         EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << func_name << ": " << st;
         EXPECT_NE(st.to_string().find(expected_error), std::string::npos)
                 << func_name << ": " << st;
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     auto nullable_str = make_nullable(str_type);
@@ -1013,8 +1102,12 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(constant_cols);
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL)) << func_name;
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL)) << func_name;
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL))
+                << func_name;
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL))
+                << func_name;
         ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, arguments, result, strs.size()))
                 << func_name;
 
@@ -1030,8 +1123,8 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
         }
         EXPECT_TRUE(result_column->is_null_at(1)) << func_name;
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     for (const char* func_name : {"regexp_extract", "regexp_extract_or_null"}) {
@@ -1145,8 +1238,10 @@ TEST(FunctionLikeTest, regexp_count_non_nullable_arguments) {
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(constant_cols);
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
         ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, arguments, result, strs.size()));
 
         const auto& result_column = block.get_by_position(result).column;
@@ -1163,8 +1258,8 @@ TEST(FunctionLikeTest, regexp_count_non_nullable_arguments) {
             EXPECT_EQ(expected[i], data[i]) << "row " << i;
         }
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     for (const auto& return_type : {DataTypePtr(int32_type), make_nullable(int32_type)}) {
@@ -1234,8 +1329,12 @@ TEST(FunctionLikeTest, regexp_non_nullable_arguments) {
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(constant_cols);
 
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL)) << func_name;
-        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL)) << func_name;
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL))
+                << func_name;
+        ASSERT_EQ(Status::OK(),
+                  func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL))
+                << func_name;
         ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, arguments, result, strs.size()))
                 << func_name;
 
@@ -1252,8 +1351,8 @@ TEST(FunctionLikeTest, regexp_non_nullable_arguments) {
             }
         }
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     auto nullable_array = make_nullable(std::make_shared<DataTypeArray>(nullable_str));

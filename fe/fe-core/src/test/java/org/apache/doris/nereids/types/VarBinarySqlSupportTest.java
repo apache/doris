@@ -18,14 +18,33 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Optional;
 
 public class VarBinarySqlSupportTest extends TestWithFeService {
     @Test
@@ -84,7 +103,9 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
                 "cast(encoded as varbinary) not in (X'01', X'02')",
                 "cast(encoded as varbinary(2)) in (cast(encoded as varbinary(2)), cast(encoded as varbinary(2)))",
                 "cast(encoded as varbinary) in ('first', 'second')",
-                "encoded in (X'01', X'02')",
+                "encoded in (X'01', X'02')"
+        });
+        assertExpressionsRejected("in predicate could not contains complex type", new String[] {
                 "array(cast(encoded as varbinary)) in (array(X'01'), array(X'02'))",
                 "struct(cast(encoded as varbinary)) in (struct(X'01'), struct(X'02'))"
         });
@@ -125,6 +146,10 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
     }
 
     private void assertBinaryExpressionsRejected(String[] expressions) {
+        assertExpressionsRejected("does not support VARBINARY", expressions);
+    }
+
+    private void assertExpressionsRejected(String expectedMessage, String[] expressions) {
         boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
         try {
             for (boolean newBehavior : new boolean[] {false, true}) {
@@ -134,12 +159,47 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
                             org.apache.doris.nereids.exceptions.AnalysisException.class,
                             () -> PlanChecker.from(connectContext).analyze("select " + expression + " from source_bytes"),
                             expression);
-                    Assertions.assertTrue(error.getMessage().contains("does not support VARBINARY"), error.getMessage());
+                    Assertions.assertTrue(error.getMessage().contains(expectedMessage), error.getMessage());
                 }));
             }
         } finally {
             GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
         }
+    }
+
+    @Test
+    public void testJoinConditionComparingStringsCastFromBinary() {
+        // FE leaves CAST(X'FF' AS STRING) for BE because no FE string literal carries 0xFF, so a nullable IN
+        // subquery keeps the cast in a mark join condition, which compares two strings.
+        PlanChecker.from(connectContext)
+                .analyze("select cast(X'FF' as string) in (select encoded from source_bytes)").rewrite();
+        PlanChecker.from(connectContext)
+                .analyze("select cast(X'610062' as string) not in (select encoded from source_bytes)").rewrite();
+
+        // CheckAfterRewrite rejects a join condition only when it compares VARBINARY values.
+        Plan left = new LogicalOneRowRelation(new RelationId(1),
+                ImmutableList.of(new Alias(new VarBinaryLiteral(new byte[] {(byte) 0xFF}), "l")));
+        Plan right = new LogicalOneRowRelation(new RelationId(2),
+                ImmutableList.of(new Alias(new VarBinaryLiteral(new byte[] {(byte) 0xFF}), "r")));
+        Slot l = left.getOutput().get(0);
+        Slot r = right.getOutput().get(0);
+        Expression strings = new EqualTo(new Cast(l, StringType.INSTANCE), new Cast(r, StringType.INSTANCE));
+        for (boolean mark : new boolean[] {false, true}) {
+            PlanChecker.from(connectContext, join(left, right, strings, mark)).applyBottomUp(new CheckAfterRewrite());
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> PlanChecker.from(connectContext, join(left, right, new EqualTo(l, r), mark))
+                            .applyBottomUp(new CheckAfterRewrite()));
+            Assertions.assertTrue(error.getMessage().contains("varbinary type could not in join equal conditions"),
+                    error.getMessage());
+        }
+    }
+
+    private static Plan join(Plan left, Plan right, Expression condition, boolean mark) {
+        List<Expression> conditions = ImmutableList.of(condition);
+        return new LogicalJoin<>(mark ? JoinType.LEFT_SEMI_JOIN : JoinType.INNER_JOIN,
+                mark ? ImmutableList.of() : conditions, ImmutableList.of(), mark ? conditions : ImmutableList.of(),
+                new DistributeHint(DistributeType.NONE),
+                mark ? Optional.of(new MarkJoinSlotReference("mark")) : Optional.empty(), left, right, null);
     }
 
     @Test

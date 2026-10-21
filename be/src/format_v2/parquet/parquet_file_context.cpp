@@ -306,9 +306,15 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         native_metadata = native_meta_cache_handle.data<NativeParquetMetadata>();
         ++native_footer_cache_hits;
     } else {
-        RETURN_IF_ERROR(parse_native_parquet_footer(
+        auto footer_status = parse_native_parquet_footer(
                 native_file, &native_metadata_owner, &native_footer_size, io_ctx,
-                enable_mapping_varbinary, enable_mapping_timestamp_tz, preserve_binary_uuid));
+                enable_mapping_varbinary, enable_mapping_timestamp_tz, preserve_binary_uuid);
+        if (!footer_status.ok()) {
+            // Schema validators have no file identity. Attach it before leaving the file
+            // layer, preserving the original code used by callers to classify the failure.
+            return footer_status.prepend(fmt::format("Failed to read Parquet footer for '{}': ",
+                                                     native_file->path().native()));
+        }
         ++native_footer_read_calls;
         if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled()) {
             meta_cache->insert(meta_cache_key, native_metadata_owner.release(),

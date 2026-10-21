@@ -84,10 +84,10 @@ public abstract class AlterOp {
         return true;
     }
 
-    // Whether this alter operation is allowed on tables that enable row binlog.
+    // Whether this alter operation is allowed on tables that enable changelog.
     // Default is false, and only operations that are explicitly marked as safe
-    // for row binlog should override this to return true.
-    public boolean allowOpRowBinlog() {
+    // for changelog should override this to return true.
+    public boolean allowOnChangelogTable() {
         return false;
     }
 

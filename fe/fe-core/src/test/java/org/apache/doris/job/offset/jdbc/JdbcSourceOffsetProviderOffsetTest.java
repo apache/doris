@@ -25,7 +25,10 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -143,6 +146,82 @@ public class JdbcSourceOffsetProviderOffsetTest {
                 new BinlogSplit(Collections.singletonMap("lsn", "100"))));
 
         Assertions.assertTrue(provider.shouldPersistOffset(1_000L, 1_001L));
+    }
+
+    @Test
+    public void testSchemaRemainsPendingUntilJournalAcknowledgement() {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setTableSchemas("schema-A");
+        Assertions.assertEquals("schema-A", GsonUtils.GSON.fromJson(
+                provider.getPersistInfo(), JdbcSourceOffsetProvider.class).getTableSchemas());
+        // Preparing a record, or receiving the same schema again, must not acknowledge it.
+        provider.setTableSchemas("schema-A");
+        Assertions.assertEquals("schema-A", GsonUtils.GSON.fromJson(
+                provider.getPersistInfo(), JdbcSourceOffsetProvider.class).getTableSchemas());
+        Assertions.assertTrue(provider.isTableSchemasDirty());
+
+        provider.markTableSchemasPersisted();
+        JsonObject delta = GsonUtils.GSON.fromJson(provider.getPersistInfoWithoutTableSchemas(), JsonObject.class);
+        Assertions.assertFalse(delta.has("ts"));
+        Assertions.assertFalse(provider.isTableSchemasDirty());
+        Assertions.assertEquals("schema-A", provider.getTableSchemas());
+
+        provider.setTableSchemas("schema-A");
+        Assertions.assertTrue(provider.isTableSchemasDirty());
+        provider.setTableSchemas("schema-B");
+        Assertions.assertEquals("schema-B", GsonUtils.GSON.fromJson(
+                provider.getPersistInfo(), JdbcSourceOffsetProvider.class).getTableSchemas());
+    }
+
+    @Test
+    public void testSchemaFreePersistInfoRetainsOffsetAndSplitProgress() {
+        JdbcSourceOffsetProvider provider = GsonUtils.GSON.fromJson(
+                "{\"chw\":{\"db.table\":{\"db.table:0\":{\"lsn\":\"90\"}}},"
+                        + "\"bop\":{\"lsn\":\"100\"},\"ts\":\"schema-A\",\"csp\":{\"ni\":2}}",
+                JdbcSourceOffsetProvider.class);
+        String fullState = provider.getPersistInfo();
+
+        JsonObject persisted = GsonUtils.GSON.fromJson(provider.getPersistInfoWithoutTableSchemas(), JsonObject.class);
+
+        Assertions.assertFalse(persisted.has("ts"));
+        Assertions.assertEquals("100", persisted.getAsJsonObject("bop").get("lsn").getAsString());
+        Assertions.assertEquals("90", persisted.getAsJsonObject("chw").getAsJsonObject("db.table")
+                .getAsJsonObject("db.table:0").get("lsn").getAsString());
+        Assertions.assertEquals(2, persisted.getAsJsonObject("csp").get("ni").getAsInt());
+        Assertions.assertEquals(fullState, provider.getPersistInfo());
+    }
+
+    @Test
+    public void testPersistedStateMergesWithoutRuntimeInitialization() {
+        SourceOffsetProvider merger = new JdbcSourceOffsetProvider();
+        String previous = "{\"bop\":{\"lsn\":\"100\"},\"ts\":\"schema-A\"}";
+        String merged = merger.mergePersistInfo(previous, "{\"bop\":{\"lsn\":\"200\"}}");
+        JdbcSourceOffsetProvider provider = GsonUtils.GSON.fromJson(merged, JdbcSourceOffsetProvider.class);
+        Assertions.assertEquals("schema-A", provider.getTableSchemas());
+        Assertions.assertEquals("200", provider.getBinlogOffsetPersist().get("lsn"));
+        Assertions.assertNull(provider.getCurrentOffset());
+
+        String explicitNull = merger.mergePersistInfo(merged,
+                "{\"bop\":{\"lsn\":\"300\"},\"ts\":null}");
+        JdbcSourceOffsetProvider recovered = GsonUtils.GSON.fromJson(explicitNull, JdbcSourceOffsetProvider.class);
+        Assertions.assertEquals("schema-A", recovered.getTableSchemas());
+        Assertions.assertEquals("300", recovered.getBinlogOffsetPersist().get("lsn"));
+        String updated = "{\"bop\":{\"lsn\":\"400\"},\"ts\":\"schema-B\"}";
+        Assertions.assertEquals(updated, merger.mergePersistInfo(explicitNull, updated));
+        Assertions.assertEquals(updated, merger.mergePersistInfo(null, updated));
+    }
+
+    @Test
+    public void testTvfPersistedStateWithoutSchemaReplacesPreviousSchema() {
+        SourceOffsetProvider provider = new JdbcTvfSourceOffsetProvider();
+        String previous = "{\"bop\":{\"lsn\":\"100\"},\"ts\":\"schema-A\"}";
+        for (String incoming : new String[] {
+                "{\"bop\":{\"lsn\":\"200\"}}", "{\"bop\":{\"lsn\":\"200\"},\"ts\":null}"}) {
+            JdbcSourceOffsetProvider recovered = GsonUtils.GSON.fromJson(
+                    provider.mergePersistInfo(previous, incoming), JdbcSourceOffsetProvider.class);
+            Assertions.assertNull(recovered.getTableSchemas());
+            Assertions.assertEquals("200", recovered.getBinlogOffsetPersist().get("lsn"));
+        }
     }
 
     @Test

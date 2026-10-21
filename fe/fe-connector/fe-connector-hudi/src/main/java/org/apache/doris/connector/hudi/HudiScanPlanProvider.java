@@ -73,6 +73,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -398,7 +399,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             IncrementalRelation relation = buildIncrementalRelation(metaClient, conf, hudiHandle, isCow);
             Optional<List<ConnectorScanRange>> incrementalRanges = incrementalRanges(relation, isCow, forceJni,
                     basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient),
-                    this::normalizeNativeUri);
+                    this::normalizeNativeUri, urlEncodePartitioning(metaClient),
+                    hudiHandle.getTimestampPartitionKeys());
             if (incrementalRanges.isPresent()) {
                 LOG.info("Hudi incremental scan planning: {}.{} window=({}, {}] splits={}",
                         hudiHandle.getDbName(), hudiHandle.getTableName(),
@@ -420,9 +422,11 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
 
             List<ConnectorScanRange> ranges = new ArrayList<>();
+            boolean urlEncoded = urlEncodePartitioning(metaClient);
             for (String partitionPath : partitionPaths) {
                 Map<String, String> partValues = parsePartitionValues(
-                        partitionPath, hudiHandle.getPartitionKeyNames());
+                        partitionPath, hudiHandle.getPartitionKeyNames(), urlEncoded,
+                        hudiHandle.getTimestampPartitionKeys());
 
                 if (useNativeCowPath) {
                     collectCowSplits(fsView, partitionPath, queryInstant,
@@ -767,7 +771,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             return isCow
                     ? new COWIncrementalRelation(metaClient, conf, handle.getBeginInstant(),
-                            handle.getEndInstant(), policy, optParams)
+                            handle.getEndInstant(), policy, optParams, handle.getTimestampPartitionKeys())
                     : new MORIncrementalRelation(metaClient, conf, handle.getBeginInstant(),
                             handle.getEndInstant(), policy, optParams);
         } catch (IOException e) {
@@ -801,7 +805,15 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
             boolean forceJni, String basePath, String inputFormat, String serdeLib,
             List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames,
-            UnaryOperator<String> nativePathNormalizer) {
+            UnaryOperator<String> nativePathNormalizer, boolean urlEncoded) {
+        return incrementalRanges(relation, isCow, forceJni, basePath, inputFormat, serdeLib, columnNames,
+                columnTypes, partitionFieldNames, nativePathNormalizer, urlEncoded, Collections.emptySet());
+    }
+
+    static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
+            boolean forceJni, String basePath, String inputFormat, String serdeLib,
+            List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames,
+            UnaryOperator<String> nativePathNormalizer, boolean urlEncoded, Set<String> timestampPartitionKeys) {
         if (relation.fallbackFullTableScan()) {
             return Optional.empty();
         }
@@ -814,12 +826,18 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         }
         String endTs = relation.getEndTs();
         for (FileSlice fileSlice : relation.collectFileSlices()) {
-            Map<String, String> partValues = parsePartitionValues(fileSlice.getPartitionPath(), partitionFieldNames);
+            Map<String, String> partValues = parsePartitionValues(
+                    fileSlice.getPartitionPath(), partitionFieldNames, urlEncoded, timestampPartitionKeys);
             // @incr lists the LATEST schema (no per-file schema_id dict on the incremental path) -> null resolver.
             ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
                     basePath, inputFormat, serdeLib, columnNames, columnTypes, null, nativePathNormalizer));
         }
         return Optional.of(ranges);
+    }
+
+    static boolean urlEncodePartitioning(HoodieTableMetaClient metaClient) {
+        // HMS escaping does not describe the writer's physical path encoding contract.
+        return Boolean.parseBoolean(metaClient.getTableConfig().getUrlEncodePartitioning());
     }
 
     /**
@@ -1076,9 +1094,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Parse a Hudi partition's relative path into a column&rarr;value map, byte-faithful to legacy
-     * {@code HudiPartitionUtils.parsePartitionValues}. Handles BOTH hive-style ("year=2024/month=01") and Hudi's
-     * DEFAULT non-hive-style POSITIONAL ("2024/01") layouts, and URL-unescapes every value:
+     * Parse a Hudi partition's relative path into a column&rarr;value map. Handles BOTH hive-style
+     * ("year=2024/month=01") and Hudi's
+     * DEFAULT non-hive-style POSITIONAL ("2024/01") layouts, decoding values when the table enables
+     * URL-encoded partition paths or the column is a timestamp:
      * <ul>
      *   <li>A fragment carrying the "col=" prefix contributes the suffix; a fragment WITHOUT it is mapped
      *       POSITIONALLY to the i-th partition column. The old split-on-'=' logic silently DROPPED a
@@ -1087,22 +1106,24 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      *   <li>Single partition column with a mismatched fragment count: the whole path (minus an optional "col="
      *       prefix) is that column's value (legacy single-column-whole-path fallback).</li>
      *   <li>Fragment count != column count with &gt; 1 column: fail loud, exactly like legacy.</li>
-     *   <li>Every value is unescaped via {@link #unescapePathName} (e.g. "%20" &rarr; space) — legacy delegated
+     *   <li>With URL encoding enabled, values are unescaped via {@link #unescapePathName} — legacy delegated
      *       to Hive's {@code FileUtils.unescapePathName}; inlined here so the connector needs no hive-common
      *       dependency (mirrors the fe-connector-hive inlined copy).</li>
      * </ul>
      *
      * <p>Static + package-private for direct unit testing (no live HoodieTableMetaClient needed).
      *
-     * <p>NOTE: this derives values from the partition path fed to the FileSystemView. On the UNPRUNED path that
-     * path is Hudi's own relative path (getAllPartitionPaths) = the shape the FileSystemView uses, so values are
-     * consistent. The PRUNED path (applyFilter) currently feeds HMS hive-style partition NAMES, which match the
-     * FileSystemView only for hive-sync'd tables; making the pruned partition SOURCE useHiveSyncPartition-aware
-     * for non-hive-style tables belongs to the partition-listing step (which ports that source once), and is
-     * likewise closed before the catalog flip.
+     * <p>The encoding flag comes from hoodie.properties, not the presence of percent characters. With
+     * encoding disabled (Hudi's default), "%3A" in a STRING is a literal value distinct from ":".
+     * Spark SQL timestamp paths are always escaped, so callers supply their schema-derived column names.
      */
     static Map<String, String> parsePartitionValues(
-            String partitionPath, List<String> partKeyNames) {
+            String partitionPath, List<String> partKeyNames, boolean urlEncoded) {
+        return parsePartitionValues(partitionPath, partKeyNames, urlEncoded, Collections.emptySet());
+    }
+
+    static Map<String, String> parsePartitionValues(String partitionPath, List<String> partKeyNames,
+            boolean urlEncoded, Set<String> timestampPartitionKeys) {
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             // Non-partitioned table (legacy returns an empty value list). The unpartitioned scan path always
             // reaches here with an empty key list, so an empty partitionPath needs no separate guard.
@@ -1115,7 +1136,8 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 String prefix = partKeyNames.get(0) + "=";
                 String value = partitionPath.startsWith(prefix)
                         ? partitionPath.substring(prefix.length()) : partitionPath;
-                values.put(partKeyNames.get(0), unescapePathName(value));
+                values.put(partKeyNames.get(0), decodePartitionValue(value, partKeyNames.get(0),
+                        urlEncoded, timestampPartitionKeys));
                 return values;
             }
             throw new DorisConnectorException(
@@ -1125,9 +1147,17 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
             String prefix = partKeyNames.get(i) + "=";
             String raw = fragments[i].startsWith(prefix)
                     ? fragments[i].substring(prefix.length()) : fragments[i];
-            values.put(partKeyNames.get(i), unescapePathName(raw));
+            values.put(partKeyNames.get(i), decodePartitionValue(raw, partKeyNames.get(i),
+                    urlEncoded, timestampPartitionKeys));
         }
         return values;
+    }
+
+    private static String decodePartitionValue(String value, String name, boolean urlEncoded,
+            Set<String> timestampPartitionKeys) {
+        // Spark SQL's SqlKeyGenerator always escapes formatted TIMESTAMP values, independently of the
+        // table URL-encoding flag. Decode these once, while preserving literal "%3A" in unencoded STRINGs.
+        return urlEncoded || timestampPartitionKeys.contains(name) ? unescapePathName(value) : value;
     }
 
     /**

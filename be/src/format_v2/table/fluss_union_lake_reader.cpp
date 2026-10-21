@@ -175,6 +175,7 @@ Status FlussUnionLakeReader::init(format::TableReadOptions&& options) {
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = _file_slot_descs,
             // Aggregate pushdown is withheld from the lake half on purpose. A COUNT answered from
             // paimon's own file metadata would count the very rows this reader is about to suppress,
@@ -468,6 +469,7 @@ Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* 
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
     }));
     // Not the adaptive size the lake half is being read at: this is a bounded pass over key columns
     // only, and its batches have nothing to do with how wide the lake's rows turned out to be.

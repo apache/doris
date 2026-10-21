@@ -81,9 +81,7 @@ namespace {
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
@@ -1226,6 +1224,34 @@ TEST(ColumnVariantV2Test, EncodedRowsAppenderInternsHighCardinalityMetadataAcros
     column->sanity_check();
 }
 
+TEST(ColumnVariantV2Test, EncodedRowsAppenderReusesValidationScratchAcrossChunks) {
+    constexpr size_t FIELDS = 64;
+    constexpr size_t ROWS = 4096;
+    std::string json = R"({"nested":{"x":1,"y":[{"z":2}]})";
+    for (size_t field = 0; field < FIELDS; ++field) {
+        json += ",\"k" + std::to_string(field) + "\":" + std::to_string(field);
+    }
+    json.push_back('}');
+    const VariantField wide = encode_json(json);
+    const std::vector<VariantRef> rows(ROWS, wide.ref());
+
+    auto column = ColumnVariantV2::create();
+    auto appender = column->create_encoded_rows_appender();
+    EXPECT_EQ(appender.validation_scratch_capacity_for_test(), 0);
+    appender.append(rows);
+    const size_t capacity = appender.validation_scratch_capacity_for_test();
+    EXPECT_GE(capacity, FIELDS + 1);
+    appender.append(rows);
+    EXPECT_EQ(appender.validation_scratch_capacity_for_test(), capacity);
+
+    ASSERT_EQ(column->size(), 2 * ROWS);
+    JsonWriter expected;
+    to_json(wide.ref(), expected);
+    EXPECT_EQ(json_at(*column, 0), expected.value);
+    EXPECT_EQ(json_at(*column, 2 * ROWS - 1), expected.value);
+    column->sanity_check();
+}
+
 TEST(ColumnVariantV2Test, InvalidEncodedRowsDoNotPartiallyAppendEncodedState) {
     const OwnedEncodedData invalid = late_invalid_encoded_rows();
     for (const bool omit_single_metadata_ids : {false, true}) {
@@ -1453,9 +1479,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         encoder.add_json(StringRef("7", 1));
         VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
@@ -1465,9 +1490,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         constexpr std::string_view FIRST = R"({"a":[1,{"b":true}]})";
         constexpr std::string_view SECOND = R"({"b":2,"a":[]})";
         encoder.add_json({FIRST.data(), FIRST.size()});

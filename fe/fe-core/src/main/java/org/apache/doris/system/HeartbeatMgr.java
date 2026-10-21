@@ -82,9 +82,9 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
     private final ExecutorService abortTxnExecutor;
-    private final ExecutorService rowBinlogTtlExecutor;
-    private final AtomicBoolean rowBinlogTtlRefreshPending = new AtomicBoolean();
-    private long lastRowBinlogTtlRefreshMs;
+    private final ExecutorService changelogTtlExecutor;
+    private final AtomicBoolean changelogTtlRefreshPending = new AtomicBoolean();
+    private long lastChangelogTtlRefreshMs;
 
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
@@ -96,8 +96,9 @@ public class HeartbeatMgr extends MasterDaemon {
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
                 Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
-        this.rowBinlogTtlExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1,
-                "row-binlog-ttl-reference", needRegisterMetric);
+        // ATTN(changelog-rename): formerly "row-binlog-ttl-reference"
+        this.changelogTtlExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1,
+                "changelog-ttl-reference", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -119,18 +120,18 @@ public class HeartbeatMgr extends MasterDaemon {
 
     // Called by the dedicated refresh worker, never by a heartbeat sender. The CAS discards
     // a result acquired across a master transition (setMaster replaces the object).
-    public static boolean refreshRowBinlogTtlReferenceTso() {
+    public static boolean refreshChangelogTtlReferenceTso() {
         TMasterInfo before = masterInfo.get();
-        if (before == null || !Config.enable_feature_binlog) {
+        if (before == null || !Config.enable_feature_changelog) {
             return false;
         }
         try {
             long tso = Env.getCurrentTSOService().getTSO();
             TMasterInfo after = new TMasterInfo(before);
-            after.setRowBinlogTtlReferenceTso(Math.max(before.getRowBinlogTtlReferenceTso(), tso));
+            after.setChangelogTtlReferenceTso(Math.max(before.getChangelogTtlReferenceTso(), tso));
             return masterInfo.compareAndSet(before, after);
         } catch (RuntimeException e) {
-            LOG.warn("Failed to refresh row binlog TTL reference; keep previous boundary", e);
+            LOG.warn("Failed to refresh changelog TTL reference; keep previous boundary", e);
             return false;
         }
     }
@@ -143,15 +144,15 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         long now = System.currentTimeMillis();
-        if (now - lastRowBinlogTtlRefreshMs >= 15000 && rowBinlogTtlRefreshPending.compareAndSet(false, true)) {
-            lastRowBinlogTtlRefreshMs = now;
-            rowBinlogTtlExecutor.submit(() -> {
+        if (now - lastChangelogTtlRefreshMs >= 15000 && changelogTtlRefreshPending.compareAndSet(false, true)) {
+            lastChangelogTtlRefreshMs = now;
+            changelogTtlExecutor.submit(() -> {
                 try {
                     if (Env.getCurrentEnv().isMaster()) {
-                        refreshRowBinlogTtlReferenceTso();
+                        refreshChangelogTtlReferenceTso();
                     }
                 } finally {
-                    rowBinlogTtlRefreshPending.set(false);
+                    changelogTtlRefreshPending.set(false);
                 }
             });
         }
@@ -415,9 +416,12 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    BackendHbResponse response = new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                    response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
+                            && tBackendInfo.isSupportsPaimonRustReader());
+                    return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()

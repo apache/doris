@@ -77,6 +77,7 @@
 #include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -879,6 +880,11 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
+    // Everything above should have released the resource context of every query and load. One
+    // that is still alive is held either by a thread that has not finished or by a reference
+    // that is never released; LeakSanitizer reports the latter after main() returns, but cannot
+    // tell which task it belonged to, so name the task here.
+    doris::ResourceContext::log_live_contexts();
     LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }

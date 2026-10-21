@@ -33,16 +33,18 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
-import com.amazonaws.services.s3.event.S3EventNotification;
-import com.amazonaws.services.s3.event.S3EventNotification.S3EventNotificationRecord;
-import com.amazonaws.util.json.Jackson;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.gson.JsonObject;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
+import org.joda.time.DateTime;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.BatchResultErrorEntry;
@@ -59,6 +61,7 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 
 import java.io.IOException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,6 +80,9 @@ import java.util.stream.Collectors;
  */
 @Log4j2
 public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
+    private static final ObjectMapper EVENT_MAPPER = new ObjectMapper()
+            .enable(JsonParser.Feature.ALLOW_COMMENTS)
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private static final int SQS_BATCH_SIZE = 10;
     private static final int MIN_VISIBILITY_SECONDS = 120;
     private static final int VISIBILITY_INTERVAL_MULTIPLIER = 6;
@@ -506,7 +512,7 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
     private ParsedMessage parseMessage(Message message) {
         S3EventNotification notification;
         try {
-            JsonNode json = Jackson.getObjectMapper().reader()
+            JsonNode json = EVENT_MAPPER.reader()
                     .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(message.body());
             if (json == null || !json.isObject()) {
                 log.warn("Skip invalid S3 EVENT message: jobId={}, messageId={}, reason=Expected a JSON object",
@@ -516,37 +522,35 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             if ("s3:TestEvent".equals(json.path("Event").asText())) {
                 return ParsedMessage.skipped(message.receiptHandle());
             }
-            notification = Jackson.getObjectMapper().treeToValue(json, S3EventNotification.class);
+            notification = EVENT_MAPPER.treeToValue(json, S3EventNotification.class);
         } catch (JsonProcessingException e) {
             // Only decoding failures are skipped; remote operation failures must retain the message.
             log.warn("Skip invalid S3 EVENT message: jobId={}, messageId={}, reason={}",
                     jobId, message.messageId(), e.getMessage());
             return ParsedMessage.skipped(message.receiptHandle());
         }
-        if (notification.getRecords() == null || notification.getRecords().isEmpty()) {
+        if (notification.records == null || notification.records.isEmpty()) {
             log.warn("Skip invalid S3 EVENT message: jobId={}, messageId={}, reason=No S3 event records",
                     jobId, message.messageId());
             return ParsedMessage.skipped(message.receiptHandle());
         }
-        List<String> files = new ArrayList<>(notification.getRecords().size());
+        List<String> files = new ArrayList<>(notification.records.size());
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         long eventTimestampSeconds = 0;
-        for (int i = 0; i < notification.getRecords().size(); i++) {
-            S3EventNotificationRecord record = notification.getRecords().get(i);
+        for (int i = 0; i < notification.records.size(); i++) {
+            S3EventNotificationRecord record = notification.records.get(i);
             String skipReason = null;
             if (record == null) {
                 skipReason = "Null S3 event record";
-            } else if (!"aws:s3".equals(record.getEventSource())
-                    || !StringUtils.startsWith(record.getEventName(), "ObjectCreated:")) {
+            } else if (!"aws:s3".equals(record.eventSource)
+                    || !StringUtils.startsWith(record.eventName, "ObjectCreated:")) {
                 skipReason = "Unsupported S3 event";
-            } else if (record.getS3() == null || record.getS3().getBucket() == null
-                    || record.getS3().getObject() == null) {
+            } else if (record.s3 == null || record.s3.bucket == null || record.s3.object == null) {
                 skipReason = "Incomplete S3 event";
-            } else if (StringUtils.isBlank(record.getS3().getBucket().getName())
-                    || StringUtils.isBlank(record.getS3().getObject().getKey())) {
+            } else if (StringUtils.isBlank(record.s3.bucket.name)
+                    || StringUtils.isBlank(record.s3.object.key)) {
                 skipReason = "Missing S3 bucket or object key";
-            } else if (record.getS3().getObject().getSizeAsLong() == null
-                    || record.getS3().getObject().getSizeAsLong() < 0) {
+            } else if (record.s3.object.size == null || record.s3.object.size < 0) {
                 skipReason = "Invalid S3 object size";
             }
             if (skipReason != null) {
@@ -554,10 +558,10 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
                         jobId, message.messageId(), i, skipReason);
                 continue;
             }
-            String bucket = record.getS3().getBucket().getName();
+            String bucket = record.s3.bucket.name;
             String key;
             try {
-                key = record.getS3().getObject().getUrlDecodedKey();
+                key = URLDecoder.decode(record.s3.object.key, StandardCharsets.UTF_8);
                 if (!sourceBucket.equals(bucket) || !sourceKeyMatcher.matcher(key).matches()) {
                     continue;
                 }
@@ -572,9 +576,9 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             files.add(key);
             // The object must remain unchanged until ingestion completes; notifications identify keys, not versions.
             fileStatuses.add(new TBrokerFileStatus("s3://" + bucket + "/" + key, false,
-                    record.getS3().getObject().getSizeAsLong(), true));
-            if (record.getEventTime() != null) {
-                eventTimestampSeconds = Math.max(eventTimestampSeconds, record.getEventTime().getMillis() / 1000);
+                    record.s3.object.size, true));
+            if (record.eventTime != null) {
+                eventTimestampSeconds = Math.max(eventTimestampSeconds, record.eventTime.getMillis() / 1000);
             }
         }
         if (files.isEmpty()) {
@@ -851,6 +855,46 @@ public class S3EventSourceOffsetProvider implements SourceOffsetProvider {
             this.fileReceipts = fileReceipts;
             this.eventTimestampSeconds = eventTimestampSeconds;
         }
+    }
+
+    // Keep Jackson's scalar coercion and the original ISO date parser without depending on AWS SDK v1.
+    private static class S3EventNotification {
+        @JsonProperty("Records")
+        private List<S3EventNotificationRecord> records;
+    }
+
+    private static class S3EventNotificationRecord {
+        @JsonProperty
+        private String eventSource;
+        @JsonProperty
+        private String eventName;
+        @JsonProperty
+        private S3Entity s3;
+        private DateTime eventTime;
+
+        @JsonSetter("eventTime")
+        private void setEventTime(String value) {
+            eventTime = value == null ? null : DateTime.parse(value);
+        }
+    }
+
+    private static class S3Entity {
+        @JsonProperty
+        private S3BucketEntity bucket;
+        @JsonProperty
+        private S3ObjectEntity object;
+    }
+
+    private static class S3BucketEntity {
+        @JsonProperty
+        private String name;
+    }
+
+    private static class S3ObjectEntity {
+        @JsonProperty
+        private String key;
+        @JsonProperty
+        private Long size;
     }
 
     private static class ParsedMessage {
