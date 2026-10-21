@@ -28,6 +28,15 @@ id	int	No	true	\N
 geom	GEOMETRY('OGC:CRS84')	Yes	true	\N	
 geog	GEOGRAPHY('OGC:CRS84', 'spherical')	Yes	true	\N	
 
+-- !ordinary_parallel_aggregates --
+1	4	[1, 2]	[1, 2, 3, 4]	[1]	4
+
+-- !ordinary_analytic_distinct --
+1	4
+2	4
+3	4
+4	4
+
 -- !spatial_multikey_geom --
 3
 1

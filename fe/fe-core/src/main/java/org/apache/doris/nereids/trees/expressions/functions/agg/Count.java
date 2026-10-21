@@ -205,7 +205,10 @@ public class Count extends NotNullableAggregateFunction
 
     @Override
     public AggregateFunction convertToMultiDistinct() {
-        return new MultiDistinctCount(getArgument(0),
+        MultiDistinctCount function = new MultiDistinctCount(getArgument(0),
                 getArguments().subList(1, arity()).toArray(new Expression[0]));
+        // Physical aggregate strategies can create this function after the analysis checks.
+        function.checkLegalityBeforeTypeCoercion();
+        return function;
     }
 }

@@ -313,6 +313,50 @@ public class CreateIcebergSpatialV3Table {
         }
     }
     qt_spatial_schema """desc geometry_values"""
+    // These factories do not implement scalar spatial values. Fail in FE, including
+    // analytic DISTINCT, which is rewritten to multi_distinct_count after binding.
+    for (String column : ["geom", "geog"]) {
+        for (String function : ["min_by", "max_by"]) {
+            for (String arguments : ["${column}, id", "id, ${column}"]) {
+                test {
+                    sql """select ${function}(${arguments}) from geometry_values"""
+                    exception "${function} does not support spatial arguments"
+                }
+            }
+        }
+        for (String arguments : ["${column}, 2", "${column}, 2, 4", "array(${column}), 2"]) {
+            test {
+                sql """select topn_array(${arguments}) from geometry_values"""
+                exception "topn_array does not support spatial arguments"
+            }
+        }
+        for (String expression : ["multi_distinct_count(${column})", "count(distinct ${column}) over ()"]) {
+            test {
+                sql """select ${expression} from geometry_values"""
+                exception "multi_distinct_count does not support spatial arguments"
+            }
+        }
+        for (String function : ["group_array_union", "group_array_intersect"]) {
+            test {
+                sql """select ${function}(array(${column})) from geometry_values"""
+                exception "${function} does not support spatial arguments"
+            }
+        }
+    }
+    // Imported nested columns must obey the same group-array admission rule.
+    for (String function : ["group_array_union", "group_array_intersect"]) {
+        test {
+            sql """select ${function}(shapes) from nested_spatial_values"""
+            exception "${function} does not support spatial arguments"
+        }
+    }
+    qt_ordinary_parallel_aggregates """select min_by(id, id), max_by(id, id),
+        array_sort(topn_array(if(id > 1, 1, 2), 2)),
+        array_sort(group_array_union(array(id))),
+        array_sort(group_array_intersect(array(id, 1))), multi_distinct_count(id)
+        from geometry_values"""
+    order_qt_ordinary_analytic_distinct """select id, count(distinct id) over ()
+        from geometry_values"""
     for (String spatialColumn : ["geom", "geog"]) {
         "qt_spatial_multikey_${spatialColumn}"("""select id from geometry_values
             order by ${spatialColumn} asc nulls last, id""")
