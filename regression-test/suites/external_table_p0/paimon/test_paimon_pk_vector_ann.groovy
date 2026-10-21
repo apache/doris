@@ -351,6 +351,22 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         assertEquals(bruteError, annError,
                 "the ANN path must reject a NULL query vector the same way, not search a zero vector")
 
+
+        // ------------------------------------------- non-movable project expression
+        // assert_true in the projection must keep evaluating below the TopN: the
+        // ordinary path raises for the rejected far rows (the fixture has id%7=0
+        // tags), while a bounded fetch that truncates before the Project would
+        // silently succeed. The rewrite declines, so both legs raise the same error.
+        def queryWithAssertTrue = """select id, assert_true(tag > 0, 'bad tag') from ann_l2
+                order by l2_distance_approximate(embedding, ${probe}) limit 5"""
+        sql "set enable_paimon_rust_reader=0"
+        def bruteAssertError = expectValidationError(queryWithAssertTrue)
+        sql "set enable_paimon_rust_reader=1"
+        def annAssertError = expectValidationError(queryWithAssertTrue)
+        assertNotNull("the ordinary path must reject a failing assert_true", bruteAssertError)
+        assertEquals(bruteAssertError, annAssertError,
+                "a non-movable projection must not be truncated by a bounded fetch")
+
         // ------------------------------------------- IN predicate with a NULL option
         // tag IN (0, 1, NULL) passes the shape whitelist (every option is a
         // literal) but the BE converter rejects the null option and with it the

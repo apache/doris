@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
@@ -70,13 +73,19 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import mockit.MockUp;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.TimestampType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -892,6 +901,146 @@ public class PushDownVectorTopNIntoPaimonScanTest {
                 new LogicalProject<>(ImmutableList.of(idSlot(scan), payload, dis), scan), dis, true));
     }
 
+    @Test
+    public void testBranchTableWithDifferentMetricNotPushedDown() {
+        // t@branch(b): the relation's bound table is the branch, which can carry an
+        // independently configured index metric. The pre-flight must validate the
+        // BOUND table: an l2 query against an inner-product branch would score with
+        // the branch's metric and reorder with l2's inverse -- wrong results even
+        // at full recall.
+        // field names of the fixture schema (see below): the branch table's rowType
+        // drives the same synthetic-distance-collision pre-flight as the main table.
+        List<String> fieldNames = ImmutableList.of("id", "vec", "vec2", "tag", "score",
+                "payload", "pmap");
+        FileStoreTable branch = mockFileStoreTable(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "inner_product"), fieldNames, null);
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"), Optional.empty(), null, false,
+                null, branch);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testBranchTableWithMatchingMetricStillPushedDown() {
+        // Control: the bound branch table carries the same l2 metric, so the
+        // rewrite must fire exactly as it does against the main table.
+        List<String> fieldNames = ImmutableList.of("id", "vec", "vec2", "tag", "score",
+                "payload", "pmap");
+        FileStoreTable branch = mockFileStoreTable(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"), fieldNames, null);
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"), Optional.empty(), null, false,
+                null, branch);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        Plan rewritten = applyRule(0, topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+        Assertions.assertTrue(((LogicalFileScan) ((LogicalProject<?>) rewritten.child(0))
+                .child(0)).getAnnTopN().isPresent());
+    }
+
+    @Test
+    public void testHistoricalSchemaEvolutionNotPushedDown() {
+        // A TIMESTAMP(3) -> TIMESTAMP(9) widening with old files retained: the
+        // vector reader's Arrow safe cast NULLs out-of-range values the ordinary
+        // path preserves, so the rewrite must decline and let the query run
+        // ordinary (see PaimonRustReaderCapabilities.hasRustIncompatibleSchemaHistory).
+        TableSchema widened = new TableSchema(4,
+                Collections.singletonList(new DataField(0, "ts", new TimestampType(9))),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null);
+        TableSchema millis = new TableSchema(5,
+                Collections.singletonList(new DataField(0, "ts", new TimestampType(3))),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null);
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"), Optional.empty(), null, false,
+                ImmutableList.of(widened, millis), null);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testNonMovableProjectExpressionNotPushedDown() {
+        // c := assert_true(id > 0): on the ordinary path the Project evaluates before
+        // the TopN and raises for a far row the bounded fetch would never deliver;
+        // withVectorTopN truncates first, so the assertion never fires and the query
+        // silently succeeds. A NoneMovableFunction in the projection keeps the
+        // ordinary path.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        Alias guard = new Alias(
+                new AssertTrue(new GreaterThan(idSlot(scan), new IntegerLiteral(0)),
+                        new StringLiteral("bad id")),
+                "c");
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(new LogicalProject<>(
+                ImmutableList.of(idSlot(scan), guard, dis), scan), dis, true));
+    }
+
+    @Test
+    public void testPrunedBareComplexSlotNotPushedDown() {
+        // An outer field projection can leave an already-pruned bare slot inside the
+        // ANN Project (nested pruning materialized its type to the accessed subset).
+        // The desc-side backstop would fail loudly, so the pre-flight declines: a
+        // bare slot only rides when its type still equals the original column's.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference pmap = (SlotReference) scan.getOutput().get(6);
+        Assertions.assertEquals("pmap", pmap.getName());
+        SlotReference pruned = new SlotReference(
+                StatementScopeIdGenerator.getExprIdGenerator().getNextId(), "pmap",
+                org.apache.doris.nereids.types.ArrayType.of(
+                        org.apache.doris.nereids.types.DoubleType.INSTANCE),
+                pmap.nullable(), ImmutableList.of(), scan.getTable(),
+                pmap.getOriginalColumn().get(), scan.getTable(),
+                pmap.getOriginalColumn().get(), ImmutableList.of());
+        Alias prunedAlias = new Alias(pruned, "p");
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(new LogicalProject<>(
+                ImmutableList.of(idSlot(scan), prunedAlias, dis), scan), dis, true));
+    }
+
+    @Test
+    public void testInPredicateBeyondConverterCapNotPushedDown() {
+        // With expr_children_limit raised, an IN can exceed the BE rust predicate
+        // converter's 16-bit child count: the converter drops the whole predicate,
+        // and the residual re-applies it AFTER the bounded Top-K — the truncation
+        // the whitelist exists to prevent. Options whose slot+options children
+        // exceed the cap keep the ordinary path.
+        int originalChildrenLimit = Config.expr_children_limit;
+        Config.expr_children_limit = 0xFFFF + 64;
+        LogicalFileScan scan;
+        SlotReference tag;
+        try {
+            scan = paimonScan(ImmutableMap.of(
+                    "pk-vector.index.columns", "vec",
+                    "fields.vec.pk-vector.distance.metric", "l2",
+                    "deletion-vectors.enabled", "true"));
+            tag = (SlotReference) scan.getOutput().get(3);
+            List<Expression> options = new java.util.ArrayList<>();
+            for (int i = 0; i < 0xFFFF; i++) {
+                options.add(new IntegerLiteral(i));
+            }
+            LogicalFilter<LogicalFileScan> filter =
+                    new LogicalFilter<>(ImmutableSet.of(new InPredicate(tag, options)), scan);
+            Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+            assertNotPushedDown(topN(
+                    new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), filter), dis, true));
+        } finally {
+            Config.expr_children_limit = originalChildrenLimit;
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Plan applyRule(int ruleIndex, LogicalTopN<Plan> topN) {
@@ -938,10 +1087,31 @@ public class PushDownVectorTopNIntoPaimonScanTest {
      *  pre-flight reads off the mocked paimon rowType. */
     private LogicalFileScan paimonScan(Map<String, String> options,
             Optional<TableScanParams> scanParams, List<String> paimonFieldNames) {
+        return paimonScan(options, scanParams, paimonFieldNames, false);
+    }
+
+    /** {@code nullableVector} makes the fixture's vec column nullable (the stored-NULL
+     *  contract tests). */
+    private LogicalFileScan paimonScan(Map<String, String> options,
+            Optional<TableScanParams> scanParams, List<String> paimonFieldNames,
+            boolean nullableVector) {
+        return paimonScan(options, scanParams, paimonFieldNames, nullableVector, null, null);
+    }
+
+    /**
+     * Full fixture. {@code extraHistory} appends rust-incompatible historical schemas
+     * to the bound table's schema history (evolution tests); {@code boundTable} binds
+     * a branch-style relation snapshot whose getPaimonTable resolves to that table —
+     * the main-table stub stays for the anything-else lookups.
+     */
+    private LogicalFileScan paimonScan(Map<String, String> options,
+            Optional<TableScanParams> scanParams, List<String> paimonFieldNames,
+            boolean nullableVector, List<TableSchema> extraHistory,
+            org.apache.paimon.table.Table boundTable) {
         List<Column> schema = ImmutableList.of(
                 new Column("id", Type.INT, true),
-                new Column("vec", new ArrayType(Type.FLOAT), true),
-                new Column("vec2", new ArrayType(Type.FLOAT), true),
+                new Column("vec", new ArrayType(Type.FLOAT), nullableVector),
+                new Column("vec2", new ArrayType(Type.FLOAT), nullableVector),
                 new Column("tag", Type.INT, true),
                 new Column("score", Type.DOUBLE, true),
                 new Column("payload", Type.VARIANT, true),
@@ -963,31 +1133,29 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
                 .thenReturn(SelectedPartitions.NOT_PRUNED);
 
-        // A FileStoreTable (not a bare Table) with a file:// location, no REST FileIO and
-        // null CoreOptions/schema: the rewrite's pre-flight sees a plain local
-        // warehouse table whose option gates all skip, so the per-test options map is
-        // the only input that differs.
-        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
-        Mockito.when(paimonTable.options()).thenReturn(options);
-        Mockito.when(paimonTable.location())
-                .thenReturn(new Path("file:///warehouse/wh/paimon_db.db/paimon_tbl"));
-        // rowType drives the synthetic-distance-column collision pre-flight; its
-        // field names track the fixture schema (or the test's explicit names).
-        org.apache.paimon.types.RowType rowType = Mockito.mock(
-                org.apache.paimon.types.RowType.class);
-        Mockito.when(rowType.getFieldNames()).thenReturn(paimonFieldNames);
-        Mockito.when(paimonTable.rowType()).thenReturn(rowType);
-        Mockito.when(paimonTable.fileIO()).thenReturn(null);
-        Mockito.when(paimonTable.coreOptions()).thenReturn(null);
-        Mockito.when(paimonTable.schema()).thenReturn(null);
+        FileStoreTable paimonTable = mockFileStoreTable(options, paimonFieldNames, extraHistory);
         Mockito.when(table.getPaimonTable(Mockito.<Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>>any()))
                 .thenReturn(paimonTable);
+        Mockito.when(table.getPaimonTable(Mockito.<TableScanParams>any())).thenReturn(paimonTable);
         // An options-type TableScanParams binds its schema through
         // getFullSchema(TableScanParams) (the relation-option path inside
         // PaimonExternalTable, which would otherwise hit the unmocked package
         // private helpers). Stub it directly so the options tests get real
         // output slots; the rule itself only reads the params' raw map.
         Mockito.when(table.getFullSchema(Mockito.<TableScanParams>any())).thenReturn(schema);
+
+        Optional<org.apache.doris.datasource.mvcc.MvccSnapshot> relationSnapshot = Optional.empty();
+        if (boundTable != null) {
+            // Stub AFTER the any() stub: Mockito resolves the last matching stub,
+            // so this relation's snapshot resolves to the branch/bound table while
+            // everything else keeps the main table.
+            org.apache.doris.datasource.mvcc.MvccSnapshot snapshot =
+                    Mockito.mock(org.apache.doris.datasource.mvcc.MvccSnapshot.class);
+            Mockito.when(table.getPaimonTable(Mockito.eq(Optional.of(snapshot))))
+                    .thenReturn(boundTable);
+            relationSnapshot = Optional.of(snapshot);
+        }
+
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
@@ -1002,7 +1170,45 @@ public class PushDownVectorTopNIntoPaimonScanTest {
 
         return new LogicalFileScan(StatementScopeIdGenerator.newRelationId(), table,
                 ImmutableList.of("paimon_ctl", "paimon_db"), ImmutableList.of(),
-                Optional.empty(), Optional.empty(), scanParams, Optional.empty());
+                Optional.empty(), Optional.empty(), scanParams, Optional.empty(),
+                relationSnapshot);
+    }
+
+    /** A FileStoreTable mock: local file:// location, no REST FileIO, and the
+     *  per-test options map as the only input the pre-flight gates see.
+     *  {@code extraHistory} appends historical schemas to the schema-manager's
+     *  listAll, so evolution tests can supply rust-incompatible versions;
+     *  null means an empty history (only the current schema). */
+    private FileStoreTable mockFileStoreTable(Map<String, String> options,
+            List<String> paimonFieldNames, List<TableSchema> extraHistory) {
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(paimonTable.options()).thenReturn(options);
+        Mockito.when(paimonTable.location())
+                .thenReturn(new Path("file:///warehouse/wh/paimon_db.db/paimon_tbl"));
+        // The schema-history pre-flight: a current schema whose id is alone in the
+        // history means no evolution, so the positive cases pass it.
+        TableSchema currentSchema = new TableSchema(
+                5, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null);
+        Mockito.when(paimonTable.schema()).thenReturn(currentSchema);
+        List<TableSchema> history = new java.util.ArrayList<>();
+        history.add(currentSchema);
+        if (extraHistory != null) {
+            history.addAll(extraHistory);
+        }
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        Mockito.when(schemaManager.listAll()).thenReturn(history);
+        Mockito.when(paimonTable.schemaManager()).thenReturn(schemaManager);
+        // rowType drives the synthetic-distance-column collision pre-flight; its
+        // field names track the fixture schema (or the test's explicit names).
+        org.apache.paimon.types.RowType rowType = Mockito.mock(
+                org.apache.paimon.types.RowType.class);
+        Mockito.when(rowType.getFieldNames()).thenReturn(paimonFieldNames);
+        Mockito.when(paimonTable.rowType()).thenReturn(rowType);
+        Mockito.when(paimonTable.fileIO()).thenReturn(null);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(null);
+        return paimonTable;
     }
 
     private SlotReference idSlot(LogicalFileScan scan) {

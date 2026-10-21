@@ -81,6 +81,7 @@ import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
@@ -146,8 +147,12 @@ public class PaimonScanNodeTest {
         // Statement-scoped scan task reuse is on by default; the mock's field would otherwise
         // read false and bypass the cache under test.
         sv.enableExternalScanTaskReuse = true;
-        // These routing fixtures bypass scan initialization and use an upgraded eligible BE.
-        Backend backend = GsonUtils.GSON.fromJson("{\"supportsPaimonRustReader\":true}", Backend.class);
+        // These routing fixtures bypass scan initialization and use an upgraded eligible
+        // BE. The vector bit rides along: the vector gates negotiate it independently
+        // of the batch one, and the vector-split tests below need both.
+        Backend backend = GsonUtils.GSON.fromJson(
+                "{\"supportsPaimonRustReader\":true,\"supportsPaimonRustVectorReader\":true}",
+                Backend.class);
         new MockUp<FederationBackendPolicy>() {
             @mockit.Mock
             public Collection<Backend> getBackends() {
@@ -1172,6 +1177,122 @@ public class PaimonScanNodeTest {
 
         Assert.assertTrue(node.getPaimonSplitFromAPI().isEmpty());
         Mockito.verify(liveTable, Mockito.never()).newReadBuilder();
+    }
+
+    @Test
+    public void testVectorSearchSplitsFencePinnedEmptyGeneration() throws Exception {
+        // The vector twin of testBoundEmptySnapshotDoesNotReadLaterCommit: the relation
+        // bound the pinned-empty generation (no commit existed at binding). The
+        // ordinary path fences this to empty; without the fence here, the vector
+        // builder resolves the table's LATEST and exposes a first commit that landed
+        // after binding, breaking read consistency between the two planning paths.
+        PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Table liveTable = Mockito.mock(Table.class);
+        node.setSource(source);
+        node.setRelationSnapshot(Optional.of(new PaimonMvccSnapshot(
+                new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(PaimonSnapshot.INVALID_SNAPSHOT_ID, 1L, liveTable)))));
+
+        Assert.assertTrue(node.getVectorSearchSplits().isEmpty());
+        Mockito.verify(liveTable, Mockito.never()).newBatchVectorSearchBuilder();
+    }
+
+    @Test
+    public void testVectorSplitFailsLoudOnIncompatibleFileSchema() throws Exception {
+        // A vector split whose file carries a historically incompatible schema id is a
+        // broken invariant (the rewrite's hasRustIncompatibleSchemaHistory pre-flight
+        // must decline such a table): the vector reader would materialize projected
+        // values through the incompatible Arrow decoder with no JNI fallback, so the
+        // scan node fails loudly instead of silently corrupting values.
+        PaimonScanNode node = vectorRoutingNode();
+        Mockito.when(vectorProcessedTable.schemaManager().schema(1L))
+                .thenReturn(incompatibleHistorySchema());
+        PaimonSplit split = new PaimonSplit(createDataSplit("vector_hist.parquet"));
+        split.setVectorPayloadBytes(new byte[] {1});
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        Throwable thrown = null;
+        try {
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class}, rangeDesc, split);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            thrown = e.getCause();
+        }
+        Assert.assertTrue("expected the loud vector-split failure, got " + thrown,
+                thrown instanceof RuntimeException);
+        Assert.assertTrue("the failure must name the rust-reader requirement, got " + thrown,
+                thrown.getMessage().contains("paimon-rust reader"));
+    }
+
+    @Test
+    public void testVectorSplitWithMatchingFileSchemaStillEncodes() throws Exception {
+        // Control: the split's file carries the CURRENT schema id (no history to
+        // decode differently), so the vector payload is encoded and the split rides
+        // the rust reader with an empty paimon_split (the DataSplit is already inside
+        // vector_payload).
+        PaimonScanNode node = vectorRoutingNode();
+        // The current schema id equals the file's schema id (1): the per-file history
+        // gate never fires.
+        Mockito.when(vectorProcessedTable.schema())
+                .thenReturn(new TableSchema(1,
+                        Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+        PaimonSplit split = new PaimonSplit(createDataSplit("vector_ok.parquet"));
+        split.setVectorPayloadBytes(new byte[] {1});
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class}, rangeDesc, split);
+        org.apache.doris.thrift.TPaimonFileDesc fileDesc =
+                rangeDesc.getTableFormatParams().getPaimonParams();
+        Assert.assertEquals(
+                org.apache.doris.thrift.TPaimonReaderType.PAIMON_RUST, fileDesc.getReaderType());
+        Assert.assertEquals(1, fileDesc.getVectorPayload().getBytes().length);
+        Assert.assertTrue(fileDesc.isSetPaimonSplit() && fileDesc.getPaimonSplit().isEmpty());
+    }
+
+    private FileStoreTable vectorProcessedTable;
+
+    /** A routing node for vector splits: rust+V2 on, a processed FileStoreTable with a
+     *  current schema id 5 and per-test history stubs, backend/storage properties open. */
+    private PaimonScanNode vectorRoutingNode() throws Exception {
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        vectorProcessedTable = Mockito.mock(FileStoreTable.class);
+        // Lenient stubbings: which are consumed varies between the two vector-split
+        // tests (the control re-stubs schema() to match the file's schema id).
+        Mockito.lenient().when(vectorProcessedTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.lenient().when(vectorProcessedTable.schema()).thenReturn(new TableSchema(5,
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null));
+        Mockito.lenient().when(vectorProcessedTable.schemaManager())
+                .thenReturn(Mockito.mock(SchemaManager.class));
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", vectorProcessedTable);
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+        return node;
+    }
+
+    /** A schema-1 history whose ts TIMESTAMP(3) cannot decode under the current schema. */
+    private TableSchema incompatibleHistorySchema() {
+        return new TableSchema(1,
+                Collections.singletonList(new DataField(0, "ts", new TimestampType(3))),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null);
     }
 
     @Test
