@@ -116,7 +116,7 @@ TEST(ParquetMetadataMemoryTest, CacheTrackingTransfersAndReleasesOnce) {
     second.data<format::parquet::NativeParquetMetadata>()->release_memory_tracking();
     EXPECT_EQ(tracker->consumption(), before);
     EXPECT_GE(cache.cache().mem_consumption(), v1_size + v2_size);
-    cache.cache().erase("v1");
+    cache.cache().erase(ObjLRUCache::ObjKey {"v1"});
     EXPECT_EQ(first.data<FileMetaData>()->get_mem_size(), v1_size);
     first = {};
     second = {};
