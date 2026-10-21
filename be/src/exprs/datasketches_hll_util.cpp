@@ -113,6 +113,17 @@ void check_set_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compac
     }
     datasketches::HllUtil<Alloc>::checkMemSize(HASH_SET_INT_ARR_START + items * sizeof(uint32_t),
                                                size);
+    if (!compact) {
+        // newSet() copies the whole table but trusts the declared count. With ten occupied
+        // slots and count=1, a later compact serializer allocates 16 bytes and writes 52.
+        uint32_t occupied = 0;
+        for (size_t i = 0; i < items; ++i) {
+            occupied += read_uint32(bytes + HASH_SET_INT_ARR_START + i * sizeof(uint32_t)) != EMPTY;
+        }
+        if (occupied != count) {
+            throw std::invalid_argument("HLL SET coupon count does not match occupied slots");
+        }
+    }
 }
 
 void check_aux_map(const uint8_t* bytes, size_t size, size_t offset, uint8_t lg_k, uint32_t count,

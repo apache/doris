@@ -143,6 +143,20 @@ protected:
                   std::string(reinterpret_cast<const char*>(expected.data()), expected.size()));
     }
 
+    static void verify_set_count_corruption(const std::string& bytes) {
+        for (auto primitive : {TYPE_STRING, TYPE_VARCHAR, TYPE_VARBINARY}) {
+            for (int target : {4, 8, 21}) {
+                for (const auto& type : {"HLL_4", "HLL_6", "HLL_8"}) {
+                    auto block = input({bytes}, target, type, primitive);
+                    const auto status = execute(block);
+                    EXPECT_EQ(status.code(), ErrorCode::CORRUPTION);
+                    EXPECT_NE(status.to_string().find("coupon count does not match occupied slots"),
+                              std::string::npos);
+                }
+            }
+        }
+    }
+
     static void verify_conversion_allocation_failure(const std::string& bytes,
                                                      const std::string& type, size_t fail_at) {
         SCOPED_TRACE(testing::Message() << type << '/' << fail_at);
@@ -668,6 +682,91 @@ TEST_F(FunctionDataSketchesHllDownsampleTest, RejectCompactEmptyAuxiliaryEntry) 
                   std::string::npos);
     }
     EXPECT_FALSE(data.hll_union_data.has_value());
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, RejectUpdatableSetCountMismatch) {
+    using namespace datasketches::hll_constants;
+    for (auto type : {datasketches::HLL_4, datasketches::HLL_6, datasketches::HLL_8}) {
+        const auto valid = sketch_bytes(8, type, 10, false);
+        ASSERT_EQ(static_cast<uint8_t>(valid[PREAMBLE_INTS_BYTE]), HASH_SET_PREINTS);
+        ASSERT_EQ(valid.size(), HASH_SET_INT_ARR_START + 32 * sizeof(uint32_t));
+        for (uint32_t count : {0, 1, 9, 11, 24}) {
+            auto bytes = valid;
+            put_uint32(bytes, HASH_SET_COUNT_INT, count);
+            verify_set_count_corruption(bytes);
+        }
+        // The legacy unset lgArr is reconstructed by the library from count=1 as 32 slots;
+        // the payload is still complete, so the occupied-slot check must reject it too.
+        auto legacy = valid;
+        legacy[LG_ARR_BYTE] = 0;
+        put_uint32(legacy, HASH_SET_COUNT_INT, 1);
+        verify_set_count_corruption(legacy);
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest,
+       SetCountMismatchFailsBeforeAllocationAndAggregateRead) {
+    using namespace datasketches::hll_constants;
+    auto bytes = sketch_bytes(8, datasketches::HLL_4, 10, false);
+    put_uint32(bytes, HASH_SET_COUNT_INT, 1);
+    auto tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "HllSetCountMismatch");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    {
+        ScopedSketchAllocationFailure count_only(0);
+        for (int i = 0; i < 32; ++i) {
+            try {
+                static_cast<void>(datasketches_hll::deserialize(StringRef(bytes), "test"));
+                ADD_FAILURE() << "Expected SET count mismatch to fail";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+            }
+        }
+        EXPECT_EQ(count_only.calls, 0);
+        auto buffer = ColumnString::create();
+        BufferWritable writer(*buffer);
+        writer.write_binary(StringRef(bytes));
+        writer.commit();
+        BufferReadable reader(buffer->get_data_at(0));
+        AggregateFunctionHllSketchData<TYPE_STRING> data;
+        try {
+            data.read(reader);
+            ADD_FAILURE() << "Expected aggregate SET count mismatch to fail";
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+            EXPECT_NE(e.to_string().find("coupon count does not match occupied slots"),
+                      std::string::npos);
+        }
+        EXPECT_FALSE(data.hll_union_data.has_value());
+        EXPECT_EQ(count_only.calls, 0);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, ValidSetCountsAndLegacyExponentsKeepResults) {
+    using namespace datasketches::hll_constants;
+    for (auto type : {datasketches::HLL_4, datasketches::HLL_6, datasketches::HLL_8}) {
+        for (uint64_t count : {10, 80, 300}) {
+            for (bool compact : {false, true}) {
+                auto bytes = sketch_bytes(12, type, count, compact);
+                ASSERT_EQ(static_cast<uint8_t>(bytes[PREAMBLE_INTS_BYTE]), HASH_SET_PREINTS);
+                const auto reference =
+                        datasketches::hll_sketch::deserialize(bytes.data(), bytes.size());
+                // Preserve the library's reconstruction of an unset serialized array exponent.
+                bytes[LG_ARR_BYTE] = 0;
+                const auto parsed = datasketches_hll::deserialize(StringRef(bytes), "test");
+                const auto expected = reference.serialize_compact();
+                const auto actual = parsed.serialize_compact();
+                EXPECT_EQ(std::string(reinterpret_cast<const char*>(actual.data()), actual.size()),
+                          std::string(reinterpret_cast<const char*>(expected.data()),
+                                      expected.size()));
+                EXPECT_DOUBLE_EQ(parsed.get_estimate(), reference.get_estimate());
+            }
+        }
+    }
 }
 
 TEST_F(FunctionDataSketchesHllDownsampleTest, EveryDeserializationAllocationFailureIsBalanced) {

@@ -70,4 +70,25 @@ suite("test_datasketches_hll_downsample_auxiliary") {
         sql "SELECT datasketches_hll_union_agg(unhex(${bad}))"
         exception 'compact auxiliary map contains an EMPTY entry'
     }
+
+    // Complete updatable lgK=8 HLL_4 SET from update(int32_t i), i in [0,10).
+    // Only change the count; all 32 table slots remain present and ten are occupied.
+    def setImage = '03010708050000010a0000000000000081bc5d0600000000000000000000000000000000862ff90d00000000000000000000000000000000cbd7c20400000000000000000000000000000000c1e9170500000000d21673070000000034a2610e7581660700000000000000000000000000000000fc2d420a7b65e6082bf2fb06000000000000000000000000'
+    for (String count : ['01000000','0b000000']) {
+        def malformed = "unhex(concat(substr('${setImage}',1,16),'${count}',substr('${setImage}',25)))"
+        for (int k : [4,8,21]) {
+            test {
+                sql "SELECT datasketches_hll_downsample(${malformed},${k},'HLL_6')"
+                exception 'coupon count does not match occupied slots'
+            }
+            test {
+                sql "SELECT datasketches_hll_downsample(CAST(${malformed} AS VARBINARY),${k},'HLL_4')"
+                exception 'coupon count does not match occupied slots'
+            }
+        }
+        test {
+            sql "SELECT datasketches_hll_union_agg(${malformed})"
+            exception 'coupon count does not match occupied slots'
+        }
+    }
 }
