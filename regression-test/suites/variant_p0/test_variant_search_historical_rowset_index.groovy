@@ -16,8 +16,8 @@
 // under the License.
 
 // CREATE INDEX changes table metadata without building an index for historical rowsets.
-// Write objects explicitly: an ordinary STRING-to-VARIANT cast remains a scalar string,
-// even when its displayed text looks like JSON, and cannot establish a subpath match.
+// Verify the stored document kinds and extracted values so JSON-looking scalar strings
+// cannot satisfy the historical subpath fixture.
 suite("test_variant_search_historical_rowset_index", "p0") {
     // V1 INSERT parses JSON with the table's properties; parse_to_variant returns Variant(0),
     // which branch-4.2 cannot cast to the table's Variant(2048). V2 needs explicit JSON parsing.
@@ -53,8 +53,10 @@ suite("test_variant_search_historical_rowset_index", "p0") {
         USING INVERTED PROPERTIES("parser"="none")"""
     sql "SYNC"
 
+    // V1 variant_type reports a field-type schema, while V2 reports the value kind.
+    // Inspect the JSON value kind in both modes, preserving the object-versus-string guard.
     qt_historical_values """
-        SELECT id, variant_type(v), CAST(v['missing'] AS STRING)
+        SELECT id, LOWER(JSON_TYPE(CAST(v AS JSON), '\$')), CAST(v['missing'] AS STRING)
         FROM test_variant_search_historical_rowset_index ORDER BY id
     """
     qt_historical_row_matches """
@@ -101,7 +103,7 @@ suite("test_variant_search_historical_rowset_index", "p0") {
         (6, 'miss', ${variantV2Function}('{"missing":"miss"}'))"""
     sql "SYNC"
     qt_mixed_values """
-        SELECT id, variant_type(v), CAST(v['missing'] AS STRING)
+        SELECT id, LOWER(JSON_TYPE(CAST(v AS JSON), '\$')), CAST(v['missing'] AS STRING)
         FROM test_variant_search_historical_rowset_index ORDER BY id
     """
     qt_mixed_row_matches """
