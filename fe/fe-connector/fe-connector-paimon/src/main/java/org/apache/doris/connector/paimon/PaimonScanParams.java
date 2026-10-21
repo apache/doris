@@ -25,7 +25,6 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -244,10 +243,6 @@ public final class PaimonScanParams {
                         copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath));
             }
         }
-        if (table instanceof DelegatedFileStoreTable && !(table instanceof FallbackReadFileStoreTable)) {
-            return PaimonTableDecorators.replaceWrapped(table, copyWithPinnedFallback(
-                    ((DelegatedFileStoreTable) table).wrapped(), dynamicOptions, coordinates, path));
-        }
         return table.copyWithoutTimeTravel(dynamicOptions);
     }
 
@@ -263,10 +258,6 @@ public final class PaimonScanParams {
             return PaimonTableDecorators.rebuildFallbackPair(pair,
                     restoreBoundSchema(pair.wrapped(), schemaId, options, path),
                     restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath));
-        }
-        if (table instanceof DelegatedFileStoreTable) {
-            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
-            return PaimonTableDecorators.replaceWrapped(table, restoreBoundSchema(wrapped, schemaId, options, path));
         }
         TableSchema persistedSchema = table.schemaManager().schema(table.schema().id());
         // A live pin can describe a replacement while this object still belongs to the old table.

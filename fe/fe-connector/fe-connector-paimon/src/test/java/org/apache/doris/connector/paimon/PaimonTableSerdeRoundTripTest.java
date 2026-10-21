@@ -45,8 +45,8 @@ import java.util.Collections;
  * {@link Base64#getEncoder()} into the {@code paimon.serialized_table} property
  * ({@code PaimonScanPlanProvider} ~:213). BE reverses it ({@code PaimonUtils.deserialize}): URL-safe
  * {@link Base64#getUrlDecoder()} first, STANDARD {@link Base64#getDecoder()} fallback, then
- * {@link InstantiationUtil#deserializeObject(byte[], ClassLoader)}, running the IDENTICAL paimon
- * 1.3.1 jar (R-007 — see fe/pom.xml {@code <paimon.version>}). A version drift, a newly
+ * {@link InstantiationUtil#deserializeObject(byte[], ClassLoader)}, running the same SDK version
+ * pinned by the shared {@code paimon.version} in fe/pom.xml. A version drift, a newly
  * non-serializable field on the table, or a base64-variant mismatch would silently break BE
  * deserialization at runtime; this catches it in CI.
  *

@@ -29,12 +29,9 @@ import org.apache.paimon.disk.FileIOChannel;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.ChainGroupReadTable;
-import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
@@ -637,34 +634,6 @@ public class PaimonJniScannerTest {
     }
 
     @Test
-    public void testBackendCapTraversesPrivilegeDelegate() {
-        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
-                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
-        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
-                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "128"));
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(main, fallback, true), checker,
-                Identifier.create("db", "table"));
-
-        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
-                privileged, null, 64);
-        FileStoreTable planningTable = safe instanceof DelegatedFileStoreTable
-                && !(safe instanceof FallbackReadFileStoreTable)
-                ? ((DelegatedFileStoreTable) safe).wrapped() : (FileStoreTable) safe;
-
-        Assertions.assertTrue(planningTable instanceof FallbackReadFileStoreTable);
-        FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) planningTable;
-        Assertions.assertEquals("1", pair.wrapped().options()
-                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-        Assertions.assertEquals("64", pair.other().options()
-                .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-    }
-
-    @Test
     public void testFallbackWrapperOrderMatchesPaimonFactoryPrecedence() {
         // Capping a fallback pair rebuilds the wrapper, and Paimon has no accessor for its read order,
         // so isWrappedFirst recovers FileStoreTableFactory's decision from the options. A wrong answer
@@ -706,29 +675,6 @@ public class PaimonJniScannerTest {
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assertions.assertEquals("64", pair.other().options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-    }
-
-    @Test
-    public void testSystemWrapperExposesSafeFallbackBehindPrivilegeDelegate() throws Exception {
-        FileStoreTable main = serializableFileStoreTable(Collections.singletonMap(
-                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
-        FileStoreTable fallback = serializableFileStoreTable(Collections.singletonMap(
-                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "2"));
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(main, fallback, true), checker,
-                Identifier.create("db", "table"));
-        Table wrapper = SystemTableLoader.load("partitions", privileged);
-
-        Table safe = PaimonJniScanner.applyBackendManifestParallelism(
-                wrapper, null, 64);
-        Field storeTable = safe.getClass().getDeclaredField("storeTable");
-        storeTable.setAccessible(true);
-
-        Assertions.assertTrue(storeTable.get(safe) instanceof FallbackReadFileStoreTable);
     }
 
     @Test
@@ -1281,6 +1227,9 @@ public class PaimonJniScannerTest {
         public Object invoke(Object proxy, Method method, Object[] args) {
             if ("options".equals(method.getName())) {
                 return options;
+            }
+            if ("coreOptions".equals(method.getName())) {
+                return CoreOptions.fromMap(options);
             }
             if ("rowType".equals(method.getName())) {
                 return new RowType(Collections.emptyList());

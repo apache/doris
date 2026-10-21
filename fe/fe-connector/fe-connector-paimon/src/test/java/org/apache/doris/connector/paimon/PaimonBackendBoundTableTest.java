@@ -30,11 +30,9 @@ import org.apache.paimon.catalog.TableQueryAuthResult;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.ChainGroupReadTable;
@@ -272,7 +270,7 @@ public class PaimonBackendBoundTableTest {
     public void runtimeCapDoesNotReapplyInheritedSnapshotToSystemTable(@TempDir Path warehouse)
             throws Exception {
         FileStoreTable firstGeneration = commit(newRealTable(warehouse, "runtime_cap_schema"), 1);
-        new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+        new FileSystemSchemaManager(firstGeneration.fileIO(), firstGeneration.location())
                 .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
         FileStoreTable latestGeneration = FileStoreTableFactory.create(
                 firstGeneration.fileIO(), firstGeneration.location());
@@ -293,7 +291,7 @@ public class PaimonBackendBoundTableTest {
     public void systemOptionsDoNotReapplyFenceSnapshotToBoundSchema(@TempDir Path warehouse)
             throws Exception {
         FileStoreTable firstGeneration = commit(newRealTable(warehouse, "system_options_schema"), 1);
-        new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+        new FileSystemSchemaManager(firstGeneration.fileIO(), firstGeneration.location())
                 .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
         FileStoreTable latestGeneration = FileStoreTableFactory.create(
                 firstGeneration.fileIO(), firstGeneration.location());
@@ -316,7 +314,7 @@ public class PaimonBackendBoundTableTest {
     public void explicitTagSelectsSystemTableSchema(@TempDir Path warehouse) throws Exception {
         FileStoreTable firstGeneration = commit(newRealTable(warehouse, "system_options_tag_schema"), 1);
         firstGeneration.createTag("old_schema", 1L);
-        new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+        new FileSystemSchemaManager(firstGeneration.fileIO(), firstGeneration.location())
                 .commitChanges(SchemaChange.addColumn("c2", DataTypes.INT()));
         FileStoreTable latestGeneration = FileStoreTableFactory.create(
                 firstGeneration.fileIO(), firstGeneration.location());
@@ -371,26 +369,20 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
-    public void sysTableHandleBuildsTheWrapperOverThePeeledFallbackPair(@TempDir Path warehouse)
+    public void sysTableHandleBuildsTheWrapperOverTheFallbackPair(@TempDir Path warehouse)
             throws Exception {
-        // With file based privileges enabled the meta cache holds Privileged(FallbackRead(..)) - a
-        // shape paimon's own catalog never lets a system table see, because CatalogUtils#loadTable
-        // builds one over the raw FileStoreTableFactory result. ReadOptimizedTable#newScan dispatches
-        // on a DIRECT instanceof, so with the privilege wrapper still in between it plans the main
-        // branch alone through the pair's inherited newSnapshotReader() and silently drops every
-        // fallback-only partition.
+        // ReadOptimizedTable dispatches on its immediate child. Keep the fallback pair there
+        // so the system table scans both branches, including fallback-only partitions.
         FileStoreTable[] branches = fallbackPairWithNewerGenerationOnDisk(warehouse, "fb_sys");
         FileStoreTable pair = new FallbackReadFileStoreTable(branches[0], branches[1], true);
-        FileStoreTable decorated = PrivilegedFileStoreTable.wrap(pair,
-                new AllGrantedPrivilegeChecker(), Identifier.create("db", "tbl"));
         PaimonTableHandle baseHandle = dataHandle();
-        baseHandle.setPaimonTable(decorated);
+        baseHandle.setPaimonTable(pair);
 
         PaimonTableHandle sysHandle = (PaimonTableHandle) metadata(new RecordingPaimonCatalogOps())
                 .getSysTableHandle(null, baseHandle, "ro").orElseThrow(AssertionError::new);
 
         Assertions.assertSame(pair, sysHandle.getSysBaseTable(),
-                "the decorator must be peeled, but not the fallback pair under it");
+                "the system table must retain the fallback pair");
         Assertions.assertTrue(((ReadOptimizedTable) sysHandle.getPaimonTable()).newScan()
                         instanceof FallbackReadFileStoreTable.FallbackReadScan,
                 "the FE must plan tbl$ro over BOTH branches");
@@ -401,9 +393,7 @@ public class PaimonBackendBoundTableTest {
             throws Exception {
         FileStoreTable[] branches = fallbackPairWithNewerGenerationOnDisk(warehouse, "fb_runtime_cap");
         FileStoreTable pair = new FallbackReadFileStoreTable(branches[0], branches[1], true);
-        FileStoreTable decorated = PrivilegedFileStoreTable.wrap(pair,
-                new AllGrantedPrivilegeChecker(), Identifier.create("db", "tbl"));
-        FileStoreTable configured = decorated.copyWithoutTimeTravel(Collections.singletonMap(
+        FileStoreTable configured = pair.copyWithoutTimeTravel(Collections.singletonMap(
                 org.apache.paimon.CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
 
         Table safe = PaimonReaderOptions.runtimeSafeSystemTable(
@@ -559,13 +549,11 @@ public class PaimonBackendBoundTableTest {
     // ==================== authorization the BE can no longer do ====================
 
     @Test
-    public void authorizesTheDeferredScanBeforeDroppingTheCatalogLoader(@TempDir Path warehouse) {
-        // $files only plans partition-level splits on the FE and re-plans the base table on the BE,
-        // where Catalog#authTableQuery is what enforces query-auth. A loader-less table turns that
-        // check into a permanent allow, so a denied query would come back as a successful metadata
-        // read: authorize here instead, while the loader is still around.
+    public void rejectsRawFileStatisticsOnQueryAuthTables(@TempDir Path warehouse) {
+        // Paimon 2.1 rejects $files on query-auth tables because column masks cannot be applied
+        // to raw file statistics. This must fail before a catalog-less table reaches the BE,
+        // even when the catalog would authorize the query.
         VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, true);
-        catalog.denyAuthWith("no privilege for db.tbl");
         FileStoreTable authorized = newTable(warehouse, catalogEnvironment(catalog),
                 queryAuthEnabled(), C1);
 
@@ -573,8 +561,8 @@ public class PaimonBackendBoundTableTest {
                 () -> provider().tableForBackend(sysHandle("files", authorized),
                         SystemTableLoader.load("files", authorized)));
 
-        Assertions.assertTrue(rootCauseMessage(denied).contains("no privilege for db.tbl"),
-                "a denied query must not reach the BE as a catalog-less table");
+        Assertions.assertTrue(rootCauseMessage(denied).contains(
+                "System table 'files' is not supported on a query-auth table"));
     }
 
     @Test
@@ -608,22 +596,6 @@ public class PaimonBackendBoundTableTest {
                 new FallbackReadFileStoreTable(captured[0], captured[1], true));
 
         assertPairMatchesTheFeGeneration(forBackend, captured[0], captured[1]);
-    }
-
-    @Test
-    public void fallbackBranchSurvivesAPaimonTableDecorator(@TempDir Path warehouse) throws Exception {
-        // With file based privileges enabled PrivilegedCatalog#getTable hands out
-        // Privileged(FallbackRead(..)). A direct instanceof looks straight past that wrapper and
-        // rebuilds an ordinary table from the delegated main branch, so the BE loses the
-        // FallbackReadFileStoreTable.Read that dispatches a fallback split to the fallback branch -
-        // while the FE keeps planning the wrapper and can still emit one.
-        FileStoreTable[] captured = fallbackPairWithNewerGenerationOnDisk(warehouse, "fb_decorated");
-        FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(captured[0], captured[1], true),
-                new AllGrantedPrivilegeChecker(), Identifier.create("db", "tbl"));
-
-        assertPairMatchesTheFeGeneration(PaimonScanPlanProvider.dropCatalogLoader(decorated),
-                captured[0], captured[1]);
     }
 
     @Test
@@ -802,10 +774,6 @@ public class PaimonBackendBoundTableTest {
                 onDisk.snapshotManager().snapshot(1L).timeMillis() + "," + Long.MAX_VALUE);
 
         Assertions.assertSame(range, PaimonIncrementalScanParams.bindRangeToCatalog(range, pair));
-        // And through the decorator PrivilegedCatalog adds, since that is the shape Doris receives.
-        Assertions.assertSame(range, PaimonIncrementalScanParams.bindRangeToCatalog(range,
-                PrivilegedFileStoreTable.wrap(pair, new AllGrantedPrivilegeChecker(),
-                        Identifier.create("db", "tbl"))));
         // Not merely "the output equals the input": the main branch's snapshots must never be read,
         // because reading them is what produces an id range that cannot be carried to the fallback.
         Assertions.assertEquals(0, catalog.loadSnapshotCalls);
@@ -922,7 +890,7 @@ public class PaimonBackendBoundTableTest {
         org.apache.paimon.fs.Path tablePath =
                 new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/" + name);
         LocalFileIO fileIO = LocalFileIO.create();
-        new SchemaManager(fileIO, tablePath).createTable(new Schema(
+        new FileSystemSchemaManager(fileIO, tablePath).createTable(new Schema(
                 Collections.singletonList(C1), Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), ""));
         return FileStoreTableFactory.create(fileIO, tablePath);
@@ -956,7 +924,7 @@ public class PaimonBackendBoundTableTest {
         org.apache.paimon.fs.Path tablePath =
                 new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/" + name);
         // F2: the generation external DDL has already published on the fallback branch.
-        new SchemaManager(LocalFileIO.create(), tablePath, "fb").createTable(new Schema(
+        new FileSystemSchemaManager(LocalFileIO.create(), tablePath, "fb").createTable(new Schema(
                 Arrays.asList(C1, C2), Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyMap(), ""));
 
