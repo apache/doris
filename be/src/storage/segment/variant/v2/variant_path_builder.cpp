@@ -371,6 +371,11 @@ DataTypePtr path_least_common_type(const DataTypePtr& left, const DataTypePtr& r
     if (left.get() == right.get() || left->equals(*right)) {
         return left;
     }
+    // Chunk builders expose Nullable(Array(...)). Unwrap before dispatching so decimal array
+    // elements use the scale-aware rules below instead of the generic first-primitive match.
+    if (left->is_nullable() || right->is_nullable()) {
+        return make_nullable(path_least_common_type(remove_nullable(left), remove_nullable(right)));
+    }
     const auto* left_array = typeid_cast<const DataTypeArray*>(left.get());
     const auto* right_array = typeid_cast<const DataTypeArray*>(right.get());
     if (left_array != nullptr || right_array != nullptr) {
@@ -1042,6 +1047,10 @@ bool cast_introduced_null(const IColumn& source, const IColumn& target) {
 
 } // namespace
 
+DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right) {
+    return path_least_common_type(left, right);
+}
+
 DataTypePtr normalize_variant_path_integer_widths(const DataTypePtr& type) {
     const DataTypePtr base = remove_nullable(type);
     if (const auto* array = typeid_cast<const DataTypeArray*>(base.get())) {
@@ -1082,38 +1091,53 @@ struct VariantPathBuilder::Impl {
         return Status::OK();
     }
 
-    Status promote(const DataTypePtr& target_type, bool filter_cast_nulls) {
-        DataTypePtr target = remove_nullable(target_type);
-        if (target->equals(*type)) {
-            return Status::OK();
-        }
-        ColumnPtr promoted;
+    Status cast_to_type(const DataTypePtr& target, ColumnPtr* promoted) const {
         if (target->get_primitive_type() == TYPE_STRING &&
             type->get_primitive_type() == TYPE_ARRAY) {
             RETURN_IF_ERROR(stringify_complex_column(
-                    type, assert_cast<const ColumnNullable&>(*column), &promoted));
+                    type, assert_cast<const ColumnNullable&>(*column), promoted));
         } else if (type->get_primitive_type() == TYPE_ARRAY &&
                    target->get_primitive_type() == TYPE_ARRAY &&
                    variant_path_type_contains_nothing(type)) {
             MutableColumnPtr materialized;
             RETURN_IF_ERROR(replace_array_nothing(nullable_type, *column, make_nullable(target),
                                                   &materialized));
-            promoted = std::move(materialized);
+            *promoted = std::move(materialized);
         } else {
             RETURN_IF_ERROR(
                     variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
-                                              make_nullable(target), &promoted));
+                                              make_nullable(target), promoted));
         }
+        return Status::OK();
+    }
+
+    Status promote(const DataTypePtr& target_type, bool filter_cast_nulls,
+                   const InferredPromotion& on_promotion = {}) {
+        DataTypePtr target = remove_nullable(target_type);
+        if (target->equals(*type)) {
+            return Status::OK();
+        }
+        ColumnPtr promoted;
+        RETURN_IF_ERROR(cast_to_type(target, &promoted));
         // Inferred widening is only a storage representation choice. If CAST loses a valid value
         // at any array depth, preserve the whole path as JSONB instead. Forced typed-path
         // conversion intentionally retains its existing cast-null filtering below.
         if (!filter_cast_nulls && target->get_primitive_type() != TYPE_JSONB &&
             cast_introduced_null(*column, *promoted)) {
             target = jsonb_type();
-            RETURN_IF_ERROR(
-                    variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
-                                              make_nullable(target), &promoted));
+            RETURN_IF_ERROR(cast_to_type(target, &promoted));
             DORIS_CHECK(!assert_cast<const ColumnNullable&>(*promoted).has_null());
+        }
+        if (on_promotion) {
+            const DataTypePtr proposed = target;
+            RETURN_IF_ERROR(on_promotion(&target));
+            target = remove_nullable(target);
+            if (!target->equals(*proposed)) {
+                // For example, the active chunk's 0.1 fits scale 38, but a sealed large Decimal
+                // does not. Recast the original active values to JSONB, preserving 0.1's scale.
+                DORIS_CHECK_EQ(target->get_primitive_type(), TYPE_JSONB);
+                RETURN_IF_ERROR(cast_to_type(target, &promoted));
+            }
         }
         const auto& nullable = assert_cast<const ColumnNullable&>(*promoted);
         if (nullable.has_null()) {
@@ -1164,7 +1188,8 @@ VariantPathBuilder::~VariantPathBuilder() = default;
 VariantPathBuilder::VariantPathBuilder(VariantPathBuilder&&) noexcept = default;
 VariantPathBuilder& VariantPathBuilder::operator=(VariantPathBuilder&&) noexcept = default;
 
-Status VariantPathBuilder::append(VariantRef value, size_t row) {
+Status VariantPathBuilder::append(VariantRef value, size_t row,
+                                  const InferredPromotion& on_promotion) {
     try {
         const ScalarPhysical physical = scalar_physical(value);
         if (physical.kind == ScalarPhysicalKind::NULL_VALUE) {
@@ -1193,14 +1218,14 @@ Status VariantPathBuilder::append(VariantRef value, size_t row) {
                     DataTypePtr common_type = path_least_common_type(_impl->type, inferred_type);
                     if (_impl->type.get() != common_type.get() &&
                         !_impl->type->equals(*common_type)) {
-                        RETURN_IF_ERROR(_impl->promote(common_type, false));
+                        RETURN_IF_ERROR(_impl->promote(common_type, false, on_promotion));
                     }
                 }
             }
         }
         const bool is_array = !stable_scalar && value_kind(value) == ValueKind::ARRAY;
         if (is_array && !value_is_representable(value, _impl->type)) {
-            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
+            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false, on_promotion));
         }
 
         try {
@@ -1211,7 +1236,7 @@ Status VariantPathBuilder::append(VariantRef value, size_t row) {
             if (is_array || _impl->type->get_primitive_type() == TYPE_JSONB) {
                 throw;
             }
-            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
+            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false, on_promotion));
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
             append_value(value, _impl->type, &nullable.get_nested_column());
             nullable.get_null_map_data().push_back(0);
@@ -1236,11 +1261,25 @@ Status VariantPathBuilder::complete_rows(size_t rows) {
     return Status::OK();
 }
 
-Status VariantPathBuilder::convert_to(const DataTypePtr& storage_type) {
+Status VariantPathBuilder::convert_to(const DataTypePtr& storage_type, bool filter_cast_nulls) {
     if (!_impl->column) {
         return _impl->initialize(storage_type);
     }
-    return _impl->promote(storage_type, true);
+    return _impl->promote(storage_type, filter_cast_nulls);
+}
+
+Status VariantPathBuilder::check_inferred_promotion(const DataTypePtr& target_type,
+                                                    bool* needs_jsonb) const {
+    const DataTypePtr target = remove_nullable(target_type);
+    *needs_jsonb = false;
+    if (!_impl->column || target->equals(*_impl->type) ||
+        target->get_primitive_type() == TYPE_JSONB) {
+        return Status::OK();
+    }
+    ColumnPtr promoted;
+    RETURN_IF_ERROR(_impl->cast_to_type(target, &promoted));
+    *needs_jsonb = cast_introduced_null(*_impl->column, *promoted);
+    return Status::OK();
 }
 
 const PathInData& VariantPathBuilder::path() const {
