@@ -50,4 +50,27 @@ TEST(FileLoadScannerV2Test, LoadSelectionDoesNotDependOnQueryOption) {
     }
 }
 
+// A connector marker must not become a file-load path just because its default format is Parquet.
+TEST(FileLoadScannerV2Test, QueryOnlyConnectorsAreNotSupportedLoads) {
+    for (const auto* table_format : {"adbc", "fluss"}) {
+        TFileScanRangeParams params;
+        TTableFormatFileDesc table;
+        table.__set_table_format_type(table_format);
+        params.__set_table_format_params(table);
+        TQueryOptions options;
+        EXPECT_FALSE(FileScanLocalState::should_use_file_scanner_v2(options, true, params));
+        for (bool enabled : {false, true}) {
+            options.__set_enable_file_scanner_v2(enabled);
+            for (auto format : {TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_ORC,
+                                TFileFormatType::FORMAT_CSV_PLAIN, TFileFormatType::FORMAT_JSON,
+                                TFileFormatType::FORMAT_WAL, TFileFormatType::FORMAT_JNI,
+                                TFileFormatType::FORMAT_ARROW}) {
+                params.__set_format_type(format);
+                EXPECT_FALSE(FileScanLocalState::should_use_file_scanner_v2(options, true, params))
+                        << table_format << ": " << format << ", V2 option=" << enabled;
+            }
+        }
+    }
+}
+
 } // namespace doris

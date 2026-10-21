@@ -150,6 +150,13 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
                                                     bool is_load,
                                                     const TFileScanRangeParams& scan_params) {
     if (is_load) {
+        // ADBC and Fluss are query-only connectors. Their default Parquet format must not
+        // admit them to the ordinary file-load conversion path.
+        if (scan_params.__isset.table_format_params &&
+            (scan_params.table_format_params.table_format_type == "adbc" ||
+             scan_params.table_format_params.table_format_type == "fluss")) {
+            return false;
+        }
         // Load planners omit query session options. Thrift's default makes an omitted V2
         // option indistinguishable from false, so ingestion selects by format instead.
         switch (scan_params.format_type) {
