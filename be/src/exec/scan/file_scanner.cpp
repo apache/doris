@@ -552,6 +552,9 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                                           config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG_EVERY_T(INFO, 10)
+                        << "Skip missing file: query_id=" << print_id(_state->query_id())
+                        << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             } else if (st.is<ErrorCode::END_OF_FILE>()) {
                 _cur_reader_eof = true;
@@ -588,6 +591,9 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                                           config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG_EVERY_T(INFO, 10)
+                        << "Skip missing file: query_id=" << print_id(_state->query_id())
+                        << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             }
             RETURN_IF_ERROR(st);
@@ -1305,6 +1311,9 @@ Status FileScanner::_get_next_reader() {
             if (can_ignore_not_found_file(_current_range,
                                           config::ignore_not_found_file_in_external_table)) {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG_EVERY_T(INFO, 10)
+                        << "Skip missing file: query_id=" << print_id(_state->query_id())
+                        << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 continue;
             }
             return Status::InternalError("failed to find reader, err: {}", init_status.to_string());
