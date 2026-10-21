@@ -48,15 +48,18 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.common.FileUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -256,7 +259,7 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setColumns(buildColumns(table));
 
         // Existing partitions (partitioned table only; empty otherwise).
-        tSink.setPartitions(buildExistingPartitions(table));
+        tSink.setPartitions(buildExistingPartitions(table, handle));
 
         // Bucket info.
         THiveBucket bucketInfo = new THiveBucket();
@@ -322,16 +325,16 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         return columns;
     }
 
-    // Port of legacy HiveTableSink.setPartitionValues: for a partitioned table, list live partitions and
-    // convert each to a THivePartition (values + per-partition file format + in-place location). Live/uncached
-    // (matches the scan path; registered deviation DV-INC4-livepart). HmsClient calls self-authenticate.
-    private List<THivePartition> buildExistingPartitions(HmsTableInfo table) {
+    // Load only the target of a fully static string-partition write. Other writes retain the full listing.
+    // Missing partitions are omitted by getExistingPartitions and classified as NEW by BE.
+    private List<THivePartition> buildExistingPartitions(HmsTableInfo table, ConnectorWriteHandle handle) {
         List<THivePartition> partitions = new ArrayList<>();
         if (table.getPartitionKeys().isEmpty()) {
             return partitions;
         }
-        List<String> partitionNames = hmsClient.listPartitionNames(
-                table.getDbName(), table.getTableName(), -1);
+        Optional<String> staticPartitionName = fullyStaticPartitionName(table, handle);
+        List<String> partitionNames = staticPartitionName.map(Collections::singletonList)
+                .orElseGet(() -> hmsClient.listPartitionNames(table.getDbName(), table.getTableName(), -1));
         List<HmsPartitionInfo> hmsPartitions = hmsClient.getExistingPartitions(
                 table.getDbName(), table.getTableName(), partitionNames);
         for (HmsPartitionInfo partition : hmsPartitions) {
@@ -349,6 +352,32 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
             partitions.add(hivePartition);
         }
         return partitions;
+    }
+
+    private static Optional<String> fullyStaticPartitionName(HmsTableInfo table, ConnectorWriteHandle handle) {
+        // Typed partition text can differ between FE literals and BE directory formatting (e.g. BOOLEAN
+        // true versus 1). Narrow only string partitions, whose cast values are the bytes BE will write.
+        for (ConnectorColumn column : table.getPartitionKeys()) {
+            String type = column.getType().getTypeName();
+            if (!"STRING".equalsIgnoreCase(type) && !"VARCHAR".equalsIgnoreCase(type)
+                    && !"CHAR".equalsIgnoreCase(type)) {
+                return Optional.empty();
+            }
+        }
+        Map<String, String> spec = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        spec.putAll(handle.getCastStaticPartitionSpec());
+        List<String> names = new ArrayList<>(table.getPartitionKeys().size());
+        List<String> values = new ArrayList<>(table.getPartitionKeys().size());
+        for (ConnectorColumn column : table.getPartitionKeys()) {
+            String value = spec.get(column.getName());
+            if (value == null) {
+                // A missing value denotes a dynamic partition or SQL NULL; retain the existing full load.
+                return Optional.empty();
+            }
+            names.add(column.getName().toLowerCase(Locale.ROOT));
+            values.add(value);
+        }
+        return Optional.of(FileUtils.makePartName(names, values));
     }
 
     // Port of legacy HiveTableSink.setCompressType: the compression codec is read from the table parameters by
