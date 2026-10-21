@@ -405,6 +405,10 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
             .continuation_token = result.GetNextContinuationToken(),
             .has_more = result.GetIsTruncated(),
     };
+    page.common_prefixes.reserve(result.GetCommonPrefixes().size());
+    for (const auto& entry : result.GetCommonPrefixes()) {
+        page.common_prefixes.emplace_back(entry.GetPrefix());
+    }
     const auto& content = result.GetContents();
     page.objects.reserve(content.size());
     for (const auto& obj : content) {
