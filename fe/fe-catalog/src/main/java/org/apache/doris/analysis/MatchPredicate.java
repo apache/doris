@@ -73,8 +73,6 @@ public class MatchPredicate extends Predicate {
     private String invertedIndexAnalyzerName = "";
     // Fields for SQL generation
     private String explicitAnalyzer = "";
-    // false for a MATCH that only filters the rows of a scan: it must not add to the score() of that scan
-    private boolean collectScore = true;
 
     private MatchPredicate() {
         // use for serde only
@@ -92,7 +90,6 @@ public class MatchPredicate extends Predicate {
         invertedIndexParserStopwords = other.invertedIndexParserStopwords;
         invertedIndexAnalyzerName = other.invertedIndexAnalyzerName;
         explicitAnalyzer = other.explicitAnalyzer;
-        collectScore = other.collectScore;
     }
 
     /**
@@ -164,14 +161,6 @@ public class MatchPredicate extends Predicate {
         return invertedIndexAnalyzerName;
     }
 
-    public boolean isCollectScore() {
-        return collectScore;
-    }
-
-    public void setCollectScore(boolean collectScore) {
-        this.collectScore = collectScore;
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
@@ -181,8 +170,7 @@ public class MatchPredicate extends Predicate {
         return other.op == op
                 && Objects.equals(explicitAnalyzer, other.explicitAnalyzer)
                 && Objects.equals(invertedIndexAnalyzerName, other.invertedIndexAnalyzerName)
-                && Objects.equals(invertedIndexParser, other.invertedIndexParser)
-                && collectScore == other.collectScore;
+                && Objects.equals(invertedIndexParser, other.invertedIndexParser);
     }
 
     @Override
@@ -192,8 +180,7 @@ public class MatchPredicate extends Predicate {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), op, explicitAnalyzer, invertedIndexAnalyzerName, invertedIndexParser,
-                collectScore);
+        return Objects.hash(super.hashCode(), op, explicitAnalyzer, invertedIndexAnalyzerName, invertedIndexParser);
     }
 
     String analyzerSqlFragment() {

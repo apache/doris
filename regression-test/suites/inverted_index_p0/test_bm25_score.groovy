@@ -103,46 +103,47 @@ suite("test_bm25_score", "p0") {
         // Test exception cases for score() function usage
         log.info("Testing exception cases for score() function...")
 
-        // score() is the relevance for the MATCH and SEARCH predicates in the WHERE clause of its own SELECT.
+        // score() needs a MATCH or SEARCH predicate in the WHERE clause of its own SELECT on one table.
+        def unsupportedSelect = "score() can only be used in a SELECT that reads one table"
         test {
             sql """ select score() as score from test_bm25_score limit 10; """
-            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select score() as score from test_bm25_score where status = 200 limit 10; """
-            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select score() from test_bm25_score; """
-            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select * from (select score() as s from test_bm25_score where status = 200) t; """
-            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
+            exception unsupportedSelect
         }
 
         test {
             sql """ select score() as score from test_bm25_score where request = 'button.03.gif' order by score() limit 10; """
-            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
+            exception unsupportedSelect
         }
 
-        // Without a TopN on the score, the scan scores every row it returns. Both agree on the best score.
-        qt_score_without_topn """ select count(), max(score()) from test_bm25_score where request match_any 'button.03.gif'; """
-        qt_score_topn_best """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score desc limit 1; """
-        qt_score_limit_without_order """ select count() from (select score() as score from test_bm25_score where request match_any 'button.03.gif' limit 10) t; """
-        qt_score_order_without_limit """ select count() from (select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score) t; """
-        qt_score_order_by_other_column """ select count() from (select score() as score from test_bm25_score where request match_any 'button.03.gif' order by status limit 10) t; """
-        qt_score_order_by_score_and_column """ select status, score() as s from test_bm25_score where request match_any 'button.03.gif' order by s desc, status limit 3; """
-        qt_score_match_without_order """ select count(), max(score()) from test_bm25_score where request match 'button.03.gif'; """
-        qt_score_union_all """
-            select count(), max(score) from (
+        // A scored SELECT in a subquery or set operation needs ORDER BY score() with LIMIT.
+        test {
+            sql """
                 (select score() as score from test_bm25_score where request match_any 'button.03.gif')
                 union all
-                (select score() as score from test_bm25_score where request match_any 'test')) u;
-        """
+                (select score() as score from test_bm25_score where request match_any 'test');
+            """
+            exception "score() in a subquery, view, CTE or set operation requires ORDER BY score() with LIMIT"
+        }
+
+        // Without a TopN on the score, the scan scores every row it returns; a TopN on the score
+        // finds the same best score.
+        qt_score_order_by_score_and_column """ select status, score() as s from test_bm25_score where request match_any 'button.03.gif' order by s desc, status limit 3; """
+        qt_score_topn_best """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score desc limit 1; """
 
         // score() > 0.5 with ORDER BY and LIMIT is now supported after score range filter pushdown feature
         sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """

@@ -113,29 +113,29 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
         }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
-        List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
-                .map(e -> {
-                    if (e instanceof Alias) {
-                        return new Alias(((Alias) e).child(), e.getName());
-                    }
-                    return e;
-                })
-                .collect(ImmutableList.toImmutableList());
-        for (int i = 0; i < virtualColumns.size(); i++) {
-            context.exprIdReplaceMap.put(catalogRelation.getVirtualColumns().get(i).getExprId(),
-                    virtualColumns.get(i).getExprId());
-        }
-        virtualColumns = virtualColumns.stream()
-                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
-                .collect(ImmutableList.toImmutableList());
-        newRelation = newRelation.withVirtualColumns(virtualColumns);
-        if (newRelation instanceof LogicalOlapScan) {
-            // The score and ANN order keys sort by virtual columns, which got new ids above.
-            LogicalOlapScan olapScan = (LogicalOlapScan) newRelation;
-            newRelation = olapScan.appendVirtualColumnsAndTopN(ImmutableList.of(),
-                    copyOrderKeys(olapScan.getAnnOrderKeys(), context), olapScan.getAnnLimit(),
-                    copyOrderKeys(olapScan.getScoreOrderKeys(), context), olapScan.getScoreLimit(),
-                    olapScan.getScoreRangeInfo());
+        if (!catalogRelation.getVirtualColumns().isEmpty()) {
+            // Each virtual column gets a new id, and its old slot maps to that id.
+            List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
+                    .map(column -> {
+                        NamedExpression newColumn = column instanceof Alias
+                                ? new Alias(ExpressionDeepCopier.INSTANCE.deepCopy(((Alias) column).child(),
+                                        context), column.getName())
+                                : (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(column, context);
+                        context.exprIdReplaceMap.put(column.getExprId(), newColumn.getExprId());
+                        return newColumn;
+                    })
+                    .collect(ImmutableList.toImmutableList());
+            // The copied relation still outputs the old virtual columns, so compute its output again.
+            newRelation = (LogicalCatalogRelation) newRelation.withVirtualColumns(virtualColumns)
+                    .withGroupExprLogicalPropChildren(Optional.empty(), Optional.empty(), ImmutableList.of());
+            if (newRelation instanceof LogicalOlapScan) {
+                // The score and ANN order keys sort by virtual columns.
+                LogicalOlapScan olapScan = (LogicalOlapScan) newRelation;
+                newRelation = olapScan.appendVirtualColumnsAndTopN(ImmutableList.of(),
+                        copyOrderKeys(olapScan.getAnnOrderKeys(), context), olapScan.getAnnLimit(),
+                        copyOrderKeys(olapScan.getScoreOrderKeys(), context), olapScan.getScoreLimit(),
+                        olapScan.getScoreRangeInfo());
+            }
         }
         if (catalogRelation instanceof LogicalSchemaScan
                 && ((LogicalSchemaScan) catalogRelation).isFilterPushed()) {

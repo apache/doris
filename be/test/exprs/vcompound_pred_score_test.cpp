@@ -38,8 +38,7 @@ namespace {
 
 class ScoredBitmapExpr final : public VExpr {
 public:
-    ScoredBitmapExpr(std::initializer_list<uint32_t> rows, float score, bool collect_score = true)
-            : _score(score), _collect_score(collect_score) {
+    ScoredBitmapExpr(std::initializer_list<uint32_t> rows, float score) : _score(score) {
         set_node_type(TExprNodeType::MATCH_PRED);
         for (uint32_t row : rows) {
             _rows.add(row);
@@ -61,13 +60,8 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t) override {
         auto index_context = context->get_index_context();
         auto query_context = index_context->get_index_query_context();
-        // Like VMatchPredicate, which pauses scoring for a MATCH that only filters; an index
-        // reader collects scores only while there is a collector.
-        segment_v2::ScoreCollectionPause pause_scoring(query_context.get(), !_collect_score);
-        if (query_context->collection_similarity != nullptr) {
-            for (uint32_t row : _rows) {
-                query_context->collection_similarity->collect(row, _score);
-            }
+        for (uint32_t row : _rows) {
+            query_context->collection_similarity->collect(row, _score);
         }
         index_context->set_index_result_for_expr(
                 this,
@@ -79,7 +73,6 @@ public:
 private:
     roaring::Roaring _rows;
     float _score;
-    bool _collect_score;
 };
 
 class UnindexedExpr final : public VExpr {
@@ -227,88 +220,6 @@ TEST(VCompoundPredScoreTest, IncompleteScoredBranchReturnsErrorWithoutPublishing
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_EQ(query_context->collection_similarity, parent_similarity);
     EXPECT_TRUE(parent_similarity->release_scores().empty());
-}
-
-struct FilterOnlyBranchResult {
-    Status status;
-    roaring::Roaring rows;
-    ScoreMap scores;
-    bool collector_restored = false;
-};
-
-// Evaluates op over a scoring MATCH on rows 1 and 2 with score 1 and a MATCH that only filters,
-// e.g. one from another SELECT than the score() of the scan, on rows 2 and 3 with score 4.
-FilterOnlyBranchResult evaluate_with_filter_only_branch(TExprOpcode::type op) {
-    auto root = make_compound(
-            op, std::make_shared<ScoredBitmapExpr>(std::initializer_list<uint32_t> {1, 2}, 1.0F),
-            std::make_shared<ScoredBitmapExpr>(std::initializer_list<uint32_t> {2, 3}, 4.0F,
-                                               false));
-
-    std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
-    std::vector<IndexFieldNameAndTypePair> storage_types;
-    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
-    segment_v2::ColumnIteratorOptions iterator_options;
-    auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
-    auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
-            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
-    auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
-    query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
-    auto root_similarity = query_context->collection_similarity;
-    index_context->set_index_query_context(query_context);
-    auto expr_context = VExprContext::create_shared(root);
-    expr_context->set_index_context(index_context);
-
-    FilterOnlyBranchResult result;
-    result.status = root->evaluate_inverted_index(expr_context.get(), 4);
-    result.rows = *index_context->get_index_result_for_expr(root.get())->get_data_bitmap();
-    result.scores = root_similarity->release_scores();
-    result.collector_restored = query_context->collection_similarity == root_similarity;
-    return result;
-}
-
-// The MATCH that only filters adds nothing to the score of a row, and the other one still scores.
-TEST(VCompoundPredScoreTest, FilterOnlyBranchOfAndDoesNotScore) {
-    auto result = evaluate_with_filter_only_branch(TExprOpcode::COMPOUND_AND);
-    ASSERT_TRUE(result.status.ok());
-    EXPECT_TRUE(result.collector_restored);
-    EXPECT_EQ(result.rows.cardinality(), 1);
-    ASSERT_EQ(result.scores.size(), 1);
-    EXPECT_FLOAT_EQ(result.scores.at(2), 1.0F);
-}
-
-TEST(VCompoundPredScoreTest, FilterOnlyBranchOfOrDoesNotScore) {
-    auto result = evaluate_with_filter_only_branch(TExprOpcode::COMPOUND_OR);
-    ASSERT_TRUE(result.status.ok());
-    EXPECT_TRUE(result.collector_restored);
-    EXPECT_EQ(result.rows.cardinality(), 3);
-    ASSERT_EQ(result.scores.size(), 2);
-    EXPECT_FLOAT_EQ(result.scores.at(1), 1.0F);
-    EXPECT_FLOAT_EQ(result.scores.at(2), 1.0F);
-}
-
-TEST(ScoreCollectionPauseTest, HidesTheCollectorOnlyWhilePaused) {
-    auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
-    auto similarity = std::make_shared<CollectionSimilarity>();
-    query_context->collection_similarity = similarity;
-    {
-        segment_v2::ScoreCollectionPause pause_scoring(query_context.get(), false);
-        EXPECT_EQ(query_context->collection_similarity, similarity);
-    }
-    {
-        segment_v2::ScoreCollectionPause pause_scoring(query_context.get(), true);
-        EXPECT_EQ(query_context->collection_similarity, nullptr);
-    }
-    EXPECT_EQ(query_context->collection_similarity, similarity);
-
-    // Without a collector or an index query context there is nothing to pause.
-    query_context->collection_similarity = nullptr;
-    {
-        segment_v2::ScoreCollectionPause pause_scoring(query_context.get(), true);
-        EXPECT_EQ(query_context->collection_similarity, nullptr);
-    }
-    EXPECT_EQ(query_context->collection_similarity, nullptr);
-    segment_v2::ScoreCollectionPause pause_without_context(nullptr, true);
 }
 
 } // namespace

@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -92,9 +91,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalJoin.class, Utils.fastArray(
                     AggregateFunction.class,
                     GroupingScalarFunction.class,
-                    // score() is bound to the scan that the WHERE clause filters; a join condition
-                    // cannot use it.
-                    Score.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
             .put(LogicalOneRowRelation.class, Utils.fastArray(

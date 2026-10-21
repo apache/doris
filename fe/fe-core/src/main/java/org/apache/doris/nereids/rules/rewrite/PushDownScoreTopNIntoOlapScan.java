@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -45,9 +44,7 @@ import java.util.Set;
  *
  * <p>BindScoreToOlapScan makes the scan score every row it returns. When a TopN orders the rows of
  * the scan by the score alone, the scan can keep the best rows of each segment instead, and SEARCH
- * can skip documents that cannot reach them. A filter on the score left above the scan has to see
- * every score, so it disables this: PushDownScoreRangeIntoOlapScan, which runs first, moves the
- * minimum score filters into the scan.
+ * can skip documents that cannot reach them.
  */
 public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
 
@@ -70,15 +67,13 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
     private Optional<Plan> pushDown(LogicalTopN<?> topN, Optional<LogicalProject<?>> project,
             LogicalFilter<LogicalOlapScan> filter) {
         LogicalOlapScan scan = filter.child();
-        Optional<Alias> scoreColumn = Score.findScoreColumn(scan.getVirtualColumns());
-        if (!scoreColumn.isPresent() || !scan.getScoreLimit().equals(Optional.of(0L))
+        Optional<Slot> scoreSlot = BindScoreToOlapScan.findScoreSlot(scan);
+        if (!scoreSlot.isPresent() || !scan.getScoreLimit().equals(Optional.of(0L))
                 || topN.getOrderKeys().size() != 1) {
             return Optional.empty();
         }
-        Slot scoreSlot = scoreColumn.get().toSlot();
         OrderKey orderKey = topN.getOrderKeys().get(0);
-        if (!ordersByScore(orderKey.getExpr(), project, scoreSlot)
-                || filter.getConjuncts().stream().anyMatch(conjunct -> conjunct.getInputSlots().contains(scoreSlot))) {
+        if (!ordersByScore(orderKey.getExpr(), project, scoreSlot.get())) {
             return Optional.empty();
         }
         // When limit + offset overflows the long range, the pushed scan limit would wrap to a
@@ -91,7 +86,7 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         }
         LogicalOlapScan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(),
                 scan.getAnnOrderKeys(), scan.getAnnLimit(),
-                ImmutableList.of(new OrderKey(scoreSlot, orderKey.isAsc(), orderKey.isNullFirst())),
+                ImmutableList.of(new OrderKey(scoreSlot.get(), orderKey.isAsc(), orderKey.isNullFirst())),
                 Optional.of(topN.getLimit() + topN.getOffset()), scan.getScoreRangeInfo());
         return Optional.of(filter.withChildren(newScan));
     }

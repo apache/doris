@@ -21,45 +21,11 @@
 1
 2
 
--- !V2_match_normalized_arithmetic --
-1
-2
-
 -- !V2_match_high_threshold --
 
 -- !V2_match_null_threshold --
 
 -- !V2_match_no_hits --
-
--- !V2_match_cast_int --
-
--- !V2_match_cast_decimal --
-1
-2
-
--- !V2_match_upper_bound --
-1
-2
-
--- !V2_match_inclusive_upper_bound --
-1
-2
-
--- !V2_match_equality --
-
--- !V2_match_product --
-1
-2
-
--- !V2_match_column_bound --
-
--- !V2_match_two_bounds --
-1
-2
-
--- !V2_match_or_branch --
-1
-2
 
 -- !V2_search_range --
 1	0.4700036
@@ -83,45 +49,11 @@
 1
 2
 
--- !V2_search_normalized_arithmetic --
-1
-2
-
 -- !V2_search_high_threshold --
 
 -- !V2_search_null_threshold --
 
 -- !V2_search_no_hits --
-
--- !V2_search_cast_int --
-
--- !V2_search_cast_decimal --
-1
-2
-
--- !V2_search_upper_bound --
-1
-2
-
--- !V2_search_inclusive_upper_bound --
-1
-2
-
--- !V2_search_equality --
-
--- !V2_search_product --
-1
-2
-
--- !V2_search_column_bound --
-
--- !V2_search_two_bounds --
-1
-2
-
--- !V2_search_or_branch --
-1
-2
 
 -- !V2_match_multirowset --
 1	0.72814035
@@ -265,45 +197,11 @@
 1
 2
 
--- !V3_match_normalized_arithmetic --
-1
-2
-
 -- !V3_match_high_threshold --
 
 -- !V3_match_null_threshold --
 
 -- !V3_match_no_hits --
-
--- !V3_match_cast_int --
-
--- !V3_match_cast_decimal --
-1
-2
-
--- !V3_match_upper_bound --
-1
-2
-
--- !V3_match_inclusive_upper_bound --
-1
-2
-
--- !V3_match_equality --
-
--- !V3_match_product --
-1
-2
-
--- !V3_match_column_bound --
-
--- !V3_match_two_bounds --
-1
-2
-
--- !V3_match_or_branch --
-1
-2
 
 -- !V3_search_range --
 1	0.4700036
@@ -327,45 +225,11 @@
 1
 2
 
--- !V3_search_normalized_arithmetic --
-1
-2
-
 -- !V3_search_high_threshold --
 
 -- !V3_search_null_threshold --
 
 -- !V3_search_no_hits --
-
--- !V3_search_cast_int --
-
--- !V3_search_cast_decimal --
-1
-2
-
--- !V3_search_upper_bound --
-1
-2
-
--- !V3_search_inclusive_upper_bound --
-1
-2
-
--- !V3_search_equality --
-
--- !V3_search_product --
-1
-2
-
--- !V3_search_column_bound --
-
--- !V3_search_two_bounds --
-1
-2
-
--- !V3_search_or_branch --
-1
-2
 
 -- !V3_match_multirowset --
 1	0.72814035
@@ -509,45 +373,11 @@
 1
 2
 
--- !SNII_match_normalized_arithmetic --
-1
-2
-
 -- !SNII_match_high_threshold --
 
 -- !SNII_match_null_threshold --
 
 -- !SNII_match_no_hits --
-
--- !SNII_match_cast_int --
-
--- !SNII_match_cast_decimal --
-1
-2
-
--- !SNII_match_upper_bound --
-1
-2
-
--- !SNII_match_inclusive_upper_bound --
-1
-2
-
--- !SNII_match_equality --
-
--- !SNII_match_product --
-1
-2
-
--- !SNII_match_column_bound --
-
--- !SNII_match_two_bounds --
-1
-2
-
--- !SNII_match_or_branch --
-1
-2
 
 -- !SNII_search_range --
 1	0.4700036
@@ -571,45 +401,11 @@
 1
 2
 
--- !SNII_search_normalized_arithmetic --
-1
-2
-
 -- !SNII_search_high_threshold --
 
 -- !SNII_search_null_threshold --
 
 -- !SNII_search_no_hits --
-
--- !SNII_search_cast_int --
-
--- !SNII_search_cast_decimal --
-1
-2
-
--- !SNII_search_upper_bound --
-1
-2
-
--- !SNII_search_inclusive_upper_bound --
-1
-2
-
--- !SNII_search_equality --
-
--- !SNII_search_product --
-1
-2
-
--- !SNII_search_column_bound --
-
--- !SNII_search_two_bounds --
-1
-2
-
--- !SNII_search_or_branch --
-1
-2
 
 -- !SNII_match_multirowset --
 1	0.72814035

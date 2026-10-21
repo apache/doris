@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
@@ -82,6 +85,26 @@ public class LogicalPlanDeepCopierTest {
         Assertions.assertTrue(relationPlan.hasPartitionPredicate());
         Assertions.assertFalse(copiedPlan.isPartitionPruned());
         Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testDeepCopyOlapScanWithVirtualColumn() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        Alias scoreColumn = new Alias(new Score(), "__score");
+        scan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(scoreColumn), ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(new OrderKey(scoreColumn.toSlot(), false, false)), Optional.of(0L),
+                Optional.empty());
+        DeepCopierContext context = new DeepCopierContext();
+        LogicalOlapScan copy = (LogicalOlapScan) scan.accept(LogicalPlanDeepCopier.INSTANCE, context);
+
+        // The copy outputs one new score column, which its order key and the slots above it use.
+        Slot copiedScore = copy.getVirtualColumns().get(0).toSlot();
+        Assertions.assertNotEquals(scoreColumn.getExprId(), copiedScore.getExprId());
+        Assertions.assertEquals(scan.getOutput().size(), copy.getOutput().size());
+        Assertions.assertTrue(copy.getOutput().contains(copiedScore));
+        Assertions.assertFalse(copy.getOutput().contains(scoreColumn.toSlot()));
+        Assertions.assertEquals(copiedScore, copy.getScoreOrderKeys().get(0).getExpr());
+        Assertions.assertEquals(copiedScore.getExprId(), context.exprIdReplaceMap.get(scoreColumn.getExprId()));
     }
 
     @Test

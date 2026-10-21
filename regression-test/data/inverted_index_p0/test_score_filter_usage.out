@@ -11,6 +11,18 @@
 1	0.4700036	0.4700036
 2	0.4700036	0.4700036
 
+-- !select_star_score_range --
+1	apple red	sweet
+2	apple green	sour
+
+-- !table_alias_score_range --
+1	0.4700036
+2	0.4700036
+
+-- !score_without_range --
+1	0.4700036
+2	0.4700036
+
 -- !ordinary_order_with_offset --
 2	sour	0.4700036
 
@@ -24,14 +36,13 @@
 1	sweet	0.4700036
 2	sour	0.4700036
 
--- !lossy_cast_score_filter --
-1
-2
+-- !window_same_select --
+1	0.4700036	1
+2	0.4700036	2
 
--- !upper_bound_score_filter --
-
--- !count_upper_bound_score_filter --
-0
+-- !window_order_by_score --
+1	1
+2	2
 
 -- !count_score_range --
 2
@@ -42,79 +53,17 @@
 -- !count_high_score_range --
 0
 
--- !select_star_score_range --
-1	apple red	sweet
-2	apple green	sour
+-- !group_by_score_range --
+sour	1
+sweet	1
 
--- !in_subquery_score_range --
-1
-
--- !not_exists_score_range --
-2
-
--- !left_join_score_range --
-1	\N
-2	\N
-
--- !join_score_range --
+-- !nested_score_topn --
 1	0.4700036	sweet
 2	0.4700036	sour
 
--- !join_scored_subquery --
-1	sweet
-2	sour
-
--- !union_all_score_column --
-1	0.4700036
-1	0.4700036
-2	0.4700036
-
--- !union_distinct_score_column --
-1	0.4700036
-2	0.4700036
-
--- !window_same_select --
-1	0.4700036	1
-2	0.4700036	2
-
--- !window_order_by_score --
-1	1
-2	2
-
--- !alias_filter_above_window --
-1	1
-2	2
-
--- !cte_score_range --
-1	0.4700036
-2	0.4700036
-
--- !alias_score_range --
-1	0.4700036
-2	0.4700036
-
--- !alias_join_score_range --
-1	sweet
-2	sour
-
--- !outer_match_keeps_score --
-1	0.4700036
-
--- !outer_search_keeps_score --
-1	0.4700036
-
--- !outer_match_below_threshold --
-
--- !aggregate_score --
-sour	1	0.4700036
-sweet	1	0.4700036
-
--- !having_aggregate_score --
-sour	0.4700036
-sweet	0.4700036
-
--- !qualify_score --
-1
+-- !union_score_topn --
+1	0.9808291
+2	0.9808291
 
 -- !projected_match_above_score --
 

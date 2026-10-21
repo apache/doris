@@ -170,10 +170,6 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
-    // The score id of the olap scan whose filter conjuncts are being translated: a MATCH or SEARCH
-    // with another score id must not add to the score of that scan.
-    private Optional<ExprId> scanScoreId = Optional.empty();
-
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
         this(ctx, new DescriptorTable());
@@ -515,13 +511,5 @@ public class PlanTranslatorContext {
 
     public Set<SlotId> getVirtualColumnIds() {
         return virtualColumnIds;
-    }
-
-    public Optional<ExprId> getScanScoreId() {
-        return scanScoreId;
-    }
-
-    public void setScanScoreId(Optional<ExprId> scanScoreId) {
-        this.scanScoreId = scanScoreId;
     }
 }

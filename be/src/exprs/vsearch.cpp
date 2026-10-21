@@ -31,7 +31,6 @@
 #include "exprs/vslot_ref.h"
 #include "glog/logging.h"
 #include "runtime/runtime_state.h"
-#include "storage/index/index_query_context.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/schema.h"
 
@@ -298,9 +297,6 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     }
 
     auto index_query_context = index_context->get_index_query_context();
-    // A SEARCH that only filters the rows of the scan, e.g. one from another SELECT, must not add
-    // to score().
-    ScoreCollectionPause pause_scoring(index_query_context.get(), !_search_param.collect_score);
 
     auto function = std::make_shared<FunctionSearch>();
     auto result_bitmap = InvertedIndexResultBitmap();

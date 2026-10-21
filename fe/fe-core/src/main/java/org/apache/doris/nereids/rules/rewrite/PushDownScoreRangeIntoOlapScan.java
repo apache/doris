@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -27,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -40,42 +40,42 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 /**
- * Push a minimum score filter, score > x or score >= x, into the scan that computes the score.
+ * Push the minimum score filter, score > x or score >= x, into the scan that computes the score.
  *
- * <p>The scan then drops the rows below the threshold while it scores them. Any other filter on
- * the score, e.g. score < x or a second threshold, stays an ordinary filter on the score column
- * that BindScoreToOlapScan added. Runs before PushDownScoreTopNIntoOlapScan, which limits the
- * scoring only when no such filter is left.
+ * <p>BindScoreToOlapScan lets only this filter on the score reach the scan. The scan has to apply
+ * it: it fills the score column only after it evaluated its own predicates. Runs before
+ * PushDownScoreTopNIntoOlapScan.
  */
 public class PushDownScoreRangeIntoOlapScan extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalOlapScan().when(scan -> !scan.getScoreRangeInfo().isPresent()
-                && Score.findScoreColumn(scan.getVirtualColumns()).isPresent()))
+                && BindScoreToOlapScan.findScoreSlot(scan).isPresent()))
                 .thenApply(ctx -> {
                     LogicalFilter<LogicalOlapScan> filter = ctx.root;
                     LogicalOlapScan scan = filter.child();
-                    Slot scoreColumn = Score.findScoreColumn(scan.getVirtualColumns()).get().toSlot();
-                    Map<Expression, ScoreRangeInfo> ranges = new LinkedHashMap<>();
-                    for (Expression conjunct : filter.getConjuncts()) {
-                        extractScoreRange(conjunct, scoreColumn).ifPresent(range -> ranges.put(conjunct, range));
-                    }
-                    // The scan applies one threshold.
-                    if (ranges.size() != 1) {
+                    Slot scoreSlot = BindScoreToOlapScan.findScoreSlot(scan).get();
+                    List<Expression> scoreConjuncts = filter.getConjuncts().stream()
+                            .filter(conjunct -> conjunct.getInputSlots().contains(scoreSlot))
+                            .collect(ImmutableList.toImmutableList());
+                    if (scoreConjuncts.isEmpty()) {
                         return null;
                     }
-                    Map.Entry<Expression, ScoreRangeInfo> range = ranges.entrySet().iterator().next();
+                    Optional<ScoreRangeInfo> range = scoreConjuncts.size() == 1
+                            ? extractScoreRange(scoreConjuncts.get(0), scoreSlot) : Optional.empty();
+                    if (!range.isPresent()) {
+                        throw new AnalysisException(BindScoreToOlapScan.RANGE_FORM_ERROR);
+                    }
                     LogicalOlapScan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(),
                             scan.getAnnOrderKeys(), scan.getAnnLimit(), scan.getScoreOrderKeys(),
-                            scan.getScoreLimit(), Optional.of(range.getValue()));
+                            scan.getScoreLimit(), range);
                     Set<Expression> remaining = filter.getConjuncts().stream()
-                            .filter(conjunct -> !conjunct.equals(range.getKey()))
+                            .filter(conjunct -> !conjunct.equals(scoreConjuncts.get(0)))
                             .collect(ImmutableSet.toImmutableSet());
                     return remaining.isEmpty() ? newScan : filter.withConjunctsAndChild(remaining, newScan);
                 }).toRule(RuleType.PUSH_DOWN_SCORE_RANGE_INTO_OLAP_SCAN);

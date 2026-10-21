@@ -61,10 +61,6 @@ suite("test_score_filter_matrix", "p0") {
                 SELECT id FROM test_score_filter_matrix
                 WHERE ${predicate} AND CAST(score() AS DOUBLE) > 0.00001
             """)
-            "order_qt_${tag}_normalized_arithmetic"("""
-                SELECT id FROM test_score_filter_matrix
-                WHERE ${predicate} AND score() + 1 > 1
-            """)
             "order_qt_${tag}_high_threshold"("""
                 SELECT id FROM test_score_filter_matrix
                 WHERE ${predicate} AND score() > 1000000
@@ -77,16 +73,28 @@ suite("test_score_filter_matrix", "p0") {
                 SELECT id FROM test_score_filter_matrix
                 WHERE ${predicate.replace('apple', 'unmatchedtoken')} AND score() > 0
             """)
-            // The scan applies only score > x and score >= x. Any other filter on the score is an
-            // ordinary filter on the score column of the scan.
-            [cast_int: "CAST(score() AS INT) > 0", cast_decimal: "CAST(score() AS DECIMAL(10, 6)) > 0",
-                    upper_bound: "score() < 1", inclusive_upper_bound: "score() <= 1", equality: "score() = 1",
-                    product: "score() * score() > 0", column_bound: "score() > id",
-                    two_bounds: "score() > 0.1 AND score() < 0.9", or_branch: "(score() > 0 OR id = 1)"
-            ].each { name, filter ->
-                "order_qt_${tag}_${name}"("""
-                    SELECT id FROM test_score_filter_matrix WHERE ${predicate} AND ${filter}
-                """)
+            for (String type : ["INT", "DECIMAL(10, 6)"]) {
+                test {
+                    sql "SELECT id FROM test_score_filter_matrix WHERE ${predicate} " +
+                            "AND CAST(score() AS ${type}) > 0"
+                    exception "score() predicate in WHERE clause must be in the form"
+                }
+            }
+            for (String range : ["score() < 1", "score() <= 1", "score() = 1", "score() * score() > 0", "score() > id",
+                    "score() + 1 > 1"]) {
+                test {
+                    sql "SELECT id FROM test_score_filter_matrix WHERE ${predicate} AND ${range}"
+                    exception "score() predicate in WHERE clause must be in the form"
+                }
+            }
+            test {
+                sql "SELECT id FROM test_score_filter_matrix WHERE ${predicate} " +
+                        "AND score() > 0.1 AND score() < 0.9"
+                exception "Only one score() range predicate is supported"
+            }
+            test {
+                sql "SELECT id FROM test_score_filter_matrix WHERE ${predicate} AND (score() > 0 OR id = 1)"
+                exception "score() predicate must be a top-level AND condition"
             }
         }
 
@@ -211,6 +219,6 @@ suite("test_score_filter_matrix", "p0") {
 
     test {
         sql "SELECT id FROM test_score_filter_matrix WHERE score() > 0"
-        exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
+        exception "score() can only be used in a SELECT that reads one table"
     }
 }

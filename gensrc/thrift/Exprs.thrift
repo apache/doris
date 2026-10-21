@@ -182,8 +182,6 @@ struct TMatchPredicate {
   4: optional bool parser_lowercase = true;
   5: optional string parser_stopwords = "";
   6: optional string analyzer_name = "";
-  // false for a MATCH that only filters rows: it must not add to the score() of its scan
-  7: optional bool collect_score = true;
 }
 
 struct TLiteralPredicate {
@@ -283,7 +281,6 @@ struct TSearchParam {
   3: required list<TSearchFieldBinding> field_bindings  // Field to slot mappings
   4: optional string default_operator     // "and" or "or" for TERM tokenization (default: "or")
   5: optional i32 minimum_should_match    // Minimum number of SHOULD clauses that must match (for Lucene mode TERM tokenization)
-  6: optional bool collect_score = true   // false for a SEARCH that only filters rows: it must not add to score()
 }
 
 // This is essentially a union over the subclasses of Expr.

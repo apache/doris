@@ -76,9 +76,5 @@ private:
 
     // Runtime context: holds raw pointer to analyzer and necessary runtime info
     InvertedIndexAnalyzerCtxSPtr _analyzer_ctx;
-
-    // False when this MATCH only filters the rows of a scan, e.g. it comes from another SELECT
-    // than the score() of the scan: it must not add its BM25 score to that score().
-    bool _collect_score;
 };
 } // namespace doris

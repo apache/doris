@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * like expression: a MATCH_PHRASE_EDGE 'llo w'.
@@ -36,13 +35,13 @@ public class MatchPhraseEdge extends Match {
         super(ImmutableList.of(left, right), "MATCH_PHRASE_EDGE", analyzer);
     }
 
-    private MatchPhraseEdge(List<Expression> children, String analyzer, Optional<ExprId> scoreId) {
-        super(children, "MATCH_PHRASE_EDGE", analyzer, scoreId);
+    private MatchPhraseEdge(List<Expression> children, String analyzer) {
+        super(children, "MATCH_PHRASE_EDGE", analyzer);
     }
 
     @Override
-    protected MatchPhraseEdge createInstance(List<Expression> children, String analyzer, Optional<ExprId> scoreId) {
-        return new MatchPhraseEdge(children, analyzer, scoreId);
+    protected MatchPhraseEdge createInstance(List<Expression> children, String analyzer) {
+        return new MatchPhraseEdge(children, analyzer);
     }
 
     @Override

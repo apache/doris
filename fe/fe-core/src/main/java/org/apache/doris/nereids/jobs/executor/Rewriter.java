@@ -47,7 +47,6 @@ import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
-import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
@@ -265,9 +264,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("Inline view and check column privileges",
                                     bottomUp(new InlineLogicalView())
                             ),
-                            topic("Bind score",
-                                    custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new)
-                            ),
                             topic("Eliminate optimization",
                                     bottomUp(
                                             new EliminateLimit(),
@@ -431,9 +427,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     private static final List<RewriteJob> NORMALIZE_PLAN_JOBS = jobs(
             topic("Plan Normalization",
-                    // Tie score() calls to their SELECT while subqueries, views and CTEs still have
-                    // their own plan nodes.
-                    custom(RuleType.CHECK_SCORE_USAGE, CheckScoreUsage::new),
+                    // Bind score() to its scan while subqueries, views and CTEs still have their own
+                    // plan nodes.
+                    custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new),
                     custom(RuleType.FOLD_CONSTANT_FOR_SQL_CACHE, FoldConstantForSqlCache::new),
                     // move MergeProjects rule from analyze phase
                     // because SubqueryToApply and BindSink rule may create extra project node
@@ -512,11 +508,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // so the CheckPrivileges should not change the plan
                     custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
                     bottomUp(new InlineLogicalView())
-                ),
-                // Bind score() now that views and CTEs are inlined, before window expressions are
-                // extracted and filters are pushed down.
-                topic("Bind score",
-                        custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new)
                 ),
                 topic("Eliminate optimization",
                         bottomUp(
@@ -813,13 +804,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 )),
                 topDown(DistinctAggregateRewriter.INSTANCE),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+                // The scan applies the minimum score itself, before virtual columns rewrite the filter.
+                topDown(new PushDownScoreRangeIntoOlapScan()),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topDown(new PushDownMatchProjectionAsVirtualColumn()),
-                // BindScoreToOlapScan scored every row of the scans. Push a minimum score filter into
-                // the scan first: a TopN on the score can only limit the scoring without other filters.
                 topic("score optimize",
-                        topDown(new PushDownScoreRangeIntoOlapScan()),
                         topDown(new PushDownScoreTopNIntoOlapScan())
                 ),
                 topic("add projection for join",

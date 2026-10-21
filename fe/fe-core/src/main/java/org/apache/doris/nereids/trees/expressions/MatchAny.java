@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * like expression: a MATCH_ANY 'hello'.
@@ -36,13 +35,13 @@ public class MatchAny extends Match {
         super(ImmutableList.of(left, right), "MATCH_ANY", analyzer);
     }
 
-    private MatchAny(List<Expression> children, String analyzer, Optional<ExprId> scoreId) {
-        super(children, "MATCH_ANY", analyzer, scoreId);
+    private MatchAny(List<Expression> children, String analyzer) {
+        super(children, "MATCH_ANY", analyzer);
     }
 
     @Override
-    protected MatchAny createInstance(List<Expression> children, String analyzer, Optional<ExprId> scoreId) {
-        return new MatchAny(children, analyzer, scoreId);
+    protected MatchAny createInstance(List<Expression> children, String analyzer) {
+        return new MatchAny(children, analyzer);
     }
 
     @Override

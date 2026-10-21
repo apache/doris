@@ -7,18 +7,18 @@
 
 -- !score_gt_zero --
 3	apple apple apple	0.5016066
-6	apple	0.43995658
-2	apple apple banana	0.43630043
-8	apple apple banana cherry	0.39673665
+6	apple	0.4399566
+2	apple apple banana	0.4363004
+8	apple apple banana cherry	0.3967367
 7	apple banana	0.3662894
-1	apple banana cherry	0.31375387
+1	apple banana cherry	0.3137539
 
 -- !score_asc --
-1	apple banana cherry	0.31375387
+1	apple banana cherry	0.3137539
 7	apple banana	0.3662894
-8	apple apple banana cherry	0.39673665
-2	apple apple banana	0.43630043
-6	apple	0.43995658
+8	apple apple banana cherry	0.3967367
+2	apple apple banana	0.4363004
+6	apple	0.4399566
 
 -- !score_high_threshold --
 
@@ -26,24 +26,8 @@
 3	apple apple apple	0.5016066
 
 -- !score_match_all --
-7	apple banana	0.92061174
+7	apple banana	0.9206117
 2	apple apple banana	0.9111184
 8	apple apple banana cherry	0.8119956
-1	apple banana cherry	0.78857183
-
--- !score_two_bounds --
-1	apple banana cherry	0.31375387
-2	apple apple banana	0.43630043
-3	apple apple apple	0.5016066
-6	apple	0.43995658
-7	apple banana	0.3662894
-8	apple apple banana cherry	0.39673665
-
--- !score_upper_bound --
-1	apple banana cherry	0.31375387
-2	apple apple banana	0.43630043
-3	apple apple apple	0.5016066
-6	apple	0.43995658
-7	apple banana	0.3662894
-8	apple apple banana cherry	0.39673665
+1	apple banana cherry	0.7885718
 
