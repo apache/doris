@@ -97,6 +97,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String INDEX_DISK_USAGE_MAX_TABLETS = "index_disk_usage_max_tablets";
+    public static final String INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS =
+            "index_disk_usage_position_detail_max_tablets";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
     public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
@@ -1186,6 +1189,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = {
             "ScanNode 扫描数据的最大并发，默认为 8", "The max threads to read data of ScanNode, default 8"})
     public int maxScannersConcurrency = 8;
+
+    @VariableMgr.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, needForward = true, description = {
+            "Maximum tablets scanned by index_disk_usage per query, default 20000.",
+            "Maximum tablets scanned by index_disk_usage per query, default 20000."})
+    public int indexDiskUsageMaxTablets = 20000;
+
+    @VariableMgr.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, needForward = true, description = {
+            "Maximum tablets scanned by index_disk_usage with position_detail enabled, default 10000.",
+            "Maximum tablets scanned by index_disk_usage with position_detail enabled, default 10000."})
+    public int indexDiskUsagePositionDetailMaxTablets = 10000;
 
     @VariableMgr.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
             "FileScanNode 扫描数据的最大并发，默认为 16", "The max threads to read data of FileScanNode, default 16"})
