@@ -165,7 +165,9 @@ class BindScoreToOlapScanTest extends TestWithFeService {
         double topnFilterRatio = connectContext.getSessionVariable().topnFilterRatio;
         connectContext.getSessionVariable().topnFilterRatio = 1000000;
         try {
-            for (String key : new String[] {"CAST(score() AS INT)", "id"}) {
+            // The MATCH projection becomes a virtual column of the scan that reads the score.
+            for (String key : new String[] {"CAST(score() AS INT)",
+                    "CAST(IF(score() > 0, 1, 0) AS STRING) MATCH_ANY '1'", "id"}) {
                 PlanChecker checker = PlanChecker.from(connectContext)
                         .analyze("SELECT id, " + key + " AS k FROM score_usage_V2 WHERE c1 MATCH 'apple'"
                                 + " AND id % 2 = 0 ORDER BY k DESC LIMIT 1")

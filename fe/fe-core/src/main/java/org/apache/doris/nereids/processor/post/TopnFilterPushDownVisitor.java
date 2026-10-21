@@ -262,11 +262,15 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return visitPhysicalRelation(lazyScan, ctx);
     }
 
-    // The scan computes score() after it applies its filters, so a TopN filter on the score would read zero.
+    // The scan computes score() after it applies its filters. A TopN filter on a virtual column of a scan with
+    // a score can read the score, also through another virtual column, and would read zero.
     private static boolean readsScore(PhysicalRelation relation, Expression probeExpr) {
-        return relation instanceof PhysicalOlapScan && ((PhysicalOlapScan) relation).getVirtualColumns().stream()
-                .anyMatch(column -> column.containsType(Score.class)
-                        && probeExpr.getInputSlots().contains(column.toSlot()));
+        if (!(relation instanceof PhysicalOlapScan)) {
+            return false;
+        }
+        List<NamedExpression> virtualColumns = ((PhysicalOlapScan) relation).getVirtualColumns();
+        return virtualColumns.stream().anyMatch(column -> column.containsType(Score.class))
+                && virtualColumns.stream().anyMatch(column -> probeExpr.getInputSlots().contains(column.toSlot()));
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
