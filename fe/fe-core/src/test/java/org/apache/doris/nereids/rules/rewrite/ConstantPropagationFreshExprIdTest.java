@@ -147,19 +147,18 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
         LogicalProject<?> constantProject = findConstantProject(plan);
         Assertions.assertNotNull(constantProject, plan.treeString());
         List<NamedExpression> items = constantProject.getProjects();
-        // the kept grouping key is passed through as the slot of the aggregate, it is not re-labelled
+        // the kept grouping key is still materialized as a constant above the aggregate, with the exprId of the
+        // aggregate output: no fresh exprId and no refresh of the plan above
         NamedExpression keptKey = items.get(0);
-        Assertions.assertTrue(keptKey instanceof SlotReference, plan.treeString());
-        Assertions.assertTrue(constantProject.child().getOutput().contains((Slot) keptKey),
-                "the kept grouping key must be passed through, not re-labelled:\n" + plan.treeString());
-        // the removed grouping key is materialized above the aggregate and keeps the exprId it already had, nothing
-        // below defines it any more, so there is no shadow and no consumer has to be refreshed
+        Assertions.assertTrue(keptKey instanceof Alias, plan.treeString());
+        Assertions.assertEquals(new IntegerLiteral(5), ((Alias) keptKey).child());
+        Assertions.assertTrue(constantProject.child().getOutput().stream()
+                        .anyMatch(slot -> slot.getExprId().equals(keptKey.getExprId())),
+                "the kept grouping key keeps the exprId of the aggregate output:\n" + plan.treeString());
+        // the removed grouping key is materialized with the exprId it already had as well
         NamedExpression removedKey = items.get(1);
         Assertions.assertTrue(removedKey instanceof Alias, plan.treeString());
         Assertions.assertEquals(new IntegerLiteral(7), ((Alias) removedKey).child());
-        Assertions.assertFalse(constantProject.child().getOutput().stream()
-                        .anyMatch(slot -> slot.getExprId().equals(removedKey.getExprId())),
-                "the removed grouping key must not be defined below the constant project:\n" + plan.treeString());
         // the plan above references the outputs of the project, unchanged
         Set<ExprId> projectOutputIds = constantProject.getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toSet());

@@ -249,11 +249,13 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
                 newOutputExprs.add((NamedExpression) newOutputExpr);
             }
 
-            if (replacedExpr.isConstant() && !replacedExpr.equals(expr) && !newGroupByExprSet.contains(expr)) {
-                // The aggregate does not output this constant grouping key any more, the project item is the only
-                // definition of the column: keep the exprId, rules and consumers which rely on the identity of the
-                // column, e.g. the materialized view matching, keep working. A fresh exprId is not needed here,
-                // nothing below defines this exprId with another value.
+            if (replacedExpr.isConstant() && !replacedExpr.equals(expr)) {
+                // The constant is materialized above the aggregate, but it keeps the exprId of the aggregate
+                // output instead of getting a fresh one and refreshing the plan above: when the aggregate still
+                // outputs that column, the value is the same constant, and when it removed the column, this
+                // project item is the only definition of the exprId. Renaming the exprId would break the
+                // consumers which rely on the identity of the column, e.g. the materialized view matching, and
+                // would make the plan above be rewritten for nothing.
                 projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
                 containsConstantOutput = true;
             } else {
