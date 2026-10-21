@@ -140,12 +140,13 @@ public:
         if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
             std::shared_ptr<FunctionJsonbParseState> state =
                     std::make_shared<FunctionJsonbParseState>();
-            context->set_function_state(FunctionContext::FRAGMENT_LOCAL, state);
+            context->set_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL, state);
         }
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-                auto* state = reinterpret_cast<FunctionJsonbParseState*>(
-                        context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                auto* state =
+                        reinterpret_cast<FunctionJsonbParseState*>(context->get_function_state(
+                                FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
                 if (state) {
                     if (context->get_num_args() == 2) {
                         if (context->is_col_constant(1)) {
@@ -232,8 +233,8 @@ public:
         const ColumnString* default_value_str_col = nullptr;
         const NullMap* default_value_nullmap = nullptr;
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
-            auto* state = reinterpret_cast<FunctionJsonbParseState*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            auto* state = reinterpret_cast<FunctionJsonbParseState*>(context->get_function_state(
+                    FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
             if (state && state->has_const_default_value) {
                 constant_default_value = state->default_value;
                 default_value_null_const = state->default_is_null;
@@ -2040,10 +2041,7 @@ public:
                     DCHECK_GT(legs_count, 0);
                     for (size_t j = 0; j + 1 < legs_count; ++j) {
                         auto* current_leg = json_path[path_index].get_leg_from_leg_vector(j);
-                        std::unique_ptr<leg_info> leg = std::make_unique<leg_info>(
-                                current_leg->leg_ptr, current_leg->leg_len,
-                                current_leg->array_index, current_leg->type);
-                        new_path.add_leg_to_leg_vector(std::move(leg));
+                        new_path.add_leg_to_leg_vector(std::make_unique<leg_info>(*current_leg));
                     }
 
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(), new_path,
@@ -2056,6 +2054,12 @@ public:
                         legs_count > 0
                                 ? json_path[path_index].get_leg_from_leg_vector(legs_count - 1)
                                 : nullptr;
+                // A member leg names an object key and never an array element, so inserting it
+                // into an array leaves the document unchanged (as MySQL does). Otherwise its
+                // default array_index (0) would overwrite the first element.
+                if (!replace && parents.back()->isArray() && last_leg->type == MEMBER_CODE) {
+                    continue;
+                }
                 RETURN_IF_ERROR(write_json_value(json_documents[row_idx]->getValue(), parents, 0,
                                                  json_value[value_index], replace, last_leg,
                                                  writer));
@@ -2108,10 +2112,7 @@ public:
 
         JsonbPath current;
         auto* current_leg = path.get_leg_from_leg_vector(index);
-        std::unique_ptr<leg_info> leg =
-                std::make_unique<leg_info>(current_leg->leg_ptr, current_leg->leg_len,
-                                           current_leg->array_index, current_leg->type);
-        current.add_leg_to_leg_vector(std::move(leg));
+        current.add_leg_to_leg_vector(std::make_unique<leg_info>(*current_leg));
 
         auto find_result = root->findValue(current);
         if (!find_result.value) {
@@ -2223,10 +2224,15 @@ public:
 
                 if (is_last_parent && !value_written) {
                     value_written = true;
-                    writer.writeStartObject();
+                    // The current object is already open above and is waiting for a key, so the
+                    // new member must be appended to it directly. Opening another object here
+                    // would be rejected by the writer, and closing one here would end the
+                    // current object early; the writeEndObject below would then close its
+                    // parent as well, silently dropping every member that follows the current
+                    // one. For example, {"a":{},"b":2} with path $.a.c used to return
+                    // {"a":{"c":1}} instead of {"a":{"c":1},"b":2}.
                     writer.writeKey(last_leg->leg_ptr, static_cast<uint8_t>(last_leg->leg_len));
                     writer.writeValue(value);
-                    writer.writeEndObject();
                 }
                 writer.writeEndObject();
 
@@ -2436,7 +2442,7 @@ private:
         LikeState* state = nullptr;
         if (search_is_const) {
             state = reinterpret_cast<LikeState*>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+                    context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         }
 
         bool is_one = false;
@@ -2528,7 +2534,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
+        if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         if (context->is_col_constant(2)) {

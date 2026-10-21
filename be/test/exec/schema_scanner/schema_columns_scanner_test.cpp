@@ -95,4 +95,43 @@ TEST(SchemaColumnsScannerTest, time_metadata_in_block) {
     }
 }
 
+TEST(SchemaColumnsScannerTest, varbinary_metadata_in_block) {
+    // FE sends the length of a VARBINARY column in bytes, which is also its length in characters; an FE that
+    // predates it sends none.
+    const std::vector<int> lengths = {16, -1};
+    SchemaColumnsScanner scanner;
+    scanner._db_result.__set_dbs({"test_varbinary_metadata"});
+    scanner._db_index = 1;
+    scanner._table_result.__set_tables({"varbinary_view"});
+    scanner._table_index = 1;
+    for (int length : lengths) {
+        TColumnDesc desc;
+        desc.__set_columnName("b" + std::to_string(length));
+        desc.__set_columnType(TPrimitiveType::VARBINARY);
+        if (length >= 0) {
+            desc.__set_columnLength(length);
+        }
+        TColumnDef column;
+        column.__set_columnDesc(desc);
+        scanner._desc_result.columns.push_back(column);
+    }
+    scanner._desc_result.__set_tables_offset({static_cast<int>(lengths.size())});
+
+    auto block = Block::create_unique();
+    scanner._init_block(block.get());
+    ASSERT_TRUE(scanner._fill_block_impl(block.get()).ok());
+    ASSERT_EQ(lengths.size(), block->rows());
+    const auto value_at = [&](const char* name, size_t row) {
+        return (*block->get_by_position(block->get_position_by_name(name)).column)[row];
+    };
+    EXPECT_EQ("varbinary", value_at("DATA_TYPE", 0).get<TYPE_STRING>());
+    EXPECT_EQ("varbinary(16)", value_at("COLUMN_TYPE", 0).get<TYPE_STRING>());
+    EXPECT_EQ(16, value_at("CHARACTER_MAXIMUM_LENGTH", 0).get<TYPE_BIGINT>());
+    EXPECT_EQ(16, value_at("CHARACTER_OCTET_LENGTH", 0).get<TYPE_BIGINT>());
+    EXPECT_EQ("varbinary", value_at("DATA_TYPE", 1).get<TYPE_STRING>());
+    EXPECT_EQ("varbinary", value_at("COLUMN_TYPE", 1).get<TYPE_STRING>());
+    EXPECT_TRUE(value_at("CHARACTER_MAXIMUM_LENGTH", 1).is_null());
+    EXPECT_TRUE(value_at("CHARACTER_OCTET_LENGTH", 1).is_null());
+}
+
 } // namespace doris

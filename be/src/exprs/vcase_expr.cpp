@@ -63,7 +63,7 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     _open_finished = true;

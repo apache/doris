@@ -81,7 +81,7 @@ public:
     Status retrieve_historical_row(const Int8* delete_sign_column_data, size_t row_pos,
                                    size_t num_rows) override;
 
-    // Row Binlog receives the original flexible-partial-update block, while the base writer fills
+    // Changelog receives the original flexible-partial-update block, while the base writer fills
     // its own copy. Reuse the common flexible aggregator/read plans with a read-only MOW probe to
     // build the same full AFTER rows without changing the base tablet's delete bitmap. The optional
     // LSN sidecar is merged and filtered together with the rows.
@@ -115,7 +115,7 @@ private:
     std::vector<bool> _use_default_or_null_flag;
     bool _has_default_or_nullable = false;
 
-    // cache operator for fill_binlog_columns
+    // cache operator for fill_changelog_columns
     std::vector<int64_t> _operators;
     // Aligned by row position in the current append batch.
     std::vector<signed char> _old_delete_signs;

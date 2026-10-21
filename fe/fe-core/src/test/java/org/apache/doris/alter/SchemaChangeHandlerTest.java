@@ -23,8 +23,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -32,6 +35,7 @@ import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -43,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -52,12 +57,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntSupplier;
 import java.util.stream.Collectors;
@@ -178,8 +185,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testWithRowBinlogSchemaChangeNoHistoricalValue() throws Exception {
-        String tableName = "binlog_no_hist";
+    public void testWithChangelogSchemaChangeNoHistoricalValue() throws Exception {
+        String tableName = "changelog_no_hist";
         String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
                 + "k1 INT NOT NULL,\n"
                 + "v1 INT\n"
@@ -188,13 +195,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
-        createTableWithRowBinlog(create);
+                + "'changelog.enable'='true','changelog.need_historical_value'='false');";
+        createTableWithChangelog(create);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
 
-        List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+        List<String> cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
 
@@ -203,10 +210,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(2, cols.indexOf("v2"));
-        Assertions.assertEquals(3, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assertions.assertEquals(4, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(3, cols.indexOf(Column.CHANGELOG_TSO_COL));
+        Assertions.assertEquals(4, cols.indexOf(Column.CHANGELOG_LSN_COL));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
 
         // multiple add column clauses in one ALTER
@@ -215,11 +222,11 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(3, cols.indexOf("v3"));
         Assertions.assertEquals(4, cols.indexOf("v4"));
-        Assertions.assertEquals(5, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(5, cols.indexOf(Column.CHANGELOG_TSO_COL));
+        Assertions.assertEquals(6, cols.indexOf(Column.CHANGELOG_LSN_COL));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
 
@@ -228,11 +235,11 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(5, cols.indexOf("v5"));
         Assertions.assertEquals(6, cols.indexOf("v6"));
-        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assertions.assertEquals(8, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(7, cols.indexOf(Column.CHANGELOG_TSO_COL));
+        Assertions.assertEquals(8, cols.indexOf(Column.CHANGELOG_LSN_COL));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
@@ -241,15 +248,15 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertFalse(cols.contains("v6"));
-        Assertions.assertEquals(6, cols.indexOf(Column.BINLOG_TSO_COL));
-        Assertions.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(6, cols.indexOf(Column.CHANGELOG_TSO_COL));
+        Assertions.assertEquals(7, cols.indexOf(Column.CHANGELOG_LSN_COL));
     }
 
     @Test
-    public void testWithRowBinlogSchemaChangeWithHistoricalValue() throws Exception {
-        String tableName = "binlog_hist";
+    public void testWithChangelogSchemaChangeWithHistoricalValue() throws Exception {
+        String tableName = "changelog_hist";
         String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
                 + "k1 INT NOT NULL,\n"
                 + "v1 INT\n"
@@ -258,13 +265,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='true');";
-        createTableWithRowBinlog(create);
+                + "'changelog.enable'='true','changelog.need_historical_value'='true');";
+        createTableWithChangelog(create);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
 
-        List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+        List<String> cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName)
                 .collect(Collectors.toList());
         Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
 
@@ -273,7 +280,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(2, cols.indexOf("v2"));
         Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
         Assertions.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
@@ -285,7 +292,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(3, cols.indexOf("v3"));
         Assertions.assertEquals(4, cols.indexOf("v4"));
         Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
@@ -300,7 +307,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(5, cols.indexOf("v5"));
         Assertions.assertEquals(6, cols.indexOf("v6"));
         Assertions.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
@@ -314,11 +321,11 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
         jobSize++;
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertFalse(cols.contains("v6"));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
 
-        // enable hidden sequence column should not pollute row binlog schema
+        // enable hidden sequence column should not pollute changelog schema
         alterTable("ALTER TABLE test." + tableName
                 + " ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
                 connectContext);
@@ -326,9 +333,62 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         Assertions.assertTrue(tbl.getBaseSchema(true).stream().anyMatch(Column::isSequenceColumn));
-        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        cols = tbl.getChangelogIndexMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertFalse(cols.contains(Column.SEQUENCE_COL));
         Assertions.assertFalse(cols.contains(Column.generateBeforeColName(Column.SEQUENCE_COL)));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testAlterCompactionSettingSkipsChangelogTablets() throws Exception {
+        String tableName = "changelog_compaction_setting";
+        String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
+                + "k1 INT NOT NULL,\n"
+                + "v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');";
+        createTableWithChangelog(create);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Set<Long> dataTabletIds = Sets.newHashSet();
+        Set<Long> changelogTabletIds = Sets.newHashSet();
+        for (Partition partition : tbl.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+                (index.isChangelog() ? changelogTabletIds : dataTabletIds).addAll(index.getTabletIdsInOrder());
+            }
+        }
+        Assertions.assertFalse(changelogTabletIds.isEmpty());
+
+        // Build the update tasks without sending them, and record the tablets they are for.
+        Set<Long> updatedTabletIds = Sets.newHashSet();
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try (MockedConstruction<UpdateTabletMetaInfoTask> ignored = Mockito.mockConstruction(
+                UpdateTabletMetaInfoTask.class, (task, context) -> {
+                    for (Pair<Long, Integer> tablet : (Set<Pair<Long, Integer>>) context.arguments().get(1)) {
+                        updatedTabletIds.add(tablet.first);
+                    }
+                })) {
+            alterTable("ALTER TABLE test." + tableName + " SET ('compaction_policy' = 'time_series')",
+                    connectContext);
+            Assertions.assertEquals(dataTabletIds, updatedTabletIds);
+
+            updatedTabletIds.clear();
+            alterTable("ALTER TABLE test." + tableName + " SET ('time_series_compaction_goal_size_mbytes' = '2048')",
+                    connectContext);
+            Assertions.assertEquals(dataTabletIds, updatedTabletIds);
+
+            // Other tablet meta still goes to the changelog tablets.
+            updatedTabletIds.clear();
+            alterTable("ALTER TABLE test." + tableName + " SET ('disable_auto_compaction' = 'true')",
+                    connectContext);
+            Assertions.assertEquals(Sets.union(dataTabletIds, changelogTabletIds), updatedTabletIds);
+        } finally {
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
     }
 
     @Test
@@ -411,9 +471,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testWithRowBinlogOpNotSupported() throws Exception {
+    public void testWithChangelogOpNotSupported() throws Exception {
         // 1) MODIFY COLUMN not supported
-        String tableName = "binlog_mod";
+        String tableName = "changelog_mod";
         String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
                 + "k1 INT NOT NULL,\n"
                 + "v1 INT\n"
@@ -422,48 +482,48 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
-        createTableWithRowBinlog(create);
-        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With binlog<row>");
+                + "'changelog.enable'='true','changelog.need_historical_value'='false');";
+        createTableWithChangelog(create);
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With changelog");
 
-        // 1b) RENAME COLUMN / REORDER COLUMNS are not allowed on row binlog tables either.
+        // 1b) RENAME COLUMN / REORDER COLUMNS are not allowed on changelog tables either.
         // This matters for IVM: dropping a column an MV references invalidates the IVM baseline, so
         // every other way of changing a referenced column has to be rejected here. If one of them
         // were ever allowed, it would become a new way to leave an MV stale without being noticed.
         expectException("ALTER TABLE test." + tableName + " RENAME COLUMN v1 TO v1_renamed",
-                "Table With binlog<row>");
-        expectException("ALTER TABLE test." + tableName + " ORDER BY (k1, v1)", "Table With binlog<row>");
+                "Table With changelog");
+        expectException("ALTER TABLE test." + tableName + " ORDER BY (k1, v1)", "Table With changelog");
 
         // 2) VARIANT not supported
-        String createVariant = "CREATE TABLE test.binlog_variant (k1 INT NOT NULL, v1 VARIANT) "
+        String createVariant = "CREATE TABLE test.changelog_variant (k1 INT NOT NULL, v1 VARIANT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW');";
+                + "'changelog.enable'='true');";
         try {
-            createTableWithRowBinlog(createVariant);
+            createTableWithChangelog(createVariant);
             Assertions.fail("Expected exception for VARIANT column");
         } catch (Exception e) {
             Assertions.assertTrue(e.getMessage().toLowerCase().contains("variant"));
         }
 
-        String tableName2 = "binlog_add_variant";
+        String tableName2 = "changelog_add_variant";
         String create2 = "CREATE TABLE test." + tableName2 + " (k1 INT NOT NULL, v1 INT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW');";
-        createTableWithRowBinlog(create2);
+                + "'changelog.enable'='true');";
+        createTableWithChangelog(create2);
         expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", "VARIANT");
 
         // 3) AUTO_INCREMENT not supported
-        String createAutoinc = "CREATE TABLE test.binlog_autoinc (k1 BIGINT NOT NULL AUTO_INCREMENT, v1 INT) "
+        String createAutoinc = "CREATE TABLE test.changelog_autoinc (k1 BIGINT NOT NULL AUTO_INCREMENT, v1 INT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
                 + "'enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW');";
+                + "'changelog.enable'='true');";
         try {
-            createTableWithRowBinlog(createAutoinc);
+            createTableWithChangelog(createAutoinc);
             Assertions.fail("Expected exception for AUTO_INCREMENT column");
         } catch (Exception e) {
             Assertions.assertTrue(e.getMessage().toLowerCase().contains("auto"));
@@ -471,8 +531,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testWithRowBinlogPartitionOps() throws Exception {
-        String tableName = "row_binlog_part";
+    public void testWithChangelogPartitionOps() throws Exception {
+        String tableName = "changelog_part";
         String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
                 + "k1 INT NOT NULL\n"
                 + ")\n"
@@ -482,8 +542,8 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PARTITION p2 VALUES LESS THAN (\"20\")\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        createTableWithRowBinlog(create);
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');";
+        createTableWithChangelog(create);
 
         alterTable("ALTER TABLE test." + tableName + " ADD PARTITION p3 VALUES LESS THAN (\"30\")",
                 connectContext);
@@ -497,17 +557,17 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testReplaceTableWithRowBinlog() throws Exception {
-        String target = "CREATE TABLE test.row_binlog_replace_target (k1 INT) "
+    public void testReplaceTableWithChangelog() throws Exception {
+        String target = "CREATE TABLE test.changelog_replace_target (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
-        String source = "CREATE TABLE test.row_binlog_replace_source (k1 INT) "
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');";
+        String source = "CREATE TABLE test.changelog_replace_source (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');";
-        createTableWithRowBinlog(target);
+        createTableWithChangelog(target);
         createTable(source);
-        String alterStmt = "ALTER TABLE test.row_binlog_replace_target REPLACE WITH TABLE "
-                + "row_binlog_replace_source PROPERTIES('swap' = 'true')";
+        String alterStmt = "ALTER TABLE test.changelog_replace_target REPLACE WITH TABLE "
+                + "changelog_replace_source PROPERTIES('swap' = 'true')";
         alterTable(alterStmt, connectContext);
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
     }
@@ -988,39 +1048,39 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testRowBinlogSchemaChangeKeepsHiddenKeyColumn() throws Exception {
+    public void testChangelogSchemaChangeKeepsHiddenKeyColumn() throws Exception {
         SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
-        List<Column> rowBinlogSchema = Lists.newArrayList();
+        List<Column> changelogSchema = Lists.newArrayList();
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
-        rowBinlogSchema.add(Column.generateRowBinlogKeyColumn(key));
-        rowBinlogSchema.add(new Column(Column.BINLOG_TSO_COL, PrimitiveType.BIGINT));
-        rowBinlogSchema.add(new Column(Column.BINLOG_LSN_COL, PrimitiveType.BIGINT));
-        rowBinlogSchema.add(new Column(Column.BINLOG_OPERATION_COL, PrimitiveType.BIGINT));
+        changelogSchema.add(Column.generateChangelogKeyColumn(key));
+        changelogSchema.add(new Column(Column.CHANGELOG_TSO_COL, PrimitiveType.BIGINT));
+        changelogSchema.add(new Column(Column.CHANGELOG_LSN_COL, PrimitiveType.BIGINT));
+        changelogSchema.add(new Column(Column.CHANGELOG_OP_COL, PrimitiveType.BIGINT));
 
         Column hiddenKey = new Column("__DORIS_TEST_HIDDEN_KEY__", PrimitiveType.BIGINT);
         hiddenKey.setIsKey(true);
         hiddenKey.setIsVisible(false);
         AtomicInteger uniqueId = new AtomicInteger(10);
         IntSupplier uniqueIdSupplier = uniqueId::getAndIncrement;
-        Method addColumnRowBinlog = SchemaChangeHandler.class.getDeclaredMethod(
-                "addColumnRowBinlog", List.class, Column.class, ColumnPosition.class,
+        Method addColumnToChangelog = SchemaChangeHandler.class.getDeclaredMethod(
+                "addColumnToChangelog", List.class, Column.class, ColumnPosition.class,
                 java.util.Set.class, boolean.class, IntSupplier.class);
-        addColumnRowBinlog.setAccessible(true);
-        addColumnRowBinlog.invoke(schemaChangeHandler, rowBinlogSchema, hiddenKey, null,
+        addColumnToChangelog.setAccessible(true);
+        addColumnToChangelog.invoke(schemaChangeHandler, changelogSchema, hiddenKey, null,
                 Sets.newHashSet(hiddenKey.getName()), false, uniqueIdSupplier);
 
-        List<String> columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
+        List<String> columnNames = changelogSchema.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertEquals(1, columnNames.indexOf("__DORIS_TEST_HIDDEN_KEY__"));
-        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_TSO_COL));
-        Assertions.assertEquals(3, columnNames.indexOf(Column.BINLOG_LSN_COL));
+        Assertions.assertEquals(2, columnNames.indexOf(Column.CHANGELOG_TSO_COL));
+        Assertions.assertEquals(3, columnNames.indexOf(Column.CHANGELOG_LSN_COL));
 
         Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);
         hiddenValue.setIsKey(false);
         hiddenValue.setIsVisible(false);
-        addColumnRowBinlog.invoke(schemaChangeHandler, rowBinlogSchema, hiddenValue, null,
+        addColumnToChangelog.invoke(schemaChangeHandler, changelogSchema, hiddenValue, null,
                 Sets.newHashSet(hiddenValue.getName()), false, uniqueIdSupplier);
-        columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
+        columnNames = changelogSchema.stream().map(Column::getName).collect(Collectors.toList());
         Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
     }
 

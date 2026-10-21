@@ -50,13 +50,15 @@ public:
         st = io::global_local_filesystem()->create_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
         std::string field_name = "content";
-        create_test_index(
-                field_name, kTestDir,
-                {"apple123",   "apple456",     "banana789",     "test123abc", "pattern456",
-                 "regex999",   "match123",     "search456",     "prefix123",  "suffix789",
-                 "apple_test", "banana_data",  "test_pattern",  "data_regex", "apple_banana",
-                 "test_match", "pattern_test", "prefix_suffix", "abc123xyz",  "def456ghi"},
-                "standard");
+        create_test_index(field_name, kTestDir,
+                          {"apple123",     "apple456",     "banana789",
+                           "test123abc",   "pattern456",   "regex999",
+                           "match123",     "search456",    "prefix123",
+                           "suffix789",    "apple_test",   "banana_data",
+                           "test_pattern", "data_regex",   "apple_banana",
+                           "test_match",   "pattern_test", "prefix_suffix",
+                           "abc123xyz",    "def456ghi",    "apple789 apple789 apple456"},
+                          "standard");
     }
 
     void TearDown() override {
@@ -178,6 +180,36 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_scoring) {
 
     auto regexp_weight = std::dynamic_pointer_cast<query_v2::ExpandWeight>(weight);
     ASSERT_NE(regexp_weight, nullptr);
+}
+
+TEST_F(RegexpQueryV2Test, test_regexp_query_scores_matching_terms) {
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_NE(reader_holder, nullptr);
+
+    std::wstring field = StringHelper::to_wstring("content");
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored("apple.*"));
+    auto weight = query->weight(true);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, exec_ctx.sources.front());
+
+    auto scorer = weight->scorer(exec_ctx);
+    ASSERT_EQ(scorer->seek(0), 0);
+    float single_term_score = scorer->score();
+    EXPECT_NE(single_term_score, 1.0F);
+    uint32_t last_doc = reader_holder->maxDoc() - 1;
+    ASSERT_EQ(scorer->seek(last_doc), last_doc);
+    EXPECT_GT(scorer->score(), single_term_score);
+
+    _CLDECDELETE(dir);
 }
 
 // Test regexp query execution
@@ -628,7 +660,7 @@ TEST_F(RegexpQueryV2Test, test_whole_term_match_any_term) {
         doc = scorer->advance();
     }
 
-    EXPECT_EQ(result.cardinality(), 20);
+    EXPECT_EQ(result.cardinality(), 21);
 
     _CLDECDELETE(dir);
 }

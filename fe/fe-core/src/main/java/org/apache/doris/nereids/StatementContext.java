@@ -147,8 +147,8 @@ public class StatementContext implements Closeable {
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
-    private boolean rowBinlogReferenceTsoRequired;
-    private Long rowBinlogReferenceTso;
+    private boolean changelogReferenceTsoRequired;
+    private Long changelogReferenceTso;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -166,6 +166,9 @@ public class StatementContext implements Closeable {
     private boolean isDelete = false;
 
     private boolean hasNondeterministic = false;
+
+    // Alias UDF calls disappear after expansion; retain their definition dependency.
+    private boolean hasAliasUdf = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
     // unknown
@@ -340,8 +343,9 @@ public class StatementContext implements Closeable {
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     // When the Env-wide MTMVCacheManager is disabled (mtmv_cache_manage_num=0), reuse rewrite plans
-    // in the same statement so multiple rewrite paths do not rebuild the same MV plan.
-    private final Map<Pair<Long, Boolean>, MTMVCache> queryLocalMtmvCaches = new HashMap<>();
+    // in the same statement so multiple rewrite paths do not rebuild the same MV plan. Each value
+    // carries the MV's cache generation because a planning retry can reuse this statement context.
+    private final Map<Pair<Long, Boolean>, Pair<Long, MTMVCache>> queryLocalMtmvCaches = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -631,6 +635,14 @@ public class StatementContext implements Closeable {
         return hasNondeterministic;
     }
 
+    public void recordAliasUdf() {
+        hasAliasUdf = true;
+    }
+
+    public boolean hasAliasUdf() {
+        return hasAliasUdf;
+    }
+
     public ConnectContext getConnectContext() {
         return connectContext;
     }
@@ -810,27 +822,27 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
-    public synchronized void requireRowBinlogReferenceTso() {
-        rowBinlogReferenceTsoRequired = true;
+    public synchronized void requireChangelogReferenceTso() {
+        changelogReferenceTsoRequired = true;
         getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
     }
 
-    public synchronized boolean isRowBinlogReferenceTsoRequired() {
-        return rowBinlogReferenceTsoRequired;
+    public synchronized boolean isChangelogReferenceTsoRequired() {
+        return changelogReferenceTsoRequired;
     }
 
-    public synchronized long getOrRegisterRowBinlogReferenceTso(Supplier<Long> tsoSupplier) {
-        if (rowBinlogReferenceTso == null) {
-            rowBinlogReferenceTso = tsoSupplier.get();
+    public synchronized long getOrRegisterChangelogReferenceTso(Supplier<Long> tsoSupplier) {
+        if (changelogReferenceTso == null) {
+            changelogReferenceTso = tsoSupplier.get();
         }
-        return rowBinlogReferenceTso;
+        return changelogReferenceTso;
     }
 
-    public synchronized long getRowBinlogReferenceTso() {
-        if (rowBinlogReferenceTso == null) {
-            throw new AnalysisException("Row binlog reference TSO was not initialized");
+    public synchronized long getChangelogReferenceTso() {
+        if (changelogReferenceTso == null) {
+            throw new AnalysisException("Changelog reference TSO was not initialized");
         }
-        return rowBinlogReferenceTso;
+        return changelogReferenceTso;
     }
 
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
@@ -881,8 +893,8 @@ public class StatementContext implements Closeable {
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
-        rowBinlogReferenceTsoRequired = false;
-        rowBinlogReferenceTso = null;
+        changelogReferenceTsoRequired = false;
+        changelogReferenceTso = null;
     }
 
     /**
@@ -1700,12 +1712,13 @@ public class StatementContext implements Closeable {
         this.materializationRewrittenSuccessSet.add(materializationQualifier);
     }
 
-    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded) {
-        return queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation) {
+        Pair<Long, MTMVCache> entry = queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+        return entry != null && entry.first == generation ? entry.second : null;
     }
 
-    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, MTMVCache cache) {
-        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), cache);
+    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation, MTMVCache cache) {
+        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), Pair.of(generation, cache));
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {

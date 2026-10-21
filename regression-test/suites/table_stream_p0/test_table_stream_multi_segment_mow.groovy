@@ -26,15 +26,15 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
 
     def customBeConfig = [
         doris_scanner_row_bytes: 1,
-        // Section E drives row-binlog LMax quick-merge. Tiny thresholds let every small
+        // Section E drives changelog LMax quick-merge. Tiny thresholds let every small
         // rowset count as "compaction enough" so the cumulative point advances past two
         // LMax rowsets, and wait_timesec=0 stops freshly-visible singleton deltas from
         // being filtered out of the compaction candidate set. time_threshold is set huge
         // so the time-based trigger never preempts the quick-merge branch.
-        binlog_compaction_goal_size_mbytes: 0,
-        binlog_compaction_file_count_threshold: 2,
-        binlog_compaction_wait_timesec_after_visible: 0,
-        binlog_compaction_time_threshold_seconds: 86400
+        changelog_compaction_goal_size_mbytes: 0,
+        changelog_compaction_file_count_threshold: 2,
+        changelog_compaction_wait_timesec_after_visible: 0,
+        changelog_compaction_time_threshold_seconds: 86400
     ]
 
     setBeConfigTemporary(customBeConfig) {
@@ -66,9 +66,8 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                     "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "binlog.enable" = "true",
-                    "binlog.format" = "ROW",
-                    "binlog.need_historical_value" = "true"
+                    "changelog.enable" = "true",
+                    "changelog.need_historical_value" = "true"
                 )
             """
             sql """
@@ -150,9 +149,8 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                     "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "binlog.enable" = "true",
-                    "binlog.format" = "ROW",
-                    "binlog.need_historical_value" = "true"
+                    "changelog.enable" = "true",
+                    "changelog.need_historical_value" = "true"
                 )
             """
             sql """
@@ -227,9 +225,8 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                     "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "binlog.enable" = "true",
-                    "binlog.format" = "ROW",
-                    "binlog.need_historical_value" = "true"
+                    "changelog.enable" = "true",
+                    "changelog.need_historical_value" = "true"
                 )
             """
             sql """
@@ -315,9 +312,8 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                     "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "binlog.enable" = "true",
-                    "binlog.format" = "ROW",
-                    "binlog.need_historical_value" = "true"
+                    "changelog.enable" = "true",
+                    "changelog.need_historical_value" = "true"
                 )
             """
             sql """
@@ -374,24 +370,24 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
             """
 
             // ========================================================
-            // Section E. MoW + row-binlog LMax quick-merge.
+            // Section E. MoW + changelog LMax quick-merge.
             //   Sections A-D produce a single multi-segment rowset per load. This section
-            //   targets the OTHER multi-segment source: binlog cumulative compaction's LMax
-            //   quick-merge, which LINKS segments from several row-binlog rowsets into one
+            //   targets the OTHER multi-segment source: changelog cumulative compaction's LMax
+            //   quick-merge, which LINKS segments from several changelog rowsets into one
             //   non-singleton OVERLAPPING output rowset (compaction.cpp sets segments_overlap
             //   = OVERLAPPING for the quick-merge path). Because the same user key recurs in
             //   both merged LMax rowsets, after the link it lands in different segments of the
-            //   one output rowset, each carrying a distinct binlog TSO. Reading it must NOT
-            //   deduplicate by user key (is_unique=false on the row-binlog path); a UNIQUE
+            //   one output rowset, each carrying a distinct changelog TSO. Reading it must NOT
+            //   deduplicate by user key (is_unique=false on the changelog path); a UNIQUE
             //   dedup would drop same-key/different-TSO events. This reproduces that layout and
             //   asserts every event survives.
             //
-            //   The BE binlog thresholds are lowered in customBeConfig so every small rowset is
+            //   The BE changelog thresholds are lowered in customBeConfig so every small rowset is
             //   "compaction enough" and the cumulative point advances past two LMax rowsets.
             //   trigger_and_wait_compaction on the base table also drives the co-located hidden
-            //   row-binlog tablet (SHOW TABLETS lists it; its compaction_policy="binlog"), so the
-            //   cumulative trigger runs BinlogCumulativeCompactionPolicy on it. The load/trigger
-            //   cadence mirrors test_binlog_compaction.groovy case2's Round1..Round7.
+            //   changelog tablet (SHOW TABLETS lists it; its compaction_policy="changelog"), so the
+            //   cumulative trigger runs ChangelogCumulativeCompactionPolicy on it. The load/trigger
+            //   cadence mirrors test_changelog_compaction.groovy case2's Round1..Round7.
             // ========================================================
             sql "DROP STREAM IF EXISTS ts_ms_mow_qm_stream"
             sql "DROP TABLE IF EXISTS ts_ms_mow_qm_base FORCE"
@@ -406,9 +402,8 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                     "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
-                    "binlog.enable" = "true",
-                    "binlog.format" = "ROW",
-                    "binlog.need_historical_value" = "true"
+                    "changelog.enable" = "true",
+                    "changelog.need_historical_value" = "true"
                 )
             """
             sql """
@@ -420,7 +415,7 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                 )
             """
 
-            // Build the FIRST LMax rowset [0-6]. Each INSERT is one binlog version.
+            // Build the FIRST LMax rowset [0-6]. Each INSERT is one changelog version.
             sql "INSERT INTO ts_ms_mow_qm_base VALUES (1, 10), (2, 20)" // v1
             sql "INSERT INTO ts_ms_mow_qm_base VALUES (1, 11)"          // v2
             sql "INSERT INTO ts_ms_mow_qm_base VALUES (2, 21)"          // v3
@@ -459,15 +454,15 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
 
             // Guard: assert the quick-merge actually produced the target rowset before querying.
             // trigger_and_wait_compaction drives every tablet of the table via compact_type=
-            // cumulative, including the co-located hidden row-binlog tablet (IsRowBinlog=true,
-            // compaction_policy="binlog"), which BE routes to BinlogCumulativeCompactionPolicy +
+            // cumulative, including the co-located hidden changelog tablet (IsChangelog=true,
+            // compaction_policy="changelog"), which BE routes to ChangelogCumulativeCompactionPolicy +
             // LMax quick-merge. /api/compaction/show returns each rowset as
             //   "[start-end] <num_segments> DATA <OVERLAP> <rowset_id> <size> level=<n>"
             // (Rowset::get_rowset_info_str). The quick-merge signature (compaction.cpp: output
             // version = [front.start, back.end] with start_version==0 the trigger precondition,
-            // and segments_overlap forced to OVERLAPPING) is: on the row-binlog tablet, a rowset
+            // and segments_overlap forced to OVERLAPPING) is: on the changelog tablet, a rowset
             // that starts at version 0, is OVERLAPPING, and links more than one segment. We match
-            // that rather than a hardcoded end version, since the row-binlog tablet's version
+            // that rather than a hardcoded end version, since the changelog tablet's version
             // range depends on the initial [0-1] rowset (here the merged rowset is [0-13]).
             // Without this guard, a compaction that never hit the quick-merge branch would
             // silently fall back to reading the original rowsets and the section could pass
@@ -478,8 +473,8 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
             def qmTablets = sql_return_maparray "show tablets from ts_ms_mow_qm_base"
             def foundQuickMergeRowset = false
             for (qmTablet in qmTablets) {
-                // The quick-merge OVERLAPPING rowset only lives on the hidden row-binlog tablet.
-                if (qmTablet.IsRowBinlog != "true") {
+                // The quick-merge OVERLAPPING rowset only lives on the hidden changelog tablet.
+                if (qmTablet.IsChangelog != "true") {
                     continue
                 }
                 def qmBeHost = qmBackendIdToIp["${qmTablet.BackendId}"]
@@ -488,7 +483,7 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                         be_show_tablet_status(qmBeHost, qmBePort, qmTablet.TabletId)
                 assert qmExitCode == 0 : "show tablet status failed: ${qmStderr}"
                 def qmStatus = parseJson(qmStdout.trim())
-                logger.info("row-binlog tablet ${qmTablet.TabletId} policy=" +
+                logger.info("changelog tablet ${qmTablet.TabletId} policy=" +
                         "${qmStatus['cumulative policy type']} rowsets=${qmStatus.rowsets}")
                 for (rowsetStr in qmStatus.rowsets) {
                     // e.g. "[0-13] 2 DATA OVERLAPPING <id> 2.80 KB level=0"
@@ -497,26 +492,26 @@ suite("test_table_stream_multi_segment_mow", "nonConcurrent") {
                             fields[1].isInteger() && (fields[1] as int) > 1 &&
                             fields[3] == "OVERLAPPING") {
                         foundQuickMergeRowset = true
-                        logger.info("found LMax quick-merge rowset on row-binlog tablet " +
+                        logger.info("found LMax quick-merge rowset on changelog tablet " +
                                 "${qmTablet.TabletId}: ${rowsetStr}")
                     }
                 }
             }
             assert foundQuickMergeRowset :
-                    "expected a non-singleton multi-segment OVERLAPPING row-binlog rowset starting " +
-                    "at version 0 from LMax quick-merge, but none was found; row-binlog quick-merge " +
+                    "expected a non-singleton multi-segment OVERLAPPING changelog rowset starting " +
+                    "at version 0 from LMax quick-merge, but none was found; changelog quick-merge " +
                     "did not run and Section E would read the original rowsets instead"
 
-            // Ground truth for "no dropped events": the raw row-binlog op stream. This reads
-            // the quick-merge OVERLAPPING rowset through the same row-binlog TabletReader path
+            // Ground truth for "no dropped events": the raw changelog op stream. This reads
+            // the quick-merge OVERLAPPING rowset through the same changelog TabletReader path
             // (is_unique=false); a UNIQUE dedup would silently drop same-key/different-TSO rows,
             // shrinking this result.
-            order_qt_mow_qm_binlog """
-                SELECT __DORIS_BINLOG_OP__ AS op,
+            order_qt_mow_qm_changelog """
+                SELECT __DORIS_CHANGELOG_OP__ AS op,
                        id,
                        v,
-                       __BEFORE__v__
-                FROM binlog("table" = "ts_ms_mow_qm_base")
+                       __DORIS_CHANGELOG_BEFORE_v__
+                FROM changelog("table" = "ts_ms_mow_qm_base")
                 ORDER BY id, v, op
             """
             order_qt_mow_qm_count "SELECT COUNT(*) FROM ts_ms_mow_qm_stream"

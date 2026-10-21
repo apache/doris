@@ -110,6 +110,16 @@ public:
     std::vector<std::string> paths;
 };
 
+// Count parser invocations while retaining the real provider parser and transport.
+class UsageCountingAdapter : public OpenAIAdapter {
+public:
+    AIUsage parse_usage(const std::string& response) const override {
+        ++usage_parse_calls;
+        return OpenAIAdapter::parse_usage(response);
+    }
+    mutable int usage_parse_calls = 0;
+};
+
 class AIRequestExecutorTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -194,8 +204,10 @@ protected:
         auto second_context = context->clone();
         if (share_executor) {
             auto shared_executor = std::make_shared<AIRequestExecutor>();
-            context->set_function_state(FunctionContext::THREAD_LOCAL, shared_executor);
-            second_context->set_function_state(FunctionContext::THREAD_LOCAL, shared_executor);
+            context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                        shared_executor);
+            second_context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL,
+                                               shared_executor);
         }
         std::mutex gate_mutex;
         std::condition_variable gate;
@@ -220,8 +232,9 @@ protected:
         EXPECT_TRUE(first.get().ok());
         EXPECT_TRUE(second.get().ok());
         EXPECT_TRUE(both_arrived);
-        EXPECT_EQ(context->get_function_state(FunctionContext::THREAD_LOCAL) ==
-                          second_context->get_function_state(FunctionContext::THREAD_LOCAL),
+        EXPECT_EQ(context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL) ==
+                          second_context->get_function_state(
+                                  FunctionContext::FunctionStateScope::THREAD_LOCAL),
                   share_executor);
         EXPECT_EQ(connection_count(), 2);
         handler.on_request = {};
@@ -237,6 +250,229 @@ protected:
     AIResource config {TAIResource {}};
     std::shared_ptr<AIAdapter> adapter;
 };
+
+// These checks exercise real HTTP retries and the counters exported to query profiles.
+// The assertions check one retry's counters; GTest macros inflate their complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(AIRequestExecutorTest, ProfileCountsActualAttemptsAndUsageOnErrorResponses) {
+    auto statistics = std::make_shared<AIExecutionStatistics>();
+    AIRequestExecutor profiled(statistics);
+    handler.set_responses(
+            {{HttpStatus::SERVICE_UNAVAILABLE, R"({"usage":{"prompt_tokens":2,"total_tokens":2}})"},
+             {HttpStatus::OK,
+              R"({"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":8}})"},
+             {HttpStatus::OK, R"({"usage":{"completion_tokens":0}})"}});
+    std::string response;
+    for (int batch = 0; batch < 2; ++batch) {
+        ASSERT_TRUE(profiled.execute("{}", response, config, *adapter, query_ctx.get()).ok());
+    }
+    auto* profile = statistics->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionFirstAttemptCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 3);
+    EXPECT_EQ(profile->get_counter("AIFunctionRetryCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionErrorCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionPromptTokens")->value(), 5);
+    EXPECT_EQ(profile->get_counter("AIFunctionCompletionTokens")->value(), 4);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionPromptUsageCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionCompletionUsageCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionNewConnectionCount")->value(), 1);
+    EXPECT_GT(profile->get_counter("AIFunctionHttpTime")->value(), 0);
+}
+
+TEST_F(AIRequestExecutorTest, ProfileDistinguishesMissingUsageFromZeroAndLocalRejection) {
+    auto statistics = std::make_shared<AIExecutionStatistics>();
+    AIRequestExecutor profiled(statistics);
+    handler.set_responses({{HttpStatus::OK, "not json"},
+                           {HttpStatus::OK, "{}"},
+                           {HttpStatus::OK, R"({"usage":{"total_tokens":0}})"}});
+    std::string response;
+    for (int batch = 0; batch < 3; ++batch) {
+        ASSERT_TRUE(profiled.execute("{}", response, config, *adapter, query_ctx.get()).ok());
+    }
+    ASSERT_FALSE(profiled.execute("{}", response, config, *adapter, nullptr).ok());
+    auto* profile = statistics->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 4);
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 3);
+    EXPECT_EQ(profile->get_counter("AIFunctionFirstAttemptCount")->value(), 3);
+    EXPECT_EQ(profile->get_counter("AIFunctionRetryCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionErrorCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionPromptUsageCount")->value(), 0);
+}
+
+TEST_F(AIRequestExecutorTest, ProfileCountsCancellationBeforeSendAndDuringRetryWait) {
+    auto statistics = std::make_shared<AIExecutionStatistics>();
+    AIRequestExecutor profiled(statistics);
+    profiled._now = [&] { return fake_now; };
+    fake_now = std::chrono::steady_clock::now();
+    profiled._sleep = [&](auto duration) {
+        fake_now += duration;
+        query_ctx->cancel(Status::Cancelled("test cancellation"));
+    };
+    config.retry_delay_second = 1;
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "{}"}});
+    std::string response;
+    EXPECT_TRUE(profiled.execute("{}", response, config, *adapter, query_ctx.get())
+                        .is<ErrorCode::CANCELLED>());
+    EXPECT_TRUE(profiled.execute("{}", response, config, *adapter, query_ctx.get())
+                        .is<ErrorCode::CANCELLED>());
+    auto* profile = statistics->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionFirstAttemptCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionRetryCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionCancelledCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionErrorCount")->value(), 2);
+    EXPECT_EQ(profile->get_counter("AIFunctionRetryWaitTime")->value(), 100000000);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 0);
+}
+
+TEST_F(AIRequestExecutorTest, ProfileCountsBudgetExhaustionWithoutSendingRetry) {
+    auto statistics = std::make_shared<AIExecutionStatistics>();
+    AIRequestExecutor profiled(statistics);
+    handler.retry_after = "60";
+    handler.set_responses({{HttpStatus::SERVICE_UNAVAILABLE, "{}"}});
+    std::string response;
+    EXPECT_TRUE(profiled.execute("{}", response, config, *adapter, query_ctx.get())
+                        .is<ErrorCode::TIMEOUT>());
+    auto* profile = statistics->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionRetryCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionTimeoutCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionRetryWaitTime")->value(), 0);
+}
+
+TEST_F(AIRequestExecutorTest, AllNullScalarAndEmbedHaveNoRequestsOrUsageCoverage) {
+    state->_query_options.__set_enable_profile(true);
+    handler.set_responses({{HttpStatus::OK, "must not be requested"}});
+    for (bool embed : {false, true}) {
+        Block block;
+        block.insert({ColumnHelper::create_column<DataTypeString>({"resource"}),
+                      std::make_shared<DataTypeString>(), "resource"});
+        block.insert({ColumnHelper::create_nullable_column<DataTypeString>({"a", "b"}, {1, 1}),
+                      make_nullable(std::make_shared<DataTypeString>()), "input"});
+        DataTypePtr result_type = embed ? DataTypePtr(std::make_shared<DataTypeArray>(make_nullable(
+                                                  std::make_shared<DataTypeFloat32>())))
+                                        : DataTypePtr(std::make_shared<DataTypeString>());
+        block.insert({nullptr, make_nullable(result_type), "result"});
+        const auto status =
+                embed ? FunctionEmbed().execute(context.get(), block, {0, 1}, 2, 2, config, adapter)
+                      : FunctionAISummarize().execute(context.get(), block, {0, 1}, 2, 2, config,
+                                                      adapter);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    auto* profile = query_ctx->get_ai_statistics(state->fragment_id())->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionInputRows")->value(), 4);
+    EXPECT_EQ(profile->get_counter("AIFunctionSkippedNullRows")->value(), 4);
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 0);
+    EXPECT_TRUE(handler.bodies.empty());
+}
+
+TEST_F(AIRequestExecutorTest, ProfileSurvivesQueryOwnerAndCombinesConcurrentCompletions) {
+    state->_query_options.__set_enable_profile(true);
+    auto statistics = query_ctx->get_ai_statistics(state->fragment_id());
+    EXPECT_NE(statistics, query_ctx->get_ai_statistics(state->fragment_id() + 1));
+    handler.set_responses({{HttpStatus::OK, R"({"usage":{"total_tokens":7}})"}});
+    AIRequestExecutor profiled(statistics);
+    std::vector<std::future<Status>> requests;
+    for (int i = 0; i < 8; ++i) {
+        requests.push_back(std::async(std::launch::async, [&] {
+            std::string response;
+            return profiled.execute("{}", response, config, *adapter, query_ctx.get());
+        }));
+    }
+    for (auto& request : requests) {
+        ASSERT_TRUE(request.get().ok());
+    }
+    context.reset();
+    state.reset();
+    query_ctx.reset();
+    auto* profile = statistics->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 8);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 56);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 8);
+    statistics->record_parse(42, true);
+    EXPECT_EQ(profile->get_counter("AIFunctionParseErrorCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionErrorCount")->value(), 1);
+}
+
+TEST_F(AIRequestExecutorTest, ProfileSnapshotRefreshIncludesAllRecursiveStages) {
+    state->_query_options.__set_enable_profile(true);
+    RuntimeProfile fragment("Fragment");
+    fragment.add_counter_with_level("RowsProduced", TUnit::UNIT, 1)->set(int64_t {42});
+    fragment.add_counter_with_level("AIUnrelatedCounter", TUnit::UNIT, 1)->set(int64_t {9});
+    fragment.add_counter_with_level("FragmentTime", TUnit::TIME_NS, 1)->set(int64_t {123});
+    auto saved = std::make_shared<TRuntimeProfileTree>();
+    fragment.to_thrift(saved.get(), 1);
+    // The first recursive stage can close before the recursive member evaluates any AI work.
+    query_ctx->add_fragment_profile(0, {saved}, nullptr);
+    handler.set_responses(
+            {{HttpStatus::OK,
+              R"({"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}})"}});
+    auto statistics = query_ctx->get_ai_statistics(0);
+    for (int stage = 0; stage < 3; ++stage) {
+        AIRequestExecutor stage_executor(query_ctx->get_ai_statistics(0));
+        std::string response;
+        ASSERT_TRUE(stage_executor.execute("{}", response, config, *adapter, query_ctx.get()).ok());
+        auto snapshot = std::make_shared<TRuntimeProfileTree>();
+        fragment.to_thrift(snapshot.get(), 1);
+        statistics->update_profile_snapshot(*snapshot, 1);
+        query_ctx->add_fragment_profile(0, {snapshot}, nullptr);
+    }
+    auto& final_snapshot = *query_ctx->_profile_map.at(0).front();
+    statistics->update_profile_snapshot(final_snapshot, 1);
+    // Refreshing an existing snapshot must replace counters, rather than append or add totals.
+    statistics->update_profile_snapshot(final_snapshot, 1);
+    RuntimeProfile reported("Reported");
+    reported.update(final_snapshot);
+    EXPECT_EQ(reported.get_counter("AIFunctionRequestCount")->value(), 3);
+    EXPECT_EQ(reported.get_counter("AIFunctionPromptTokens")->value(), 21);
+    EXPECT_EQ(reported.get_counter("AIFunctionCompletionTokens")->value(), 9);
+    EXPECT_EQ(reported.get_counter("AIFunctionTotalTokens")->value(), 30);
+    EXPECT_EQ(reported.get_counter("AIFunctionTotalUsageCount")->value(), 3);
+    EXPECT_EQ(reported.get_counter("RowsProduced")->value(), 42);
+    EXPECT_EQ(reported.get_counter("AIUnrelatedCounter")->value(), 9);
+    EXPECT_EQ(reported.get_counter("FragmentTime")->value(), 123);
+    std::set<std::string> counter_names;
+    for (const auto& counter : final_snapshot.nodes.front().counters) {
+        EXPECT_TRUE(counter_names.insert(counter.name).second) << counter.name;
+    }
+    EXPECT_EQ(final_snapshot.nodes.front()
+                      .child_counters_map.at(RuntimeProfile::ROOT_COUNTER)
+                      .count("AIFunctionTotalTokens"),
+              1);
+}
+
+TEST_F(AIRequestExecutorTest, MeasureStatisticsCollectionOverhead) {
+    // Measure the additional usage parser + atomic counter merge, excluding network waits.
+    // Do not assert timing thresholds on shared CI hosts or sanitizer builds.
+    constexpr int requests = 10000;
+    const std::string body =
+            R"({"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}})";
+    AIExecutionStatistics statistics;
+    const auto started = std::chrono::steady_clock::now();
+    for (int i = 0; i < requests; ++i) {
+        const auto usage = adapter->parse_usage(body);
+        AIRequestStats stats;
+        stats.attempts = 1;
+        stats.prompt_tokens = *usage.prompt_tokens;
+        stats.completion_tokens = *usage.completion_tokens;
+        stats.total_tokens = *usage.total_tokens;
+        stats.prompt_usage_count = stats.completion_usage_count = stats.total_usage_count = 1;
+        statistics.record_request(stats, Status::OK(), false);
+    }
+    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now() - started)
+                            .count();
+    RecordProperty("usage_parse_and_merge_ns_per_request", std::to_string(ns / requests));
+    EXPECT_EQ(statistics.profile()->get_counter("AIFunctionTotalTokens")->value(), 50000);
+}
 
 TEST_F(AIRequestExecutorTest, ReusesConnectionAcrossTenRequests) {
     handler.set_responses({{HttpStatus::OK, R"({"result":"ok"})"}});
@@ -285,8 +521,10 @@ TEST_F(AIRequestExecutorTest, CachedClientsDiscardRequestOptionsAfterSuccessAndF
 }
 
 TEST_F(AIRequestExecutorTest, ScalarReusesConnectionAcrossBatchesAndBlocksWithNulls) {
+    state->_query_options.__set_enable_profile(true);
     handler.set_responses(
-            {{HttpStatus::OK, R"({"choices":[{"message":{"content":"[\"summary\"]"}}]})"}});
+            {{HttpStatus::OK,
+              R"({"choices":[{"message":{"content":"[\"summary\"]"}}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}})"}});
     FunctionAISummarize function;
     for (int block_index = 0; block_index < 5; ++block_index) {
         Block block;
@@ -305,15 +543,29 @@ TEST_F(AIRequestExecutorTest, ScalarReusesConnectionAcrossBatchesAndBlocksWithNu
     }
     ASSERT_EQ(handler.bodies.size(), 10);
     EXPECT_EQ(connection_count(), 1);
+    auto* profile = query_ctx->get_ai_statistics(state->fragment_id())->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 50);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionNewConnectionCount")->value(), 1);
     EXPECT_NE(handler.bodies[0].find("first"), std::string::npos);
     EXPECT_NE(handler.bodies[1].find("second"), std::string::npos);
+    EXPECT_EQ(profile->get_counter("AIFunctionInputRows")->value(), 15);
+    EXPECT_EQ(profile->get_counter("AIFunctionSkippedNullRows")->value(), 5);
+    EXPECT_EQ(profile->get_counter("AIFunctionPromptTokens")->value(), 20);
+    EXPECT_EQ(profile->get_counter("AIFunctionCompletionTokens")->value(), 30);
     std::weak_ptr<void> owner = context->_thread_local_fn_state;
-    ASSERT_TRUE(function.close(context.get(), FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function.close(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     EXPECT_TRUE(owner.expired());
 }
 
 TEST_F(AIRequestExecutorTest, EmbedReusesConnectionAcrossBatchesAndBlocksWithNulls) {
-    handler.set_responses({{HttpStatus::OK, R"({"data":[{"index":0,"embedding":[0.5,1.0]}]})"}});
+    state->_query_options.__set_enable_profile(true);
+    handler.set_responses(
+            {{HttpStatus::OK,
+              R"({"data":[{"index":0,"embedding":[0.5,1.0]}],"usage":{"total_tokens":5}})"}});
     FunctionEmbed function;
     for (int block_index = 0; block_index < 5; ++block_index) {
         Block block;
@@ -337,10 +589,19 @@ TEST_F(AIRequestExecutorTest, EmbedReusesConnectionAcrossBatchesAndBlocksWithNul
     }
     ASSERT_EQ(handler.bodies.size(), 10);
     EXPECT_EQ(connection_count(), 1);
+    auto* profile = query_ctx->get_ai_statistics(state->fragment_id())->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 50);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionNewConnectionCount")->value(), 1);
 }
 
 TEST_F(AIRequestExecutorTest, MultimodalEmbedReusesConnectionAcrossBatchesAndBlocks) {
-    handler.set_responses({{HttpStatus::OK, R"({"data":[{"index":0,"embedding":[0.5,1.0]}]})"}});
+    state->_query_options.__set_enable_profile(true);
+    handler.set_responses(
+            {{HttpStatus::OK,
+              R"({"data":[{"index":0,"embedding":[0.5,1.0]}],"usage":{"total_tokens":5}})"}});
     config.provider_type = "VOYAGE";
     config.model_name = "voyage-multimodal-3";
     adapter = std::make_shared<VoyageAIAdapter>();
@@ -371,6 +632,14 @@ TEST_F(AIRequestExecutorTest, MultimodalEmbedReusesConnectionAcrossBatchesAndBlo
     }
     ASSERT_EQ(handler.bodies.size(), 10);
     EXPECT_EQ(connection_count(), 1);
+    auto* profile = query_ctx->get_ai_statistics(state->fragment_id())->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionLogicalRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 50);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionNewConnectionCount")->value(), 1);
+    EXPECT_EQ(profile->get_counter("AIFunctionInputRows")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionSkippedNullRows")->value(), 0);
     EXPECT_NE(handler.bodies[0].find("image_url"), std::string::npos);
     EXPECT_NE(handler.bodies[1].find("video_url"), std::string::npos);
 }
@@ -413,10 +682,15 @@ TEST_F(AIRequestExecutorTest, ColdAndWarmConnectionsForFastAndDelayedMock) {
 }
 
 TEST_F(AIRequestExecutorTest, AggregateReusesConnectionAcrossFlushesAndResets) {
-    handler.set_responses({{HttpStatus::OK, R"({"choices":[{"message":{"content":"summary"}}]})"}});
+    state->_query_options.__set_enable_profile(true);
+    handler.set_responses(
+            {{HttpStatus::OK,
+              R"({"choices":[{"message":{"content":"summary"}}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}})"}});
     set_resource();
     AggregateFunctionAIAggData data;
-    data.set_query_context(query_ctx.get(), std::make_shared<AIRequestExecutor>());
+    data.set_query_context(query_ctx.get(),
+                           std::make_shared<AIRequestExecutor>(
+                                   query_ctx->get_ai_statistics(state->fragment_id())));
     // A tiny context window forces add() to summarize the preceding context.
     for (int block_index = 0; block_index < 5; ++block_index) {
         data.prepare(StringRef("resource", 8), StringRef("summarize", 9));
@@ -427,6 +701,11 @@ TEST_F(AIRequestExecutorTest, AggregateReusesConnectionAcrossFlushesAndResets) {
     }
     ASSERT_EQ(handler.bodies.size(), 10);
     EXPECT_EQ(connection_count(), 1);
+    auto* profile = query_ctx->get_ai_statistics(state->fragment_id())->profile();
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalTokens")->value(), 50);
+    EXPECT_EQ(profile->get_counter("AIFunctionTotalUsageCount")->value(), 10);
+    EXPECT_EQ(profile->get_counter("AIFunctionErrorCount")->value(), 0);
 }
 
 TEST_F(AIRequestExecutorTest, AggregateGroupsShareConnectionsRatherThanRetainingOnePerGroup) {
@@ -832,7 +1111,7 @@ TEST_F(AIRequestExecutorTest, PermanentFailureLatencyAndAttemptsComparedWithLega
                                     .count();
     EXPECT_EQ(legacy_attempts, 4);
     EXPECT_EQ(stats.attempts, 1);
-    EXPECT_EQ(stats.retry_wait_ms, 0);
+    EXPECT_EQ(stats.retry_wait_ns, 0);
     EXPECT_GE(legacy_ms, 3000);
     EXPECT_LT(current_ms, legacy_ms);
     RecordProperty("legacy_auth_attempts", static_cast<int>(legacy_attempts));
@@ -852,7 +1131,7 @@ TEST_F(AIRequestExecutorTest, FixedRetryDelayDoesNotGrowAcrossAttempts) {
     std::string response;
     EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
     EXPECT_EQ(stats.attempts, 4);
-    EXPECT_EQ(stats.retry_wait_ms, 3000);
+    EXPECT_EQ(stats.retry_wait_ns, 3000000000LL);
     EXPECT_EQ(response, "success");
     EXPECT_EQ(connection_count(), 1);
 }
@@ -868,7 +1147,7 @@ TEST_F(AIRequestExecutorTest, MixedFailuresKeepTheConfiguredRetryInterval) {
     std::string response;
     EXPECT_FALSE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
     EXPECT_EQ(stats.attempts, 4);
-    EXPECT_EQ(stats.retry_wait_ms, 3000);
+    EXPECT_EQ(stats.retry_wait_ns, 3000000000LL);
     EXPECT_EQ(handler.bodies.size(), 4);
 }
 
@@ -926,6 +1205,54 @@ TEST_F(AIRequestExecutorTest, ParseFailuresDoNotResendSuccessfulHttpRequests) {
     EXPECT_EQ(handler.bodies.size(), 2);
 }
 
+TEST_F(AIRequestExecutorTest, ProfileCountsParseFailuresAcrossScalarAndEmbedEarlyReturns) {
+    state->_query_options.__set_enable_profile(true);
+    auto* profile = query_ctx->get_ai_statistics(state->fragment_id())->profile();
+    handler.set_responses({{HttpStatus::BAD_REQUEST, "invalid request"}});
+    std::vector<std::string> scalar_results;
+    EXPECT_FALSE(FunctionAISummarize()
+                         .execute_batch_request({"first", "second"}, scalar_results, config,
+                                                adapter, context.get())
+                         .ok());
+    EXPECT_EQ(profile->get_counter("AIFunctionParseErrorCount")->value(), 0);
+    EXPECT_EQ(profile->get_counter("AIFunctionParseTime")->value(), 0);
+
+    // Exercise parser errors, empty results, row-count mismatches, and successful parsing.
+    const std::vector<std::pair<std::string, std::string>> responses = {
+            {"malformed json", "malformed json"},
+            {R"({"choices":[{"message":{"content":"[]"}}]})", R"({"data":[]})"},
+            {R"({"choices":[{"message":{"content":"[\"one\"]"}}]})",
+             R"({"data":[{"embedding":[1.0]}]})"},
+            {R"({"choices":[{"message":{"content":"[\"one\",\"two\"]"}}]})",
+             R"({"data":[{"embedding":[1.0]},{"embedding":[2.0]}]})"}};
+    int64_t parse_errors = 0;
+    for (size_t i = 0; i < responses.size(); ++i) {
+        SCOPED_TRACE(i);
+        const bool succeeds = i == responses.size() - 1;
+        handler.set_responses({{HttpStatus::OK, responses[i].first}});
+        EXPECT_EQ(FunctionAISummarize()
+                          .execute_batch_request({"first", "second"}, scalar_results, config,
+                                                 adapter, context.get())
+                          .ok(),
+                  succeeds);
+        parse_errors += !succeeds;
+        EXPECT_EQ(profile->get_counter("AIFunctionParseErrorCount")->value(), parse_errors);
+
+        handler.set_responses({{HttpStatus::OK, responses[i].second}});
+        std::vector<std::vector<float>> embedding_results;
+        EXPECT_EQ(FunctionEmbed()
+                          ._execute_prebuilt_embedding_request("{}", embedding_results, 2, config,
+                                                               adapter, context.get())
+                          .ok(),
+                  succeeds);
+        parse_errors += !succeeds;
+        EXPECT_EQ(profile->get_counter("AIFunctionParseErrorCount")->value(), parse_errors);
+    }
+    EXPECT_EQ(profile->get_counter("AIFunctionErrorCount")->value(), 7);
+    EXPECT_EQ(profile->get_counter("AIFunctionRequestCount")->value(), 9);
+    EXPECT_GT(profile->get_counter("AIFunctionParseTime")->value(), 0);
+}
+
 TEST_F(AIRequestExecutorTest, RetryAfterSetsWaitFloorEvenWithExplicitZeroDelay) {
     use_fake_clock();
     config.max_retries = 1;
@@ -936,7 +1263,7 @@ TEST_F(AIRequestExecutorTest, RetryAfterSetsWaitFloorEvenWithExplicitZeroDelay) 
     std::string response;
     EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
     EXPECT_EQ(stats.attempts, 2);
-    EXPECT_EQ(stats.retry_wait_ms, 2000);
+    EXPECT_EQ(stats.retry_wait_ns, 2000000000LL);
 }
 
 TEST_F(AIRequestExecutorTest, RetryAfterHttpDateSetsWaitFloor) {
@@ -954,8 +1281,8 @@ TEST_F(AIRequestExecutorTest, RetryAfterHttpDateSetsWaitFloor) {
     AIRequestStats stats;
     std::string response;
     EXPECT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
-    EXPECT_GE(stats.retry_wait_ms, 2000);
-    EXPECT_LE(stats.retry_wait_ms, 3000);
+    EXPECT_GE(stats.retry_wait_ns, 2000000000LL);
+    EXPECT_LE(stats.retry_wait_ns, 3000000000LL);
 }
 
 TEST_F(AIRequestExecutorTest, OneDeadlineCoversEveryAttemptAndWait) {
@@ -967,7 +1294,7 @@ TEST_F(AIRequestExecutorTest, OneDeadlineCoversEveryAttemptAndWait) {
     const auto status = executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats);
     EXPECT_TRUE(status.is<ErrorCode::TIMEOUT>()) << status;
     EXPECT_EQ(stats.attempts, 3);
-    EXPECT_EQ(stats.retry_wait_ms, 8000);
+    EXPECT_EQ(stats.retry_wait_ns, 8000000000LL);
     EXPECT_EQ(handler.bodies.size(), 3);
 }
 
@@ -1048,6 +1375,67 @@ TEST_F(AIRequestExecutorTest, MissingQueryContextDoesNotSend) {
     EXPECT_NE(status.to_string().find("Query context is null"), std::string::npos);
     std::lock_guard lock(handler.mutex);
     EXPECT_TRUE(handler.bodies.empty());
+}
+
+TEST_F(AIRequestExecutorTest, DisabledProfileSkipsUsageParsingForLargeEmbeddingBatch) {
+    constexpr int rows = 128;
+    constexpr int dimensions = 1536;
+    std::string vector = "0.125";
+    for (int i = 1; i < dimensions; ++i) {
+        vector += ",0.125";
+    }
+    std::string body = R"({"data":[)";
+    for (int i = 0; i < rows; ++i) {
+        if (i != 0) {
+            body += ',';
+        }
+        body += fmt::format(R"({{"index":{},"embedding":[{}]}})", i, vector);
+    }
+    body += R"(],"usage":{"prompt_tokens":128,"total_tokens":128}})";
+    ASSERT_GT(body.size(), 1024 * 1024);
+    handler.set_responses({{HttpStatus::OK, body}});
+    auto counting_adapter = std::make_shared<UsageCountingAdapter>();
+    counting_adapter->init(config);
+    adapter = counting_adapter;
+    EXPECT_FALSE(query_ctx->enable_profile());
+    std::vector<std::vector<float>> results;
+    ASSERT_TRUE(FunctionEmbed()
+                        ._execute_prebuilt_embedding_request("{}", results, rows, config, adapter,
+                                                             context.get())
+                        .ok());
+    EXPECT_EQ(counting_adapter->usage_parse_calls, 0);
+    EXPECT_EQ(query_ctx->find_ai_statistics(state->fragment_id()), nullptr);
+    ASSERT_EQ(results.size(), rows);
+    for (const auto& result : results) {
+        ASSERT_EQ(result.size(), dimensions);
+        EXPECT_EQ(result.front(), 0.125F);
+        EXPECT_EQ(result.back(), 0.125F);
+    }
+    // Explicit per-request statistics remain available even with query profiling disabled.
+    AIRequestStats stats;
+    std::string response;
+    ASSERT_TRUE(executor.execute("{}", response, config, *adapter, query_ctx.get(), &stats).ok());
+    EXPECT_EQ(counting_adapter->usage_parse_calls, 1);
+    EXPECT_EQ(stats.attempts, 1);
+    EXPECT_EQ(stats.total_tokens, 128);
+    EXPECT_EQ(stats.total_usage_count, 1);
+    EXPECT_GT(stats.http_time_ns, 0);
+    EXPECT_GT(stats.usage_parse_time_ns, 0);
+    RecordProperty("embedding_response_bytes", std::to_string(body.size()));
+    RecordProperty("embedding_usage_parse_ns", std::to_string(stats.usage_parse_time_ns));
+
+    state->_query_options.__set_enable_profile(true);
+    auto profiled_context = FunctionContext::create_context(state.get(), {}, {});
+    results.clear();
+    ASSERT_TRUE(FunctionEmbed()
+                        ._execute_prebuilt_embedding_request("{}", results, rows, config, adapter,
+                                                             profiled_context.get())
+                        .ok());
+    EXPECT_EQ(counting_adapter->usage_parse_calls, 2);
+    auto statistics = query_ctx->find_ai_statistics(state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionTotalTokens")->value(), 128);
+    ASSERT_EQ(results.size(), rows);
 }
 
 TEST_F(AIRequestExecutorTest, EmbedUsesTheSharedSenderAndParsesVectors) {

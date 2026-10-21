@@ -59,8 +59,8 @@ enum CompactionType {
     BASE_COMPACTION = 1,
     CUMULATIVE_COMPACTION = 2,
     FULL_COMPACTION = 3,
-    // Only used by scheduler to route row-binlog tablets to the binlog thread pool.
-    CUMU_BINLOG_COMPACTION = 4
+    // Only used by scheduler to route changelog tablets to the changelog thread pool.
+    CHANGELOG_COMPACTION = 4
 };
 
 struct CompactionScoreStats {

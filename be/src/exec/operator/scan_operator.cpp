@@ -744,7 +744,7 @@ Status ScanLocalStateBase::_normalize_in_predicate(
         // begin to push InPredicate value into ColumnValueRange
         auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(tmp->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         // xx in (col, xx, xx) should not be push down
         if (!state->use_set) {
@@ -1072,10 +1072,12 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 
 template <typename Derived>
 std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
-    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
-    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
-    // all limit logic.
-    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
+    auto& parent = _parent->cast<typename Derived::Parent>();
+    // Decide from the SQL LIMIT, not from the counter. -1 means "no SQL LIMIT" — return nullptr
+    // so callers naturally skip all limit logic. Concurrent scanners can return more than the
+    // LIMIT before the operator makes its final cut, leaving this counter negative. A scanner
+    // initialized then must still observe that the shared LIMIT is exhausted.
+    return parent.limit() < 0 ? nullptr : &parent._shared_scan_limit;
 }
 
 template <typename Derived>

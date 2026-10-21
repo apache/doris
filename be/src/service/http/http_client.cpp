@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -552,6 +553,27 @@ Status HttpClient::get_response_header(const char* name, std::string* value) con
 
 Status HttpClient::get_content_md5(std::string* md5) const {
     return get_response_header(HttpHeaders::CONTENT_MD5, md5);
+}
+
+HttpTransferMetrics HttpClient::get_transfer_metrics() const {
+    const auto time_ns = [this](CURLINFO info) -> int64_t {
+        curl_off_t time_us = 0;
+        curl_easy_getinfo(_curl, info, &time_us);
+        return time_us * 1000;
+    };
+    HttpTransferMetrics metrics;
+    long connections = 0;
+    curl_easy_getinfo(_curl, CURLINFO_NUM_CONNECTS, &connections);
+    metrics.new_connections = connections;
+    metrics.dns_time_ns = time_ns(CURLINFO_NAMELOOKUP_TIME_T);
+    const auto connected_ns = time_ns(CURLINFO_CONNECT_TIME_T);
+    const auto tls_connected_ns = time_ns(CURLINFO_APPCONNECT_TIME_T);
+    // curl reports zero connect times for reused connections and zero appconnect for HTTP.
+    metrics.connect_time_ns = std::max<int64_t>(0, connected_ns - metrics.dns_time_ns);
+    metrics.tls_time_ns = std::max<int64_t>(0, tls_connected_ns - connected_ns);
+    metrics.first_byte_time_ns = time_ns(CURLINFO_STARTTRANSFER_TIME_T);
+    metrics.total_time_ns = time_ns(CURLINFO_TOTAL_TIME_T);
+    return metrics;
 }
 
 Status HttpClient::download(const std::string& local_path) {

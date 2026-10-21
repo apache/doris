@@ -114,9 +114,8 @@ suite("test_ivm_partitions_after_failed_complete", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """ALTER TABLE ivm_failed_complete_f ADD PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01'))"""

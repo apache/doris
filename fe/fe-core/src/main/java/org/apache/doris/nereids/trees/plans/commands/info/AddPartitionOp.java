@@ -119,8 +119,8 @@ public class AddPartitionOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Adding partition is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Adding partition is allowed for changelog tables.
         return true;
     }
 

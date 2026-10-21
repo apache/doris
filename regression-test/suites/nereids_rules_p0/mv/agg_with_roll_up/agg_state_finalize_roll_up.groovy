@@ -15,78 +15,96 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("agg_state_finalize_roll_up") {
-    String db = context.config.getDbNameByFile(context.file)
-    sql "set enable_agg_state=true"
-    sql "set pre_materialized_view_rewrite_strategy=TRY_IN_RBO"
-    for (String mv : ["finalize_max_mv", "finalize_abs_mv", "finalize_sum_mv", "finalize_union_mv"]) {
-        sql "drop materialized view if exists ${mv}"
-    }
-    sql "drop table if exists agg_finalize_rollup_input"
-    sql """
-        create table agg_finalize_rollup_input (k int, g int, v double)
-        duplicate key(k, g) distributed by hash(k) buckets 1
-        properties("replication_num"="1")
-    """
-    sql """
-        insert into agg_finalize_rollup_input values
-            (1, 1, -4), (1, 1, 3), (1, 2, -2), (1, 2, 7),
-            (2, 1, 5), (2, 2, null), (3, 1, null)
-    """
-    // Make the finer-group MV cheaper than scanning the base table so the test executes its rollup.
-    sql """
-        insert into agg_finalize_rollup_input
-        select k, g, v from agg_finalize_rollup_input cross join numbers("number"="99")
-    """
-    sql "analyze table agg_finalize_rollup_input with sync"
+suite("agg_state_finalize_roll_up", "nonConcurrent") {
+    // Disable automatic analysis before creating the fixture to prevent background jobs
+    // from being queued before statistics are injected. Restore the global setting on failure.
+    setGlobalVarTemporary([enable_auto_analyze: false], {
+        String db = context.config.getDbNameByFile(context.file)
+        sql "set enable_agg_state=true"
+        sql "set pre_materialized_view_rewrite_strategy=TRY_IN_RBO"
+        for (String mv : ["finalize_max_mv", "finalize_abs_mv", "finalize_sum_mv", "finalize_union_mv"]) {
+            sql "drop materialized view if exists ${mv}"
+        }
+        sql "drop table if exists agg_finalize_rollup_input"
+        sql """
+            create table agg_finalize_rollup_input (k int, g int, v double)
+            duplicate key(k, g) distributed by hash(k) buckets 1
+            properties("replication_num"="1")
+        """
+        sql """
+            insert into agg_finalize_rollup_input values
+                (1, 1, -4), (1, 1, 3), (1, 2, -2), (1, 2, 7),
+                (2, 1, 5), (2, 2, null), (3, 1, null)
+        """
+        // Make the finer-group MV cheaper than scanning the base table so the test executes its rollup.
+        sql """
+            insert into agg_finalize_rollup_input
+            select k, g, v from agg_finalize_rollup_input cross join numbers("number"="99")
+        """
+        sql "analyze table agg_finalize_rollup_input with sync"
+        // Synchronous ANALYZE does not wait for tablet row-count reports. Pin the fixture
+        // cardinalities so CBO chooses the rollup independently of report timing.
+        sql """
+            alter table agg_finalize_rollup_input modify column k
+            set stats ('row_count'='700', 'ndv'='3')
+        """
 
-    String combinedQuery = """
-        select k, sum_finalize(sum_combine(avg_finalize(avg_state(v))))
-        from agg_finalize_rollup_input group by k
-    """
-    String plainQuery = """
-        select k, sum(avg_finalize(avg_state(v)))
-        from agg_finalize_rollup_input group by k
-    """
-    order_qt_combined_before combinedQuery
-    order_qt_plain_before plainQuery
+        String combinedQuery = """
+            select k, sum_finalize(sum_combine(avg_finalize(avg_state(v))))
+            from agg_finalize_rollup_input group by k
+        """
+        String plainQuery = """
+            select k, sum(avg_finalize(avg_state(v)))
+            from agg_finalize_rollup_input group by k
+        """
+        order_qt_combined_before combinedQuery
+        order_qt_plain_before plainQuery
 
-    // Sharing the inner AVG finalizer must not make SUM compatible with MAX.
-    create_async_mv(db, "finalize_max_mv", """
-        select k, g, max_combine(avg_finalize(avg_state(v))) s
-        from agg_finalize_rollup_input group by k, g
-    """)
-    mv_rewrite_fail(combinedQuery, "finalize_max_mv")
-    mv_rewrite_fail(plainQuery, "finalize_max_mv")
-    order_qt_different_aggregate combinedQuery
+        // Sharing the inner AVG finalizer must not make SUM compatible with MAX.
+        create_async_mv(db, "finalize_max_mv", """
+            select k, g, max_combine(avg_finalize(avg_state(v))) s
+            from agg_finalize_rollup_input group by k, g
+        """)
+        mv_rewrite_fail(combinedQuery, "finalize_max_mv")
+        mv_rewrite_fail(plainQuery, "finalize_max_mv")
+        order_qt_different_aggregate combinedQuery
 
-    // The full value expression matters even when both outer aggregates are SUM.
-    create_async_mv(db, "finalize_abs_mv", """
-        select k, g, sum_combine(abs(avg_finalize(avg_state(v)))) s
-        from agg_finalize_rollup_input group by k, g
-    """)
-    mv_rewrite_fail(combinedQuery, "finalize_abs_mv")
-    mv_rewrite_fail(plainQuery, "finalize_abs_mv")
-    order_qt_different_argument combinedQuery
+        // The full value expression matters even when both outer aggregates are SUM.
+        create_async_mv(db, "finalize_abs_mv", """
+            select k, g, sum_combine(abs(avg_finalize(avg_state(v)))) s
+            from agg_finalize_rollup_input group by k, g
+        """)
+        mv_rewrite_fail(combinedQuery, "finalize_abs_mv")
+        mv_rewrite_fail(plainQuery, "finalize_abs_mv")
+        order_qt_different_argument combinedQuery
 
-    create_async_mv(db, "finalize_sum_mv", """
-        select k, g, sum_combine(avg_finalize(avg_state(v))) s
-        from agg_finalize_rollup_input group by k, g
-    """)
-    mv_rewrite_success(combinedQuery, "finalize_sum_mv")
-    mv_rewrite_success(plainQuery, "finalize_sum_mv")
-    order_qt_combined_after combinedQuery
-    order_qt_plain_after plainQuery
+        create_async_mv(db, "finalize_sum_mv", """
+            select k, g, sum_combine(avg_finalize(avg_state(v))) s
+            from agg_finalize_rollup_input group by k, g
+        """)
+        sql """
+            alter table finalize_sum_mv modify column k
+            set stats ('row_count'='5', 'ndv'='3')
+        """
+        mv_rewrite_success(combinedQuery, "finalize_sum_mv")
+        mv_rewrite_success(plainQuery, "finalize_sum_mv")
+        order_qt_combined_after combinedQuery
+        order_qt_plain_after plainQuery
 
-    // Existing MERGE/UNION/STATE rollup remains available.
-    create_async_mv(db, "finalize_union_mv", """
-        select k, g, sum_union(sum_state(v)) s
-        from agg_finalize_rollup_input group by k, g
-    """)
-    String mergeQuery = """
-        select k, sum_merge(sum_state(v))
-        from agg_finalize_rollup_input group by k
-    """
-    mv_rewrite_success(mergeQuery, "finalize_union_mv")
-    order_qt_merge_after mergeQuery
+        // Existing MERGE/UNION/STATE rollup remains available.
+        create_async_mv(db, "finalize_union_mv", """
+            select k, g, sum_union(sum_state(v)) s
+            from agg_finalize_rollup_input group by k, g
+        """)
+        sql """
+            alter table finalize_union_mv modify column k
+            set stats ('row_count'='5', 'ndv'='3')
+        """
+        String mergeQuery = """
+            select k, sum_merge(sum_state(v))
+            from agg_finalize_rollup_input group by k
+        """
+        mv_rewrite_success(mergeQuery, "finalize_union_mv")
+        order_qt_merge_after mergeQuery
+    })
 }

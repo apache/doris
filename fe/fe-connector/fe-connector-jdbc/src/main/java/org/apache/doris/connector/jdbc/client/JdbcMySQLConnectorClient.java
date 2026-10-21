@@ -88,7 +88,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to detect if remote MySQL is Doris: {}", e.getMessage());
+            LOG.warn("Failed to detect if remote MySQL is Doris: {}", jdbcDiagnosticMessage(e));
         } finally {
             closeResources(rs, stmt, conn);
         }
@@ -133,7 +133,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from MySQL", e);
+            throw jdbcException("Failed to get database name list from MySQL", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -151,7 +151,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
             rs = databaseMetaData.getTables(remoteDbName, null, remoteTableName, tableTypes);
             consumer.accept(rs);
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -192,7 +192,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
             }
             return "";
         } catch (SQLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to get table comment for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, ps, conn);
@@ -218,7 +218,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, e.getMessage());
+            LOG.warn("Failed to get row count for {}.{}: {}", dbName, tableName, jdbcDiagnosticMessage(e));
         }
         return -1;
     }
@@ -235,7 +235,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 primaryKeys.add(rs.getString("COLUMN_NAME"));
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to get primary keys for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);
@@ -267,7 +267,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to get JDBC columns info for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);
@@ -290,7 +290,7 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
                 fieldToType.put(rs.getString("Field"), rs.getString("Type"));
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to get column data types for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, stmt, conn);

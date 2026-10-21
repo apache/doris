@@ -22,6 +22,7 @@
 #include <bit>
 #include <numeric>
 
+#include "common/check.h"
 #include "storage/index/inverted/query/exec/docid_sink.h"
 
 namespace doris::index_query {
@@ -96,12 +97,18 @@ void intersect_through_bit_set(std::span<const uint32_t> docs, std::span<const u
             preceding += static_cast<uint32_t>(std::popcount(bits[word]));
         }
     } else {
+        // Every candidate is written and kept only when its bit is set, so no branch depends on
+        // whether it matches.
+        std::vector<uint32_t>& rows = *out.rows;
+        const size_t begin = rows.size();
+        rows.resize(begin + candidates.size());
+        uint32_t* next = rows.data() + begin;
         for (const uint32_t candidate : candidates) {
             const uint32_t off = candidate - first;
-            if ((bits[off >> 6] & (uint64_t {1} << (off & 63))) != 0) {
-                out.append(candidate, 0);
-            }
+            *next = candidate;
+            next += (bits[off >> 6] >> (off & 63)) & 1;
         }
+        rows.resize(static_cast<size_t>(next - rows.data()));
     }
 }
 
@@ -192,10 +199,7 @@ Status CursorChainedPostings::collect(std::vector<uint32_t>* out) {
     if (_candidates == nullptr) {
         out->reserve(out->size() + _cursor.doc_freq());
         VectorDocIdSink sink(*out);
-        return for_each_block(_cursor, [&sink](const PostingsBlock& block) {
-            return block.dense ? sink.append_range(block.range_begin, block.range_end)
-                               : sink.append_sorted(block.docs);
-        });
+        return list_blocks(_cursor, sink);
     }
     out->reserve(out->size() + std::min<uint64_t>(_candidates->size(), _cursor.doc_freq()));
     return for_each_candidate_block(
@@ -219,8 +223,11 @@ Status CursorChainedPostings::collect(std::vector<uint32_t>* out) {
             });
 }
 
-Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
-                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
+namespace {
+
+template <typename Cursors>
+Status chain(const Cursors& cursors, const std::vector<uint32_t>* candidates,
+             std::vector<uint32_t>* rows) {
     std::vector<CursorChainedPostings> terms;
     terms.reserve(cursors.size());
     std::vector<ChainedPostings*> chain;
@@ -230,6 +237,150 @@ Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
         chain.push_back(&terms.back());
     }
     return chained_conjunction(chain, candidates, rows);
+}
+
+} // namespace
+
+Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
+    return chain(cursors, candidates, rows);
+}
+
+Status chain_cursors(std::span<PostingsCursor* const> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
+    return chain(cursors, candidates, rows);
+}
+
+namespace {
+
+// The most rows of the cheapest cursor a stream lists at once.
+constexpr size_t kStreamRows = size_t {1} << 16;
+
+// The cheapest cursor of a stream, handing on its rows a batch at a time.
+class StreamLead {
+public:
+    explicit StreamLead(PostingsCursor& cursor) : _cursor(cursor) {}
+
+    Status start() { return _cursor.next_block(&_block, &_eof); }
+    bool exhausted() const { return _eof; }
+
+    // Replaces `rows` by the cursor's next rows, at most kStreamRows of them; the rest of the
+    // current block waits for the next batch.
+    Status take_batch(std::vector<uint32_t>* rows) {
+        rows->clear();
+        while (!_eof) {
+            const size_t size = _block.size();
+            const size_t stop = std::min(size, _taken + (kStreamRows - rows->size()));
+            if (_block.dense) {
+                const size_t old = rows->size();
+                rows->resize(old + stop - _taken);
+                std::iota(rows->begin() + old, rows->end(),
+                          static_cast<uint32_t>(_block.range_begin + _taken));
+            } else {
+                rows->insert(rows->end(), _block.docs.begin() + _taken, _block.docs.begin() + stop);
+            }
+            if (stop < size) {
+                _taken = stop;
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(_cursor.next_block(&_block, &_eof));
+            _taken = 0;
+            if (rows->size() == kStreamRows) {
+                return Status::OK();
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    PostingsCursor& _cursor;
+    PostingsBlock _block;
+    size_t _taken = 0;
+    bool _eof = false;
+};
+
+// A cursor narrowing a stream's rows; it keeps its current block for the next batch's rows.
+class StreamFollower {
+public:
+    explicit StreamFollower(PostingsCursor& cursor) : _cursor(cursor) {}
+
+    // Appends the ascending `rows` the cursor holds to `out`; `ended` once it holds no later row.
+    Status narrow(std::span<const uint32_t> rows, std::vector<uint32_t>* out, bool* ended) {
+        size_t next = 0;
+        while (next < rows.size()) {
+            if (!_loaded || _last < rows[next]) {
+                bool eof = false;
+                RETURN_IF_ERROR(_cursor.seek_block(rows[next], &_block, &eof));
+                if (eof) {
+                    *ended = true;
+                    return Status::OK();
+                }
+                _loaded = true;
+                _last = _block.doc_at(_block.size() - 1);
+            }
+            const uint32_t first = _block.doc_at(0);
+            const size_t begin =
+                    gallop_past(rows, next, [first](uint32_t doc) { return doc < first; });
+            next = gallop_past(rows, begin, [this](uint32_t doc) { return doc <= _last; });
+            if (next == begin) {
+                continue;
+            }
+            const auto slice = rows.subspan(begin, next - begin);
+            // A dense block holds every row in its span.
+            if (_block.dense) {
+                out->insert(out->end(), slice.begin(), slice.end());
+            } else {
+                intersect_block(_block.docs, slice, DocumentOutput {out});
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    PostingsCursor& _cursor;
+    PostingsBlock _block;
+    uint32_t _last = 0;
+    bool _loaded = false;
+};
+
+} // namespace
+
+Status stream_cursors(std::span<PostingsCursor* const> cursors, DocIdSink& sink) {
+    DORIS_CHECK(!cursors.empty());
+    std::vector<PostingsCursor*> order(cursors.begin(), cursors.end());
+    std::ranges::stable_sort(order, {},
+                             [](const PostingsCursor* cursor) { return cursor->doc_freq(); });
+    for (PostingsCursor* cursor : order) {
+        RETURN_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
+    }
+    StreamLead lead(*order.front());
+    std::vector<StreamFollower> followers;
+    followers.reserve(order.size() - 1);
+    for (size_t i = 1; i < order.size(); ++i) {
+        followers.emplace_back(*order[i]);
+    }
+    std::vector<uint32_t> rows;
+    std::vector<uint32_t> narrowed;
+    RETURN_IF_ERROR(lead.start());
+    while (!lead.exhausted()) {
+        RETURN_IF_ERROR(lead.take_batch(&rows));
+        bool ended = false;
+        for (StreamFollower& follower : followers) {
+            narrowed.clear();
+            RETURN_IF_ERROR(follower.narrow(rows, &narrowed, &ended));
+            rows.swap(narrowed);
+            if (rows.empty()) {
+                break;
+            }
+        }
+        if (!rows.empty()) {
+            RETURN_IF_ERROR(sink.append_sorted(rows));
+        }
+        if (ended) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris::index_query

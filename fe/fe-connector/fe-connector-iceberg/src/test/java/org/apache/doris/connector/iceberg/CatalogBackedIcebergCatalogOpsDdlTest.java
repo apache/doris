@@ -29,12 +29,14 @@ import org.apache.doris.connector.spi.ddl.TagChange;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -46,6 +48,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -201,6 +204,61 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
     public void testRenameMissingTableFailsLoud() {
         ops.createDatabase("db1", Collections.emptyMap());
         Assertions.assertThrows(Exception.class, () -> ops.renameTable("db1", "ghost", "t2"));
+    }
+
+    // ---------- setTableProperties: one UpdateProperties commit on a real catalog ----------
+
+    @Test
+    public void testSetTablePropertiesCommitsWholeMapAsOneMetadataVersion() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", "t1", schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        int versions = metadataVersions("t1");
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728");
+        properties.put(TableProperties.MANIFEST_MIN_MERGE_COUNT, "50");
+
+        ops.setTableProperties("db1", "t1", properties);
+
+        Map<String, String> actual = ops.loadTable("db1", "t1").properties();
+        Assertions.assertEquals("134217728", actual.get(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES));
+        Assertions.assertEquals("50", actual.get(TableProperties.MANIFEST_MIN_MERGE_COUNT));
+        Assertions.assertEquals(versions + 1, metadataVersions("t1"), "the whole map must be one commit");
+
+        // A later SET replaces the named property and keeps the others.
+        ops.setTableProperties("db1", "t1",
+                Collections.singletonMap(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "268435456"));
+        actual = ops.loadTable("db1", "t1").properties();
+        Assertions.assertEquals("268435456", actual.get(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES));
+        Assertions.assertEquals("50", actual.get(TableProperties.MANIFEST_MIN_MERGE_COUNT));
+    }
+
+    @Test
+    public void testSetTablePropertiesRejectedMapCommitsNothing() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", "t1", schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        int versions = metadataVersions("t1");
+        // The valid entry goes first: committing the entries one at a time would write it before the
+        // downgrade fails.
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "536870912");
+        properties.put(TableProperties.FORMAT_VERSION, "1");
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> ops.setTableProperties("db1", "t1", properties));
+
+        Assertions.assertTrue(e.getMessage().contains("Cannot downgrade"), e.getMessage());
+        Table table = ops.loadTable("db1", "t1");
+        Assertions.assertEquals(2, ((HasTableOperations) table).operations().current().formatVersion());
+        Assertions.assertFalse(table.properties().containsKey(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES),
+                "the valid entry of a rejected map must not be committed on its own");
+        Assertions.assertEquals(versions, metadataVersions("t1"));
+    }
+
+    private int metadataVersions(String tableName) {
+        Table table = ops.loadTable("db1", tableName);
+        return ((HasTableOperations) table).operations().current().previousFiles().size();
     }
 
     // ---------- Branch / tag (B4): real ManageSnapshots round-trips on an InMemoryCatalog ----------

@@ -137,6 +137,28 @@ private:
     doris::IndexPolicyMgr* previous_ = nullptr;
 };
 
+class ScopedSplitNormalizerPolicy {
+public:
+    ScopedSplitNormalizerPolicy() {
+        auto* exec_env = doris::ExecEnv::GetInstance();
+        previous_ = exec_env->index_policy_mgr();
+        exec_env->_index_policy_mgr = &manager_;
+
+        doris::TIndexPolicy normalizer;
+        normalizer.id = 9020;
+        normalizer.name = "split_norm";
+        normalizer.type = doris::TIndexPolicyType::NORMALIZER;
+        normalizer.properties["token_filter"] = "word_delimiter";
+        manager_.apply_policy_changes({normalizer}, {});
+    }
+
+    ~ScopedSplitNormalizerPolicy() { doris::ExecEnv::GetInstance()->_index_policy_mgr = previous_; }
+
+private:
+    doris::IndexPolicyMgr manager_;
+    doris::IndexPolicyMgr* previous_ = nullptr;
+};
+
 // A fatal assertion inside a helper FUNCTION only aborts the helper; the calling
 // test keeps running and may dereference state that failed to initialize (this
 // bit us as a null-analyzer SEGV). A macro expands in the test body, so the
@@ -549,6 +571,35 @@ TEST(SniiWriterNorms, WritesNormsFollowSharedNormsPolicy) {
     EXPECT_FALSE(writes_norms({{"field_pattern", "s_*"}}, ""));
 
     doris::config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
+}
+
+TEST(SniiWriterTest, SplitNormalizerRetainsPhrasePositions) {
+    ScopedSplitNormalizerPolicy policies;
+    doris::TabletIndex index_meta;
+    init_gram_index_meta(&index_meta, 9021,
+                         {{"normalizer", "split_norm"}, {"support_phrase", "true"}});
+
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    ASSERT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions);
+
+    const doris::Slice value("foo-bar");
+    ASSERT_OK(writer.add_values("content", &value, 1));
+    auto postings = writer.term_buffer_for_test()->finalize_sorted();
+    bool saw_foo = false;
+    bool saw_bar = false;
+    for (const auto& posting : postings) {
+        if (posting.term == "foo") {
+            saw_foo = true;
+            EXPECT_EQ(posting.positions_flat, std::vector<uint32_t>({1}));
+        } else if (posting.term == "bar") {
+            saw_bar = true;
+            EXPECT_EQ(posting.positions_flat, std::vector<uint32_t>({2}));
+        }
+    }
+    EXPECT_TRUE(saw_foo);
+    EXPECT_TRUE(saw_bar);
 }
 
 TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {

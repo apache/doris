@@ -73,7 +73,6 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
@@ -910,12 +909,18 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
+            // The changelog policy is set when a changelog tablet is created and never changes.
+            if (tablet->is_changelog_tablet()) {
+                status = Status::InvalidArgument(
+                        "can not change compaction policy of changelog tablet {}",
+                        tablet_meta_info.tablet_id);
+                continue;
+            }
             if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
-                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY &&
-                tablet_meta_info.compaction_policy != CUMULATIVE_BINLOG_POLICY) {
+                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "invalid compaction policy, only support for size_based or "
-                        "time_series or binlog");
+                        "time_series");
                 continue;
             }
             tablet->tablet_meta()->set_compaction_policy(tablet_meta_info.compaction_policy);

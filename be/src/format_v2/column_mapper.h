@@ -156,6 +156,9 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
+    // Paimon TIMESTAMP precision narrowing uses truncation instead of the ordinary SQL CAST
+    // rounding behavior. This is carried recursively so nested timestamp children follow it too.
+    bool truncate_datetimev2_precision = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
@@ -174,6 +177,9 @@ struct TableColumnMapperOptions {
     bool enable_row_lineage_virtual_columns = false;
     bool enable_iceberg_metadata_virtual_columns = false;
     bool enable_paimon_metadata_virtual_columns = false;
+    // Paimon schema evolution truncates timestamp precision. This must not reuse the SQL CAST
+    // behavior, which rounds when reducing DATETIMEV2 scale.
+    bool truncate_datetimev2_precision_for_paimon = false;
 
     std::string debug_string() const;
 };

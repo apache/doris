@@ -34,7 +34,6 @@
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
-#include "storage/utils.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -123,11 +122,6 @@ public:
     Status copy_rows(BlockWithSameBit* block, bool advanced = true);
     Status copy_rows(BlockView* view, bool advanced = true);
 
-    RowLocation current_row_location() {
-        DCHECK(_record_rowids);
-        return _block_row_locations[_index_in_block];
-    }
-
     // Advance internal row index to next valid row
     // Return error if error happens
     // Don't call this when valid() is false, action is undefined
@@ -177,7 +171,7 @@ private:
     bool _use_insert_order_when_same = false;
     // Tie-break direction on the sequence column when keys are equal:
     // false = larger value sorts first (UNIQUE_KEYS sequence column);
-    // true  = smaller value sorts first (row binlog TSO column).
+    // true  = smaller value sorts first (changelog TSO column).
     bool _small_seq_first = false;
     bool _valid = false;
     mutable bool _skip = false;
@@ -189,8 +183,6 @@ private:
     const ReadSchemaSPtr _read_schema;
     int _num_key_columns;
     std::vector<uint32_t>* _compare_columns;
-    std::vector<RowLocation> _block_row_locations;
-    bool _record_rowids = false;
     size_t _cur_batch_num = 0;
 
     // used to store data load from iterator->next_batch(Block*)
@@ -226,12 +218,6 @@ public:
 
     const ReadSchema& schema() const override { return *_read_schema; }
 
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
-        DCHECK(_record_rowids);
-        *block_row_locations = _block_row_locations;
-        return Status::OK();
-    }
-
     void update_profile(RuntimeProfile* profile) override {
         if (!_origin_iters.empty()) {
             _origin_iters[0]->update_profile(profile);
@@ -247,9 +233,6 @@ private:
 
     template <typename T>
     Status _next_batch(T* block) {
-        if (UNLIKELY(_record_rowids)) {
-            _block_row_locations.resize(_block_row_max);
-        }
         size_t row_idx = 0;
         std::shared_ptr<VMergeIteratorContext> pre_ctx;
         while (_get_size(block) < _block_row_max) {
@@ -269,9 +252,6 @@ private:
                     pre_ctx = ctx;
                 }
                 pre_ctx->set_pre_ctx_same(ctx.get());
-                if (UNLIKELY(_record_rowids)) {
-                    _block_row_locations[row_idx] = ctx->current_row_location();
-                }
                 row_idx++;
                 if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
                     // current block finished, ctx not advance
@@ -296,12 +276,6 @@ private:
         if (!_merge_heap.empty()) {
             return Status::OK();
         }
-        // Still last batch needs to be processed
-
-        if (UNLIKELY(_record_rowids)) {
-            _block_row_locations.resize(row_idx);
-        }
-
         return Status::EndOfFile("no more data in segment");
     }
 
@@ -331,8 +305,6 @@ private:
     // See VMergeIteratorContext::_small_seq_first; forwarded to every context on init().
     bool _small_seq_first = false;
     uint64_t* _merged_rows = nullptr;
-    bool _record_rowids = false;
-    std::vector<RowLocation> _block_row_locations;
 };
 
 // Create a merge iterator for input iterators. Merge iterator will merge

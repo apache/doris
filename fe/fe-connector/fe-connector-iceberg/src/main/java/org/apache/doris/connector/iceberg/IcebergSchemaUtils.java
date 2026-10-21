@@ -521,6 +521,9 @@ public final class IcebergSchemaUtils {
     }
 
     static String serializeInitialDefault(Type type, Object value, boolean enableTimestampTz) {
+        if (type.typeId() == TypeID.VARIANT) {
+            throw new DorisConnectorException("Iceberg VARIANT initial-default must be NULL");
+        }
         if (type.isNestedType()) {
             return SingleValueParser.toJson(type, value);
         }

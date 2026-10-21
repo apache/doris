@@ -845,8 +845,8 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
-    if (context.write_binlog_opt().enable) {
-        context.write_binlog_opt().set_need_before(binlog_config().need_historical_value());
+    if (context.write_changelog_opt().enable) {
+        context.write_changelog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.persist_inverted_index_storage_format =
@@ -888,9 +888,9 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
-    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
-        context.write_binlog_opt().enable = true;
-        context.write_binlog_opt().set_need_before(binlog_config().need_historical_value());
+    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_changelog()) {
+        context.write_changelog_opt().enable = true;
+        context.write_changelog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();
@@ -1224,16 +1224,16 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                                        int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
-    const bool build_row_binlog = txn_info->attach_row_binlog.rowset != nullptr;
+    const bool build_changelog = txn_info->attach_changelog.rowset != nullptr;
     const RowsetId cur_build_rid = rowset->rowset_id();
-    const RowsetId binlog_rid =
-            build_row_binlog ? txn_info->attach_row_binlog.rowset->rowset_id() : cur_build_rid;
-    auto* row_binlog_delete_bitmap = txn_info->attach_row_binlog.delete_bitmap.get();
-    if (build_row_binlog) {
-        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta() != nullptr);
-        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta()->is_row_binlog());
-        DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
-        DCHECK(row_binlog_delete_bitmap != nullptr);
+    const RowsetId changelog_rid =
+            build_changelog ? txn_info->attach_changelog.rowset->rowset_id() : cur_build_rid;
+    auto* changelog_delete_bitmap = txn_info->attach_changelog.delete_bitmap.get();
+    if (build_changelog) {
+        DCHECK(txn_info->attach_changelog.rowset->rowset_meta() != nullptr);
+        DCHECK(txn_info->attach_changelog.rowset->rowset_meta()->is_changelog());
+        DCHECK(txn_info->attach_changelog.tablet != nullptr);
+        DCHECK(changelog_delete_bitmap != nullptr);
     }
 
     // update delete bitmap info, in order to avoid recalculation when trying again
@@ -1246,29 +1246,29 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
             return Status::InternalError<false>("injected update_tmp_rowset error.");
         });
         const auto& rowset_meta = rowset->rowset_meta();
-        if (build_row_binlog) {
-            const auto& binlog_rowset_meta = txn_info->attach_row_binlog.rowset->rowset_meta();
+        if (build_changelog) {
+            const auto& changelog_rowset_meta = txn_info->attach_changelog.rowset->rowset_meta();
             RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id(),
-                                                                 binlog_rowset_meta.get()));
+                                                                 changelog_rowset_meta.get()));
         } else {
             RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
         }
     }
 
-    if (build_row_binlog) {
+    if (build_changelog) {
         for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
             if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID &&
                 std::get<0>(key) == cur_build_rid) {
-                row_binlog_delete_bitmap->merge(
-                        {binlog_rid, std::get<1>(key), cast_set<uint64_t>(cur_version)}, bitmap);
+                changelog_delete_bitmap->merge(
+                        {changelog_rid, std::get<1>(key), cast_set<uint64_t>(cur_version)}, bitmap);
             }
         }
-        auto* binlog_tablet = static_cast<CloudTablet*>(txn_info->attach_row_binlog.tablet.get());
-        RETURN_IF_ERROR(binlog_tablet->save_delete_bitmap_to_ms(
-                cur_version, txn_id, txn_info->attach_row_binlog.delete_bitmap, lock_id,
-                next_visible_version, txn_info->attach_row_binlog.rowset));
+        auto* changelog_tablet = static_cast<CloudTablet*>(txn_info->attach_changelog.tablet.get());
+        RETURN_IF_ERROR(changelog_tablet->save_delete_bitmap_to_ms(
+                cur_version, txn_id, txn_info->attach_changelog.delete_bitmap, lock_id,
+                next_visible_version, txn_info->attach_changelog.rowset));
         RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-                txn_id, binlog_tablet->tablet_id(), txn_info->attach_row_binlog.delete_bitmap,
+                txn_id, changelog_tablet->tablet_id(), txn_info->attach_changelog.delete_bitmap,
                 cur_rowset_ids, PublishStatus::SUCCEED, txn_info->publish_info));
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -26,6 +27,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -315,4 +317,24 @@ public class VariantType extends PrimitiveType {
                 || dataType.isUuidType();
     }
 
+    /** Whether the type or any nested complex type contains Variant. */
+    public static boolean containsVariant(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return true;
+        } else if (dataType instanceof ArrayType) {
+            return containsVariant(((ArrayType) dataType).getItemType());
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (dataType instanceof StructType) {
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getDataType()));
+        }
+        return false;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
+    }
 }

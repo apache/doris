@@ -406,9 +406,7 @@ Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatc
                            size_t column_pos, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
     auto variant_column = ColumnVariantV2::create();
-    JsonStringToVariantEncoder encoder(
-            {.throw_on_invalid_json = true,
-             .check_duplicate_json_path = batch.check_duplicate_json_path});
+    JsonStringToVariantEncoder encoder({.throw_on_invalid_json = true});
     for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
         encoder.add_json({json.data(), json.size()});
     }
@@ -1312,7 +1310,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*_tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         context.predicates = &predicates;
         context.stats = &result.stats;

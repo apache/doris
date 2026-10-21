@@ -428,6 +428,10 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
+        if (!nestedColumn && type.isVariantType() && name.indexOf('.') != -1) {
+            throw new AnalysisException(
+                    "Cannot use `VARIANT` type column named with a `.` character: " + name);
+        }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
@@ -774,7 +778,7 @@ public class ColumnDefinition {
     }
 
     /**
-     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on row-binlog tables.
+     * add hidden column __DORIS_ROW_LSN_COL__ for stable row identity on changelog tables.
      */
     public static ColumnDefinition newRowLsnColumnDefinition(AggregateType aggregateType) {
         ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_LSN_COL, BigIntType.INSTANCE, false,

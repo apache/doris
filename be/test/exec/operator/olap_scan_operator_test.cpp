@@ -32,7 +32,7 @@
 
 namespace doris {
 
-class OlapScanOperatorBinlogPushDownTest : public testing::Test {
+class OlapScanOperatorChangelogPushDownTest : public testing::Test {
 protected:
     void SetUp() override {
         _state = std::make_shared<MockRuntimeState>();
@@ -68,9 +68,9 @@ protected:
         _local_state = OlapScanLocalState::create_shared(_state.get(), _parent.get());
 
         auto range = std::make_unique<TPaloScanRange>();
-        range->__set_binlog_scan_type(TBinlogScanType::MIN_DELTA);
+        range->__set_changelog_scan_type(TChangelogScanType::MIN_DELTA);
         _local_state->_scan_ranges.push_back(std::move(range));
-        ASSERT_TRUE(_local_state->_is_binlog_merge_scan());
+        ASSERT_TRUE(_local_state->_is_changelog_merge_scan());
     }
 
     ObjectPool _pool;
@@ -82,27 +82,27 @@ protected:
     std::shared_ptr<OlapScanLocalState> _local_state;
 };
 
-TEST_F(OlapScanOperatorBinlogPushDownTest, MergeScanPushesDownOnlyKeyColumns) {
+TEST_F(OlapScanOperatorChangelogPushDownTest, MergeScanPushesDownOnlyKeyColumns) {
     EXPECT_TRUE(_local_state->can_push_down_column_predicate(_key_slot));
     EXPECT_FALSE(_local_state->can_push_down_column_predicate(_value_slot));
 }
 
-TEST_F(OlapScanOperatorBinlogPushDownTest, AppendOnlyKeepsValuePredicatePushDown) {
-    _local_state->_scan_ranges[0]->__set_binlog_scan_type(TBinlogScanType::APPEND_ONLY);
-    ASSERT_FALSE(_local_state->_is_binlog_merge_scan());
+TEST_F(OlapScanOperatorChangelogPushDownTest, AppendOnlyKeepsValuePredicatePushDown) {
+    _local_state->_scan_ranges[0]->__set_changelog_scan_type(TChangelogScanType::APPEND_ONLY);
+    ASSERT_FALSE(_local_state->_is_changelog_merge_scan());
 
     EXPECT_TRUE(_local_state->can_push_down_column_predicate(_key_slot));
     EXPECT_TRUE(_local_state->can_push_down_column_predicate(_value_slot));
 }
 
-class OlapScanOperatorTsoPruningTest : public OlapScanOperatorBinlogPushDownTest {
+class OlapScanOperatorTsoPruningTest : public OlapScanOperatorChangelogPushDownTest {
 protected:
     void SetUp() override {
-        OlapScanOperatorBinlogPushDownTest::SetUp();
+        OlapScanOperatorChangelogPushDownTest::SetUp();
         // Match prepare()'s tablet slots, but leave the tablets null so the empty-source
         // tests still verify that TSO pruning finishes without accessing a tablet.
         _local_state->_tablets.resize(_local_state->_scan_ranges.size());
-        _parent->_olap_scan_node.__set_read_row_binlog(true);
+        _parent->_olap_scan_node.__set_read_changelog(true);
         _profile = std::make_unique<RuntimeProfile>("TsoPruningTest");
         _local_state->_scanner_init_timer = ADD_TIMER(_profile, "ScannerInitTime");
         _local_state->_rowset_tso_prune_timer = ADD_TIMER(_profile, "RowsetTsoPruneTime");
@@ -225,7 +225,7 @@ TEST_F(OlapScanOperatorTsoPruningTest, NoBoundsPreservesAllRowsets) {
 
 TEST_F(OlapScanOperatorTsoPruningTest, EmptyWindowSkipsScannersAndSignalsEos) {
     auto& range = *_local_state->_scan_ranges.front();
-    range.__set_binlog_scan_type(TBinlogScanType::DETAIL);
+    range.__set_changelog_scan_type(TChangelogScanType::DETAIL);
     range.__set_start_tso(100);
     range.__set_end_tso(200);
     _local_state->_read_sources.resize(1);
