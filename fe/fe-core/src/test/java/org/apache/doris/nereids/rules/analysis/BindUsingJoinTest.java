@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -448,4 +450,32 @@ class BindUsingJoinTest extends TestWithFeService implements GeneratedPlanPatter
                         + "SELECT l.k, SUM(l.v) FROM l LEFT JOIN r USING(k) "
                         + "GROUP BY k HAVING l.k > 0 ORDER BY l.k");
     }
+
+    @Test
+    void testUsingJoinCteColumnOrder() {
+        String[] joins = {"JOIN", "LEFT JOIN", "RIGHT JOIN"};
+        for (String join : joins) {
+            String source = join.startsWith("RIGHT") ? "t2.a" : "t1.a";
+            String payload = join.startsWith("RIGHT") ? "t2.c" : "t1.b";
+            String sql = "WITH q(x,y,z) AS (SELECT a," + payload + "," + source
+                    + " FROM t1 " + join + " t2 USING(a)) SELECT * FROM q";
+            List<Slot> output = PlanChecker.from(connectContext).analyze(sql).getPlan().getOutput();
+            Assertions.assertEquals(List.of("x", "y", "z"), output.stream()
+                    .map(Slot::getName).collect(Collectors.toList()), sql);
+            PlanChecker.from(connectContext).checkPlannerResult(sql);
+        }
+    }
+
+    @Test
+    void testCteRepeatedColumnResults() {
+        String sql = "WITH q(x,y,z) AS (SELECT a,b,a FROM (SELECT 1 AS a,10 AS b) t) SELECT * FROM q";
+        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+            PhysicalPlan plan = planner.getPhysicalPlan();
+            Assertions.assertTrue(plan instanceof ComputeResultSet);
+            Assertions.assertEquals(List.of(List.of("1", "10", "1")),
+                    ((ComputeResultSet) plan).computeResultInFe(planner.getCascadesContext(), plan.getOutput())
+                            .orElseThrow().getResultRows());
+        });
+    }
+
 }
