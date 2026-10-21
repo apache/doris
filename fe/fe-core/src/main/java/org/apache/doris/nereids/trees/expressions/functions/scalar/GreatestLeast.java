@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
@@ -49,6 +50,17 @@ public abstract class GreatestLeast extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     protected GreatestLeast(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // Equal spatial identities have a common type, but the BE scalar comparator
+        // cannot materialize ColumnSpatial. Reject original arguments before coercion.
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+                throw new AnalysisException(getName() + " does not support spatial arguments");
+            }
+        }
     }
 
     @Override

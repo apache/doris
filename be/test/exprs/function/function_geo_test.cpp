@@ -388,6 +388,112 @@ TEST(VGeoFunctionsTest, GeographyRelationsUseCompleteSphericalEdgesAndAliases) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyNonpointRelationsAllowOnlyConversionRoundoff) {
+    // Same-meridian arcs overlap despite independently rounded S2 coordinates.
+    const std::string line =
+            "0102000000020000000000000000002440000000000080464000000000000024400000000000004740";
+    const std::string inner =
+            "01020000000200000000000000000024406666666666a6464000000000000024403333333333f34640";
+    const std::string reversed =
+            "01020000000200000000000000000024403333333333f3464000000000000024406666666666a64640";
+    const std::string near =
+            "010200000002000000e7db0000000024406666666666a64640e7db0000000024403333333333f34640";
+    const std::string outside =
+            "0102000000020000001924ffffffff23406666666666a646401924ffffffff23403333333333f34640";
+    const std::string beyond =
+            "0102000000020000000000000000002440cdcccccccc0c474000000000000024409a99999999194740";
+    const std::string multi =
+            "0102000000030000000000000000002240000000000000464000000000000024400000000000804640"
+            "00000000000024400000000000004740";
+    const std::string polygon =
+            "01030000000100000005000000000000000000244000000000008046400000000000002640000000000080"
+            "46"
+            "40000000000000264000000000000047400000000000002440000000000000474000000000000024400000"
+            "00"
+            "0000804640";
+    const std::string neighbor =
+            "0103000000010000000500000000000000000024406666666666a6464000000000000024403333333333f3"
+            "46"
+            "4000000000000022403333333333f3464000000000000022406666666666a6464000000000000024406666"
+            "66"
+            "6666a64640";
+    const std::string near_polygon =
+            "010300000001000000050000001924ffffffff23406666666666a646401924ffffffff23403333333333f3"
+            "46"
+            "4000000000000022403333333333f3464000000000000022406666666666a646401924ffffffff23406666"
+            "66"
+            "6666a64640";
+    struct Case {
+        std::string left;
+        std::string right;
+        bool intersects;
+    };
+    // The 1e-10 degree offsets are near but much larger than conversion roundoff.
+    const std::vector<Case> cases {{line, inner, true},       {line, reversed, true},
+                                   {line, near, false},       {line, beyond, false},
+                                   {multi, inner, true},      {polygon, inner, true},
+                                   {polygon, near, true},     {polygon, outside, false},
+                                   {polygon, neighbor, true}, {polygon, near_polygon, false}};
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    for (const auto& value : cases) {
+        SCOPED_TRACE(value.left + " versus " + value.right);
+        for (bool reverse_arguments : {false, true}) {
+            const Strings arguments = reverse_arguments ? Strings {value.right, value.left}
+                                                        : Strings {value.left, value.right};
+            for (const auto& name : {"st_intersects", "st_disjoint"}) {
+                Block block;
+                const auto status = execute_geography_test(name, arguments, result_type, &block);
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(),
+                          std::string_view(name) == "st_intersects" ? value.intersects
+                                                                    : !value.intersects);
+            }
+        }
+    }
+}
+
+static void expect_small_geography_ring(const std::string& ring, double& area) {
+    const std::string inside = "010100000000000000000000000000000000000000";
+    const std::string outside = "010100000000000000008066400000000000000000";
+    // Reversing a small ring does not select its >hemisphere complement.
+    for (const auto& point : {inside, outside}) {
+        Block block;
+        const auto status =
+                execute_geography_test("st_contains", {ring, point},
+                                       make_nullable(std::make_shared<DataTypeUInt8>()), &block);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), point == inside);
+    }
+    Block measured;
+    ASSERT_TRUE(execute_geography_test("st_area_square_meters", {ring},
+                                       make_nullable(std::make_shared<DataTypeFloat64>()),
+                                       &measured)
+                        .ok());
+    area = (*measured.get_by_position(1).column)[0].get<TYPE_DOUBLE>();
+    EXPECT_GT(area, 0);
+    EXPECT_LT(area, 1e14);
+    Block raw;
+    ASSERT_TRUE(execute_geography_test("st_asbinary", {ring},
+                                       make_nullable(std::make_shared<DataTypeVarbinary>()), &raw)
+                        .ok());
+    EXPECT_EQ(raw.get_by_position(1).column->get_data_at(0).to_string(), spatial_test_wkb(ring));
+}
+
+TEST(VGeoFunctionsTest, GeographyPolygonCalculationsUseNormalizedRings) {
+    const Strings rings {
+            "0103000000010000000500000000000000000024c000000000000024c000000000000024400000000000"
+            "0024c00000000000002440000000000000244000000000000024c0000000000000244000000000000024"
+            "c000000000000024c0",
+            "0103000000010000000500000000000000000024c000000000000024c000000000000024c00000000000"
+            "00244000000000000024400000000000002440000000000000244000000000000024c000000000000024"
+            "c000000000000024c0"};
+    std::vector<double> areas(rings.size());
+    for (size_t i = 0; i < rings.size(); ++i) {
+        expect_small_geography_ring(rings[i], areas[i]);
+    }
+    EXPECT_NEAR(areas[0], areas[1], areas[0] * 1e-12);
+}
+
 TEST(VGeoFunctionsTest, GeographyMeridianMembershipAllowsOnlyConversionRoundoff) {
     struct Case {
         std::string shape;

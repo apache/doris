@@ -316,6 +316,17 @@ public class CreateIcebergSpatialV3Table {
     // These factories do not implement scalar spatial values. Fail in FE, including
     // analytic DISTINCT, which is rewritten to multi_distinct_count after binding.
     for (String column : ["geom", "geog"]) {
+        // Distinct imported slots must fail in FE, before BE's unsupported scalar dispatch.
+        for (String function : ["greatest", "least"]) {
+            for (String arguments : ["l.${column}, r.${column}", "NULL, r.${column}",
+                    "l.${column}, NULL", "l.id, r.${column}"]) {
+                test {
+                    sql """select ${function}(${arguments}) from geometry_values l
+                        cross join geometry_values r"""
+                    exception "${function} does not support spatial arguments"
+                }
+            }
+        }
         for (String function : ["min_by", "max_by"]) {
             for (String arguments : ["${column}, id", "id, ${column}"]) {
                 test {
@@ -450,6 +461,51 @@ public class CreateIcebergSpatialV3Table {
         "qt_spatial_multikey_nonnull_${spatialColumn}"("""select id from geometry_values
             where ${spatialColumn} is not null order by ${spatialColumn}, id""")
     }
+    order_qt_ordinary_greatest_least """select id, greatest(id, id + 1), least(id, id + 1),
+        greatest(id, if(id = 1, NULL, id + 1)), least(id, if(id = 1, NULL, id + 1))
+        from geometry_values"""
+    // All pairs below are real nullable Iceberg columns, including line/polygon boundaries.
+    String meridian = "0102000000020000000000000000002440000000000080464000000000000024400000000000004740"
+    String overlap = "01020000000200000000000000000024406666666666a6464000000000000024403333333333f34640"
+    String reverseOverlap = "01020000000200000000000000000024403333333333f3464000000000000024406666666666a64640"
+    String nearby = "010200000002000000e7db0000000024406666666666a64640e7db0000000024403333333333f34640"
+    String outside = "0102000000020000001924ffffffff23406666666666a646401924ffffffff23403333333333f34640"
+    String beyond = "0102000000020000000000000000002440cdcccccccc0c474000000000000024409a99999999194740"
+    String multiEdge = "010200000003000000000000000000224000000000000046400000000000002440000000000080464000000000000024400000000000004740"
+    String square = "010300000001000000050000000000000000002440000000000080464000000000000026400000000000804640000000000000264000000000000047400000000000002440000000000000474000000000000024400000000000804640"
+    String neighbor = "0103000000010000000500000000000000000024406666666666a6464000000000000024403333333333f3464000000000000022403333333333f3464000000000000022406666666666a6464000000000000024406666666666a64640"
+    String nearbyPolygon = "010300000001000000050000001924ffffffff23406666666666a646401924ffffffff23403333333333f3464000000000000022403333333333f3464000000000000022406666666666a646401924ffffffff23406666666666a64640"
+    sql """drop table if exists spatial_relation_values"""
+    sql """create table spatial_relation_values (id int, lhs geography, rhs geography)
+        engine=iceberg properties ('format-version' = '3')"""
+    List<String> relationRows = []
+    [[meridian, overlap], [meridian, reverseOverlap], [meridian, nearby], [meridian, beyond],
+     [multiEdge, overlap], [square, overlap], [square, nearby], [square, outside],
+     [square, neighbor], [square, nearbyPolygon]].eachWithIndex { pair, index ->
+        relationRows.add("(${index}, ST_GeogFromWKB('${pair[0]}'), ST_GeogFromWKB('${pair[1]}'))")
+    }
+    relationRows.add("(10, NULL, ST_GeogFromWKB('${overlap}'))")
+    relationRows.add("(11, ST_GeogFromWKB('${meridian}'), NULL)")
+    relationRows.add("(12, NULL, NULL)")
+    sql """insert into spatial_relation_values values ${relationRows.join(',')}"""
+    order_qt_spatial_nonpoint_relations """select id, ST_Intersects(lhs, rhs), ST_Intersects(rhs, lhs),
+        ST_Disjoint(lhs, rhs), ST_Disjoint(rhs, lhs) from spatial_relation_values"""
+    order_qt_spatial_nonpoint_constant """select id,
+        ST_Intersects(lhs, ST_GeogFromWKB('${overlap}')), ST_Intersects(ST_GeogFromWKB('${overlap}'), lhs),
+        ST_Disjoint(lhs, ST_GeogFromWKB('${overlap}')), ST_Disjoint(ST_GeogFromWKB('${overlap}'), lhs)
+        from spatial_relation_values"""
+    // Normalized calculation rings choose the smaller region; raw WKB winding is retained.
+    String smallRing = "0103000000010000000500000000000000000024c000000000000024c0000000000000244000000000000024c00000000000002440000000000000244000000000000024c0000000000000244000000000000024c000000000000024c0"
+    String reverseRing = "0103000000010000000500000000000000000024c000000000000024c000000000000024c0000000000000244000000000000024400000000000002440000000000000244000000000000024c000000000000024c000000000000024c0"
+    sql """insert into spatial_relation_values values
+        (13, ST_GeogFromWKB('${smallRing}'), ST_GeogFromWKB('${reverseRing}'))"""
+    qt_spatial_polygon_winding """select ST_Contains(lhs,
+        ST_GeogFromWKB('010100000000000000000000000000000000000000')),
+        ST_Contains(rhs, ST_GeogFromWKB('010100000000000000000000000000000000000000')),
+        ST_Contains(lhs, ST_GeogFromWKB('010100000000000000008066400000000000000000')),
+        ST_Contains(rhs, ST_GeogFromWKB('010100000000000000008066400000000000000000')),
+        hex(ST_AsBinary(lhs)) = upper('${smallRing}'), hex(ST_AsBinary(rhs)) = upper('${reverseRing}')
+        from spatial_relation_values where id = 13"""
     order_qt_spatial_values """
         select id, ST_AsText(geom), ST_X(geom), ST_Y(geom), ST_GeometryType(geom),
                hex(ST_AsBinary(geom)), ST_AsText(geog), ST_Distance(geog, geog)

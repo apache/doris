@@ -109,6 +109,45 @@ geog	GEOGRAPHY('OGC:CRS84', 'spherical')	Yes	true	\N
 4
 1
 
+-- !ordinary_greatest_least --
+1	2	1	\N	\N
+2	3	2	3	2
+3	4	3	4	3
+4	5	4	5	4
+
+-- !spatial_nonpoint_relations --
+0	true	true	false	false
+1	true	true	false	false
+10	\N	\N	\N	\N
+11	\N	\N	\N	\N
+12	\N	\N	\N	\N
+2	false	false	true	true
+3	false	false	true	true
+4	true	true	false	false
+5	true	true	false	false
+6	true	true	false	false
+7	false	false	true	true
+8	true	true	false	false
+9	false	false	true	true
+
+-- !spatial_nonpoint_constant --
+0	true	true	false	false
+1	true	true	false	false
+10	\N	\N	\N	\N
+11	true	true	false	false
+12	\N	\N	\N	\N
+2	true	true	false	false
+3	true	true	false	false
+4	true	true	false	false
+5	true	true	false	false
+6	true	true	false	false
+7	true	true	false	false
+8	true	true	false	false
+9	true	true	false	false
+
+-- !spatial_polygon_winding --
+true	true	false	false	true	true
+
 -- !spatial_values --
 1	POINT (1 2)	1	2	ST_POINT	0101000000000000000000F03F0000000000000040	POINT (1 2)	0
 2	\N	\N	\N	\N	\N	\N	\N

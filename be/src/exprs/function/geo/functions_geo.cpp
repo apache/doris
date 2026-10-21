@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 #include <s2/mutable_s2shape_index.h>
 #include <s2/s2boolean_operation.h>
+#include <s2/s2closest_edge_query.h>
 #include <s2/s2earth.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2lax_polyline_shape.h>
@@ -162,6 +163,12 @@ static void geography_shape_index(const GeoShape& shape, MutableS2ShapeIndex* in
     }
 }
 
+static S1ChordAngle geography_conversion_error() {
+    // S2LatLng::ToPoint and degrees-to-radians rounding can separate positions on
+    // the same meridian. This is about 1e-8 metres, not a user snap radius.
+    return S1ChordAngle(S1Angle::Radians(8 * std::numeric_limits<double>::epsilon()));
+}
+
 static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
                                      const GeoShape& rhs) {
     const auto& point_shape = lhs.type() == GeoShapeType::GEO_SHAPE_POINT ? lhs : rhs;
@@ -170,12 +177,10 @@ static bool geography_point_relation(std::string_view name, const GeoShape& lhs,
             canonical_geography_point(*assert_cast<const GeoPoint&>(point_shape).point());
     bool interior = false;
     bool boundary = false;
-    // S2LatLng::ToPoint has up to 1.5*epsilon error, plus degrees-to-radians
-    // rounding. Allow only conversion-scale error for the point and edge endpoints:
+    // Allow only conversion-scale error for the point and edge endpoints:
     // POINT(10 45.5) is on LINESTRING(10 45,10 46), but their rounded vectors
-    // are not exactly coplanar. This is about 1e-8 metres, not a user snap radius.
-    const auto conversion_error =
-            S1ChordAngle(S1Angle::Radians(8 * std::numeric_limits<double>::epsilon()));
+    // are not exactly coplanar.
+    const auto conversion_error = geography_conversion_error();
     if (other.type() == GeoShapeType::GEO_SHAPE_POINT) {
         interior = point == canonical_geography_point(*assert_cast<const GeoPoint&>(other).point());
     } else if (other.type() == GeoShapeType::GEO_SHAPE_LINE_STRING) {
@@ -245,7 +250,15 @@ static Status geography_relation(std::string_view name, const GeoShape& lhs, con
     options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
     options.set_polyline_model(S2BooleanOperation::PolylineModel::CLOSED);
     options.set_polyline_loops_have_boundaries(false);
-    const bool intersects = S2BooleanOperation::Intersects(left, right, options);
+    bool intersects = S2BooleanOperation::Intersects(left, right, options);
+    // Independently converted LINESTRING(10 45,10 46) and (10 45.3,10 45.9)
+    // are not exactly coplanar either. Apply the same conversion bound to all
+    // admitted nonpoint pairs, retaining polygon interiors and real open-line edges.
+    if (!intersects) {
+        S2ClosestEdgeQuery query(&left);
+        S2ClosestEdgeQuery::ShapeIndexTarget target(&right);
+        intersects = query.IsConservativeDistanceLessOrEqual(&target, geography_conversion_error());
+    }
     DCHECK(name == "st_intersects" || name == "st_disjoint");
     *result = name == "st_intersects" ? intersects : !intersects;
     return Status::OK();

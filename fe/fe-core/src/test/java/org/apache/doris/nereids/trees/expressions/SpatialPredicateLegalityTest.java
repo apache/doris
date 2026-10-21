@@ -18,10 +18,15 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
+import org.apache.doris.nereids.types.IntegerType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -29,6 +34,40 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialPredicateLegalityTest {
+    @Test
+    public void greatestLeastRejectSpatialSlotsBeforeCoercion() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"),
+                new GeographyType("OGC:CRS84", "vincenty"))) {
+            for (DataType type : List.of(spatial, ArrayType.of(spatial))) {
+                for (boolean nullable : List.of(false, true)) {
+                    Expression left = new SlotReference("left", type, nullable);
+                    Expression right = new SlotReference("right", type, nullable);
+                    for (ScalarFunction function : List.of(new Greatest(left, right), new Least(left, right),
+                            new Greatest(integer, left), new Least(left, integer))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                function::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals(function.getName() + " does not support spatial arguments",
+                                error.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void greatestLeastRetainOrdinaryNullableArguments() {
+        for (boolean nullable : List.of(false, true)) {
+            Expression left = new SlotReference("left", IntegerType.INSTANCE, nullable);
+            Expression right = new SlotReference("right", IntegerType.INSTANCE, nullable);
+            for (ScalarFunction function : List.of(new Greatest(left, right), new Least(left, right))) {
+                Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+                Assertions.assertEquals(IntegerType.INSTANCE, function.getDataType());
+            }
+        }
+    }
+
     @Test
     public void spatialInArgumentsAreRejectedBeforeCoercion() {
         IntegerLiteral integer = new IntegerLiteral(1);
