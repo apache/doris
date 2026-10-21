@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_uuid_orc_varbinary_mapping") {
@@ -23,11 +22,16 @@ suite("test_uuid_orc_varbinary_mapping") {
         logger.warn("Please set enable_outfile_to_local to true to run test_uuid_orc_varbinary_mapping")
         return
     }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
+    def backends = sql_return_maparray("SHOW BACKENDS").findAll { it.Alive == "true" }
+    assertFalse(backends.isEmpty())
+    def backend = backends[0]
     String securePath = sql_return_maparray(
             "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_orc_varbinary_")
+    def outputDirectory = Paths.get(securePath, "test_uuid_orc_varbinary_${UUID.randomUUID()}")
     try {
+        // OUTFILE runs on a BE, which may be remote from the regression runner.
+        mkdirRemotePathOnAllBE("root", outputDirectory.toString())
+        sql "SET enable_parallel_outfile = false"
         sql "DROP TABLE IF EXISTS uuid_orc_varbinary_mapping"
         sql """CREATE TABLE uuid_orc_varbinary_mapping (
                    id INT, u UUID, a ARRAY<UUID>, m MAP<UUID,UUID>, s STRUCT<k:UUID>, b STRING)
@@ -47,9 +51,12 @@ suite("test_uuid_orc_varbinary_mapping") {
                    {'00112233445566778899aabbccddeeff':'00000000000000000000000000000000'},
                    {'00000000000000000000000000000000'}, NULL),
                (5, NULL, NULL, NULL, NULL, NULL)"""
-        sql """SELECT id, u, a, m, s, CAST(b AS VARBINARY) AS b
+        def outfile = sql """SELECT id, u, a, m, s, CAST(b AS VARBINARY) AS b
                FROM uuid_orc_varbinary_mapping ORDER BY id
                INTO OUTFILE "file://${outputDirectory}/orc_" FORMAT AS ORC"""
+        // Use the BE that actually wrote the file for local TVF reads.
+        backend = backends.find { outfile[0][3].startsWith("file:///${it.Host}/") }
+        assertNotNull(backend)
         // The unconditional native mapping contract is implemented by FileScanner V2.
         for (boolean scannerV2 : [true]) {
             sql "SET enable_file_scanner_v2 = ${scannerV2}"
@@ -73,6 +80,6 @@ suite("test_uuid_orc_varbinary_mapping") {
             }
         }
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        deleteRemotePathOnAllBE("root", outputDirectory.toString())
     }
 }

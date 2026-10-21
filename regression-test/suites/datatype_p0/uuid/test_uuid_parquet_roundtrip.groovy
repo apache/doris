@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
 import java.nio.file.Paths
 
 // Checklist: G08 G09 G11 G13 H08.
@@ -24,11 +23,16 @@ suite("test_uuid_parquet_roundtrip") {
         logger.warn("Please set enable_outfile_to_local to true to run test_uuid_parquet_roundtrip")
         return
     }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
+    def backends = sql_return_maparray("SHOW BACKENDS").findAll { it.Alive == "true" }
+    assertFalse(backends.isEmpty())
+    def backend = backends[0]
     String securePath = sql_return_maparray(
             "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_parquet_roundtrip_")
+    def outputDirectory = Paths.get(securePath, "test_uuid_parquet_roundtrip_${UUID.randomUUID()}")
     try {
+        // OUTFILE runs on a BE, which may be remote from the regression runner.
+        mkdirRemotePathOnAllBE("root", outputDirectory.toString())
+        sql "SET enable_parallel_outfile = false"
         sql "DROP TABLE IF EXISTS uuid_file_parquet"
         sql """CREATE TABLE uuid_file_parquet (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
                DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -39,8 +43,11 @@ suite("test_uuid_parquet_roundtrip") {
                (2, 'ffffffff-ffff-ffff-ffff-ffffffffffff', [], {NULL}),
                (3, NULL, NULL, NULL)"""
         qt_source "SELECT * FROM uuid_file_parquet ORDER BY id"
-        sql """SELECT * FROM uuid_file_parquet ORDER BY id
+        def outfile = sql """SELECT * FROM uuid_file_parquet ORDER BY id
                INTO OUTFILE "file://${outputDirectory}/parquet_" FORMAT AS parquet"""
+        // Use the BE that actually wrote the file for local TVF reads.
+        backend = backends.find { outfile[0][3].startsWith("file:///${it.Host}/") }
+        assertNotNull(backend)
         String path = "${outputDirectory.fileName}/parquet_*"
         sql "DROP TABLE IF EXISTS uuid_file_reload_parquet"
         sql "CREATE TABLE uuid_file_reload_parquet LIKE uuid_file_parquet"
@@ -52,6 +59,6 @@ suite("test_uuid_parquet_roundtrip") {
         order_qt_inferred_types """DESC FUNCTION local(
             "file_path"="${path}", "format"="parquet", "backend_id"="${backend.BackendId}")"""
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        deleteRemotePathOnAllBE("root", outputDirectory.toString())
     }
 }
