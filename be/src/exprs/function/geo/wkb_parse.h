@@ -29,6 +29,8 @@ struct WkbParseContext;
 
 namespace doris {
 
+enum class wkbType : int;
+
 class GeoShape;
 class GeoLine;
 class GeoPoint;
@@ -56,7 +58,7 @@ private:
 
     static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext& ctx);
 
-    static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext& ctx);
+    static GeoParseStatus minMemSize(wkbType type, uint64_t size, WkbParseContext& ctx);
 
     static bool readCoordinate(WkbParseContext& ctx);
 };

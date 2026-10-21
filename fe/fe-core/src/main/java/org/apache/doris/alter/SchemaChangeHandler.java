@@ -3101,9 +3101,14 @@ public class SchemaChangeHandler extends AlterHandler {
         String partitionName = partition.getName();
         // Use the captured partition identity, including temporary partitions with the same name.
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
+        // Row binlog tablets keep the binlog compaction policy they are created with, so a new compaction
+        // policy or time series setting must not reach them. ALTER sets one table property at a time,
+        // so such an update has nothing else for them.
+        boolean includeRowBinlog = compactionPolicy == null
+                && (timeSeriesCompactionConfig == null || timeSeriesCompactionConfig.isEmpty());
         olapTable.readLock();
         try {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {

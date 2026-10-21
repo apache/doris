@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
@@ -446,7 +447,12 @@ public class Alter {
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
-                setExternalTableAutoAnalyzePolicy(table, alterOps);
+                Map<String, String> properties = alterOp.getProperties();
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+                    setExternalTableAutoAnalyzePolicy(table, alterOps);
+                } else {
+                    table.getCatalog().updateTableProperties(table, properties);
+                }
             } else if (alterOp instanceof CreateOrReplaceBranchOp) {
                 table.getCatalog().createOrReplaceBranch(
                         table, ((CreateOrReplaceBranchOp) alterOp).getBranchInfo());
@@ -1352,15 +1358,20 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
+        // ALTER_REFRESH_INFO and ALTER_STATUS journal themselves from inside the MV write lock that
+        // applies them: mutation and enqueue have to be the same step, or a record submitted in
+        // between can be replayed on either side of this one. Their journal write is awaited after the
+        // lock is released, like the other journaled MTMV changes.
+        EditLogItem editLogItem = null;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
-                    mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+                    editLogItem = mtmv.alterRefreshInfo(alterMTMV, isReplay);
                     break;
                 case ALTER_STATUS:
-                    mtmv.alterStatus(alterMTMV.getStatus());
+                    editLogItem = mtmv.alterStatus(alterMTMV, isReplay);
                     break;
                 case ALTER_PROPERTY:
                     // Live ALTER PROPERTY statements call processAlterMTMVProperty directly
@@ -1396,8 +1407,8 @@ public class Alter {
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
-            if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
+            if (editLogItem != null) {
+                editLogItem.await();
             }
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception

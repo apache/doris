@@ -270,6 +270,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
@@ -746,7 +747,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setComment(table.getComment());
+                            // TABLE_COMMENT is a required Thrift field, so it must always be
+                            // set — but for some external tables (e.g. Iceberg since #64263)
+                            // getComment() loads the full table metadata from the remote
+                            // catalog. Only pay that lookup when the scan actually projects
+                            // TABLE_COMMENT, same as the other pruned status columns.
+                            status.setComment(needTableStatusColumn(requiredColumns, "TABLE_COMMENT")
+                                    ? table.getComment()
+                                    : "");
                             if (needTableStatusColumn(requiredColumns, "ENGINE")) {
                                 status.setEngine(table.getEngine());
                             }
@@ -994,7 +1002,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // values such as AGG and DUP that no MySQL client knows what to do with.
                         Map<String, String> columnKeys = params.isMysqlCompatibleIndexMetadata()
                                 ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
-                        List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                        List<Column> baseSchema = table.getBaseSchemaForDisplayOrEmpty();
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
@@ -3190,6 +3198,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return httpStreamParams;
     }
 
+    private void setHttpStreamLoadTableProperties(HttpStreamParams httpStreamParams,
+            TStreamLoadPutResult result) {
+        OlapTable table = (OlapTable) httpStreamParams.getTable();
+        TOlapTableSink sink = httpStreamParams.getParams().getFragment().getOutputSink().getOlapTableSink();
+        result.getPipelineParams().setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+        result.getPipelineParams().setEnableTso(table.enableTso());
+        result.setTableId(sink.getTableId());
+        result.setBaseSchemaVersion(sink.getBaseSchemaVersion());
+        result.setGroupCommitIntervalMs(table.getGroupCommitIntervalMs());
+        result.setGroupCommitDataBytes(table.getGroupCommitDataBytes());
+    }
+
     private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         if (LOG.isDebugEnabled()) {
@@ -3248,14 +3268,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
             result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
-            result.getPipelineParams()
-                    .setIsMowTable(((OlapTable) httpStreamParams.getTable()).getEnableUniqueKeyMergeOnWrite());
-            result.getPipelineParams().setEnableTso(((OlapTable) httpStreamParams.getTable()).enableTso());
             result.setDbId(httpStreamParams.getDb().getId());
-            result.setTableId(httpStreamParams.getTable().getId());
-            result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
-            result.setGroupCommitIntervalMs(((OlapTable) httpStreamParams.getTable()).getGroupCommitIntervalMs());
-            result.setGroupCommitDataBytes(((OlapTable) httpStreamParams.getTable()).getGroupCommitDataBytes());
+            setHttpStreamLoadTableProperties(httpStreamParams, result);
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
@@ -4787,10 +4801,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        olapTable.readLock();
+        try {
+            int partitionNum = olapTable.getPartitionNum();
+            int newPartitionNum = 0;
+            for (String partitionName : addPartitionClauseMap.keySet()) {
+                if (!olapTable.checkPartitionNameExist(partitionName)) {
+                    newPartitionNum++;
+                }
+            }
+            long expectedPartitionNum = (long) partitionNum + newPartitionNum;
+            int autoPartitionLimit = Config.max_auto_partition_num;
+            if (expectedPartitionNum > autoPartitionLimit) {
+                String errorMessage = String.format(
+                        "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                        expectedPartitionNum, autoPartitionLimit);
+                LOG.warn(errorMessage);
+                errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
         for (AddPartitionOp addPartitionOp : addPartitionClauseMap.values()) {
             try {
-                // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true, null);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true, null, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
@@ -4815,9 +4853,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         olapTable.readLock();
         try {
-            // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with
-            // existing partitions, which would lead to false positive. so we should check the partition number AFTER
-            // adding new partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+            // Retain the actual-count check for concurrent changes and configuration updates during creation.
             int partitionNum = olapTable.getPartitionNum();
             int autoPartitionLimit = Config.max_auto_partition_num;
             if (partitionNum > autoPartitionLimit) {

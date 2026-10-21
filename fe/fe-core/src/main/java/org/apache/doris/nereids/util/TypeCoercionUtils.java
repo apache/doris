@@ -387,6 +387,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, TimeStampNsType.class);
     }
 
+    public static boolean hasVarBinaryType(DataType dataType) {
+        return hasSpecifiedType(dataType, VarBinaryType.class);
+    }
+
     private static boolean hasTimeStampNsCompatibleDateTimeType(DataType dataType) {
         return hasSpecifiedType(dataType, type -> type instanceof DateTimeType
                 || type instanceof DateTimeV2Type || type instanceof TimeStampTzType);
@@ -2864,17 +2868,27 @@ public class TypeCoercionUtils {
         DecimalV3Type dt2 =
                 DecimalV3Type.forType(TypeCoercionUtils.getNumResultType(right.getDataType()));
 
-        // check return type whether overflow, if true, turn to double
-        DecimalV3Type retType = binaryArithmetic.getDataTypeForDecimalV3(dt1, dt2);
-
-        // add, subtract and mod should cast children to exactly same type as return type
+        // add, subtract and mod should cast children to exactly same type as return type.
+        // That return type is capped by enable_decimal256 and keeps the widest integral part of
+        // the operands, so an operand whose integral part alone exceeds the decimal128 cap
+        // (a decimal256 column, or a view output analyzed with the variable on) is narrowed first.
         if (binaryArithmetic instanceof Add || binaryArithmetic instanceof Subtract
                 || binaryArithmetic instanceof Mod) {
+            dt1 = narrowIfIntegralPartExceedsDecimal128(dt1);
+            dt2 = narrowIfIntegralPartExceedsDecimal128(dt2);
+            DecimalV3Type retType = binaryArithmetic.getDataTypeForDecimalV3(dt1, dt2);
             return castChildren(binaryArithmetic, left, right, retType);
         }
         // multiply do not need to cast children to same type
         return binaryArithmetic.withChildren(castIfNotSameType(left, dt1),
                 castIfNotSameType(right, dt2));
+    }
+
+    private static DecimalV3Type narrowIfIntegralPartExceedsDecimal128(DecimalV3Type type) {
+        if (type.getRange() <= DecimalV3Type.MAX_DECIMAL128_PRECISION) {
+            return type;
+        }
+        return DecimalV3Type.narrowToDecimal128IfDisabled(type);
     }
 
     /**
@@ -2923,25 +2937,10 @@ public class TypeCoercionUtils {
         // Common binary types support value selection, but BE comparison kernels do not.
         // Check before equal-type shortcuts or casts can hide an unsupported binary argument.
         for (Expression argument : arguments) {
-            if (containsVarbinary(argument.getDataType())) {
+            if (hasVarBinaryType(argument.getDataType())) {
                 throw new AnalysisException(operation + " does not support VARBINARY arguments");
             }
         }
-    }
-
-    private static boolean containsVarbinary(DataType type) {
-        if (type instanceof ArrayType) {
-            return containsVarbinary(((ArrayType) type).getItemType());
-        }
-        if (type instanceof StructType) {
-            return ((StructType) type).getFields().stream()
-                    .anyMatch(field -> containsVarbinary(field.getDataType()));
-        }
-        if (type instanceof MapType) {
-            return containsVarbinary(((MapType) type).getKeyType())
-                    || containsVarbinary(((MapType) type).getValueType());
-        }
-        return type.isVarBinaryType();
     }
 
     private static Optional<DataType> findCommonBinaryType(DataType left, DataType right) {

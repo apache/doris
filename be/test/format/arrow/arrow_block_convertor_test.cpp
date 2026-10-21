@@ -18,6 +18,7 @@
 #include "format/arrow/arrow_block_convertor.h"
 
 #include <arrow/api.h>
+#include <arrow/extension_type.h>
 #include <arrow/io/api.h>
 #include <arrow/ipc/api.h>
 #include <gtest/gtest.h>
@@ -79,13 +80,16 @@ TEST_F(ArrowBlockConvertorTest, ParquetRejectsMismatchedColumnNames) {
 
 TEST_F(ArrowBlockConvertorTest, IcebergBuildsItsOwnSchemaAndMetadata) {
     const std::string json =
-            R"({"type":"struct","fields":[{"id":7,"name":"payload","required":false,"type":"string"}]})";
+            R"({"type":"struct","fields":[{"id":7,"name":"payload","required":false,"type":"variant"}]})";
     auto schema = iceberg::SchemaParser::from_json(json);
     iceberg::IcebergArrowBlockConvertor converter(*schema, &json, "UTC", cctz::utc_time_zone());
     ASSERT_TRUE(converter.init().ok());
     const auto& arrow_schema = converter.arrow_schema();
     ASSERT_NE(nullptr, arrow_schema);
-    EXPECT_EQ(arrow::Type::STRING, arrow_schema->field(0)->type()->id());
+    ASSERT_EQ(arrow::Type::EXTENSION, arrow_schema->field(0)->type()->id());
+    const auto& variant = static_cast<const arrow::ExtensionType&>(*arrow_schema->field(0)->type());
+    EXPECT_EQ(arrow::Type::STRUCT, variant.storage_type()->id());
+    EXPECT_EQ("arrow.parquet.variant", variant.extension_name());
     ASSERT_NE(nullptr, arrow_schema->metadata());
     EXPECT_EQ(json, arrow_schema->metadata()->Get("iceberg.schema").ValueOrDie());
     EXPECT_EQ("7", arrow_schema->field(0)->metadata()->Get("PARQUET:field_id").ValueOrDie());

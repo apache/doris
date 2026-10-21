@@ -50,6 +50,7 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_field.h"
+#include "core/value/variant/variant_payload_validator.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_document.h"
@@ -541,6 +542,7 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
         // A driver supplies untrusted bytes. Validate into a temporary batch before mutating
         // the destination, and copy buffers so the column survives Arrow batch release.
         VariantBatchBuilder decoded;
+        VariantPayloadValidator payload_validator;
         for (int64_t i = 0; i < slice->length(); ++i) {
             auto row = decoded.begin_row();
             if (storage.IsNull(i)) {
@@ -556,7 +558,7 @@ Status DataTypeVariantV2SerDe::read_column_from_arrow(IColumn& column, const arr
                         (VariantRef {.metadata = {.data = meta.data(), .size = meta.size()},
                                      .value = {value.data(), value.size()}});
                 validate_variant_metadata(ref.metadata);
-                validate_variant_payload(ref);
+                payload_validator.validate(ref);
                 row.add_value(ref);
             }
             row.finish();
@@ -584,12 +586,20 @@ void require_jsonb_write(bool written, const char* operation) {
     }
 }
 
+// Most JSON text read here was written by a Variant serde, for example into an aggregate state, so
+// it must read back every value a Variant can hold, including keys longer than the parse limit. A
+// CAST from a JSON string to ARRAY<VARIANT> or STRUCT also passes the elements it splits out.
+JsonToVariantOptions serde_json_options() {
+    return {.max_json_key_length = std::numeric_limits<uint32_t>::max(),
+            .throw_on_invalid_json = false};
+}
+
 } // namespace
 
 Status DataTypeVariantV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions&) const {
     RETURN_IF_CATCH_EXCEPTION({
-        JsonStringToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder(serde_json_options());
         encoder.add_json({slice.data, slice.size});
         VariantBatchBuilder block = encoder.finish_batch();
         destination(column).insert_encoded_batch(block);
@@ -632,7 +642,7 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
         if (slices.empty()) {
             return Status::OK();
         }
-        JsonStringToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder(serde_json_options());
         for (const Slice& slice : slices) {
             encoder.add_json({slice.data, slice.size});
         }

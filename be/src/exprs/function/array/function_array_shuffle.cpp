@@ -69,8 +69,8 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         // The rows of a block draw from one random sequence that starts from the seed, so a
         // per-row seed would be ignored. Reject a non-constant seed instead.
-        if (scope == FunctionContext::THREAD_LOCAL && context->get_num_args() == 2 &&
-            !context->is_col_constant(1)) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL &&
+            context->get_num_args() == 2 && !context->is_col_constant(1)) {
             return Status::InvalidArgument("The seed of {} must be a constant", get_name());
         }
         return Status::OK();

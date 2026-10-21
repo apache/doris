@@ -92,6 +92,57 @@ suite("test_iceberg_write_binary_partitions", "p0,external,iceberg,external_dock
                 }
             }
         }
+
+        // The VALUES writes above have a single-instance source, so their sink has one writer and its exchange
+        // does not hash. A multi-instance source reaches several writers through an exchange that routes each row
+        // by its binary partition value, hashing the value's bytes, so one writer owns each partition and writes
+        // its only data file: four files for identity, one for truncate(1), which folds the keys '10' to '13' into
+        // the partition '1'. Without routing, each of the eight writers writes a file for every partition it
+        // receives. Pin the writers, since a fuzzy session can pick one.
+        sql "set parallel_pipeline_task_num = 8"
+        for (String transform : ["identity", "truncate"]) {
+            String table = "binary_multi_writer_${transform}"
+            String expression = transform == "identity" ? "binary_key" : "truncate(1, binary_key)"
+            sql "DROP TABLE IF EXISTS ${table}"
+            spark_iceberg """CREATE TABLE demo.${dbName}.${table} (id BIGINT, binary_key BINARY)
+                USING iceberg PARTITIONED BY (${expression})
+                TBLPROPERTIES ('format-version'='2', 'write.format.default'='parquet')"""
+            for (String operation : ["INSERT INTO", "INSERT OVERWRITE TABLE"]) {
+                sql """${operation} ${table}
+                    SELECT number, CAST(CAST(number % 4 + 10 AS STRING) AS VARBINARY) FROM numbers("number" = "10000")"""
+                "order_qt_${table}_${operation.replace(' ', '_')}" """
+                    SELECT HEX(binary_key), count(*), min(id), max(id) FROM ${table} GROUP BY HEX(binary_key) ORDER BY 1"""
+                "qt_${table}_${operation.replace(' ', '_')}_files" "SELECT count(*) FROM ${table}\$files"
+            }
+        }
+
+        // MERGE routes the rows it writes by their binary partition value through the same exchange hash, so it
+        // failed with "update_crc32c_batch is not supported for ColumnVarbinary" before VARBINARY could be hashed.
+        // Rows 0 to 99 move from the keys '10'..'13' to '20'..'23', and rows 100 to 9999 are inserted.
+        for (String transform : ["identity", "truncate"]) {
+            String table = "binary_merge_${transform}"
+            String expression = transform == "identity" ? "binary_key" : "truncate(1, binary_key)"
+            sql "DROP TABLE IF EXISTS ${table}"
+            spark_iceberg """CREATE TABLE demo.${dbName}.${table} (id BIGINT, binary_key BINARY, v STRING)
+                USING iceberg PARTITIONED BY (${expression})
+                TBLPROPERTIES ('format-version'='2', 'write.format.default'='parquet',
+                    'write.delete.mode'='merge-on-read', 'write.update.mode'='merge-on-read',
+                    'write.merge.mode'='merge-on-read')"""
+            sql """INSERT INTO ${table}
+                SELECT number, CAST(CAST(number % 4 + 10 AS STRING) AS VARBINARY), 'old' FROM numbers("number" = "100")"""
+            sql """MERGE INTO ${table} t
+                USING (SELECT number AS id, CAST(CAST(number % 4 + 10 AS STRING) AS VARBINARY) AS binary_key
+                       FROM numbers("number" = "10000")) s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET binary_key = CAST(CAST(s.id % 4 + 20 AS STRING) AS VARBINARY), v = 'updated'
+                WHEN NOT MATCHED THEN INSERT (id, binary_key, v) VALUES (s.id, s.binary_key, 'inserted')"""
+            String summary = "SELECT HEX(binary_key), v, count(*), min(id), max(id) FROM ${table} GROUP BY HEX(binary_key), v"
+            "order_qt_${table}" summary
+            spark_iceberg "REFRESH TABLE demo.${dbName}.${table}"
+            assertSparkDorisResultEquals(spark_iceberg("""
+                    SELECT hex(binary_key), v, count(*), min(id), max(id) FROM demo.${dbName}.${table}
+                    GROUP BY hex(binary_key), v ORDER BY 1, 2"""), sql("${summary} ORDER BY 1, 2"))
+        }
     } finally {
         sql "SWITCH internal"
     }

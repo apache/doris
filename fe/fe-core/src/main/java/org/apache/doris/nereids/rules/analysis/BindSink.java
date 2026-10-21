@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -122,6 +123,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * bind an unbound logicalTableSink represent the target table of an insert command
@@ -312,10 +314,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
-        ConnectContext connCtx = ConnectContext.get();
-        final boolean truncateString = needTruncateStringWhenInsert
-                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
-                && !SessionVariable.enableStrictCast();
+        final boolean truncateString = needTruncateStringWhenInsert && truncatesStringOnInsert();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -359,6 +358,16 @@ public class BindSink implements AnalysisRuleFactory {
             fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
         }
         return fullOutputProject;
+    }
+
+    /**
+     * Whether the session lets an INSERT write a string into a shorter CHAR / VARCHAR column cut to the column
+     * length, counted in code points (the {@link Substring} above), instead of as is.
+     */
+    public static boolean truncatesStringOnInsert() {
+        ConnectContext connCtx = ConnectContext.get();
+        return (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
     }
 
     @VisibleForTesting
@@ -472,8 +481,15 @@ public class BindSink implements AnalysisRuleFactory {
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
                 } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
-                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName(),
-                            DataType.fromCatalogType(column.getType())), column.getName());
+                    // Which default applies follows from the table model: the unique-key model's row lsn
+                    // is the row identity its deletes reply on, while an append-only detail MV's is its own
+                    // binlog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
+                    Expression hiddenDefault = ((MTMV) table).isIvmAppendOnlyDupTable()
+                            ? IvmUtil.getAppendOnlyDupHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()))
+                            : IvmUtil.getCommonHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()));
+                    Alias output = new Alias(hiddenDefault, column.getName());
                     columnToOutput.put(column.getName(), output);
                     columnToReplaced.put(column.getName(), output.toSlot());
                     replaceMap.put(output.toSlot(), output.child());
@@ -947,6 +963,11 @@ public class BindSink implements AnalysisRuleFactory {
                 throw new AnalysisException("Connector changelog sink must produce an operation column and "
                         + targetWriteSchema.size() + " table columns, but got " + outputExpressions.size());
             }
+            // The operation column precedes one column per table column.
+            List<Integer> tableColumnOrdinals = IntStream.rangeClosed(1, targetWriteSchema.size()).boxed()
+                    .collect(ImmutableList.toImmutableList());
+            VariantWritePlanValidator.validateNoLossyCoercion(
+                    targetWriteSchema, child, tableColumnOrdinals, ctx.cascadesContext.getCteContext());
             return new LogicalConnectorTableSink<>(database, table, targetWriteSchema,
                     targetMetadata.getPartitionColumns(), targetMetadata.getWriteMetadataIdentity(),
                     targetWriteSchema, outputExpressions, sink.getDMLCommandType(), false,
@@ -984,6 +1005,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+        VariantWritePlanValidator.validateNoLossyCoercion(bindColumns, child, ctx.cascadesContext.getCteContext());
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any

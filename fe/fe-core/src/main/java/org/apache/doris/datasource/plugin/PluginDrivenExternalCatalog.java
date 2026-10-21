@@ -1390,6 +1390,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         afterExternalDdl(externalTable, updateTime);
     }
 
+    /**
+     * Routes {@code ALTER TABLE ... SET ("key" = "value", ...)} with connector-native properties through the
+     * SPI's {@code ConnectorTableOps#setTableProperties}. The whole map goes to the connector in one call, which
+     * commits all of it or none of it, and {@link #afterExternalDdl} runs only after that call returns, so a
+     * rejected update neither writes the refresh editlog nor refreshes the cached table.
+     */
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.setTableProperties(session, handle, properties);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
     /** Initializes + checks the table is an {@link ExternalTable}, mirroring the base {@link ExternalCatalog}. */
     private ExternalTable checkExternalTable(TableIf dorisTable) {
         makeSureInitialized();

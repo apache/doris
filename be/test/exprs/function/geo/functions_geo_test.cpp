@@ -48,7 +48,7 @@ namespace {
 void encode_wkt(const std::string& wkt, std::string* encoded) {
     GeoParseStatus status;
     auto shape = GeoShape::from_wkt(wkt.data(), wkt.size(), status);
-    ASSERT_EQ(GEO_PARSE_OK, status) << wkt;
+    ASSERT_EQ(GeoParseStatus::GEO_PARSE_OK, status) << wkt;
     ASSERT_NE(nullptr, shape) << wkt;
     shape->encode_to(encoded);
 }
@@ -174,7 +174,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numgeometries_point) {
 
     GeoPoint point;
     auto cur_res = point.from_coord(24.7, 56.7);
-    EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+    EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
     std::string buf;
     point.encode_to(&buf);
 
@@ -190,7 +190,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numgeometries_linestring) {
     GeoParseStatus status;
     std::string linestring_wkt = "LINESTRING (30 10, 10 30, 40 40)";
     auto shape = GeoShape::from_wkt(linestring_wkt.data(), linestring_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string buf;
@@ -209,7 +209,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numgeometries_polygon) {
     GeoParseStatus status;
     std::string polygon_wkt = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
     auto shape = GeoShape::from_wkt(polygon_wkt.data(), polygon_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string buf;
@@ -230,7 +230,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numgeometries_multipolygon) {
             "MULTIPOLYGON (((0 0, 10 0, 10 10, 0 10, 0 0)), ((20 20, 30 20, 30 30, 20 30, 20 "
             "20)))";
     auto shape = GeoShape::from_wkt(multi_polygon_wkt.data(), multi_polygon_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string buf;
@@ -261,7 +261,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numpoints_point) {
 
     GeoPoint point;
     auto cur_res = point.from_coord(24.7, 56.7);
-    EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+    EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
     std::string buf;
     point.encode_to(&buf);
 
@@ -278,7 +278,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numpoints_linestring) {
     GeoParseStatus status;
     std::string linestring_wkt = "LINESTRING (30 10, 10 30, 40 40)";
     auto shape = GeoShape::from_wkt(linestring_wkt.data(), linestring_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string buf;
@@ -297,7 +297,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numpoints_polygon) {
     GeoParseStatus status;
     std::string polygon_wkt = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
     auto shape = GeoShape::from_wkt(polygon_wkt.data(), polygon_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string buf;
@@ -318,7 +318,7 @@ TEST(VGeoFunctionsTest, function_geo_st_numpoints_multipolygon) {
             "MULTIPOLYGON (((0 0, 10 0, 10 10, 0 10, 0 0)), ((20 20, 30 20, 30 30, 20 30, 20 "
             "20)))";
     auto shape = GeoShape::from_wkt(multi_polygon_wkt.data(), multi_polygon_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string buf;
@@ -350,7 +350,7 @@ TEST(VGeoFunctionsTest, function_geo_st_isclosed) {
     auto encode_wkt = [](const std::string& wkt) {
         GeoParseStatus status;
         auto shape = GeoShape::from_wkt(wkt.data(), wkt.size(), status);
-        EXPECT_EQ(status, GEO_PARSE_OK);
+        EXPECT_EQ(status, GeoParseStatus::GEO_PARSE_OK);
         EXPECT_NE(shape, nullptr);
 
         std::string buf;
@@ -381,7 +381,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_point) {
     // Prepare input: a single point
     GeoPoint point;
     auto cur_res = point.from_coord(24.7, 56.7);
-    EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+    EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
     std::string point_buf;
     point.encode_to(&point_buf);
 
@@ -401,8 +401,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_point) {
 
     FunctionUtils fn_utils(return_type, {input_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0}, block.columns() - 1, 1);
@@ -416,8 +416,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_point) {
     auto* nullable_col = assert_cast<const ColumnNullable*>(result_col.get());
     EXPECT_FALSE(nullable_col->is_null_at(0));
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_geometries_multipolygon) {
@@ -429,7 +429,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_multipolygon) {
             "MULTIPOLYGON (((0 0, 10 0, 10 10, 0 10, 0 0)), ((20 20, 30 20, 30 30, 20 30, 20 "
             "20)))";
     auto shape = GeoShape::from_wkt(multi_polygon_wkt.data(), multi_polygon_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string multi_buf;
@@ -451,8 +451,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_multipolygon) {
 
     FunctionUtils fn_utils(return_type, {input_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0}, block.columns() - 1, 1);
@@ -472,8 +472,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_multipolygon) {
     auto& offsets = array_col->get_offsets();
     EXPECT_EQ(offsets[0], 2); // 2 polygons in the array
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_geometries_null_input) {
@@ -495,8 +495,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_null_input) {
 
     FunctionUtils fn_utils(return_type, {input_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0}, block.columns() - 1, 1);
@@ -508,8 +508,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_null_input) {
     // Result column may be ColumnConst (optimization for all-null input) or ColumnNullable
     EXPECT_TRUE(result_col->is_null_at(0));
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_geometries_invalid) {
@@ -536,8 +536,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_invalid) {
 
     FunctionUtils fn_utils(return_type, {input_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0}, block.columns() - 1, 1);
@@ -549,8 +549,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_invalid) {
     auto* nullable_col = assert_cast<const ColumnNullable*>(result_col.get());
     EXPECT_TRUE(nullable_col->is_null_at(0));
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_geometries_single_polygon) {
@@ -560,7 +560,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_single_polygon) {
     GeoParseStatus status;
     std::string polygon_wkt = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
     auto shape = GeoShape::from_wkt(polygon_wkt.data(), polygon_wkt.size(), status);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
 
     std::string polygon_buf;
@@ -582,8 +582,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_single_polygon) {
 
     FunctionUtils fn_utils(return_type, {input_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0}, block.columns() - 1, 1);
@@ -603,8 +603,8 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_single_polygon) {
     auto& offsets = array_col->get_offsets();
     EXPECT_EQ(offsets[0], 1); // 1 polygon in the array
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 } // namespace doris

@@ -67,12 +67,12 @@
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
+#include "storage/index/index_common.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_common.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_define.h"
@@ -937,13 +937,10 @@ ComplexRowBinlogSchemas create_complex_row_binlog_schemas() {
     }
     auto* tso = add_column(&row_binlog_pb, 4, BINLOG_TSO_COL, kKeyTypes[4], false, true);
     tso->set_visible(false);
-    row_binlog_pb.set_binlog_tso_col_idx(4);
     auto* lsn = add_column(&row_binlog_pb, 5, BINLOG_LSN_COL, kKeyTypes[4], false, false);
     lsn->set_visible(false);
-    row_binlog_pb.set_binlog_lsn_col_idx(5);
     auto* op = add_column(&row_binlog_pb, 6, BINLOG_OP_COL, kKeyTypes[4], false, false);
     op->set_visible(false);
-    row_binlog_pb.set_binlog_op_col_idx(6);
     row_binlog_pb.set_next_column_unique_id(7);
 
     auto source = std::make_shared<TabletSchema>();
@@ -3166,11 +3163,7 @@ protected:
             binlog_request.tablet_schema.columns.insert(
                     binlog_request.tablet_schema.columns.begin() + binlog_tso_idx,
                     std::move(before_v1));
-            binlog_tso_idx += 2;
         }
-        binlog_request.tablet_schema.__set_binlog_tso_idx(binlog_tso_idx);
-        binlog_request.tablet_schema.__set_binlog_lsn_idx(binlog_tso_idx + 1);
-        binlog_request.tablet_schema.__set_binlog_op_idx(binlog_tso_idx + 2);
 
         RuntimeProfile profile("SegmentFlusherTransformFormatTest");
         EXPECT_TRUE(_engine->create_tablet(request, &profile).ok());

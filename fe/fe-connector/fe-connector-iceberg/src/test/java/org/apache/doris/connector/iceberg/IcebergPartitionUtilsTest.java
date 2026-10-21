@@ -291,6 +291,76 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertEquals(Arrays.asList("payload", "int_col"), cols);
     }
 
+    // ---- toPartitionFieldKeys ----
+
+    @Test
+    public void staticPartitionKeysResolveTheSourceColumnToThePartitionField() {
+        // ADD PARTITION KEY id AS id_identity: the engine's PARTITION clause names the SOURCE column "id", while
+        // the BE sink matches static_partition_values against the partition FIELD name and the commit row filter
+        // resolves that field to its source column. Both consumers therefore need the field-keyed spec.
+        // MUTATION: passing the engine's spelling through -> BE sees no static column (write silently becomes
+        // dynamic) and the commit filter stops matching -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("id", "id_identity")
+                .identity("region")
+                .build();
+
+        Map<String, String> canonical = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("id", "7")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"), canonical);
+
+        // A field name (the un-renamed spelling, and the bucket-style field name a caller may already hold) is
+        // canonicalized to itself, and the lookup folds case like every Doris identifier.
+        Map<String, String> mixed = new HashMap<>();
+        mixed.put("REGION", "us");
+        mixed.put("ID_IDENTITY", "8");
+        Map<String, String> expected = new HashMap<>();
+        expected.put("region", "us");
+        expected.put("id_identity", "8");
+        Assertions.assertEquals(expected, IcebergPartitionUtils.toPartitionFieldKeys(mixed, schema, spec));
+
+        // A name the current spec does not know is kept verbatim: the callers own the fail-loud guard for it.
+        Map<String, String> unknown = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("ghost", "1")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("ghost", "1"), unknown);
+    }
+
+    @Test
+    public void staticPartitionKeysPreferTheIdentitySourceOverACaseFoldedFieldAlias() {
+        // A partition field may carry a name that collides with another column's name in a different case
+        // (`identity(other, "ID")` beside `identity(id, "id_identity")`), because the spec builder checks names
+        // case-SENSITIVELY. The engine's PARTITION name is the SOURCE column, so the key must follow the identity
+        // field over that source rather than the earlier alias.
+        // MUTATION: matching field names first -> the key becomes "ID" (source "other") -> BE stamps and the commit
+        // filters the WRONG partition -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .build();
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
+    }
+
+    @Test
+    public void staticPartitionKeysFindTheIdentityFieldRegardlessOfFieldOrder() {
+        // bucket(8, id) may be declared before identity(id); the static target is still the identity field.
+        // MUTATION: taking the first source match -> the bucket field's name is returned -> red.
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 8).identity("id").build();
+
+        Assertions.assertEquals(Collections.singletonMap("id", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
+    }
+
     // ---- getIdentityPartitionInfoMap ----
 
     @Test
@@ -506,6 +576,68 @@ public class IcebergPartitionUtilsTest {
                 IcebergPartitionUtils.getPartitionDataJson(pd, spec, ZoneOffset.UTC));
     }
 
+    @Test
+    public void partitionDataJsonRejectsFieldWhoseSourceColumnWasDropped() {
+        // From branch-4.x #68481: once the source column of a historical identity field is dropped, the field has no
+        // type and its value cannot be serialized. The JSON is the partition of the delete files BE writes for DML,
+        // so it must fail rather than carry a null entry. MUTATION: restoring the null fallback -> "[null]" -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void partitionDataJsonKeepsNullOfFieldWhoseSourceColumnWasDropped() {
+        // A null needs no type: the void field a v1 table keeps for a removed partition field is always null, and a
+        // historical NULL partition is one, so both still serialize after the source column is dropped.
+        // MUTATION: serializing a null by its type -> UnsupportedOperationException -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, null);
+
+        Assertions.assertEquals("[null]", IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void rawPartitionKeyIdentifiesTupleThatCannotBeSerialized() {
+        // The scanned-partition count keys such a tuple by its raw values: binary as hex (a ByteBuffer has no
+        // content-based toString), and a null apart from the string "null".
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(3, "s", Types.StringType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").identity("b").identity("s")
+                .build());
+        table.updateSpec().removeField("p").removeField("b").commit();
+        table.updateSchema().deleteColumn("p").deleteColumn("b").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+        pd.set(1, ByteBuffer.wrap(new byte[] {0x61, 0x62}));
+        pd.set(2, null);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+        Assertions.assertEquals("[\"7\",\"0x6162\",null]", IcebergPartitionUtils.getRawPartitionKey(pd));
+        pd.set(2, "null");
+        Assertions.assertEquals("[\"7\",\"0x6162\",\"null\"]", IcebergPartitionUtils.getRawPartitionKey(pd));
+    }
+
     // ---- parsePartitionValueFromString: legacy IcebergUtils.parsePartitionValueFromString matrix (T04) ----
     // The write-direction inverse of serializePartitionValue: BE sends human-readable partition strings, the
     // connector converts them to iceberg internal partition objects for PartitionData. Mirrors legacy cell-by-cell.
@@ -594,6 +726,17 @@ public class IcebergPartitionUtilsTest {
         // BE may send sub-second precision; the micros fraction must survive (not be truncated to seconds).
         Assertions.assertEquals(1609459200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-01-01 00:00:00.123456", Types.TimestampType.withoutZone(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseTimeIsInverseOfSerialize() {
+        // From branch-4.x #68481: a DELETE on a file of a historical TIME partition commits its delete file under
+        // the partition parsed back from partition_data_json, so the parse must accept what serialize renders.
+        long micros = 3661_123_456L;
+        String serialized = IcebergPartitionUtils.serializePartitionValue(Types.TimeType.get(), micros, ZoneOffset.UTC);
+        Assertions.assertEquals("01:01:01.123456", serialized);
+        Assertions.assertEquals(Long.valueOf(micros), IcebergPartitionUtils.parsePartitionValueFromString(
+                serialized, Types.TimeType.get(), ZoneOffset.UTC));
     }
 
     @Test

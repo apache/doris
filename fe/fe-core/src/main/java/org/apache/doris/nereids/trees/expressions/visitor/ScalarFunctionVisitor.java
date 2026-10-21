@@ -252,6 +252,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3CellToBoundary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3CellToLatLng;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.H3LatLngToCell;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -2522,6 +2525,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStPoint(StPoint stPoint, C context) {
         return visitScalarFunction(stPoint, context);
+    }
+
+    default R visitH3CellToBoundary(H3CellToBoundary function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitH3CellToLatLng(H3CellToLatLng function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitH3LatLngToCell(H3LatLngToCell function, C context) {
+        return visitScalarFunction(function, context);
     }
 
     default R visitStPolyfromtext(StPolyfromtext stPolyfromtext, C context) {

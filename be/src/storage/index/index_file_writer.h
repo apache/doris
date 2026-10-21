@@ -20,7 +20,7 @@
 // CLucene is third-party code and is not clean under -Wconversion (which
 // -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
 // someone else's suppressed region depends on include order, so suppress it
-// deliberately here (same pattern as inverted_index_common_impl.h).
+// deliberately here (same pattern as index_common_impl.h).
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
@@ -42,14 +42,14 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "storage/index/index_common.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_storage_format.h"
-#include "storage/index/inverted/gram/gram_scheme.h"
-#include "storage/index/inverted/inverted_index_common.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_searcher.h"
-#include "storage/index/snii/format/format_constants.h"
-#include "storage/index/snii/snii_doris_adapter.h"
-#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/inverted/analysis/gram/gram_scheme.h"
+#include "storage/index/inverted/clucene/inverted_index_searcher.h"
+#include "storage/index/inverted/snii/format/format_constants.h"
+#include "storage/index/inverted/snii/snii_doris_adapter.h"
+#include "storage/index/inverted/snii/writer/snii_compound_writer.h"
 
 namespace doris::snii::writer {
 class MemoryReporter;

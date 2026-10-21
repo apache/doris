@@ -82,13 +82,13 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
-#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
@@ -2892,7 +2892,8 @@ Status SegmentIterator::next_batch(Block* block) {
                     block->replace_by_position(cid, type->create_column());
                 }
 
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                if (_opts.condition_cache_digest && !_find_condition_cache &&
+                    !(_opts.read_limit > 0 && _rows_returned >= _opts.read_limit)) {
                     auto* condition_cache = ConditionCache::instance();
                     ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
                                                        _opts.condition_cache_digest);

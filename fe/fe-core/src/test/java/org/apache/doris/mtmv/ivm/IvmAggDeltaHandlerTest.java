@@ -439,7 +439,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         // SUM, AVG's hidden COUNT dedups with SUM's hidden COUNT, and MIN/MAX reuse visible cnt_name as
         // their hidden COUNT, so shared state removes two duplicate COUNT delta outputs.
         List<String> outputNames = deltaAgg.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
-        Assertions.assertEquals(10, outputNames.size());
+        Assertions.assertEquals(14, outputNames.size());
         Assertions.assertTrue(outputNames.contains(Column.IVM_DELTA_GROUP_COUNT_COL));
         // ordinal 0: COUNT(name) -> hidden COUNT (kept)
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
@@ -450,14 +450,18 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "SUM")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "COUNT")));
         Assertions.assertTrue(outputNames.contains("sum_id"));
-        // ordinal 3: MIN(name) -> MIN + DELMIN kept; COUNT absorbed by visible cnt_name
+        // ordinal 3: MIN(name) -> MIN + DELMIN + insert/delete extreme counts; COUNT absorbed by visible cnt_name
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "MIN")));
         Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "DELMIN")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_INS_COUNT")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(3, "EXTREME_DEL_COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(3, "COUNT")));
         Assertions.assertTrue(outputNames.contains("cnt_name"));
-        // ordinal 4: MAX(name) -> MAX + DELMAX kept; COUNT absorbed by visible cnt_name
+        // ordinal 4: MAX(name) -> MAX + DELMAX + insert/delete extreme counts; COUNT absorbed by visible cnt_name
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "MAX")));
         Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "DELMAX")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_INS_COUNT")));
+        Assertions.assertTrue(outputNames.contains(transientDeltaColumnName(4, "EXTREME_DEL_COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(4, "COUNT")));
     }
 

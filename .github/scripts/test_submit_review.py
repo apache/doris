@@ -52,6 +52,7 @@ class FinalReviewTest(unittest.TestCase):
         self.comments = []
         self.existing = []
         self.posts = []
+        self.real_api = submitter.api
         self.api = self.enterContext(mock.patch.object(submitter, "api", side_effect=self.fake_api))
         self.remaining = lambda: 60
 
@@ -89,6 +90,117 @@ class FinalReviewTest(unittest.TestCase):
 
     def verify(self):
         return submitter.verify_completion(self.context, self.run, self.remaining)
+
+    def gh_response(self, command, **kwargs):
+        payload = json.loads(kwargs["input"]) if kwargs.get("input") is not None else None
+        paginated = "--paginate" in command
+        value = self.fake_api(command[2], self.remaining, payload=payload, paginated=paginated)
+        return SimpleNamespace(stdout=json.dumps([value] if paginated else value), stderr="")
+
+    def test_failed_post_retains_response_candidate_and_no_repost_guard(self):
+        self.api.side_effect = self.real_api
+        rejection = '{"message":"Validation Failed","errors":[{"field":"position"}]}'
+        post_attempts = []
+
+        def reject_post(command, **kwargs):
+            if kwargs.get("input") is not None:
+                post_attempts.append(json.loads(kwargs["input"]))
+                raise subprocess.CalledProcessError(1, command, output=rejection,
+                                                    stderr="gh: Validation Failed (HTTP 422)")
+            return self.gh_response(command, **kwargs)
+
+        with mock.patch.object(submitter.subprocess, "run", side_effect=reject_post), \
+             redirect_stderr(io.StringIO()) as logs:
+            with self.assertRaisesRegex(ValueError, "HTTP 422"):
+                self.submit()
+            for call, reason in ((self.submit, "refusing to repost"), (self.verify, "exactly one")):
+                with self.assertRaisesRegex(ValueError, reason) as failure:
+                    call()
+                self.assertIn("HTTP 422", str(failure.exception))
+                self.assertIn("Validation Failed", str(failure.exception))
+        self.assertEqual(1, len(post_attempts))
+        self.assertEqual(self.submission(), json.loads((self.context / submitter.SUBMISSION_FILE).read_text()))
+        diagnostic = json.loads((self.context / submitter.API_ERRORS_FILE).read_text())
+        self.assertEqual(("POST", self.root + "/reviews", 1),
+                         (diagnostic["method"], diagnostic["path"], diagnostic["returncode"]))
+        self.assertEqual(rejection, diagnostic["stdout"])
+        self.assertEqual(self.run["head_sha"], diagnostic["head_sha"])
+        self.assertIn("HTTP 422", logs.getvalue())
+        self.assertFalse((self.context / submitter.RESULT_FILE).exists())
+
+    def test_later_api_failure_does_not_overwrite_original_post_diagnostic(self):
+        self.api.side_effect = self.real_api
+
+        def reject_post(command, **kwargs):
+            if kwargs.get("input") is not None:
+                raise subprocess.CalledProcessError(1, command, stderr="HTTP 422: position invalid")
+            return self.gh_response(command, **kwargs)
+
+        with mock.patch.object(submitter.subprocess, "run", side_effect=reject_post) as gh, \
+             redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, "HTTP 422"):
+                self.submit()
+            gh.side_effect = subprocess.CalledProcessError(1, "gh", stderr="HTTP 502: read unavailable")
+            with self.assertRaisesRegex(ValueError, "HTTP 502"):
+                self.verify()
+            gh.side_effect = self.gh_response
+            with self.assertRaisesRegex(ValueError, "first recorded API failure.*HTTP 422"):
+                self.verify()
+        records = [json.loads(line) for line in (self.context / submitter.API_ERRORS_FILE).read_text().splitlines()]
+        self.assertEqual(["POST", "GET"], [record["method"] for record in records])
+
+    def test_timed_out_post_still_recovers_by_exact_readback(self):
+        self.api.side_effect = self.real_api
+
+        def lose_post_response(command, **kwargs):
+            result = self.gh_response(command, **kwargs)
+            if kwargs.get("input") is not None:
+                raise subprocess.TimeoutExpired(command, 30, output=b'partial response', stderr=b'timed out')
+            return result
+
+        with mock.patch.object(submitter.subprocess, "run", side_effect=lose_post_response), \
+             redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, "TimeoutExpired"):
+                self.submit()
+            self.assertEqual("failure", self.submit()["state"])
+            self.assertEqual("failure", self.verify()["state"])
+        self.assertEqual(1, len(self.posts))
+        diagnostic = json.loads((self.context / submitter.API_ERRORS_FILE).read_text())
+        self.assertEqual((30, "partial response", "timed out"),
+                         (diagnostic["timeout_seconds"], diagnostic["stdout"], diagnostic["stderr"]))
+
+    def test_runner_failure_keeps_original_post_error(self):
+        (self.context / "codex_goal_prompt.txt").write_text("Review the PR")
+        args = SimpleNamespace(context_dir=self.context, cwd=self.context, **{
+            k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
+        }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
+        self.api.side_effect = self.real_api
+
+        def reject_post(command, **kwargs):
+            if kwargs.get("input") is not None:
+                raise subprocess.CalledProcessError(1, command, stderr="gh: Validation Failed (HTTP 422)")
+            return self.gh_response(command, **kwargs)
+
+        def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
+            run = json.loads((self.context / submitter.RUN_FILE).read_text())
+            with self.assertRaisesRegex(ValueError, "HTTP 422"):
+                submitter.verify_completion(self.context, run, self.remaining, submit=True,
+                                            submission=self.submission())
+            events.write_text(json.dumps({"type": "thread.started", "thread_id":
+                "0199a213-81c0-7800-8aa1-bbab2a035a53"}) + "\n" +
+                json.dumps({"type": "turn.completed"}) + "\n")
+            stderr.write_text("")
+            return 0
+
+        with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
+             mock.patch.object(runner.HeadWatchdog, "check"), \
+             mock.patch.object(submitter.subprocess, "run", side_effect=reject_post), \
+             redirect_stderr(io.StringIO()):
+            self.assertEqual(1, runner.run_review(args))
+        error = runner.read_events(self.context / "codex-events.jsonl")[-1]["error"]["message"]
+        self.assertIn("HTTP 422", error)
+        self.assertIn(submitter.API_ERRORS_FILE, error)
+        self.assertFalse((self.context / submitter.RESULT_FILE).exists())
 
     def test_submits_once_and_verifies_same_complete_review(self):
         result = self.submit()
@@ -252,7 +364,7 @@ class FinalReviewTest(unittest.TestCase):
             k: self.run[k] for k in ("repository", "pr_number", "head_sha", "base_sha")
         }, model="gpt-6-sol", effort="xhigh", budget_seconds=60)
 
-        def attempt(command, events, stderr, timeout, reaper=None):
+        def attempt(command, events, stderr, timeout, reaper=None, watchdog=None):
             run = json.loads((self.context / submitter.RUN_FILE).read_text())
             self.reviews = [{"user": {"login": "github-actions[bot]"},
                              "commit_id": run["head_sha"], "submitted_at": run["started_at"]}]
@@ -267,6 +379,7 @@ class FinalReviewTest(unittest.TestCase):
             return 0
 
         with mock.patch.object(runner, "run_attempt", side_effect=attempt), \
+             mock.patch.object(runner.HeadWatchdog, "check"), \
              mock.patch.object(runner, "check_resume_target") as guard, \
              redirect_stderr(io.StringIO()):
             self.assertEqual(1, runner.run_review(args))
@@ -442,7 +555,7 @@ class FinalReviewTest(unittest.TestCase):
 
 
 class ReviewWorkflowTest(unittest.TestCase):
-    def test_queue_is_per_pr_and_rejected_artifact_is_explicit(self):
+    def test_queue_is_per_pr_and_failure_artifact_is_explicit(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows/code-review-runner.yml").read_text()
         review_job = workflow.split("  code-review:\n", 1)[1].split("  aggregate-status:", 1)[0]
         concurrency = re.search(r"^    concurrency:\n((?:      .*\n)+)", review_job, re.MULTILINE)
@@ -452,11 +565,14 @@ class ReviewWorkflowTest(unittest.TestCase):
         self.assertIn("queue: max", concurrency[1])
         self.assertNotIn("sha", concurrency[1])
         self.assertNotRegex(workflow, r"(?m)^concurrency:")
-        artifact = review_job.split("      - name: Preserve rejected final review\n", 1)[1]
+        artifact = review_job.split("      - name: Preserve failed final review diagnostics\n", 1)[1]
         artifact = artifact.split("      - name:", 1)[0]
         self.assertIn("always()", artifact)
         self.assertIn("steps.review.outcome == 'failure'", artifact)
-        self.assertIn("path: ${{ env.REVIEW_CONTEXT_DIR }}/" + submitter.REJECTION_FILE, artifact)
+        paths = artifact.split("          path: |\n", 1)[1].split("          #", 1)[0]
+        self.assertEqual({"${{ env.REVIEW_CONTEXT_DIR }}/" + name for name in (
+            submitter.SUBMISSION_FILE, submitter.REJECTION_FILE, submitter.API_ERRORS_FILE
+        )}, {line.strip() for line in paths.splitlines()})
         self.assertIn("include-hidden-files: true", artifact)
         self.assertIn("if-no-files-found: ignore", artifact)
 
@@ -470,6 +586,36 @@ class GitHubAPITest(unittest.TestCase):
         self.assertEqual(7, command.call_args.kwargs["timeout"])
         self.assertIn("--paginate", command.call_args.args[0])
         self.assertIn("--slurp", command.call_args.args[0])
+
+    def test_api_error_redacts_credentials_before_logging_or_archiving(self):
+        secret = "private-token-from-environment"
+        error = subprocess.CalledProcessError(1, "gh", output='{"message":"invalid ghp_exampleToken"}',
+                                            stderr=f"HTTP 403: token={secret}")
+        with mock.patch.dict(submitter.os.environ, {"GH_TOKEN": secret}), \
+             mock.patch.object(submitter.subprocess, "run", side_effect=error), \
+             self.assertRaises(submitter.GitHubAPIError) as failure:
+            submitter.api("reviews", lambda: 60, payload={"body": "not a credential"})
+        text = json.dumps(failure.exception.details) + str(failure.exception)
+        self.assertNotIn(secret, text)
+        self.assertNotIn("ghp_exampleToken", text)
+        self.assertIn("[REDACTED]", text)
+        self.assertIn("HTTP 403", text)
+        self.assertNotIn("not a credential", text)
+
+    def test_invalid_json_retains_successful_command_output(self):
+        with mock.patch.object(submitter.subprocess, "run", return_value=SimpleNamespace(
+            stdout="incomplete response", stderr="diagnostic"
+        )), self.assertRaises(submitter.GitHubAPIError) as failure:
+            submitter.api("reviews", lambda: 7)
+        self.assertEqual("JSONDecodeError", failure.exception.details["error_type"])
+        self.assertEqual("incomplete response", failure.exception.details["stdout"])
+
+    def test_diagnostics_bound_large_output_after_redaction(self):
+        output = "ghp_secret " + "x" * 70000
+        result = submitter.diagnostic_text(output.encode())
+        self.assertNotIn("ghp_secret", result)
+        self.assertLess(len(result), 65600)
+        self.assertTrue(result.endswith("[truncated after 65536 characters]"))
 
 
 if __name__ == "__main__":

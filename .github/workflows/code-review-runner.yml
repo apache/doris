@@ -979,15 +979,18 @@ jobs:
             "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)\nconverged=\(.converged)\nrounds=\(.rounds)"' \
             "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
 
-      - name: Preserve rejected final review
+      - name: Preserve failed final review diagnostics
         if: ${{ always() && steps.review_context.outcome == 'success' && steps.review.outcome == 'failure' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@v4
         with:
-          name: rejected-code-review-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.REVIEW_CONTEXT_DIR }}/review-submission-rejected.json
-          # The context directory is hidden; include only the explicit JSON above.
+          name: failed-code-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.REVIEW_CONTEXT_DIR }}/review-submission.json
+            ${{ env.REVIEW_CONTEXT_DIR }}/review-submission-rejected.json
+            ${{ env.REVIEW_CONTEXT_DIR }}/review-api-errors.jsonl
+          # The context directory is hidden; include only these explicit files.
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
@@ -1195,6 +1198,7 @@ jobs:
             min_step_observations=0
           fi
 
+          # The helper checks upload acknowledgement; readback is opt-in for diagnostics.
           python3 "$helper" \
             --input-file "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" \
             --events-file "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
@@ -1215,11 +1219,7 @@ jobs:
             --max-payload-bytes 4000000 \
             --gzip \
             --min-observations "$min_observations" \
-            --min-step-observations "$min_step_observations" \
-            --verify-attempts 24 \
-            --verify-sleep-seconds 5 \
-            --verify-timeout-seconds 120 \
-            --verify
+            --min-step-observations "$min_step_observations"
 
       - name: Sync Codex sessions back to OSS
         if: ${{ always() }}

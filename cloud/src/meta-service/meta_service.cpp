@@ -3935,7 +3935,51 @@ static bool check_delete_bitmap_point_delete(MetaServiceCode& code, std::string&
     return true;
 }
 
-void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+// False stops the whole request, including cleanup. An obsolete aggregation is a successful no-op.
+static bool check_pre_rowset_aggregation(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                                         const UpdateDeleteBitmapRequest* request,
+                                         const std::string& instance_id) {
+    if (!request->without_lock() ||
+        request->lock_id() != COMPACTION_WITHOUT_LOCK_DELETE_BITMAP_LOCK_ID ||
+        !request->has_pre_rowset_agg_start_version() ||
+        !request->has_pre_rowset_agg_end_version()) {
+        return true;
+    }
+
+    auto tablet_id = request->tablet_id();
+    auto start = request->pre_rowset_agg_start_version();
+    auto end = request->pre_rowset_agg_end_version();
+    auto key = meta_rowset_key({instance_id, tablet_id, end});
+    std::string value;
+    // Compaction removes/replaces this live key even with versioned metadata enabled.
+    // A non-snapshot read conflicts with a compaction that invalidates the output rowset
+    // before this transaction commits. Historical versioned rowsets cannot establish liveness.
+    auto err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get aggregation output rowset, tablet_id={}, key={}, err={}",
+                          tablet_id, hex(key), err);
+        return false;
+    }
+    RowsetMetaCloudPB rowset;
+    if (err == TxnErrorCode::TXN_OK && !rowset.ParseFromString(value)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed aggregation output rowset, tablet_id={}, key={}", tablet_id,
+                          hex(key));
+        return false;
+    }
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND || rowset.start_version() != start ||
+        rowset.end_version() != end) {
+        LOG(INFO) << "skip obsolete pre rowset delete bitmap aggregation, instance_id="
+                  << instance_id << " tablet_id=" << tablet_id << " start_version=" << start
+                  << " end_version=" << end;
+        return false;
+    }
+    TEST_SYNC_POINT_CALLBACK("update_delete_bitmap:check_pre_rowset_aggregation", request);
+    return true;
+}
+
+bool _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                               std::shared_ptr<TxnKv> txn_kv, std::unique_ptr<Transaction>& txn,
                               std::string& use_version, std::set<std::string>& non_exist_rowset_ids,
                               size_t i, std::string& log, KVStats& stats,
@@ -3969,7 +4013,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
                << " txn_size=" << txn->approximate_bytes();
             msg = ss.str();
             g_bvar_update_delete_bitmap_fail_counter << 1;
-            return;
+            return false;
         }
         stats.get_bytes += txn->get_bytes();
         stats.put_bytes += txn->put_bytes();
@@ -3983,7 +4027,10 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::CREATE>(err);
             msg = "failed to init txn";
-            return;
+            return false;
+        }
+        if (!check_pre_rowset_aggregation(code, msg, txn.get(), request, instance_id)) {
+            return false;
         }
         if (!without_lock) {
             std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
@@ -3994,7 +4041,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
                 LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
                              << " request lock_id=" << request->lock_id()
                              << " request initiator=" << request->initiator() << " msg " << msg;
-                return;
+                return false;
             }
         }
     }
@@ -4003,7 +4050,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
     if (config::enable_update_delete_bitmap_kv_check) {
         if (!check_delete_bitmap_kv_exists(code, msg, txn, key, instance_id, tablet_id,
                                            request->lock_id())) {
-            return;
+            return false;
         }
     }
 #endif
@@ -4015,7 +4062,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
             LOG(INFO) << "skip update delete bitmap, rowset_id=" << request->rowset_ids(i)
                       << " version=" << request->pre_rowset_versions(i)
                       << " tablet_id=" << tablet_id << " because the rowset does not exist";
-            return;
+            return true;
         }
 
         TxnErrorCode err = TxnErrorCode::TXN_OK;
@@ -4031,7 +4078,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
                    << " err=" << err;
                 msg = ss.str();
                 code = cast_as<ErrCategory::READ>(err);
-                return;
+                return false;
             }
             if (err == TxnErrorCode::TXN_OK &&
                 !rs.ParseFromArray(rowset_val.data(), rowset_val.size())) {
@@ -4039,7 +4086,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
                 ss << "malformed rowset meta, unable to deserialize, tablet_id=" << tablet_id
                    << " key=" << hex(rowset_key);
                 msg = ss.str();
-                return;
+                return false;
             }
         } else {
             CloneChainReader reader(instance_id, resource_mgr);
@@ -4050,7 +4097,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
                    << " version=" << request->pre_rowset_versions(i);
                 msg = ss.str();
                 code = cast_as<ErrCategory::READ>(err);
-                return;
+                return false;
             }
         }
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -4058,14 +4105,14 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
             LOG(INFO) << "skip update delete bitmap, rowset_id=" << request->rowset_ids(i)
                       << " version=" << request->pre_rowset_versions(i)
                       << " tablet_id=" << tablet_id << " because the rowset is not exist";
-            return;
+            return true;
         }
         if (rs.rowset_id_v2() != request->rowset_ids(i)) {
             LOG(INFO) << "skip update delete bitmap, rowset_id=" << request->rowset_ids(i)
                       << " version=" << request->pre_rowset_versions(i)
                       << " tablet_id=" << tablet_id << " because the rowset is not exist";
             non_exist_rowset_ids.emplace(request->rowset_ids(i));
-            return;
+            return true;
         }
     }
     // remove first
@@ -4075,7 +4122,7 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
         std::optional<uint16_t> max_blob_sequence;
         if (!check_delete_bitmap_point_delete(code, msg, txn, key, request, i, point_delete,
                                               delete_bitmap_exists, max_blob_sequence)) {
-            return;
+            return false;
         }
         if (point_delete) {
             if (delete_bitmap_exists) {
@@ -4111,12 +4158,15 @@ void _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
     VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
                << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
                << " key_size: " << key.size() << " value_size: " << val.size();
+    return true;
 }
 
 static bool commit_pre_rowset_delete_bitmap_removal(
         MetaServiceCode& code, std::string& msg, std::stringstream& ss,
         const std::shared_ptr<TxnKv>& txn_kv, std::unique_ptr<Transaction>& txn, KVStats& stats,
-        UpdateDeleteBitmapTxnStats& txn_stats, int64_t tablet_id, const std::string& rowset_id) {
+        UpdateDeleteBitmapTxnStats& txn_stats, const UpdateDeleteBitmapRequest* request,
+        const std::string& instance_id, const std::string& rowset_id) {
+    auto tablet_id = request->tablet_id();
     auto txn_size = txn->approximate_bytes();
     LOG(INFO) << "commit delete bitmap point deletes before transaction size exceeds limit, "
                  "tablet_id="
@@ -4149,7 +4199,7 @@ static bool commit_pre_rowset_delete_bitmap_removal(
         msg = "failed to init txn when removing pre rowsets delete bitmap";
         return false;
     }
-    return true;
+    return check_pre_rowset_aggregation(code, msg, txn.get(), request, instance_id);
 }
 
 static bool remove_pre_rowset_delete_bitmap(
@@ -4213,7 +4263,7 @@ static bool remove_pre_rowset_delete_bitmap(
                 if (txn_size > 0 &&
                     txn_size + key.size() * 3 > static_cast<size_t>(config::max_txn_commit_byte) &&
                     !commit_pre_rowset_delete_bitmap_removal(code, msg, ss, txn_kv, txn, stats,
-                                                             txn_stats, tablet_id,
+                                                             txn_stats, request, instance_id,
                                                              rowset_stats.rowset_id())) {
                     return false;
                 }
@@ -4310,6 +4360,10 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to init txn";
+        return;
+    }
+
+    if (!check_pre_rowset_aggregation(code, msg, txn.get(), request, instance_id)) {
         return;
     }
 
@@ -4439,10 +4493,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         auto& key = delete_bitmap_keys_v1[i];
         auto& val = request->segment_delete_bitmaps(i);
         bool is_versioned_read = is_version_read_enabled(instance_id);
-        _write_delete_bitmap_kvs(code, msg, ss, txn_kv_, txn, use_version, non_exist_rowset_ids, i,
-                                 log, stats, request, instance_id, key, val, txn_stats,
-                                 is_versioned_read, resource_mgr_.get());
-        if (code != MetaServiceCode::OK) return;
+        if (!_write_delete_bitmap_kvs(code, msg, ss, txn_kv_, txn, use_version,
+                                      non_exist_rowset_ids, i, log, stats, request, instance_id,
+                                      key, val, txn_stats, is_versioned_read,
+                                      resource_mgr_.get()) ||
+            code != MetaServiceCode::OK) {
+            return;
+        }
     }
     // write v2 kvs
     for (size_t i = 0; i < delete_bitmap_keys_v2.size(); ++i) {
@@ -4458,10 +4515,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                   << request->delete_bitmap_storages(i).delete_bitmap().rowset_ids_size()
                   << ". key=" << hex(key) << ", value_size=" << val.size();
         bool is_versioned_read = is_version_read_enabled(instance_id);
-        _write_delete_bitmap_kvs(code, msg, ss, txn_kv_, txn, use_version, non_exist_rowset_ids, i,
-                                 log, stats, request, instance_id, key, val, txn_stats,
-                                 is_versioned_read, resource_mgr_.get());
-        if (code != MetaServiceCode::OK) return;
+        if (!_write_delete_bitmap_kvs(code, msg, ss, txn_kv_, txn, use_version,
+                                      non_exist_rowset_ids, i, log, stats, request, instance_id,
+                                      key, val, txn_stats, is_versioned_read,
+                                      resource_mgr_.get()) ||
+            code != MetaServiceCode::OK) {
+            return;
+        }
     }
 
     if (!remove_pre_rowset_delete_bitmap(code, msg, ss, txn_kv_, txn, stats, request, instance_id,
@@ -4603,10 +4663,15 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             std::unique_ptr<RangeGetIterator> it;
             int64_t last_ver = -1;
             int64_t last_seg_id = -1;
-            std::string last_delete_bitmap_first_blob_key;
+            std::string bitmap_start_key = start_key;
+            int bitmap_response_size = response->rowset_ids_size();
+            int64_t bitmap_num_before = delete_bitmap_num;
+            int64_t bitmap_bytes_before = delete_bitmap_byte;
             uint16_t next_blob_sequence = 0;
+            size_t first_blob_size = 0;
             bool skip_last_delete_bitmap = false;
             int64_t round = 0;
+            int64_t retry = 0;
             while (it == nullptr /* may be not init */ || it->more()) {
                 if (test) {
                     LOG(INFO) << "test";
@@ -4615,8 +4680,21 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     err = txn->get(start_key, end_key, &it);
                 }
                 TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
-                int64_t retry = 0;
-                while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                if (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                    // Only earlier bitmaps are known to be complete. Never carry the page-tail
+                    // bitmap across snapshots: aggregation can replace it under the same key.
+                    while (response->rowset_ids_size() > bitmap_response_size) {
+                        response->mutable_rowset_ids()->RemoveLast();
+                        response->mutable_segment_ids()->RemoveLast();
+                        response->mutable_versions()->RemoveLast();
+                        response->mutable_segment_delete_bitmaps()->RemoveLast();
+                    }
+                    delete_bitmap_num = bitmap_num_before;
+                    delete_bitmap_byte = bitmap_bytes_before;
+                    start_key = bitmap_start_key;
+                    it.reset();
+                    last_ver = -1;
+                    last_seg_id = -1;
                     stats.get_bytes += txn->get_bytes();
                     stats.get_counter += txn->num_get_keys();
                     txn = nullptr;
@@ -4627,41 +4705,14 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                         msg = ss.str();
                         return;
                     }
-                    if (!skip_last_delete_bitmap && !last_delete_bitmap_first_blob_key.empty()) {
-                        std::string first_blob_value;
-                        err = txn->get(last_delete_bitmap_first_blob_key, &first_blob_value);
-                        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                            delete_bitmap_byte -=
-                                    response->segment_delete_bitmaps(
-                                                    response->segment_delete_bitmaps_size() - 1)
-                                            .size();
-                            delete_bitmap_num--;
-                            response->mutable_rowset_ids()->RemoveLast();
-                            response->mutable_segment_ids()->RemoveLast();
-                            response->mutable_versions()->RemoveLast();
-                            response->mutable_segment_delete_bitmaps()->RemoveLast();
-                            skip_last_delete_bitmap = true;
-                            LOG(WARNING)
-                                    << "skip incomplete delete bitmap whose first blob key "
-                                       "disappeared after transaction retry"
-                                    << ", tablet_id=" << tablet_id
-                                    << ", rowset_id=" << rowset_ids[i] << ", version=" << last_ver
-                                    << ", segment_id=" << last_seg_id;
-                        } else if (err != TxnErrorCode::TXN_OK) {
-                            retry++;
-                            continue;
-                        }
-                    }
-                    if (test) {
-                        err = txn->get(start_key, end_key, &it, false, 2);
-                    } else {
-                        err = txn->get(start_key, end_key, &it);
-                    }
                     retry++;
                     LOG(INFO) << "retry get delete bitmap, tablet=" << tablet_id
+                              << ", rowset=" << rowset_ids[i]
+                              << ", bitmap_start_key=" << hex(bitmap_start_key)
                               << ", retry=" << retry << ", internal round=" << round
                               << ", delete_bitmap_num=" << delete_bitmap_num
                               << ", delete_bitmap_byte=" << delete_bitmap_byte;
+                    continue;
                 }
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
@@ -4694,6 +4745,18 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     // FIXME: Don't expose the implementation details of splitting large value.
                     // merge splitted large values (>90*1000)
                     if (ver != last_ver || seg_id != last_seg_id) {
+                        auto key = meta_delete_bitmap_key(
+                                {instance_id, tablet_id, rowset_ids[i], ver, seg_id});
+                        // A successful page is not progress if a retry will reread the same
+                        // bitmap. Reset the budget only when its logical start moves forward.
+                        if (key != bitmap_start_key) {
+                            DCHECK(key > bitmap_start_key);
+                            retry = 0;
+                            bitmap_start_key = std::move(key);
+                        }
+                        bitmap_response_size = response->rowset_ids_size();
+                        bitmap_num_before = delete_bitmap_num;
+                        bitmap_bytes_before = delete_bitmap_byte;
                         auto sequence =
                                 out.size() == 8
                                         ? static_cast<uint16_t>(
@@ -4701,7 +4764,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                                         : uint16_t {0};
                         last_ver = ver;
                         last_seg_id = seg_id;
-                        last_delete_bitmap_first_blob_key.clear();
+                        first_blob_size = v.size();
                         next_blob_sequence = static_cast<uint16_t>(sequence + 1);
                         // Key-based pre-rowset cleanup may leave an obsolete tail if its size estimate is
                         // too small. The bitmap is already aggregated, so the tail can be skipped and will
@@ -4715,9 +4778,6 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                                     << ", rowset_id=" << rowset_ids[i] << ", version=" << ver
                                     << ", segment_id=" << seg_id << ", first_sequence=" << sequence;
                             continue;
-                        }
-                        if (out.size() == 8) {
-                            last_delete_bitmap_first_blob_key.assign(k.data(), k.size());
                         }
                         response->add_rowset_ids(rowset_ids[i]);
                         response->add_segment_ids(seg_id);
@@ -4755,6 +4815,18 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                         }
                         delete_bitmap_byte += v.length();
                         response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
+                    }
+                    // blob_put uses equal-sized chunks except for the last, with a minimum
+                    // split size. A legacy value or a short chunk is therefore complete.
+                    if (out.size() == 7 || v.size() < MIN_BLOB_SPLIT_SIZE ||
+                        v.size() < first_blob_size) {
+                        // Skip this entire logical bitmap on retry, including any new fragments
+                        // written by a concurrent replacement after this snapshot.
+                        encode_int64(INT64_MAX, &bitmap_start_key);
+                        bitmap_response_size = response->rowset_ids_size();
+                        bitmap_num_before = delete_bitmap_num;
+                        bitmap_bytes_before = delete_bitmap_byte;
+                        retry = 0;
                     }
                 }
                 check_delete_bitmap_bytes_exceed_limit();

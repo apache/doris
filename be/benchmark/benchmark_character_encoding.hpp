@@ -107,24 +107,27 @@ void BM_character_encoding(benchmark::State& state) {
         return;
     }
     auto context = FunctionContext::create_context(nullptr, result_type, {input_type, string_type});
-    auto status = function->open(context.get(), FunctionContext::FRAGMENT_LOCAL);
+    auto status =
+            function->open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     if (!status.ok()) {
         state.SkipWithError(status.to_string());
         return;
     }
     Defer close_fragment {[&] {
-        auto close_status = function->close(context.get(), FunctionContext::FRAGMENT_LOCAL);
+        auto close_status =
+                function->close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
         if (!close_status.ok()) {
             state.SkipWithError(close_status.to_string());
         }
     }};
-    status = function->open(context.get(), FunctionContext::THREAD_LOCAL);
+    status = function->open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
     if (!status.ok()) {
         state.SkipWithError(status.to_string());
         return;
     }
     Defer close_thread {[&] {
-        auto close_status = function->close(context.get(), FunctionContext::THREAD_LOCAL);
+        auto close_status =
+                function->close(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
         if (!close_status.ok()) {
             state.SkipWithError(close_status.to_string());
         }

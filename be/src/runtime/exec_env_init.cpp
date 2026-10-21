@@ -106,7 +106,7 @@
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index_result_cache/ann_index_result_cache.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/segment/condition_cache.h"

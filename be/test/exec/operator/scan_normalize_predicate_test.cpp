@@ -515,7 +515,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
 
         auto* state = reinterpret_cast<InState*>(
                 ctx->fn_context(fn_in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = false;
 
@@ -573,7 +573,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
 
         auto* state = reinterpret_cast<InState*>(
                 ctx->fn_context(fn_in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = true;
         state->hybrid_set->insert(nullptr, 0);

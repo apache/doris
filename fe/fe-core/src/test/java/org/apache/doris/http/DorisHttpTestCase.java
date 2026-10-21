@@ -67,12 +67,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mockito;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -237,37 +237,25 @@ public abstract class DorisHttpTestCase {
 
     @BeforeAll
     public static void initHttpServer() throws IllegalArgException, InterruptedException {
-        ServerSocket socket = null;
-        try {
-            socket = new ServerSocket(0);
-            socket.setReuseAddress(true);
-            HTTP_PORT = socket.getLocalPort();
-            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
-            CloudURI = "http://localhost:" + HTTP_PORT;
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (Exception e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-            }
-        }
-
         FeConstants.runningUnitTest = true;
         httpServer = new HttpServer();
-        httpServer.setPort(HTTP_PORT);
+        // Let the actual server reserve its ephemeral port instead of closing a temporary reservation.
+        httpServer.setPort(0);
         httpServer.setMaxHttpPostSize(100 * 1024 * 1024);
         httpServer.setAcceptors(2);
         httpServer.setSelectors(4);
         httpServer.setWorkers(0);
         httpServer.start();
+        ServletWebServerApplicationContext applicationContext =
+                Deencapsulation.getField(httpServer, "applicationContext");
+        HTTP_PORT = applicationContext.getWebServer().getPort();
+        URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+        CloudURI = "http://localhost:" + HTTP_PORT;
     }
 
     @AfterAll
     public static void afterClass() {
+        httpServer.shutdown();
         File file = new File(DORIS_HOME);
         file.delete();
     }

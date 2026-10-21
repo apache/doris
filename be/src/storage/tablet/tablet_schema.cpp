@@ -47,8 +47,8 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_column_object_pool.h"
@@ -1124,9 +1124,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
     _row_lsn_col_idx = schema.row_lsn_col_idx();
-    _binlog_tso_col_idx = schema.binlog_tso_col_idx();
-    _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
-    _binlog_op_col_idx = schema.binlog_op_col_idx();
+    // The binlog column cids are not persisted; derive them from the column names.
+    _binlog_tso_col_idx = field_index(BINLOG_TSO_COL);
+    _binlog_lsn_col_idx = field_index(BINLOG_LSN_COL);
+    _binlog_op_col_idx = field_index(BINLOG_OP_COL);
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1463,9 +1464,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
     tablet_schema_pb->set_row_lsn_col_idx(_row_lsn_col_idx);
-    tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
-    tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
-    tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());

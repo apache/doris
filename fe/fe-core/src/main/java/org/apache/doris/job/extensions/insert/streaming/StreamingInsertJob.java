@@ -32,8 +32,10 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
@@ -85,12 +87,14 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.Level;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -277,8 +281,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider = createOffsetProvider(getConvertedSourceProperties());
             this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
-            log.warn("init streaming job for {} failed", dataSourceType, ex);
-            throw new RuntimeException(ex.getMessage(), ex);
+            JdbcClientException diagnostic = JdbcClientException.diagnostic(ex,
+                    "init streaming job for " + dataSourceType + " failed",
+                    sourceProperties.get(DataSourceConfigKeys.PASSWORD),
+                    sourceProperties.get(DataSourceConfigKeys.JDBC_URL));
+            ExceptionDiagnosticUtils.log(log, Level.WARN, "init streaming job for {} failed",
+                    dataSourceType, diagnostic);
+            throw new RuntimeException(diagnostic.getMessage(), diagnostic);
         }
     }
 
@@ -562,7 +571,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     }
                     offsetProvider.updateOffset(offset);
                     offsetProvider.resetLag();
-                    this.offsetProviderPersist = offsetProvider.getPersistInfo();
+                    String persistInfo = offsetProvider.getPersistInfo();
+                    // A paused provider may not have restored its schema from the image yet.
+                    this.offsetProviderPersist = offsetProvider.mergePersistInfo(offsetProviderPersist, persistInfo);
                     log.info("Alter streaming job {} offset to {}", getJobId(), offsetProperty);
                 }
                 modifyPropertiesInternal(alterJobCommand.getProperties());
@@ -1051,7 +1062,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileSize(attachment.getFileBytes());
         this.jobStatistic.setFilteredRows(attachment.getFilteredRows());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
-        this.offsetProviderPersist = offsetProvider.getPersistInfo();
+        String persistInfo = offsetProvider.getPersistInfo();
+        // Preserve cached schema until the provider is restored.
+        this.offsetProviderPersist = offsetProvider.mergePersistInfo(offsetProviderPersist, persistInfo);
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
@@ -1126,6 +1139,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @param replayJob
      */
     public void replayOnUpdated(StreamingInsertJob replayJob) {
+        String replayPersistInfo = replayJob.getOffsetProviderPersist();
+        if (replayPersistInfo != null) {
+            replayPersistInfo = offsetProvider.mergePersistInfo(offsetProviderPersist, replayPersistInfo);
+        }
         if (!JobStatus.RUNNING.equals(replayJob.getJobStatus())) {
             // No need to restore in the running state, as scheduling relies on pending states.
             // insert TVF does not persist the running state.
@@ -1138,8 +1155,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
-            if (replayJob.getOffsetProviderPersist() != null) {
-                setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
+            if (replayPersistInfo != null) {
+                setOffsetProviderPersist(replayPersistInfo);
                 if (tvfType != null && !Config.isCloudMode()) {
                     offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
                 }
@@ -1148,7 +1165,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String offset = replayJob.getProperties().get(StreamingJobProperties.OFFSET_PROPERTY);
                 if (StringUtils.isNotEmpty(offset)) {
                     offsetProvider.updateOffset(validateOffset(offset));
-                    this.offsetProviderPersist = offsetProvider.getPersistInfo();
+                    this.offsetProviderPersist = offsetProvider.mergePersistInfo(
+                            offsetProviderPersist, offsetProvider.getPersistInfo());
                 }
             }
             // When the pause state is restarted, it also needs to be updated
@@ -1425,6 +1443,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    protected void logUpdateOperation(String persistInfo) {
+        JsonObject journalJson = GsonUtils.GSON.toJsonTree(this, StreamingInsertJob.class).getAsJsonObject();
+        journalJson.addProperty("opp", persistInfo);
+        // Freeze only the journal payload; the job retains its complete state for images.
+        Env.getCurrentEnv().getEditLog().logUpdateJob(GsonUtils.GSON.toJson(journalJson));
     }
 
     @Override
@@ -1761,7 +1786,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             return;
         }
 
-        logUpdateOperation();
+        logUpdateOperation(jdbcOffsetProvider.isTableSchemasDirty()
+                ? offsetProviderPersist : jdbcOffsetProvider.getPersistInfoWithoutTableSchemas());
+        jdbcOffsetProvider.markTableSchemasPersisted();
         lastOffsetPersistTimeMs = currentTimeMs;
     }
 

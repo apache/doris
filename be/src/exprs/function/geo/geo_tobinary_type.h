@@ -19,11 +19,13 @@
 #include <cstdint>
 #include <iosfwd>
 
+#include "exprs/function/geo/ByteOrderValues.h"
+
 namespace doris {
 
-enum byteOrder { wkbXDR = 0, wkbNDR = 1 };
+enum class byteOrder { wkbXDR = 0, wkbNDR = 1 };
 
-enum wkbType {
+enum class wkbType : int {
     wkbPoint = 1,
     wkbLine = 2,
     wkbPolygon = 3,
@@ -41,8 +43,7 @@ constexpr uint32_t WKB_EWKB_FLAGS = WKB_Z_FLAG | WKB_M_FLAG | WKB_SRID_FLAG;
 } // namespace doris
 
 struct ToBinaryContext {
-    // WKBConstants::wkbwkbXDR | WKBConstants::wkbNDR
-    int byteOrder;
+    doris::ByteOrderValues::EndianType byteOrder;
     bool ewkb = false;
 
     unsigned char buf[8];

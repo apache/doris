@@ -43,7 +43,7 @@ TEST_F(WktParseTest, normal) {
 
     std::unique_ptr<GeoShape> shape;
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), shape);
-    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
     EXPECT_NE(nullptr, shape);
     LOG(INFO) << "parse result: " << shape->to_string();
 }
@@ -53,7 +53,7 @@ TEST_F(WktParseTest, invalid_wkt) {
 
     std::unique_ptr<GeoShape> shape;
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), shape);
-    EXPECT_NE(GEO_PARSE_OK, status);
+    EXPECT_NE(GeoParseStatus::GEO_PARSE_OK, status);
     EXPECT_EQ(nullptr, shape);
 }
 
@@ -75,7 +75,7 @@ TEST_F(WktParseTest, parse_point_dimensions) {
     for (const auto& test_case : test_cases) {
         std::unique_ptr<GeoShape> shape;
         const auto status = WktParse::parse_wkt(test_case.wkt, strlen(test_case.wkt), shape);
-        ASSERT_EQ(GEO_PARSE_OK, status) << test_case.wkt;
+        ASSERT_EQ(GeoParseStatus::GEO_PARSE_OK, status) << test_case.wkt;
         ASSERT_NE(nullptr, shape) << test_case.wkt;
         EXPECT_EQ(test_case.type, shape->coordinate_type()) << test_case.wkt;
         const auto coordinates = static_cast<GeoPoint*>(shape.get())->to_coords();
@@ -100,7 +100,7 @@ TEST_F(WktParseTest, parse_dimensional_complex_shapes) {
     for (size_t i = 0; i < std::size(wkts); ++i) {
         std::unique_ptr<GeoShape> shape;
         const auto status = WktParse::parse_wkt(wkts[i], strlen(wkts[i]), shape);
-        ASSERT_EQ(GEO_PARSE_OK, status) << wkts[i];
+        ASSERT_EQ(GeoParseStatus::GEO_PARSE_OK, status) << wkts[i];
         ASSERT_NE(nullptr, shape) << wkts[i];
         EXPECT_EQ(types[i], shape->coordinate_type()) << wkts[i];
     }
@@ -123,7 +123,7 @@ TEST_F(WktParseTest, reject_invalid_dimensions_and_empty_shapes) {
     for (const char* wkt : invalid_wkts) {
         std::unique_ptr<GeoShape> shape;
         const auto status = WktParse::parse_wkt(wkt, strlen(wkt), shape);
-        EXPECT_NE(GEO_PARSE_OK, status) << wkt;
+        EXPECT_NE(GeoParseStatus::GEO_PARSE_OK, status) << wkt;
         EXPECT_EQ(nullptr, shape) << wkt;
     }
 }

@@ -31,31 +31,56 @@
 
 namespace doris {
 
-namespace {
-
-bool ascii_hex_to_uchar(char value, unsigned char* result) {
-    if (value >= '0' && value <= '9') {
-        *result = static_cast<unsigned char>(value - '0');
-        return true;
+unsigned char ASCIIHexToUChar(char val) {
+    switch (val) {
+    case '0':
+        return 0;
+    case '1':
+        return 1;
+    case '2':
+        return 2;
+    case '3':
+        return 3;
+    case '4':
+        return 4;
+    case '5':
+        return 5;
+    case '6':
+        return 6;
+    case '7':
+        return 7;
+    case '8':
+        return 8;
+    case '9':
+        return 9;
+    case 'A':
+    case 'a':
+        return 10;
+    case 'B':
+    case 'b':
+        return 11;
+    case 'C':
+    case 'c':
+        return 12;
+    case 'D':
+    case 'd':
+        return 13;
+    case 'E':
+    case 'e':
+        return 14;
+    case 'F':
+    case 'f':
+        return 15;
+    default:
+        return static_cast<unsigned char>(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR);
     }
-    if (value >= 'A' && value <= 'F') {
-        *result = static_cast<unsigned char>(value - 'A' + 10);
-        return true;
-    }
-    if (value >= 'a' && value <= 'f') {
-        *result = static_cast<unsigned char>(value - 'a' + 10);
-        return true;
-    }
-    return false;
 }
-
-} // namespace
 
 GeoParseStatus WkbParse::parse_wkb(std::istream& is, std::unique_ptr<GeoShape>& shape) {
     WkbParseContext ctx;
 
     WkbParse::read_hex(is, ctx);
-    if (ctx.parse_status == GEO_PARSE_OK) {
+    if (ctx.parse_status == GeoParseStatus::GEO_PARSE_OK) {
         shape = std::move(ctx.shape);
     }
     return ctx.parse_status;
@@ -73,22 +98,20 @@ void WkbParse::read_hex(std::istream& is, WkbParseContext& ctx) {
 
         const int input_low = is.get();
         if (input_low == std::char_traits<char>::eof()) {
-            ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+            ctx.parse_status = GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
             return;
         }
 
         const char high = static_cast<char>(input_high);
         const char low = static_cast<char>(input_low);
 
-        unsigned char result_high = 0;
-        unsigned char result_low = 0;
-        if (!ascii_hex_to_uchar(high, &result_high) || !ascii_hex_to_uchar(low, &result_low)) {
-            ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
-            return;
-        }
+        const unsigned char result_high = ASCIIHexToUChar(high);
+        const unsigned char result_low = ASCIIHexToUChar(low);
 
         const auto value = static_cast<unsigned char>((result_high << 4) + result_low);
-        os.put(static_cast<char>(value));
+
+        // write the value to the output stream
+        os << value;
     }
     WkbParse::read(os, ctx);
 }
@@ -100,20 +123,40 @@ void WkbParse::read(std::istream& is, WkbParseContext& ctx) {
 
     // Check if size is valid
     if (size <= 0) {
-        ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        ctx.parse_status = GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
         return;
     }
 
     std::vector<unsigned char> buf(static_cast<size_t>(size));
     if (!is.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(size))) {
-        ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        ctx.parse_status = GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
         return;
     }
 
-    ctx.dis = ByteOrderDataInStream(buf.data(), buf.size());
+    // Ensure we have at least one byte for byte order
+    if (buf.empty()) {
+        ctx.parse_status = GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+        return;
+    }
+
+    // First read the byte order using machine endian
+    auto byteOrder = buf[0];
+
+    // Create ByteOrderDataInStream with the correct byte order
+    if (byteOrder == static_cast<unsigned char>(byteOrder::wkbNDR)) {
+        ctx.dis = ByteOrderDataInStream(buf.data(), buf.size());
+        ctx.dis.setOrder(ByteOrderValues::EndianType::ENDIAN_LITTLE);
+    } else if (byteOrder == static_cast<unsigned char>(byteOrder::wkbXDR)) {
+        ctx.dis = ByteOrderDataInStream(buf.data(), buf.size());
+        ctx.dis.setOrder(ByteOrderValues::EndianType::ENDIAN_BIG);
+    } else {
+        ctx.parse_status = GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
+        return;
+    }
+
     std::unique_ptr<GeoShape> shape = readGeometry(ctx);
     if (!shape || ctx.dis.size() != 0) {
-        ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
+        ctx.parse_status = GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
         return;
     }
 
@@ -127,16 +170,12 @@ std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext& ctx) {
             return nullptr;
         }
 
-        const auto byte_order = ctx.dis.readByte();
-        if (byte_order == byteOrder::wkbNDR) {
-            ctx.dis.setOrder(ByteOrderValues::ENDIAN_LITTLE);
-        } else if (byte_order == byteOrder::wkbXDR) {
-            ctx.dis.setOrder(ByteOrderValues::ENDIAN_BIG);
-        } else {
-            return nullptr;
-        }
+        // Skip the byte order as we've already handled it
+        ctx.dis.readByte();
 
         const uint32_t type_int = ctx.dis.readUnsigned();
+
+        // EWKB Z/M/SRID flags and ISO +1000/+2000/+3000 dimensional type codes
         const uint32_t iso_type = type_int & ~WKB_EWKB_FLAGS;
         const uint32_t iso_dimension = iso_type / 1000;
         if (iso_dimension > 3) {
@@ -159,7 +198,7 @@ std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext& ctx) {
 
         std::unique_ptr<GeoShape> shape;
 
-        switch (geometry_type) {
+        switch (static_cast<wkbType>(geometry_type)) {
         case wkbType::wkbPoint:
             shape = readPoint(ctx);
             break;
@@ -190,7 +229,7 @@ std::unique_ptr<GeoPoint> WkbParse::readPoint(WkbParseContext& ctx) {
     }
 
     std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
-    if (!point || point->from_coord(coords.list[0]) != GEO_PARSE_OK) {
+    if (!point || point->from_coord(coords.list[0]) != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
 
@@ -202,7 +241,7 @@ std::unique_ptr<GeoLine> WkbParse::readLine(WkbParseContext& ctx) {
         return nullptr;
     }
     uint32_t size = ctx.dis.readUnsigned();
-    if (minMemSize(wkbLine, size, ctx) != GEO_PARSE_OK) {
+    if (minMemSize(wkbType::wkbLine, size, ctx) != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
 
@@ -212,7 +251,7 @@ std::unique_ptr<GeoLine> WkbParse::readLine(WkbParseContext& ctx) {
     }
 
     std::unique_ptr<GeoLine> line = GeoLine::create_unique();
-    if (!line || line->from_coords(coords) != GEO_PARSE_OK) {
+    if (!line || line->from_coords(coords) != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
 
@@ -224,7 +263,7 @@ std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext& ctx) {
         return nullptr;
     }
     uint32_t num_loops = ctx.dis.readUnsigned();
-    if (minMemSize(wkbPolygon, num_loops, ctx) != GEO_PARSE_OK) {
+    if (minMemSize(wkbType::wkbPolygon, num_loops, ctx) != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
 
@@ -247,7 +286,7 @@ std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext& ctx) {
     }
 
     std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
-    if (!polygon || polygon->from_coords(coordss) != GEO_PARSE_OK) {
+    if (!polygon || polygon->from_coords(coordss) != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
 
@@ -268,7 +307,7 @@ std::unique_ptr<GeoMultiPolygon> WkbParse::readMultiPolygon(WkbParseContext& ctx
     coordinates.reserve(polygon_count);
     for (uint32_t i = 0; i < polygon_count; ++i) {
         auto shape = readGeometry(ctx);
-        if (!shape || shape->type() != GEO_SHAPE_POLYGON ||
+        if (!shape || shape->type() != GeoShapeType::GEO_SHAPE_POLYGON ||
             shape->coordinate_type() != coordinate_type) {
             return nullptr;
         }
@@ -283,7 +322,7 @@ std::unique_ptr<GeoMultiPolygon> WkbParse::readMultiPolygon(WkbParseContext& ctx
                           coordinate_type == GeoCoordinateType::XYZM);
 
     auto multi_polygon = GeoMultiPolygon::create_unique();
-    if (!multi_polygon || multi_polygon->from_coords(coordinates) != GEO_PARSE_OK) {
+    if (!multi_polygon || multi_polygon->from_coords(coordinates) != GeoParseStatus::GEO_PARSE_OK) {
         return nullptr;
     }
     return multi_polygon;
@@ -311,7 +350,7 @@ GeoCoordinateList WkbParse::readCoordinateList(unsigned size, WkbParseContext& c
     return coords;
 }
 
-GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size, WkbParseContext& ctx) {
+GeoParseStatus WkbParse::minMemSize(wkbType type, uint64_t size, WkbParseContext& ctx) {
     uint64_t minSize = 0;
     const uint64_t minCoordSize = ctx.inputDimension * sizeof(double);
     //constexpr uint64_t minPtSize = (1+4) + minCoordSize;
@@ -320,18 +359,21 @@ GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size, WkbParseContext&
     //constexpr uint64_t minPolySize = (1+4+4); // empty polygon
     //constexpr uint64_t minGeomSize = minLineSize;
 
-    switch (wkbType) {
-    case wkbLine:
+    switch (type) {
+    case wkbType::wkbLine:
         minSize = size * minCoordSize;
         break;
-    case wkbPolygon:
+    case wkbType::wkbPolygon:
         minSize = size * minLoopSize;
         break;
+    default:
+        // Only line coordinates and polygon loops use this size check.
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     if (ctx.dis.size() < minSize) {
-        return GEO_PARSE_WKB_SYNTAX_ERROR;
+        return GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR;
     }
-    return GEO_PARSE_OK;
+    return GeoParseStatus::GEO_PARSE_OK;
 }
 bool WkbParse::readCoordinate(WkbParseContext& ctx) {
     if (ctx.inputDimension > ctx.ordValues.size() ||

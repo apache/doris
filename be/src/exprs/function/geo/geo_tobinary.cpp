@@ -61,16 +61,16 @@ bool toBinary::encode(GeoShape* shape, bool ewkb, std::string* result) {
 
 bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
     switch (shape->type()) {
-    case GEO_SHAPE_POINT: {
+    case GeoShapeType::GEO_SHAPE_POINT: {
         return writeGeoPoint((GeoPoint*)(shape), ctx);
     }
-    case GEO_SHAPE_LINE_STRING: {
+    case GeoShapeType::GEO_SHAPE_LINE_STRING: {
         return writeGeoLine((GeoLine*)(shape), ctx);
     }
-    case GEO_SHAPE_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_POLYGON: {
         return writeGeoPolygon((GeoPolygon*)(shape), ctx);
     }
-    case GEO_SHAPE_MULTI_POLYGON: {
+    case GeoShapeType::GEO_SHAPE_MULTI_POLYGON: {
         return writeGeoMultiPolygon((GeoMultiPolygon*)(shape), ctx);
     }
     default:
@@ -120,25 +120,26 @@ bool toBinary::writeGeoMultiPolygon(GeoMultiPolygon* multi_polygon, ToBinaryCont
 
 void toBinary::writeByteOrder(ToBinaryContext* ctx) {
     ctx->byteOrder = getMachineByteOrder();
-    if (ctx->byteOrder == 1) {
-        ctx->buf[0] = byteOrder::wkbNDR;
+    if (ctx->byteOrder == ByteOrderValues::EndianType::ENDIAN_LITTLE) {
+        ctx->buf[0] = static_cast<unsigned char>(byteOrder::wkbNDR);
     } else {
-        ctx->buf[0] = byteOrder::wkbXDR;
+        ctx->buf[0] = static_cast<unsigned char>(byteOrder::wkbXDR);
     }
 
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 1);
 }
 
-void toBinary::writeGeometryType(uint32_t geometry_type, GeoShape* shape, ToBinaryContext* ctx) {
+void toBinary::writeGeometryType(wkbType geometryType, GeoShape* shape, ToBinaryContext* ctx) {
+    uint32_t type = static_cast<uint32_t>(geometryType);
     if (ctx->ewkb) {
         if (shape->has_z()) {
-            geometry_type |= WKB_Z_FLAG;
+            type |= WKB_Z_FLAG;
         }
         if (shape->has_m()) {
-            geometry_type |= WKB_M_FLAG;
+            type |= WKB_M_FLAG;
         }
     }
-    writeInt(geometry_type, ctx);
+    writeInt(type, ctx);
 }
 
 void toBinary::writeInt(uint32_t value, ToBinaryContext* ctx) {
