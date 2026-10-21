@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -83,14 +82,22 @@ public class IvmUtil {
     }
 
     /**
-     * A base scan's own storage column that must not be carried into an IVM plan, because its name
-     * collides with a column the delta rewrite binds by name and it is read by the plan above.
+     * A base scan's own storage column that must not be carried into an IVM plan.
      * <p>
-     * The base table's sequence column ({@code Column.SEQUENCE_COL}) is exactly such a column: IVM owns
-     * the MV's sequence and binds it by name, so a base sequence surviving normalization shadows the
-     * delta-allocated one and the merge-on-write merge retracts an updated row. The base delete sign,
-     * version and commit tso are recomputed by the plan and pruned when unused, and the base row lsn is
-     * the row identity IVM reads for DUP detail tables, so none of them is masked here.
+     * The criterion is not "hidden column": it is a column whose name matches a column IVM owns and
+     * that the delta rewrite reads back from the plan output by name. The base table's sequence
+     * column ({@code Column.SEQUENCE_COL}) is the only such column today: IVM owns the MV's sequence
+     * and several handlers select it with {@code findSlotByName}, so a base sequence surviving
+     * normalization shadows the delta-allocated one. The two can even have different types (a base
+     * DATETIME sequence against the MV's BIGINT), which turns the mistake into a rejected write.
+     * <p>
+     * The other hidden columns stay in place, deliberately. The base delete sign is referenced by the
+     * {@code __DORIS_DELETE_SIGN__ = 0} filter directly above the scan, by ExprId; masking it would
+     * leave that filter with a dangling slot. The MV's own delete sign is computed from the delta
+     * factor rather than looked up, and for a merge-on-write base table a visible row's delete sign is
+     * always 0. Version and commit tso are not read by name either -- the sink maps its hidden columns
+     * positionally and defaults the missing ones -- and they are pruned when unused. The row lsn is
+     * the row identity IVM reads for DUP detail tables.
      */
     public static boolean isBaseScanStorageColumnToMask(String columnName) {
         return Column.SEQUENCE_COL.equalsIgnoreCase(columnName);
@@ -140,6 +147,12 @@ public class IvmUtil {
                 : getCommonHiddenSlotDefault(columnName, targetType);
     }
 
+    /**
+     * The value a common hidden slot takes when the plan writing it does not produce it. The data
+     * type owns that value ({@link DataType#zeroValue()}), so a hidden slot of any type -- a
+     * base table's sequence column can be a DATE/DATETIME, for example -- gets a non-null
+     * placeholder instead of failing the rewrite; a type without one still fails loudly.
+     */
     public static Expression getCommonHiddenSlotDefault(String columnName, DataType targetType) {
         if (!isCommonHiddenSlot(columnName)) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
@@ -159,17 +172,9 @@ public class IvmUtil {
         if (defaultValue != null) {
             return defaultValue.castTo(targetType);
         }
-        if (targetType.isNumericType()) {
-            return new IntegerLiteral(0).castTo(targetType);
-        } else if (targetType.isStringLikeType()) {
-            return new VarcharLiteral("").castTo(targetType);
-        } else if (targetType.isBitmapType()) {
-            // Column.SKIP_BITMAP_COL is a bitmap type and uses bitmap_empty() as its default.
-            return new BitmapEmpty();
-        } else {
-            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "no default value for IVM hidden slot: " + columnName + ", type=" + targetType);
-        }
+        return targetType.zeroValue().orElseThrow(() -> new IvmException(
+                IvmFailureReason.PLAN_REWRITE_FAILED,
+                "no default value for IVM hidden slot: " + columnName + ", type=" + targetType));
     }
 
     /**
