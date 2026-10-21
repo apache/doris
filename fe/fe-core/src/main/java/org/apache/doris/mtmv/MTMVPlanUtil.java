@@ -23,7 +23,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -640,13 +640,13 @@ public class MTMVPlanUtil {
                     ivmRewriteResult.orElse(null));
             properties = CreateTableInfo.addOlapHiddenColumns(columns, mvKeysType,
                     finalEnableMergeOnWrite, properties, false);
-            // A row-binlog table carries hidden columns on top of the OLAP ones above, added by
+            // A changelog table carries hidden columns on top of the OLAP ones above, added by
             // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
             // to carry them too: an MTMV re-validates its schema against it whenever a base table
             // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
             // indistinguishable from a real schema change. Idempotent, so the table still gets one.
-            CreateTableInfo.addRowBinlogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
-                    BinlogConfig.fromProperties(properties));
+            CreateTableInfo.addChangelogHiddenColumns(columns, mvKeysType, finalEnableMergeOnWrite,
+                    ChangelogConfig.fromProperties(properties));
             // analyze column
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);

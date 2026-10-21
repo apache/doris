@@ -18,7 +18,7 @@
 // End-to-end branch coverage for BlockReader::_min_delta_next_block and
 // BlockReader::_detail_change_next_block. Instead of standing up a real tablet /
 // rowset stack, we inject a fake VCollectIterator::LevelIterator that walks a
-// pre-built merged binlog block one row at a time, so we can exercise every
+// pre-built merged changelog block one row at a time, so we can exercise every
 // min-delta fold result (SKIP / INSERT / DELETE / UPDATE_BEFORE_AFTER) and every
 // detail op (INSERT / DELETE / UPDATE, including the pending-row batch split).
 
@@ -51,8 +51,8 @@
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "storage/binlog.h"
-#include "storage/iterator/binlog_block_reader_utils.h"
+#include "storage/changelog.h"
+#include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
@@ -63,14 +63,14 @@ using namespace ErrorCode;
 
 namespace {
 
-// Merged binlog block schema used across the tests. Column layout mirrors what a
-// row-binlog scan produces after merge:
+// Merged changelog block schema used across the tests. Column layout mirrors what a
+// changelog scan produces after merge:
 //   0: key         (Int64, the primary key used to group same-key rows)
 //   1: val         (Int64, the "after" value of a data column)
-//   2: __BEFORE__val__ (Int64, the "before" value mirror of `val`)
-//   3: __DORIS_BINLOG_TSO__ (Int64)
-//   4: __DORIS_BINLOG_LSN__ (Int64)
-//   5: __DORIS_BINLOG_OP__  (Int64, one of ROW_BINLOG_APPEND/UPDATE/DELETE)
+//   2: __DORIS_CHANGELOG_BEFORE_val__ (Int64, the "before" value mirror of `val`)
+//   3: __DORIS_CHANGELOG_TSO__ (Int64)
+//   4: __DORIS_CHANGELOG_LSN__ (Int64)
+//   5: __DORIS_CHANGELOG_OP__  (Int64, one of CHANGELOG_OP_APPEND/UPDATE/DELETE)
 constexpr int KEY_IDX = 0;
 constexpr int VAL_IDX = 1;
 constexpr int OP_IDX = 5;
@@ -136,15 +136,15 @@ TabletSchemaSPtr make_test_tablet_schema(
         schema->append_column(make_test_column(name, type, false, true, unique_id++));
     }
     for (const auto& [name, type] : value_columns) {
-        schema->append_column(make_test_column(binlog::build_before_column_name(name), type, false,
-                                               true, unique_id++));
+        schema->append_column(make_test_column(changelog::build_before_column_name(name), type,
+                                               false, true, unique_id++));
     }
-    schema->append_column(make_test_column(BINLOG_TSO_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false,
-                                           true, unique_id++));
-    schema->append_column(make_test_column(BINLOG_LSN_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false,
-                                           false, unique_id++));
-    schema->append_column(make_test_column(BINLOG_OP_COL, FieldType::OLAP_FIELD_TYPE_BIGINT, false,
-                                           false, unique_id));
+    schema->append_column(make_test_column(CHANGELOG_TSO_COL, FieldType::OLAP_FIELD_TYPE_BIGINT,
+                                           false, true, unique_id++));
+    schema->append_column(make_test_column(CHANGELOG_LSN_COL, FieldType::OLAP_FIELD_TYPE_BIGINT,
+                                           false, false, unique_id++));
+    schema->append_column(make_test_column(CHANGELOG_OP_COL, FieldType::OLAP_FIELD_TYPE_BIGINT,
+                                           false, false, unique_id));
     return schema;
 }
 
@@ -168,10 +168,10 @@ std::shared_ptr<Block> make_source_block(const std::vector<Row>& rows) {
     }
     block->insert({std::move(key_col), type, "key"});
     block->insert({std::move(val_col), type, "val"});
-    block->insert({std::move(before_col), type, binlog::build_before_column_name("val")});
-    block->insert({std::move(tso_col), type, BINLOG_TSO_COL});
-    block->insert({std::move(lsn_col), type, BINLOG_LSN_COL});
-    block->insert({std::move(op_col), type, BINLOG_OP_COL});
+    block->insert({std::move(before_col), type, changelog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), type, CHANGELOG_TSO_COL});
+    block->insert({std::move(lsn_col), type, CHANGELOG_LSN_COL});
+    block->insert({std::move(op_col), type, CHANGELOG_OP_COL});
     return block;
 }
 
@@ -193,16 +193,16 @@ std::shared_ptr<Block> make_all_null_source_block() {
     tso_col->insert_value(2);
     lsn_col->insert_value(1);
     lsn_col->insert_value(2);
-    op_col->insert_value(ROW_BINLOG_DELETE);
-    op_col->insert_value(ROW_BINLOG_APPEND);
+    op_col->insert_value(CHANGELOG_OP_DELETE);
+    op_col->insert_value(CHANGELOG_OP_APPEND);
 
     block->insert({std::move(key_col), int_type, "key"});
     block->insert({std::move(val_col), nullable_int_type, "val"});
     block->insert(
-            {std::move(before_col), nullable_int_type, binlog::build_before_column_name("val")});
-    block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
-    block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
-    block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
+            {std::move(before_col), nullable_int_type, changelog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), int_type, CHANGELOG_TSO_COL});
+    block->insert({std::move(lsn_col), int_type, CHANGELOG_LSN_COL});
+    block->insert({std::move(op_col), int_type, CHANGELOG_OP_COL});
     return block;
 }
 
@@ -214,12 +214,13 @@ std::shared_ptr<Block> make_colliding_name_source_block(int64_t after_v, int64_t
     const std::vector<std::pair<std::string, int64_t>> values = {
             {"key", 1},
             {"v", after_v},
-            {"__BEFORE__v__", after_collision},
-            {binlog::build_before_column_name("v"), before_v},
-            {binlog::build_before_column_name("__BEFORE__v__"), before_collision},
-            {BINLOG_TSO_COL, 1},
-            {BINLOG_LSN_COL, 1},
-            {BINLOG_OP_COL, ROW_BINLOG_UPDATE},
+            {changelog::build_before_column_name("v"), after_collision},
+            {changelog::build_before_column_name("v"), before_v},
+            {changelog::build_before_column_name(changelog::build_before_column_name("v")),
+             before_collision},
+            {CHANGELOG_TSO_COL, 1},
+            {CHANGELOG_LSN_COL, 1},
+            {CHANGELOG_OP_COL, CHANGELOG_OP_UPDATE},
     };
     for (const auto& [name, value] : values) {
         auto column = ColumnInt64::create();
@@ -245,14 +246,14 @@ std::shared_ptr<Block> make_signed_zero_source_block() {
     before_col->insert_value(+0.0F);
     tso_col->insert_value(1);
     lsn_col->insert_value(1);
-    op_col->insert_value(ROW_BINLOG_UPDATE);
+    op_col->insert_value(CHANGELOG_OP_UPDATE);
 
     block->insert({std::move(key_col), int_type, "key"});
     block->insert({std::move(val_col), float_type, "val"});
-    block->insert({std::move(before_col), float_type, binlog::build_before_column_name("val")});
-    block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
-    block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
-    block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
+    block->insert({std::move(before_col), float_type, changelog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), int_type, CHANGELOG_TSO_COL});
+    block->insert({std::move(lsn_col), int_type, CHANGELOG_LSN_COL});
+    block->insert({std::move(op_col), int_type, CHANGELOG_OP_COL});
     return block;
 }
 
@@ -275,15 +276,16 @@ std::shared_ptr<Block> make_unsupported_compare_source_block(
         before_col->insert_default();
         tso_col->insert_value(key);
         lsn_col->insert_value(key);
-        op_col->insert_value(ROW_BINLOG_UPDATE);
+        op_col->insert_value(CHANGELOG_OP_UPDATE);
     }
 
     block->insert({std::move(key_col), int_type, "key"});
     block->insert({std::move(val_col), nothing_type, "val"});
-    block->insert({std::move(before_col), nothing_type, binlog::build_before_column_name("val")});
-    block->insert({std::move(tso_col), int_type, BINLOG_TSO_COL});
-    block->insert({std::move(lsn_col), int_type, BINLOG_LSN_COL});
-    block->insert({std::move(op_col), int_type, BINLOG_OP_COL});
+    block->insert(
+            {std::move(before_col), nothing_type, changelog::build_before_column_name("val")});
+    block->insert({std::move(tso_col), int_type, CHANGELOG_TSO_COL});
+    block->insert({std::move(lsn_col), int_type, CHANGELOG_LSN_COL});
+    block->insert({std::move(op_col), int_type, CHANGELOG_OP_COL});
     return block;
 }
 
@@ -320,10 +322,6 @@ public:
 
     Status next(Block* /*block*/) override { return Status::Error<END_OF_FILE>(""); }
 
-    RowLocation current_row_location() override { return {}; }
-    Status current_block_row_locations(std::vector<RowLocation>* /*loc*/) override {
-        return Status::OK();
-    }
     Status ensure_first_row_ref() override { return Status::OK(); }
     void update_profile(RuntimeProfile* /*profile*/) override {}
 
@@ -336,10 +334,10 @@ private:
     std::shared_ptr<Block> _source;
 };
 
-// Read schema mirroring the merged binlog block layout above.
+// Read schema mirroring the merged changelog block layout above.
 ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
-                                        "key", "val", binlog::build_before_column_name("val"),
-                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+                                        "key", "val", changelog::build_before_column_name("val"),
+                                        CHANGELOG_TSO_COL, CHANGELOG_LSN_COL, CHANGELOG_OP_COL}) {
     std::vector<TabletColumnPtr> cols;
     auto add_bigint = [&](const std::string& name) {
         auto col = std::make_shared<TabletColumn>();
@@ -353,7 +351,7 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
     return std::make_shared<ReadSchema>(std::move(cols));
 }
 
-// Wire a BlockReader as if init() had already completed for a row-binlog change
+// Wire a BlockReader as if init() had already completed for a changelog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator.
 void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size,
                       TabletSchemaSPtr schema = make_test_tablet_schema()) {
@@ -374,7 +372,7 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*reader._tablet_schema,
                                                   /*merge_by_sequence_mapping=*/false,
-                                                  /*map_row_binlog_columns=*/true)
+                                                  /*map_changelog_columns=*/true)
                         .ok());
     reader._read_schema = std::move(read_schema);
 
@@ -393,10 +391,10 @@ Block make_output_block() {
     auto type = std::make_shared<DataTypeInt64>();
     block.insert({ColumnInt64::create(), type, "key"});
     block.insert({ColumnInt64::create(), type, "val"});
-    block.insert({ColumnInt64::create(), type, binlog::build_before_column_name("val")});
-    block.insert({ColumnInt64::create(), type, BINLOG_TSO_COL});
-    block.insert({ColumnInt64::create(), type, BINLOG_LSN_COL});
-    block.insert({ColumnInt64::create(), type, BINLOG_OP_COL});
+    block.insert({ColumnInt64::create(), type, changelog::build_before_column_name("val")});
+    block.insert({ColumnInt64::create(), type, CHANGELOG_TSO_COL});
+    block.insert({ColumnInt64::create(), type, CHANGELOG_LSN_COL});
+    block.insert({ColumnInt64::create(), type, CHANGELOG_OP_COL});
     return block;
 }
 
@@ -422,7 +420,7 @@ std::vector<OutRow> drain(BlockReader& reader, Status (BlockReader::*fn)(Block*,
         EXPECT_TRUE(st.ok()) << st;
         const int32_t op_ordinal = reader._read_schema->op_ordinal();
         if (op_ordinal < 0) {
-            ADD_FAILURE() << "row-binlog read schema has no op column";
+            ADD_FAILURE() << "changelog read schema has no op column";
             return result;
         }
         for (size_t r = 0; r < block.rows(); ++r) {
@@ -456,15 +454,15 @@ protected:
     bool _saved_adaptive = false;
 };
 
-TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaWithoutBeforeUsesCurrentColumn) {
-    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL});
+TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaWithoutBeforeUsesCurrentColumn) {
+    auto read_schema = make_read_schema({"key", "val", CHANGELOG_TSO_COL, CHANGELOG_OP_COL});
 
     EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
 }
 
-TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
-    auto read_schema = make_read_schema(
-            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL});
+TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaDoesNotRequireLsn) {
+    auto read_schema = make_read_schema({"key", "val", changelog::build_before_column_name("val"),
+                                         CHANGELOG_TSO_COL, CHANGELOG_OP_COL});
 
     EXPECT_EQ(-1, read_schema->lsn_ordinal());
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
@@ -477,8 +475,8 @@ TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
 // APPEND then DELETE within the window folds to SKIP: nothing is emitted.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSkip) {
     auto source = make_source_block({
-            {/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1, ROW_BINLOG_APPEND},
-            {/*key=*/1, /*val=*/10, /*before=*/10, /*tso=*/2, /*lsn=*/2, ROW_BINLOG_DELETE},
+            {/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_APPEND},
+            {/*key=*/1, /*val=*/10, /*before=*/10, /*tso=*/2, /*lsn=*/2, CHANGELOG_OP_DELETE},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/16);
@@ -490,15 +488,15 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSkip) {
 // APPEND (+ later UPDATE) folds to a single INSERT carrying the most recent value.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaInsert) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
-            {1, 20, 10, 2, 2, ROW_BINLOG_UPDATE},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {1, 20, 10, 2, 2, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].val, 20); // most recent value
 }
@@ -506,41 +504,41 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaInsert) {
 // UPDATE then DELETE folds to a single DELETE carrying the first op's before value.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaDelete) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, ROW_BINLOG_UPDATE},
-            {1, 20, 20, 2, 2, ROW_BINLOG_DELETE},
+            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
+            {1, 20, 20, 2, 2, CHANGELOG_OP_DELETE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[0].key, 1);
-    // delete uses the first op's before value (val's __BEFORE__ mirror of row 0).
+    // delete uses the first op's before value (val's before-image mirror of row 0).
     EXPECT_EQ(out[0].val, 10);
 }
 
 // UPDATE then UPDATE folds to a BEFORE + AFTER pair.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdateBeforeAfter) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, ROW_BINLOG_UPDATE},
-            {1, 30, 20, 2, 2, ROW_BINLOG_UPDATE},
+            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
+            {1, 30, 20, 2, 2, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
     EXPECT_EQ(out[0].val, 10); // before value from the first op
-    EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[1].val, 30); // after value from the last op
 }
 
 // A physical UPDATE whose complete BEFORE and AFTER row values are equal has no net delta.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateIsSkipped) {
     auto source = make_source_block({
-            {1, 20, 20, 1, 1, ROW_BINLOG_UPDATE},
+            {1, 20, 20, 1, 1, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
@@ -560,8 +558,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
     Block output = source->clone_empty();
     ASSERT_TRUE(reader._min_delta_next_block(&output, &eof).ok());
     ASSERT_EQ(output.rows(), 2);
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_AFTER);
     const auto& value_column =
             assert_cast<const ColumnNullable&>(*output.get_by_position(VAL_IDX).column);
     EXPECT_TRUE(value_column.is_null_at(0));
@@ -574,8 +572,9 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpWithCollidingBeforeNameIsSkipped) {
     auto source = make_colliding_name_source_block(/*after_v=*/10, /*after_collision=*/20,
                                                    /*before_v=*/10, /*before_collision=*/20);
-    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    auto schema = make_test_tablet_schema(
+            {{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+             {changelog::build_before_column_name("v"), FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
     configure_reader(reader, source, 16, std::move(schema));
 
@@ -613,17 +612,17 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnsupportedCompareIsRetainedAndCa
     // Both equal-value updates must be retained. The second key uses the cached unsupported
     // capability, so the exception-based capability probe runs exactly once per reader.
     ASSERT_EQ(output.rows(), 4);
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
-    EXPECT_EQ(out_i64(output, OP_IDX, 2), binlog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, OP_IDX, 3), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, OP_IDX, 2), changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, OP_IDX, 3), changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(*compare_calls, 1);
     EXPECT_TRUE(reader._min_delta_value_compare_unsupported);
     EXPECT_TRUE(eof);
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnexpectedCompareExceptionIsNotSuppressed) {
-    auto source = make_source_block({{1, 20, 20, 1, 1, ROW_BINLOG_UPDATE}});
+    auto source = make_source_block({{1, 20, 20, 1, 1, CHANGELOG_OP_UPDATE}});
     auto throwing_type = std::make_shared<DataTypeNothing>();
     auto compare_calls = std::make_shared<size_t>(0);
     source->get_by_position(VAL_IDX).column =
@@ -651,11 +650,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnexpectedCompareExceptionIsNotSu
 }
 
 // The comparison is between the first BEFORE and last AFTER values, so A -> B -> A also has no
-// net delta even though neither individual row-binlog UPDATE is a no-op.
+// net delta even though neither individual changelog UPDATE is a no-op.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatesReturningToOriginalAreSkipped) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, ROW_BINLOG_UPDATE},
-            {1, 10, 20, 2, 2, ROW_BINLOG_UPDATE},
+            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
+            {1, 10, 20, 2, 2, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
@@ -677,13 +676,13 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
             {
                     "insert_delete_reinsert_update_back_delete",
                     {
-                            {1, 1, 0, 1, 1, ROW_BINLOG_APPEND},
-                            {1, 1, 1, 2, 2, ROW_BINLOG_DELETE},
-                            {1, 1, 0, 3, 3, ROW_BINLOG_APPEND},
-                            {1, 2, 1, 4, 4, ROW_BINLOG_UPDATE},
-                            {1, 3, 2, 5, 5, ROW_BINLOG_UPDATE},
-                            {1, 1, 3, 6, 6, ROW_BINLOG_UPDATE},
-                            {1, 1, 1, 7, 7, ROW_BINLOG_DELETE},
+                            {1, 1, 0, 1, 1, CHANGELOG_OP_APPEND},
+                            {1, 1, 1, 2, 2, CHANGELOG_OP_DELETE},
+                            {1, 1, 0, 3, 3, CHANGELOG_OP_APPEND},
+                            {1, 2, 1, 4, 4, CHANGELOG_OP_UPDATE},
+                            {1, 3, 2, 5, 5, CHANGELOG_OP_UPDATE},
+                            {1, 1, 3, 6, 6, CHANGELOG_OP_UPDATE},
+                            {1, 1, 1, 7, 7, CHANGELOG_OP_DELETE},
                     },
                     {},
                     1,
@@ -691,11 +690,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
             {
                     "existing_row_delete_reinsert_and_return_to_original",
                     {
-                            {1, 2, 1, 1, 1, ROW_BINLOG_UPDATE},
-                            {1, 2, 2, 2, 2, ROW_BINLOG_DELETE},
-                            {1, 2, 0, 3, 3, ROW_BINLOG_APPEND},
-                            {1, 3, 2, 4, 4, ROW_BINLOG_UPDATE},
-                            {1, 1, 3, 5, 5, ROW_BINLOG_UPDATE},
+                            {1, 2, 1, 1, 1, CHANGELOG_OP_UPDATE},
+                            {1, 2, 2, 2, 2, CHANGELOG_OP_DELETE},
+                            {1, 2, 0, 3, 3, CHANGELOG_OP_APPEND},
+                            {1, 3, 2, 4, 4, CHANGELOG_OP_UPDATE},
+                            {1, 1, 3, 5, 5, CHANGELOG_OP_UPDATE},
                     },
                     {},
                     2,
@@ -703,53 +702,53 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
             {
                     "existing_row_delete_reinsert_and_finish_changed",
                     {
-                            {1, 2, 1, 1, 1, ROW_BINLOG_UPDATE},
-                            {1, 2, 2, 2, 2, ROW_BINLOG_DELETE},
-                            {1, 2, 0, 3, 3, ROW_BINLOG_APPEND},
-                            {1, 3, 2, 4, 4, ROW_BINLOG_UPDATE},
-                            {1, 4, 3, 5, 5, ROW_BINLOG_UPDATE},
+                            {1, 2, 1, 1, 1, CHANGELOG_OP_UPDATE},
+                            {1, 2, 2, 2, 2, CHANGELOG_OP_DELETE},
+                            {1, 2, 0, 3, 3, CHANGELOG_OP_APPEND},
+                            {1, 3, 2, 4, 4, CHANGELOG_OP_UPDATE},
+                            {1, 4, 3, 5, 5, CHANGELOG_OP_UPDATE},
                     },
                     {
-                            {1, 1, binlog::STREAM_CHANGE_UPDATE_BEFORE},
-                            {1, 4, binlog::STREAM_CHANGE_UPDATE_AFTER},
+                            {1, 1, changelog::STREAM_CHANGE_UPDATE_BEFORE},
+                            {1, 4, changelog::STREAM_CHANGE_UPDATE_AFTER},
                     },
                     1,
             },
             {
                     "new_row_temporarily_deleted_but_finishes_present",
                     {
-                            {1, 1, 0, 1, 1, ROW_BINLOG_APPEND},
-                            {1, 2, 1, 2, 2, ROW_BINLOG_UPDATE},
-                            {1, 2, 2, 3, 3, ROW_BINLOG_DELETE},
-                            {1, 5, 0, 4, 4, ROW_BINLOG_APPEND},
-                            {1, 6, 5, 5, 5, ROW_BINLOG_UPDATE},
+                            {1, 1, 0, 1, 1, CHANGELOG_OP_APPEND},
+                            {1, 2, 1, 2, 2, CHANGELOG_OP_UPDATE},
+                            {1, 2, 2, 3, 3, CHANGELOG_OP_DELETE},
+                            {1, 5, 0, 4, 4, CHANGELOG_OP_APPEND},
+                            {1, 6, 5, 5, 5, CHANGELOG_OP_UPDATE},
                     },
                     {
-                            {1, 6, binlog::STREAM_CHANGE_INSERT},
+                            {1, 6, changelog::STREAM_CHANGE_INSERT},
                     },
                     1,
             },
             {
                     "existing_row_temporarily_reinserted_but_finishes_deleted",
                     {
-                            {1, 2, 1, 1, 1, ROW_BINLOG_UPDATE},
-                            {1, 2, 2, 2, 2, ROW_BINLOG_DELETE},
-                            {1, 3, 0, 3, 3, ROW_BINLOG_APPEND},
-                            {1, 4, 3, 4, 4, ROW_BINLOG_UPDATE},
-                            {1, 4, 4, 5, 5, ROW_BINLOG_DELETE},
+                            {1, 2, 1, 1, 1, CHANGELOG_OP_UPDATE},
+                            {1, 2, 2, 2, 2, CHANGELOG_OP_DELETE},
+                            {1, 3, 0, 3, 3, CHANGELOG_OP_APPEND},
+                            {1, 4, 3, 4, 4, CHANGELOG_OP_UPDATE},
+                            {1, 4, 4, 5, 5, CHANGELOG_OP_DELETE},
                     },
                     {
-                            {1, 1, binlog::STREAM_CHANGE_DELETE},
+                            {1, 1, changelog::STREAM_CHANGE_DELETE},
                     },
                     1,
             },
             {
                     "delete_reinsert_update_and_return_to_original",
                     {
-                            {1, 1, 1, 1, 1, ROW_BINLOG_DELETE},
-                            {1, 1, 0, 2, 2, ROW_BINLOG_APPEND},
-                            {1, 2, 1, 3, 3, ROW_BINLOG_UPDATE},
-                            {1, 1, 2, 4, 4, ROW_BINLOG_UPDATE},
+                            {1, 1, 1, 1, 1, CHANGELOG_OP_DELETE},
+                            {1, 1, 0, 2, 2, CHANGELOG_OP_APPEND},
+                            {1, 2, 1, 3, 3, CHANGELOG_OP_UPDATE},
+                            {1, 1, 2, 4, 4, CHANGELOG_OP_UPDATE},
                     },
                     {},
                     1,
@@ -804,11 +803,11 @@ std::shared_ptr<Block> make_two_value_source_block(const std::vector<TwoValueRow
     block->insert({std::move(key_col), type, "key"});
     block->insert({std::move(val1_col), type, "val"});
     block->insert({std::move(val2_col), type, "val2"});
-    block->insert({std::move(before_val1_col), type, binlog::build_before_column_name("val")});
-    block->insert({std::move(before_val2_col), type, binlog::build_before_column_name("val2")});
-    block->insert({std::move(tso_col), type, BINLOG_TSO_COL});
-    block->insert({std::move(lsn_col), type, BINLOG_LSN_COL});
-    block->insert({std::move(op_col), type, BINLOG_OP_COL});
+    block->insert({std::move(before_val1_col), type, changelog::build_before_column_name("val")});
+    block->insert({std::move(before_val2_col), type, changelog::build_before_column_name("val2")});
+    block->insert({std::move(tso_col), type, CHANGELOG_TSO_COL});
+    block->insert({std::move(lsn_col), type, CHANGELOG_LSN_COL});
+    block->insert({std::move(op_col), type, CHANGELOG_OP_COL});
     return block;
 }
 
@@ -822,7 +821,7 @@ void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> sour
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns) {
     auto source = make_two_value_source_block({
             {/*key=*/1, /*val1=*/20, /*val2=*/30, /*before_val1=*/20, /*before_val2=*/30,
-             /*tso=*/1, /*lsn=*/1, ROW_BINLOG_UPDATE},
+             /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_two_value_reader(reader, source);
@@ -834,15 +833,15 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueColumn) {
     auto source = make_two_value_source_block({
             {/*key=*/1, /*val1=*/20, /*val2=*/31, /*before_val1=*/20, /*before_val2=*/30,
-             /*tso=*/1, /*lsn=*/1, ROW_BINLOG_UPDATE},
+             /*tso=*/1, /*lsn=*/1, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_two_value_reader(reader, source);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[0].val, 20);
     EXPECT_EQ(out[1].val, 20);
 }
@@ -853,19 +852,19 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueCo
 // through the pending-row path after the skipped key.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexMultiColumnChains) {
     auto source = make_two_value_source_block({
-            {1, 11, 100, 10, 100, 1, 1, ROW_BINLOG_UPDATE},
-            {1, 11, 101, 11, 100, 2, 2, ROW_BINLOG_UPDATE},
-            {1, 10, 100, 11, 101, 3, 3, ROW_BINLOG_UPDATE},
-            {2, 21, 200, 20, 200, 4, 4, ROW_BINLOG_UPDATE},
-            {2, 20, 201, 21, 200, 5, 5, ROW_BINLOG_UPDATE},
+            {1, 11, 100, 10, 100, 1, 1, CHANGELOG_OP_UPDATE},
+            {1, 11, 101, 11, 100, 2, 2, CHANGELOG_OP_UPDATE},
+            {1, 10, 100, 11, 101, 3, 3, CHANGELOG_OP_UPDATE},
+            {2, 21, 200, 20, 200, 4, 4, CHANGELOG_OP_UPDATE},
+            {2, 20, 201, 21, 200, 5, 5, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_two_value_reader(reader, source, /*batch_size=*/1);
 
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     expect_out_rows(out, {
-                                 {2, 20, binlog::STREAM_CHANGE_UPDATE_BEFORE},
-                                 {2, 20, binlog::STREAM_CHANGE_UPDATE_AFTER},
+                                 {2, 20, changelog::STREAM_CHANGE_UPDATE_BEFORE},
+                                 {2, 20, changelog::STREAM_CHANGE_UPDATE_AFTER},
                          });
 }
 
@@ -873,13 +872,13 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexMultiColumnChains) {
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaMultipleKeys) {
     auto source = make_source_block({
             // key 1: APPEND -> INSERT(val=10)
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
             // key 2: APPEND + DELETE -> SKIP
-            {2, 20, 0, 2, 2, ROW_BINLOG_APPEND},
-            {2, 20, 20, 3, 3, ROW_BINLOG_DELETE},
+            {2, 20, 0, 2, 2, CHANGELOG_OP_APPEND},
+            {2, 20, 20, 3, 3, CHANGELOG_OP_DELETE},
             // key 3: UPDATE + DELETE -> DELETE(before=30)
-            {3, 40, 30, 4, 4, ROW_BINLOG_UPDATE},
-            {3, 40, 40, 5, 5, ROW_BINLOG_DELETE},
+            {3, 40, 30, 4, 4, CHANGELOG_OP_UPDATE},
+            {3, 40, 40, 5, 5, CHANGELOG_OP_DELETE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
@@ -887,10 +886,10 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaMultipleKeys) {
     auto out = drain(reader, &BlockReader::_min_delta_next_block);
     ASSERT_EQ(out.size(), 2);
     EXPECT_EQ(out[0].key, 1);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
     EXPECT_EQ(out[0].val, 10);
     EXPECT_EQ(out[1].key, 3);
-    EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[1].val, 30);
 }
 
@@ -899,11 +898,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaMultipleKeys) {
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     auto source = make_source_block({
             // key 1: single INSERT fills row 0 of the first batch.
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
             // key 2: UPDATE+UPDATE -> BEFORE lands on row 1 (== batch_size), so
             // AFTER must be parked and flushed on the next call.
-            {2, 20, 15, 2, 2, ROW_BINLOG_UPDATE},
-            {2, 30, 20, 3, 3, ROW_BINLOG_UPDATE},
+            {2, 20, 15, 2, 2, CHANGELOG_OP_UPDATE},
+            {2, 30, 20, 3, 3, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/2);
@@ -912,8 +911,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     Block block1 = make_output_block();
     ASSERT_TRUE(reader._min_delta_next_block(&block1, &eof).ok());
     ASSERT_EQ(block1.rows(), 2);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 0), binlog::STREAM_CHANGE_INSERT);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(block1, OP_IDX, 0), changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out_i64(block1, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_BEFORE);
     EXPECT_EQ(out_i64(block1, VAL_IDX, 1), 15); // before value
     EXPECT_FALSE(eof);
     EXPECT_TRUE(reader._has_pending_row);
@@ -921,7 +920,7 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     Block block2 = make_output_block();
     ASSERT_TRUE(reader._min_delta_next_block(&block2, &eof).ok());
     ASSERT_EQ(block2.rows(), 1);
-    EXPECT_EQ(out_i64(block2, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(block2, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out_i64(block2, VAL_IDX, 0), 30); // after value
     EXPECT_TRUE(eof);
 }
@@ -933,14 +932,14 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
 // APPEND -> a single INSERT row with the row's value.
 TEST_F(BlockReaderChangeNextBlockTest, DetailInsert) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].val, 10);
 }
@@ -948,39 +947,40 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailInsert) {
 // DELETE -> a single DELETE row that uses the before value.
 TEST_F(BlockReaderChangeNextBlockTest, DetailDelete) {
     auto source = make_source_block({
-            {1, 10, 99, 1, 1, ROW_BINLOG_DELETE},
+            {1, 10, 99, 1, 1, CHANGELOG_OP_DELETE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 1);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[0].key, 1);
-    EXPECT_EQ(out[0].val, 99); // delete uses __BEFORE__ mirror
+    EXPECT_EQ(out[0].val, 99); // delete uses the before-image mirror
 }
 
 // UPDATE -> a BEFORE (before value) + AFTER (after value) pair.
 TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePair) {
     auto source = make_source_block({
-            {1, 20, 10, 1, 1, ROW_BINLOG_UPDATE},
+            {1, 20, 10, 1, 1, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 2);
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
     EXPECT_EQ(out[0].val, 10); // before
-    EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[1].val, 20); // after
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesCollide) {
     auto source = make_colliding_name_source_block(/*after_v=*/11, /*after_collision=*/20,
                                                    /*before_v=*/10, /*before_collision=*/20);
-    auto schema = make_test_tablet_schema({{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
-                                           {"__BEFORE__v__", FieldType::OLAP_FIELD_TYPE_BIGINT}});
+    auto schema = make_test_tablet_schema(
+            {{"v", FieldType::OLAP_FIELD_TYPE_BIGINT},
+             {changelog::build_before_column_name("v"), FieldType::OLAP_FIELD_TYPE_BIGINT}});
     BlockReader reader;
     configure_reader(reader, source, 16, std::move(schema));
 
@@ -990,30 +990,30 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesColli
     ASSERT_EQ(output.rows(), 2);
     EXPECT_EQ(out_i64(output, /*v=*/1, 0), 10);
     EXPECT_EQ(out_i64(output, /*v=*/1, 1), 11);
-    EXPECT_EQ(out_i64(output, /*op=*/7, 0), binlog::STREAM_CHANGE_UPDATE_BEFORE);
-    EXPECT_EQ(out_i64(output, /*op=*/7, 1), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(output, /*op=*/7, 0), changelog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(output, /*op=*/7, 1), changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_TRUE(eof);
 }
 
 // Mixed ops emitted verbatim in order.
 TEST_F(BlockReaderChangeNextBlockTest, DetailMixedOps) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
-            {2, 25, 20, 2, 2, ROW_BINLOG_UPDATE},
-            {3, 30, 30, 3, 3, ROW_BINLOG_DELETE},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {2, 25, 20, 2, 2, CHANGELOG_OP_UPDATE},
+            {3, 30, 30, 3, 3, CHANGELOG_OP_DELETE},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);
 
     auto out = drain(reader, &BlockReader::_detail_change_next_block);
     ASSERT_EQ(out.size(), 4); // INSERT + (BEFORE,AFTER) + DELETE
-    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out[0].op, changelog::STREAM_CHANGE_INSERT);
     EXPECT_EQ(out[0].val, 10);
-    EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[1].op, changelog::STREAM_CHANGE_UPDATE_BEFORE);
     EXPECT_EQ(out[1].val, 20);
-    EXPECT_EQ(out[2].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[2].op, changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[2].val, 25);
-    EXPECT_EQ(out[3].op, binlog::STREAM_CHANGE_DELETE);
+    EXPECT_EQ(out[3].op, changelog::STREAM_CHANGE_DELETE);
     EXPECT_EQ(out[3].val, 30);
 }
 
@@ -1021,8 +1021,8 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailMixedOps) {
 // and flushed at the start of the next call.
 TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
-            {2, 25, 20, 2, 2, ROW_BINLOG_UPDATE},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
+            {2, 25, 20, 2, 2, CHANGELOG_OP_UPDATE},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/2);
@@ -1031,8 +1031,8 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     Block block1 = make_output_block();
     ASSERT_TRUE(reader._detail_change_next_block(&block1, &eof).ok());
     ASSERT_EQ(block1.rows(), 2);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 0), binlog::STREAM_CHANGE_INSERT);
-    EXPECT_EQ(out_i64(block1, OP_IDX, 1), binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out_i64(block1, OP_IDX, 0), changelog::STREAM_CHANGE_INSERT);
+    EXPECT_EQ(out_i64(block1, OP_IDX, 1), changelog::STREAM_CHANGE_UPDATE_BEFORE);
     EXPECT_EQ(out_i64(block1, VAL_IDX, 1), 20); // before
     EXPECT_FALSE(eof);
     EXPECT_TRUE(reader._has_pending_row);
@@ -1040,7 +1040,7 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     Block block2 = make_output_block();
     ASSERT_TRUE(reader._detail_change_next_block(&block2, &eof).ok());
     ASSERT_EQ(block2.rows(), 1);
-    EXPECT_EQ(out_i64(block2, OP_IDX, 0), binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out_i64(block2, OP_IDX, 0), changelog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out_i64(block2, VAL_IDX, 0), 25); // after
     EXPECT_TRUE(eof);
 }
@@ -1048,7 +1048,7 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
 // Already-at-EOF with no pending row returns eof immediately with no output.
 TEST_F(BlockReaderChangeNextBlockTest, DetailEofImmediately) {
     auto source = make_source_block({
-            {1, 10, 0, 1, 1, ROW_BINLOG_APPEND},
+            {1, 10, 0, 1, 1, CHANGELOG_OP_APPEND},
     });
     BlockReader reader;
     configure_reader(reader, source, 16);

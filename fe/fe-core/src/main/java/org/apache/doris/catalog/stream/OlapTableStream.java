@@ -107,7 +107,7 @@ public class OlapTableStream extends BaseTableStream {
         Column changeTypeColumn = new Column(Column.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);
         changeTypeColumn.setIsVisible(false);
         builder.add(changeTypeColumn);
-        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+        // Only expose stream LSN when the base table stores row LSN, e.g. dup table with changelog.
         if (baseTable.hasRowLsnColumn()) {
             Column lsnColumn = new Column(Column.STREAM_LSN_COL, Type.BIGINT);
             lsnColumn.setIsVisible(false);

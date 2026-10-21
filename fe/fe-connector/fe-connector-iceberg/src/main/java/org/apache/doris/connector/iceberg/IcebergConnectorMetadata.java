@@ -1408,11 +1408,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         } catch (DorisConnectorException buildError) {
-            // A nested narrowing to an iceberg-unrepresentable type (e.g. ARRAY<INT> -> ARRAY<SMALLINT>) throws a
-            // generic "Unsupported type for Iceberg: SMALLINT" here. Restore the legacy parity message ("Cannot
-            // change int to smallint in nested types") by validating the requested nested type against the
-            // CURRENT type — legacy validated in Doris type space, where the narrow target still exists.
-            throw upgradeNestedModifyError(iceHandle, ConnectorColumnPath.of(column.getName()), column, buildError);
+            // VARBINARY, how iceberg BINARY / FIXED is read, has no iceberg type of its own, and a nested narrowing
+            // to an iceberg-unrepresentable type (e.g. ARRAY<INT> -> ARRAY<SMALLINT>) throws a generic
+            // "Unsupported type for Iceberg: SMALLINT" here. Both are resolved against the CURRENT type.
+            icebergType = keepRestatedBinaryType(iceHandle, ConnectorColumnPath.of(column.getName()), column,
+                    buildError);
         }
         // Carry the neutral source type so a complex-type diff can read each STRUCT field's commentSpecified.
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
@@ -1433,6 +1433,25 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Keeps the CURRENT iceberg type of a {@code MODIFY COLUMN} target that the requested VARBINARY restates. Doris
+     * reads iceberg BINARY and FIXED(n) as VARBINARY and VARBINARY(n), which have no iceberg type of their own, so
+     * restating how such a column or field is read is the only way to change its nullability, comment or
+     * position (branch-4.x {@code IcebergMetadataOps.resolvePrimitiveTypeForModify} keeps the iceberg type the same
+     * way). Any other requested type that did not build gets {@link #upgradeNestedModifyError}.
+     */
+    private Type keepRestatedBinaryType(IcebergTableHandle handle, ConnectorColumnPath path,
+            ConnectorColumn column, DorisConnectorException buildError) {
+        if ("VARBINARY".equals(column.getType().getTypeName().toUpperCase(Locale.ROOT))) {
+            Types.NestedField current = loadModifyTarget(handle, path);
+            if (current != null && current.type().isPrimitiveType()
+                    && IcebergTypeMapping.isReadAs(current.type().asPrimitiveType(), column.getType())) {
+                return current.type();
+            }
+        }
+        throw upgradeNestedModifyError(handle, path, column, buildError);
+    }
+
+    /**
      * Upgrades the generic "Unsupported type for Iceberg" error from a failed complex-type build into the legacy
      * "Cannot change &lt;old&gt; to &lt;new&gt; in nested types" message, by walking the requested nested type
      * against the CURRENT column type. Best-effort: a scalar modify, a load failure, or no offending nested leaf
@@ -1443,19 +1462,29 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (!isComplexType(column.getType())) {
             return buildError;
         }
-        try {
-            Types.NestedField current = executeAuthenticated(() ->
-                    catalogOps.withTable(handle.getDbName(), handle.getTableName(),
-                            table -> IcebergNestedColumnEvolution.findFieldForErrorUpgrade(table.schema(), path)));
-            if (current != null && !current.type().isPrimitiveType()) {
+        Types.NestedField current = loadModifyTarget(handle, path);
+        if (current != null && !current.type().isPrimitiveType()) {
+            try {
                 IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
+            } catch (DorisConnectorException parityError) {
+                return parityError;
             }
-        } catch (DorisConnectorException parityError) {
-            return parityError;
-        } catch (Exception ignored) {
-            // load failed / column missing -> keep the original build error
         }
         return buildError;
+    }
+
+    /**
+     * The current field at {@code path}, read only to resolve a requested type that did not build: null when the
+     * table does not load or has no such field, which keeps the original build error.
+     */
+    private Types.NestedField loadModifyTarget(IcebergTableHandle handle, ConnectorColumnPath path) {
+        try {
+            return executeAuthenticated(() -> catalogOps.withTable(handle.getDbName(), handle.getTableName(),
+                    table -> IcebergNestedColumnEvolution.findModifyTarget(table.schema(), path)));
+        } catch (Exception ignored) {
+            // load failed -> keep the original build error
+            return null;
+        }
     }
 
     /** Reorders columns, mirroring legacy {@code IcebergMetadataOps.reorderColumns}. */
@@ -1598,8 +1627,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         try {
             icebergType = IcebergSchemaBuilder.buildNestedFieldType(column.getType());
         } catch (DorisConnectorException buildError) {
-            // Preserve the complete target identity so error parity cannot bind a same-named top-level field.
-            throw upgradeNestedModifyError(iceHandle, path, column, buildError);
+            // Preserve the complete target identity so the current type cannot be read from a same-named
+            // top-level field.
+            icebergType = keepRestatedBinaryType(iceHandle, path, column, buildError);
         }
         // Carry the neutral source type so the nested complex-type diff can read each STRUCT field's
         // commentSpecified (an omitted COMMENT on a sub-field must keep its current doc, not clear it).

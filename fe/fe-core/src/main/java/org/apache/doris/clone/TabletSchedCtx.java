@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.changelog.ChangelogRepairReason;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
@@ -188,10 +189,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private Set<Long> colocateBackendsSet = null;
     private int tabletOrderIdx = -1;
-    private long rowBinlogBaseTabletId = -1L;
-    private RowBinlogRepairReason rowBinlogRepairReason = RowBinlogRepairReason.NONE;
-    private Map<Long, Long> rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap();
-    private Map<Long, Long> rowBinlogObservedPathHashByBackend = Maps.newHashMap();
+    private long changelogBaseTabletId = -1L;
+    private ChangelogRepairReason changelogRepairReason = ChangelogRepairReason.NONE;
+    private Map<Long, Long> changelogRequiredDestPathHashByBackend = Maps.newHashMap();
+    private Map<Long, Long> changelogObservedPathHashByBackend = Maps.newHashMap();
 
     private SystemInfoService infoService;
 
@@ -563,12 +564,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     /*
-     * Row-binlog repair must use the backend selected by its base tablet. A replica on an
+     * Changelog repair must use the backend selected by its base tablet. A replica on an
      * unrelated backend at the same host is only a temporary conflict: allow cloning to the
      * required backend first, then remove the unrelated replica after the clone is complete.
      */
-    public boolean filterRowBinlogRequiredDestBE(long beId) {
-        if (!rowBinlogRequiredDestPathHashByBackend.containsKey(beId)) {
+    public boolean filterChangelogRequiredDestBE(long beId) {
+        if (!changelogRequiredDestPathHashByBackend.containsKey(beId)) {
             return true;
         }
         Backend backend = infoService.getBackend(beId);
@@ -587,7 +588,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
             if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest
                     && host.equals(replicaBackend.getHost())
-                    && rowBinlogRequiredDestPathHashByBackend.containsKey(replicaBeId)) {
+                    && changelogRequiredDestPathHashByBackend.containsKey(replicaBeId)) {
                 return true;
             }
         }
@@ -602,48 +603,48 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return colocateBackendsSet;
     }
 
-    public void setRowBinlogBaseTabletId(long baseTabletId) {
-        this.rowBinlogBaseTabletId = baseTabletId;
+    public void setChangelogBaseTabletId(long baseTabletId) {
+        this.changelogBaseTabletId = baseTabletId;
     }
 
-    public long getRowBinlogBaseTabletId() {
-        return rowBinlogBaseTabletId;
+    public long getChangelogBaseTabletId() {
+        return changelogBaseTabletId;
     }
 
-    public boolean isRowBinlogRepair() {
-        return rowBinlogBaseTabletId > 0;
+    public boolean isChangelogRepair() {
+        return changelogBaseTabletId > 0;
     }
 
-    public void setRowBinlogRepairReason(RowBinlogRepairReason repairReason) {
-        this.rowBinlogRepairReason = repairReason;
+    public void setChangelogRepairReason(ChangelogRepairReason repairReason) {
+        this.changelogRepairReason = repairReason;
     }
 
-    public RowBinlogRepairReason getRowBinlogRepairReason() {
-        return rowBinlogRepairReason;
+    public ChangelogRepairReason getChangelogRepairReason() {
+        return changelogRepairReason;
     }
 
-    public void setRowBinlogRequiredDestPathHashByBackend(Map<Long, Long> requiredDestPathHashByBackend) {
-        this.rowBinlogRequiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
+    public void setChangelogRequiredDestPathHashByBackend(Map<Long, Long> requiredDestPathHashByBackend) {
+        this.changelogRequiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
     }
 
-    public boolean hasRowBinlogRequiredDestPathHash() {
-        return !rowBinlogRequiredDestPathHashByBackend.isEmpty();
+    public boolean hasChangelogRequiredDestPathHash() {
+        return !changelogRequiredDestPathHashByBackend.isEmpty();
     }
 
-    public long getRowBinlogRequiredDestPathHash(long backendId) {
-        return rowBinlogRequiredDestPathHashByBackend.getOrDefault(backendId, -1L);
+    public long getChangelogRequiredDestPathHash(long backendId) {
+        return changelogRequiredDestPathHashByBackend.getOrDefault(backendId, -1L);
     }
 
-    public Map<Long, Long> getRowBinlogRequiredDestPathHashByBackend() {
-        return rowBinlogRequiredDestPathHashByBackend;
+    public Map<Long, Long> getChangelogRequiredDestPathHashByBackend() {
+        return changelogRequiredDestPathHashByBackend;
     }
 
-    public void setRowBinlogObservedPathHashByBackend(Map<Long, Long> observedPathHashByBackend) {
-        this.rowBinlogObservedPathHashByBackend = Maps.newHashMap(observedPathHashByBackend);
+    public void setChangelogObservedPathHashByBackend(Map<Long, Long> observedPathHashByBackend) {
+        this.changelogObservedPathHashByBackend = Maps.newHashMap(observedPathHashByBackend);
     }
 
-    public Map<Long, Long> getRowBinlogObservedPathHashByBackend() {
-        return rowBinlogObservedPathHashByBackend;
+    public Map<Long, Long> getChangelogObservedPathHashByBackend() {
+        return changelogObservedPathHashByBackend;
     }
 
     public void setTabletOrderIdx(int idx) {
@@ -1407,10 +1408,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(committedVersion));
         result.add(Strings.nullToEmpty(errMsg));
-        result.add(rowBinlogRepairReason.name());
-        result.add(String.valueOf(rowBinlogBaseTabletId));
-        result.add(formatBackendPathMap(rowBinlogRequiredDestPathHashByBackend));
-        result.add(formatBackendPathMap(rowBinlogObservedPathHashByBackend));
+        result.add(changelogRepairReason.name());
+        result.add(String.valueOf(changelogBaseTabletId));
+        result.add(formatBackendPathMap(changelogRequiredDestPathHashByBackend));
+        result.add(formatBackendPathMap(changelogObservedPathHashByBackend));
         return result;
     }
 
@@ -1427,11 +1428,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return result.toString();
     }
 
-    public String getRowBinlogRepairInfo() {
-        return "reason: " + rowBinlogRepairReason.name()
-                + ", base tablet id: " + rowBinlogBaseTabletId
-                + ", expected locations: " + formatBackendPathMap(rowBinlogRequiredDestPathHashByBackend)
-                + ", observed locations: " + formatBackendPathMap(rowBinlogObservedPathHashByBackend);
+    public String getChangelogRepairInfo() {
+        return "reason: " + changelogRepairReason.name()
+                + ", base tablet id: " + changelogBaseTabletId
+                + ", expected locations: " + formatBackendPathMap(changelogRequiredDestPathHashByBackend)
+                + ", observed locations: " + formatBackendPathMap(changelogObservedPathHashByBackend);
     }
 
     /*

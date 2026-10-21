@@ -35,7 +35,7 @@ import java.util.Map;
  * as it is now.
  *
  * <p>The read is built differently per key type -- a merge-on-write table splits its partitions into those
- * read directly and those rebuilt from the binlog into the image at the offset, a duplicate-key one reads all
+ * read directly and those rebuilt from the changelog into the image at the offset, a duplicate-key one reads all
  * of them bounded by the offset -- so the two are pinned separately. What the refresh that asks this may not
  * do is record such a partition as holding the table's current state.
  */

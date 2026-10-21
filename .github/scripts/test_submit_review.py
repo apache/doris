@@ -300,11 +300,57 @@ class FinalReviewTest(unittest.TestCase):
         self.assertEqual([], self.posts[0]["comments"])
         self.assertIn("#discussion_r101", self.posts[0]["body"])
 
+    def test_existing_bold_blockers_are_counted_without_duplicate_inline(self):
+        formats = ("**[P{level}] Previously reported blocker**",
+                   "**[P{level}]** Previously reported blocker")
+        for level, template in itertools.product((0, 1), formats):
+            body = template.format(level=level) + "\n\nThe issue still applies."
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as tmp, \
+                 mock.patch.object(self, "context", Path(tmp)):
+                self.reviews.clear()
+                self.posts.clear()
+                self.existing = [{"id": 101, "body": body}]
+                submission = self.submission(None)
+                submission["existing_blocking_comment_ids"] = [101]
+                result = self.submit(submission)
+                self.assertEqual((int(level == 0), int(level == 1), "failure"),
+                                 (result["p0"], result["p1"], result["state"]))
+                self.assertEqual(result, self.submit(submission))
+                self.assertEqual(result, self.verify())
+                self.assertEqual(1, len(self.posts))
+                self.assertEqual("REQUEST_CHANGES", self.posts[0]["event"])
+                self.assertEqual([], self.posts[0]["comments"])
+                self.assertIn("#discussion_r101", self.posts[0]["body"])
+
+    def test_bold_non_blocking_comments_cannot_be_declared_as_blockers(self):
+        submission = self.submission(None)
+        submission["existing_blocking_comment_ids"] = [101]
+        for level, template in itertools.product(
+                (2, 3), ("**[P{level}] Minor**", "**[P{level}]** Minor")):
+            body = template.format(level=level)
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, "not P0/P1"):
+                self.existing = [{"id": 101, "body": body}]
+                self.submit(submission)
+        self.assertEqual([], self.posts)
+        self.assertFalse((self.context / submitter.SUBMISSION_FILE).exists())
+
+    def test_new_findings_still_require_plain_priority(self):
+        for body in ("**[P1] New finding**", "**[P1]** New finding"):
+            submission = self.submission()
+            submission["comments"][0]["body"] = body
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, "must start with"):
+                self.submit(submission)
+        self.api.assert_not_called()
+
     def test_invalid_existing_blocker_cannot_silently_pass(self):
         submission = self.submission(None)
         submission["existing_blocking_comment_ids"] = [101]
         for comments in ([], [{"id": 101, "body": "[P2] Minor"}],
-                         [{"id": 101, "body": "[P1] Reply", "in_reply_to_id": 1}]):
+                         [{"id": 101, "body": "**[P4] Unknown priority**"}],
+                         [{"id": 101, "body": "**[P1]**"}],
+                         [{"id": 101, "body": "Text mentioning **[P1]** later"}],
+                         [{"id": 101, "body": "[P1] Reply", "in_reply_to_id": 1}],
+                         [{"id": 101, "body": "**[P1] Reply**", "in_reply_to_id": 1}]):
             with self.subTest(comments=comments), self.assertRaises(ValueError):
                 self.existing = comments
                 self.submit(submission)

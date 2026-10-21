@@ -494,14 +494,21 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "-1");
 
-// Binlog Compaction
-DEFINE_mInt64(binlog_compaction_wait_timesec_after_visible, "600");
-DEFINE_mInt64(binlog_compaction_goal_size_mbytes, "128");
-DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
-DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
-DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
-DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
-DEFINE_mInt32(max_binlog_compaction_threads, "-1");
+// Changelog compaction
+// ATTN(changelog-rename): formerly "binlog_compaction_wait_timesec_after_visible"
+DEFINE_mInt64(changelog_compaction_wait_timesec_after_visible, "600");
+// ATTN(changelog-rename): formerly "binlog_compaction_goal_size_mbytes"
+DEFINE_mInt64(changelog_compaction_goal_size_mbytes, "128");
+// ATTN(changelog-rename): formerly "binlog_compaction_task_num_per_disk"
+DEFINE_mInt32(changelog_compaction_task_num_per_disk, "4");
+// ATTN(changelog-rename): formerly "binlog_compaction_file_count_threshold"
+DEFINE_mInt32(changelog_compaction_file_count_threshold, "100");
+// ATTN(changelog-rename): formerly "binlog_level_compaction_max_deltas"
+DEFINE_mInt32(changelog_level_compaction_max_deltas, "2000");
+// ATTN(changelog-rename): formerly "binlog_compaction_time_threshold_seconds"
+DEFINE_mInt64(changelog_compaction_time_threshold_seconds, "3600");
+// ATTN(changelog-rename): formerly "max_binlog_compaction_threads"
+DEFINE_mInt32(max_changelog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -1533,6 +1540,9 @@ DEFINE_Bool(enable_segment_cache_prune, "false");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
+// enable feature changelog, default false
+// ATTN(changelog-rename): formerly "enable_feature_binlog" (non-CCR uses)
+DEFINE_Bool(enable_feature_changelog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");

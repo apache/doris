@@ -180,6 +180,17 @@ public final class IcebergTypeMapping {
     }
 
     /**
+     * Whether the primitive {@code icebergType} is read as {@code type}, so a {@code MODIFY COLUMN} stating
+     * {@code type} restates it rather than changing it. The read mapping cannot always be inverted by
+     * {@link #toIcebergPrimitive}: iceberg BINARY and FIXED(n) are read as VARBINARY and VARBINARY(n), which
+     * have no iceberg type of their own.
+     */
+    static boolean isReadAs(Type.PrimitiveType icebergType, ConnectorType type) {
+        // Neither legacy mapping option changes how a primitive type is read.
+        return type.equals(fromPrimitive(icebergType, true, true));
+    }
+
+    /**
      * Maps a SCALAR {@link ConnectorType} (a Doris column type carried across the SPI by name) to an
      * Iceberg {@link Type} for CREATE TABLE. The inverse of {@link #fromPrimitive}, this is a string-driven
      * port of the legacy fe-core {@code DorisTypeToIcebergType.atomic} (which walked a Doris {@code Type}

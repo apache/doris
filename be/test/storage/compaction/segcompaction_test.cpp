@@ -407,7 +407,7 @@ protected:
         ASSERT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
 
@@ -560,7 +560,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
 
@@ -1072,7 +1072,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
         reader_context.is_unique = true;
@@ -1344,7 +1344,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         reader_context.stats = &_stats;
         // reader_context.is_unique = true;

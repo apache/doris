@@ -122,9 +122,9 @@ protected:
     Status execute_merge_input_rowsets(MergeInputRowsetsContext* context);
 
     Status finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
-    void snapshot_row_binlog_ttl();
-    bool pick_expired_row_binlog_rowset(const std::vector<RowsetSharedPtr>& candidates);
-    void filter_row_binlog_ttl_rowsets();
+    void snapshot_changelog_ttl();
+    bool pick_expired_changelog_rowset(const std::vector<RowsetSharedPtr>& candidates);
+    void filter_changelog_ttl_rowsets();
 
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();
@@ -182,10 +182,10 @@ protected:
 
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetSharedPtr> _data_input_rowsets;
-    int64_t _row_binlog_ttl_cutoff_tso {-1};
-    int64_t _row_binlog_ttl_seconds {0};
-    int64_t _row_binlog_ttl_visible_version {std::numeric_limits<int64_t>::max()};
-    int64_t _row_binlog_ttl_filtered_rows {0};
+    int64_t _changelog_ttl_cutoff_tso {-1};
+    int64_t _changelog_ttl_seconds {0};
+    int64_t _changelog_ttl_visible_version {std::numeric_limits<int64_t>::max()};
+    int64_t _changelog_ttl_filtered_rows {0};
     int64_t _input_rowsets_data_size {0};
     int64_t _input_rowsets_index_size {0};
     int64_t _input_rowsets_total_size {0};
@@ -208,7 +208,7 @@ protected:
 
     bool _is_vertical;
     bool _is_ordered_data_compaction {false};
-    bool _trigger_quick_merge_by_binlog {false};
+    bool _trigger_quick_merge_by_changelog {false};
     bool _allow_delete_in_cumu_compaction;
     bool _enable_vertical_compact_variant_subcolumns;
 

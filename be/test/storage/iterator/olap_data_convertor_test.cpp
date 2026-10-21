@@ -206,38 +206,38 @@ TEST(OlapDataConvertorTest, ConcurrentNullableBigIntSourceIsReadOnly) {
     ASSERT_EQ(1, source.nested_column->use_count());
 
     OlapBlockDataConvertor data_convertor;
-    OlapBlockDataConvertor row_binlog_convertor;
+    OlapBlockDataConvertor changelog_convertor;
     const TabletColumn tablet_column =
             create_tablet_column(FieldType::OLAP_FIELD_TYPE_BIGINT, true);
     data_convertor.add_column_data_convertor(tablet_column);
-    row_binlog_convertor.add_column_data_convertor(tablet_column);
+    changelog_convertor.add_column_data_convertor(tablet_column);
     ASSERT_TRUE(data_convertor
                         .set_source_content_with_specifid_column(source.typed_column, 0,
                                                                  values.size(), 0)
                         .ok());
-    ASSERT_TRUE(row_binlog_convertor
+    ASSERT_TRUE(changelog_convertor
                         .set_source_content_with_specifid_column(source.typed_column, 0,
                                                                  values.size(), 0)
                         .ok());
 
     std::barrier start(2);
     std::pair<Status, IOlapColumnDataAccessor*> data_result;
-    std::pair<Status, IOlapColumnDataAccessor*> row_binlog_result;
+    std::pair<Status, IOlapColumnDataAccessor*> changelog_result;
     std::thread data_thread([&] {
         start.arrive_and_wait();
         data_result = data_convertor.convert_column_data(0);
     });
-    std::thread row_binlog_thread([&] {
+    std::thread changelog_thread([&] {
         start.arrive_and_wait();
-        row_binlog_result = row_binlog_convertor.convert_column_data(0);
+        changelog_result = changelog_convertor.convert_column_data(0);
     });
     data_thread.join();
-    row_binlog_thread.join();
+    changelog_thread.join();
 
     ASSERT_TRUE(data_result.first.ok()) << data_result.first;
-    ASSERT_TRUE(row_binlog_result.first.ok()) << row_binlog_result.first;
+    ASSERT_TRUE(changelog_result.first.ok()) << changelog_result.first;
     EXPECT_EQ(source.values, data_result.second->get_data());
-    EXPECT_EQ(source.values, row_binlog_result.second->get_data());
+    EXPECT_EQ(source.values, changelog_result.second->get_data());
     EXPECT_EQ(1, source.nested_column->use_count());
     EXPECT_EQ(values, std::vector<int64_t>(source.values, source.values + values.size()));
 }

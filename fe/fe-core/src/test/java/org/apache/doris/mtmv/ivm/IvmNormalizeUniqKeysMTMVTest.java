@@ -18,7 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -110,12 +110,12 @@ import java.util.stream.Collectors;
 
 class IvmNormalizeUniqKeysMTMVTest {
 
-    // DUP_KEYS table with row binlog — row-id = __DORIS_ROW_LSN_COL__, deterministic
+    // DUP_KEYS table with changelog — row-id = __DORIS_ROW_LSN_COL__, deterministic
     private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     @BeforeEach
     void setUp() {
-        enableBinlog(scan.getTable());
+        enableChangelog(scan.getTable());
     }
 
     @Test
@@ -332,7 +332,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
         tableProperty.setEnableUniqueKeyMergeOnWrite(true);
         mowTable.setTableProperty(tableProperty);
-        enableBinlog(mowTable);
+        enableChangelog(mowTable);
         LogicalOlapScan mowScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
 
@@ -349,7 +349,7 @@ class IvmNormalizeUniqKeysMTMVTest {
     void testMorTableThrows() {
         // UNIQUE_KEYS without MOW (MOR) is not supported
         OlapTable morTable = PlanConstructor.newOlapTable(11, "mor", 0, KeysType.UNIQUE_KEYS);
-        enableBinlog(morTable);
+        enableChangelog(morTable);
         LogicalOlapScan morScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), morTable, ImmutableList.of("db"));
 
@@ -360,7 +360,7 @@ class IvmNormalizeUniqKeysMTMVTest {
     @Test
     void testAggKeyTableThrows() {
         OlapTable aggTable = PlanConstructor.newOlapTable(12, "agg", 0, KeysType.AGG_KEYS);
-        enableBinlog(aggTable);
+        enableChangelog(aggTable);
         LogicalOlapScan aggScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), aggTable, ImmutableList.of("db"));
 
@@ -432,10 +432,10 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testExcludedDupWithoutBinlogUsesUuidRowId() {
-        // An excluded DUP trigger table without row binlog has no __DORIS_ROW_LSN_COL__
+    void testExcludedDupWithoutChangelogUsesUuidRowId() {
+        // An excluded DUP trigger table without changelog has no __DORIS_ROW_LSN_COL__
         // column, so it keeps the legacy non-deterministic uuid row-id.
-        OlapTable dupTable = newDupTableWithoutBinlogWithBoundDb(19, "excluded_dup", "test");
+        OlapTable dupTable = newDupTableWithoutChangelogWithBoundDb(19, "excluded_dup", "test");
         LogicalOlapScan dupScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), dupTable, ImmutableList.of("test"));
 
@@ -452,16 +452,16 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testBaseTableWithoutBinlogThrowsIvmException() {
-        OlapTable noBinlogTable = PlanConstructor.newOlapTable(15, "no_binlog", 0, KeysType.DUP_KEYS);
-        LogicalOlapScan noBinlogScan = new LogicalOlapScan(
-                PlanConstructor.getNextRelationId(), noBinlogTable, ImmutableList.of("db"));
+    void testBaseTableWithoutChangelogThrowsIvmException() {
+        OlapTable noChangelogTable = PlanConstructor.newOlapTable(15, "no_changelog", 0, KeysType.DUP_KEYS);
+        LogicalOlapScan noChangelogScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), noChangelogTable, ImmutableList.of("db"));
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> new IvmNormalizeUniqKeysMTMV().normalize(noBinlogScan,
-                        newJobContextForRoot(noBinlogScan, true, Collections.emptySet())));
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, exception.getFailureReason());
-        Assertions.assertTrue(exception.getMessage().contains("no_binlog"));
+                () -> new IvmNormalizeUniqKeysMTMV().normalize(noChangelogScan,
+                        newJobContextForRoot(noChangelogScan, true, Collections.emptySet())));
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("no_changelog"));
     }
 
     @Test
@@ -474,18 +474,18 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> new IvmNormalizeUniqKeysMTMV().normalize(ccrBinlogScan,
                         newJobContextForRoot(ccrBinlogScan, true, Collections.emptySet())));
-        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, exception.getFailureReason());
-        Assertions.assertTrue(exception.getMessage().contains("row binlog is not enabled"));
+        Assertions.assertEquals(IvmFailureReason.CHANGELOG_NOT_ENABLED, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("changelog is not enabled"));
     }
 
     @Test
-    void testExcludedTableWithoutBinlogDoesNotThrowBinlogException() {
-        OlapTable aggTable = newAggKeyOlapTableWithBoundDb(16, "excluded_no_binlog", "test");
+    void testExcludedTableWithoutChangelogDoesNotThrowChangelogException() {
+        OlapTable aggTable = newAggKeyOlapTableWithBoundDb(16, "excluded_no_changelog", "test");
         LogicalOlapScan aggScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), aggTable, ImmutableList.of("test"));
 
         Plan result = new IvmNormalizeUniqKeysMTMV().normalize(aggScan, newJobContextForRoot(aggScan, true,
-                Collections.singleton(new TableNameInfo("internal", "test", "excluded_no_binlog"))));
+                Collections.singleton(new TableNameInfo("internal", "test", "excluded_no_changelog"))));
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, result.getOutput().get(0).getName());
@@ -798,9 +798,13 @@ class IvmNormalizeUniqKeysMTMVTest {
                 Pair.of(new Count(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"))),
                 Pair.of(new Min(nameSlot), concat(groupCount,
-                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "MIN"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN"))),
                 Pair.of(new Max(nameSlot), concat(groupCount,
-                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), IvmUtil.ivmAggHiddenColumnName(0, "MAX"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_COUNT"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX"))),
                 Pair.of(new CollectList(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COLLECT_LIST"))),
                 Pair.of(new BitmapUnion(new BitmapFromString(nameSlot)), concat(groupCount,
@@ -1068,7 +1072,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         JobContext jobContext = newJobContextForRoot(agg, true);
         Plan result = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
 
-        // Normalization should succeed; no hidden MIN column — only hidden COUNT
+        // Normalization should succeed; no hidden MIN column, but COUNT and MIN_COUNT state columns.
         Assertions.assertInstanceOf(LogicalProject.class, result);
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
@@ -1076,12 +1080,14 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(IvmAggFunctionKind.MIN, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN_COUNT")));
     }
 
     @Test
@@ -1104,12 +1110,14 @@ class IvmNormalizeUniqKeysMTMVTest {
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
         Assertions.assertEquals(IvmAggFunctionKind.MAX, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_COUNT));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
+        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX_COUNT")));
     }
 
     @Test
@@ -1253,7 +1261,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
         tableProperty.setEnableUniqueKeyMergeOnWrite(true);
         mowTable.setTableProperty(tableProperty);
-        enableBinlog(mowTable);
+        enableChangelog(mowTable);
         LogicalOlapScan mowScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
         LogicalResultSink<Plan> sink = new LogicalResultSink<>(
@@ -1304,7 +1312,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
         rightProperty.setEnableUniqueKeyMergeOnWrite(true);
         rightTable.setTableProperty(rightProperty);
-        enableBinlog(rightTable);
+        enableChangelog(rightTable);
         LogicalOlapScan rightScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
         LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
@@ -1344,7 +1352,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
         rightProperty.setEnableUniqueKeyMergeOnWrite(true);
         rightTable.setTableProperty(rightProperty);
-        enableBinlog(rightTable);
+        enableChangelog(rightTable);
         LogicalOlapScan rightScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
         LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
@@ -1460,7 +1468,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
         tableProperty.setEnableUniqueKeyMergeOnWrite(true);
         mowTable.setTableProperty(tableProperty);
-        enableBinlog(mowTable);
+        enableChangelog(mowTable);
         LogicalOlapScan mowScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
         Slot idSlot = mowScan.getOutput().get(0);
@@ -1485,14 +1493,14 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty leftProperty = new TableProperty(new java.util.HashMap<>());
         leftProperty.setEnableUniqueKeyMergeOnWrite(true);
         leftTable.setTableProperty(leftProperty);
-        enableBinlog(leftTable);
+        enableChangelog(leftTable);
         LogicalOlapScan leftScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), leftTable, ImmutableList.of("db"));
         OlapTable rightTable = PlanConstructor.newOlapTable(33, "mow_r", 1, KeysType.UNIQUE_KEYS);
         TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
         rightProperty.setEnableUniqueKeyMergeOnWrite(true);
         rightTable.setTableProperty(rightProperty);
-        enableBinlog(rightTable);
+        enableChangelog(rightTable);
         LogicalOlapScan rightScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
         LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
@@ -1525,14 +1533,14 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty leftProperty = new TableProperty(new java.util.HashMap<>());
         leftProperty.setEnableUniqueKeyMergeOnWrite(true);
         leftTable.setTableProperty(leftProperty);
-        enableBinlog(leftTable);
+        enableChangelog(leftTable);
         LogicalOlapScan leftScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), leftTable, ImmutableList.of("db"));
         OlapTable rightTable = PlanConstructor.newOlapTable(35, "union_r", 0, KeysType.UNIQUE_KEYS);
         TableProperty rightProperty = new TableProperty(new java.util.HashMap<>());
         rightProperty.setEnableUniqueKeyMergeOnWrite(true);
         rightTable.setTableProperty(rightProperty);
-        enableBinlog(rightTable);
+        enableChangelog(rightTable);
         LogicalOlapScan rightScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), rightTable, ImmutableList.of("db"));
         LogicalUnion union = new LogicalUnion(Qualifier.ALL,
@@ -1580,7 +1588,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
         tableProperty.setEnableUniqueKeyMergeOnWrite(true);
         table.setTableProperty(tableProperty);
-        enableBinlog(table);
+        enableChangelog(table);
         return table;
     }
 
@@ -1631,11 +1639,11 @@ class IvmNormalizeUniqKeysMTMVTest {
         table.setIndexMeta(-1, tableName, table.getFullSchema(), 0, 0, (short) 0,
                 TStorageType.COLUMN, keysType);
         table.setQualifiedDbName(dbName);
-        enableBinlog(table);
+        enableChangelog(table);
         return table;
     }
 
-    private OlapTable newDupTableWithoutBinlogWithBoundDb(long tableId, String tableName, String dbName) {
+    private OlapTable newDupTableWithoutChangelogWithBoundDb(long tableId, String tableName, String dbName) {
         Database database = new Database(1L, dbName);
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
@@ -1673,9 +1681,8 @@ class IvmNormalizeUniqKeysMTMVTest {
         return table;
     }
 
-    private void enableBinlog(OlapTable table) {
-        table.getBinlogConfig().setEnable(true);
-        table.getBinlogConfig().setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+    private void enableChangelog(OlapTable table) {
+        table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
         if (table.getKeysType() == KeysType.DUP_KEYS) {
             addRowLsnColumn(table);
         }

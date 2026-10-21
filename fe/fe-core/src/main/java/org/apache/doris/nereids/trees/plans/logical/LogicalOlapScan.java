@@ -982,14 +982,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * BE needs the {@code __BEFORE__} columns to build before-images on an {@code @incr} read, but
+     * BE needs the changelog before columns to build before-images on an {@code @incr} read, but
      * they are storage bookkeeping: {@code SELECT * FROM t@incr(...)} should return t's own columns,
      * not the mirrors behind them. The flag is set on a copy because these Column instances belong
      * to the table's persisted metadata and are shared across statements.
      */
     private Column getOutputColumn(Column column) {
         if (scanParams.isPresent() && scanParams.get().incrementalRead()
-                && column.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+                && Column.isChangelogBeforeColumn(column.getName())) {
             Column outputColumn = new Column(column);
             outputColumn.setIsVisible(false);
             return outputColumn;
@@ -1200,9 +1200,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         if (producesDuplicateRows()) {
             return true;
         }
-        // Row-binlog incremental scan (TableScanParams.INCREMENTAL_READ):
+        // Changelog incremental scan (TableScanParams.INCREMENTAL_READ):
         // same hazard as the stream-scan case — the scan returns rows
-        // keyed by binlog position and duplicate key rows are possible.
+        // keyed by changelog position and duplicate key rows are possible.
         if (scanParams.isPresent() && scanParams.get().incrementalRead()) {
             return true;
         }

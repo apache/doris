@@ -222,6 +222,7 @@ private:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
+    format::parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;
