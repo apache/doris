@@ -27,7 +27,7 @@ import org.apache.doris.datasource.storage.S3ResourceCompat;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.expressions.functions.table.ListFile;
+import org.apache.doris.nereids.trees.expressions.functions.table.ListFiles;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -44,15 +44,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-class ListFileTableValuedFunctionTest {
+class ListFilesTableValuedFunctionTest {
     @Test
-    void exposesPathSizeNullableTimestampAndFileColumnsWithoutRemoteIo() throws Exception {
+    void exposesPathSizeAndNullableFileColumnsWithoutRemoteIo() throws Exception {
         try (Fixture fixture = new Fixture()) {
-            TableValuedFunctionIf function = TableValuedFunctionIf.getTableFunction("LIST_FILE", fixture.params());
+            TableValuedFunctionIf function = TableValuedFunctionIf.getTableFunction("LIST_FILES", fixture.params());
             List<Column> columns = function.getTableColumns();
             assertSchema(columns);
             Assertions.assertInstanceOf(DataGenTableValuedFunction.class, function);
-            ListFile nereids = new ListFile(new Properties(fixture.params()));
+            ListFiles nereids = new ListFiles(new Properties(fixture.params()));
             assertSchema(nereids.getTableColumns());
         }
     }
@@ -72,10 +72,10 @@ class ListFileTableValuedFunctionTest {
     @Test
     void acceptsCaseInsensitiveKeysAndStrictBooleanValues() throws Exception {
         try (Fixture fixture = new Fixture()) {
-            ListFileTableValuedFunction function = new ListFileTableValuedFunction(
+            ListFilesTableValuedFunction function = new ListFilesTableValuedFunction(
                     ImmutableMap.of("RESOURCE", "s3_resource", "URI", "s3://bucket/", "RECURSIVE", "TRUE"));
             Assertions.assertTrue(range(function).isRecursive());
-            Assertions.assertFalse(range(new ListFileTableValuedFunction(fixture.params())).isRecursive());
+            Assertions.assertTrue(range(new ListFilesTableValuedFunction(fixture.params())).isRecursive());
             for (String value : new String[] {"yes", "1", "", " false "}) {
                 Map<String, String> params = fixture.params();
                 params.put("recursive", value);
@@ -90,7 +90,7 @@ class ListFileTableValuedFunctionTest {
             for (String uri : new String[] {"s3://bucket", "s3://bucket/", "s3://bucket/dir", "s3://bucket/dir/"}) {
                 Map<String, String> params = fixture.params();
                 params.put("uri", uri);
-                Assertions.assertEquals(uri, range(new ListFileTableValuedFunction(params)).getUri());
+                Assertions.assertEquals(uri, range(new ListFilesTableValuedFunction(params)).getUri());
             }
         }
     }
@@ -102,7 +102,7 @@ class ListFileTableValuedFunctionTest {
                     "s3://another-bucket/a b+中文%ZZ#fragment"}) {
                 Map<String, String> params = fixture.params();
                 params.put("uri", uri);
-                Assertions.assertEquals(uri, range(new ListFileTableValuedFunction(params)).getUri());
+                Assertions.assertEquals(uri, range(new ListFilesTableValuedFunction(params)).getUri());
             }
         }
     }
@@ -124,7 +124,7 @@ class ListFileTableValuedFunctionTest {
     void queryConfigurationIsSharedWithToFileAndRefreshesNextExecute() throws Exception {
         try (Fixture fixture = new Fixture()) {
             fixture.properties.put("s3.secret_key", "prepare");
-            ListFileTableValuedFunction function = new ListFileTableValuedFunction(fixture.params());
+            ListFilesTableValuedFunction function = new ListFilesTableValuedFunction(fixture.params());
             fixture.properties.put("s3.secret_key", "first execute");
             fixture.context.getOrRegisterS3Resource("s3_resource");
             fixture.properties.put("s3.secret_key", "second execute");
@@ -148,7 +148,7 @@ class ListFileTableValuedFunctionTest {
             Backend dead = Mockito.mock(Backend.class);
             Mockito.when(fixture.system.getBackendsByCurrentCluster())
                     .thenReturn(ImmutableMap.of(1L, dead, 2L, fixture.backend));
-            ListFileTableValuedFunction function = new ListFileTableValuedFunction(fixture.params());
+            ListFilesTableValuedFunction function = new ListFilesTableValuedFunction(fixture.params());
             List<TableValuedFunctionTask> tasks = function.getTasks();
             Assertions.assertEquals(1, tasks.size());
             Assertions.assertSame(fixture.backend, tasks.get(0).getBackend());
@@ -160,22 +160,25 @@ class ListFileTableValuedFunctionTest {
     }
 
     private static void assertSchema(List<Column> columns) {
-        Assertions.assertEquals(2, columns.size());
+        Assertions.assertEquals(3, columns.size());
         Assertions.assertEquals("path", columns.get(0).getName());
         Assertions.assertEquals(Type.STRING, columns.get(0).getType());
         Assertions.assertFalse(columns.get(0).isAllowNull());
-        Assertions.assertEquals("file", columns.get(1).getName());
-        Assertions.assertTrue(columns.get(1).getType().isFileType());
+        Assertions.assertEquals("size", columns.get(1).getName());
+        Assertions.assertEquals(Type.BIGINT, columns.get(1).getType());
         Assertions.assertFalse(columns.get(1).isAllowNull());
+        Assertions.assertEquals("file", columns.get(2).getName());
+        Assertions.assertTrue(columns.get(2).getType().isFileType());
+        Assertions.assertTrue(columns.get(2).isAllowNull());
     }
 
-    private static TTVFListFileScanRange range(ListFileTableValuedFunction function) throws Exception {
+    private static TTVFListFileScanRange range(ListFilesTableValuedFunction function) throws Exception {
         return function.getTasks().get(0).getExecParams().getDataGenScanRange().getListFileParams();
     }
 
     private static void assertInvalid(Map<String, String> params, String message) {
         Exception error = Assertions.assertThrows(Exception.class,
-                () -> TableValuedFunctionIf.getTableFunction("list_file", params));
+                () -> TableValuedFunctionIf.getTableFunction("list_files", params));
         Assertions.assertTrue(error.getMessage().contains(message), error.getMessage());
     }
 

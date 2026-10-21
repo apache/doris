@@ -147,6 +147,7 @@ struct ObjStorageListResult {
 struct ObjStorageListPageResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
     std::vector<ObjectMeta> objects {};
+    std::vector<std::string> common_prefixes {};
     std::string continuation_token {};
     bool has_more = false;
 };
