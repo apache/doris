@@ -17,15 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.lance.LanceIndexPrewarm;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordInterface;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
@@ -36,11 +43,13 @@ import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,12 +73,25 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
             .addColumn(new Column("BytesWriteIntoCache", ScalarType.createType(PrimitiveType.BIGINT)))
             .build();
 
+    private final List<String> indexTable;
+    private final String indexAlias;
+    private final List<Slot> indexProjections;
+
     /**
      * WarmupSelectCommand constructor
      */
     public WarmupSelectCommand(LogicalPlan logicalQuery) {
+        this(logicalQuery, null, null, ImmutableList.of());
+    }
+
+    /** Retain unbound identifiers so every execution resolves its own session defaults. */
+    public WarmupSelectCommand(LogicalPlan logicalQuery, List<String> indexTable, String indexAlias,
+            List<Slot> indexProjections) {
         super(PlanType.INSERT_INTO_BLACKHOLE_COMMAND, logicalQuery, Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty());
+        this.indexTable = indexTable == null ? null : ImmutableList.copyOf(indexTable);
+        this.indexAlias = indexAlias;
+        this.indexProjections = ImmutableList.copyOf(indexProjections);
         super.setInsertExecutorListener(new InsertExecutorListener() {
             @Override
             public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
@@ -217,9 +239,50 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
     }
 
     @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (indexTable != null) {
+            // Do not cache resolved defaults or pass identifiers through TableNameInfo, whose
+            // constructor applies the global case policy before the catalog can resolve them.
+            // RelationUtil also rejects overqualified names instead of discarding leading parts.
+            List<String> table = RelationUtil.getQualifierName(ctx, indexTable);
+            LanceIndexPrewarm.run(ctx, executor, table, indexWarmupColumns(table),
+                    () -> executor.isCancelled() || ctx.isKilled());
+        } else {
+            super.run(ctx, executor);
+        }
+    }
+
+    private List<String> indexWarmupColumns(List<String> table) {
+        List<String> qualifier = indexAlias == null ? table : ImmutableList.of(indexAlias);
+        List<String> columns = new ArrayList<>();
+        for (Slot projection : indexProjections) {
+            List<String> actual = projection.getQualifier();
+            if (actual.size() > qualifier.size()) {
+                throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
+            }
+            for (int i = 0; i < actual.size(); i++) {
+                if (!actual.get(i).equalsIgnoreCase(qualifier.get(qualifier.size() - actual.size() + i))) {
+                    throw new AnalysisException("Unknown column qualifier in index-only WARM UP SELECT");
+                }
+            }
+            if (projection instanceof UnboundSlot) {
+                List<String> parts = ((UnboundSlot) projection).getNameParts();
+                columns.add(parts.get(parts.size() - 1));
+            }
+        }
+        return columns;
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Index prewarm is read-only and must retain this session's execution context on any FE.
+        return indexTable == null ? super.toRedirectStatus() : RedirectStatus.NO_FORWARD;
+    }
+
+    @Override
     public ShowResultSetMetaData getResultSetMetaData() {
-        // Unlike ordinary INSERT, warmup returns per-backend statistics rather than OK.
-        return metaData;
+        // Binary PREPARE must advertise the schema of the selected execution mode.
+        return indexTable == null ? metaData : LanceIndexPrewarm.getResultSetMetaData();
     }
 
     /**

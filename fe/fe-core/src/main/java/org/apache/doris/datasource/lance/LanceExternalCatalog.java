@@ -27,6 +27,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+import org.apache.doris.datasource.lance.metadata.LanceIndexPrewarmMetadata;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
@@ -183,6 +184,10 @@ public class LanceExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext context, String dbName, String tableName) {
         return withClient(current -> current.tableExists(dbName, tableName));
+    }
+
+    public LanceIndexPrewarmMetadata loadTableMetadataForPrewarm(String dbName, String tableName) {
+        return withClient(current -> current.loadTableMetadataForPrewarm(dbName, tableName));
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {

@@ -25,6 +25,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+import org.apache.doris.datasource.lance.metadata.LanceIndexPrewarmMetadata;
 import org.apache.doris.datasource.lance.metadata.LanceMvccSnapshot;
 import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceSchemaHelper;
@@ -58,6 +59,10 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
     public Optional<SchemaCacheValue> initSchema() {
         Schema schema = ((LanceExternalCatalog) catalog).loadTableSchema(db.getRemoteName(), remoteName);
         return Optional.of(new SchemaCacheValue(LanceSchemaHelper.toDorisColumns(schema)));
+    }
+
+    public LanceIndexPrewarmMetadata loadMetadataForPrewarm() {
+        return ((LanceExternalCatalog) catalog).loadTableMetadataForPrewarm(db.getRemoteName(), remoteName);
     }
 
     public LanceTableMetadata loadMetadata() {

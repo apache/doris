@@ -75,6 +75,11 @@ public:
                                POutfileWriteSuccessResult* result,
                                google::protobuf::Closure* done) override;
 
+    void prewarm_lance_index(google::protobuf::RpcController* controller,
+                             const PLanceIndexPrewarmRequest* request,
+                             PLanceIndexPrewarmResponse* response,
+                             google::protobuf::Closure* done) override;
+
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
                             PFetchTableSchemaResult* result,
@@ -274,6 +279,7 @@ protected:
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _lance_index_prewarm_pool;
     FifoThreadPool _peer_fetch_pool;
     FifoThreadPool _light_work_pool;
     FifoThreadPool _arrow_flight_work_pool;

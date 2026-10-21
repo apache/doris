@@ -9583,6 +9583,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         LogicalProject project = new LogicalProject(projectList, filter);
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        for (String key : properties.keySet()) {
+            if (!"read_index_only".equals(key)) {
+                throw new AnalysisException("Unknown WARM UP SELECT property: " + key);
+            }
+        }
+        String indexOnly = properties.getOrDefault("read_index_only", "false");
+        if (!"true".equalsIgnoreCase(indexOnly) && !"false".equalsIgnoreCase(indexOnly)) {
+            throw new AnalysisException("read_index_only must be true or false");
+        }
+        if (Boolean.parseBoolean(indexOnly)) {
+            if (ctx.whereClause() != null || ctx.explain() != null) {
+                throw new AnalysisException("Index-only WARM UP SELECT does not support WHERE or EXPLAIN");
+            }
+            // Index cache fills must not execute the data scan or require the data-file cache.
+            List<Slot> columns = indexWarmupColumns(ctx, projectList);
+            UnboundBlackholeSink<?> sink = new UnboundBlackholeSink<>(project,
+                    new UnboundBlackholeSinkContext(true));
+            // The grammar can produce an empty alias context when no alias is present.
+            DorisParser.TableAliasContext alias = ctx.warmUpSingleTableRef().tableAlias();
+            return new WarmupSelectCommand(sink,
+                    visitMultipartIdentifier(ctx.warmUpSingleTableRef().multipartIdentifier()),
+                    alias == null || alias.strictIdentifier() == null ? null
+                            : alias.strictIdentifier().getText(), columns);
+        }
 
         if (Config.isNotCloudMode() && (!ConnectContext.get().getSessionVariable().isEnableFileCache())) {
             throw new AnalysisException("WARM UP SELECT requires session variable"
@@ -9602,6 +9627,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 new UnboundBlackholeSinkContext(true));
         LogicalPlan command = new WarmupSelectCommand(sink);
         return withExplain(command, ctx.explain());
+    }
+
+    private List<Slot> indexWarmupColumns(DorisParser.WarmUpSelectContext ctx, List<Expression> projects) {
+        DorisParser.WarmUpSingleTableRefContext table = ctx.warmUpSingleTableRef();
+        if (table.tableAlias() != null && table.tableAlias().identifierList() != null) {
+            throw new AnalysisException("Index-only WARM UP SELECT does not support column aliases");
+        }
+        List<Slot> columns = new ArrayList<>();
+        for (Expression expression : projects) {
+            if (!(expression instanceof UnboundSlot) && !(expression instanceof UnboundStar)) {
+                throw new AnalysisException("Index-only WARM UP SELECT requires column names or *");
+            }
+            if (expression instanceof UnboundStar) {
+                UnboundStar star = (UnboundStar) expression;
+                if (projects.size() != 1 || !star.getExceptedSlots().isEmpty() || !star.getReplacedAlias().isEmpty()) {
+                    throw new AnalysisException("Index-only WARM UP SELECT requires * alone without EXCEPT or REPLACE");
+                }
+            }
+            // USE and prepared execution can change defaults after parsing. Retain qualifiers
+            // until they can be checked against the same table that this execution will warm.
+            columns.add((Slot) expression);
+        }
+        return columns;
     }
 
     @Override
