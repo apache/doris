@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 
 import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
@@ -397,19 +398,28 @@ public class LanceTypeConverterTest {
 
     @Test
     public void testLegacyDateAndDecimalV2AreRejectedForRoundTripSafety() {
-        for (Type legacyType : Arrays.asList(Type.DATE, ScalarType.createDecimalV2Type(10, 2))) {
-            IllegalArgumentException create = Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> LanceTypeConverter.toArrowSchema(
-                            Collections.singletonList(new Column("legacy", legacyType, true))));
-            Assertions.assertTrue(create.getMessage().contains("cannot be read back losslessly"));
+        boolean originalEnableDecimalConversion = Config.enable_decimal_conversion;
+        boolean originalDisableDecimalV2 = Config.disable_decimalv2;
+        try {
+            Config.enable_decimal_conversion = true;
+            Config.disable_decimalv2 = false;
+            for (Type legacyType : Arrays.asList(Type.DATE, ScalarType.createDecimalV2Type(10, 2))) {
+                IllegalArgumentException create = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> LanceTypeConverter.toArrowSchema(
+                                Collections.singletonList(new Column("legacy", legacyType, true))));
+                Assertions.assertTrue(create.getMessage().contains("cannot be read back losslessly"));
 
-            IllegalArgumentException add = Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> LanceTypeConverter.toAddColumnExpression(legacyType));
-            Assertions.assertTrue(add.getMessage().contains("cannot be read back losslessly"));
+                IllegalArgumentException add = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> LanceTypeConverter.toAddColumnExpression(legacyType));
+                Assertions.assertTrue(add.getMessage().contains("cannot be read back losslessly"));
 
-            IllegalArgumentException modify = Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> LanceTypeConverter.toAlterColumnType(legacyType));
-            Assertions.assertTrue(modify.getMessage().contains("cannot be read back losslessly"));
+                IllegalArgumentException modify = Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> LanceTypeConverter.toAlterColumnType(legacyType));
+                Assertions.assertTrue(modify.getMessage().contains("cannot be read back losslessly"));
+            }
+        } finally {
+            Config.enable_decimal_conversion = originalEnableDecimalConversion;
+            Config.disable_decimalv2 = originalDisableDecimalV2;
         }
     }
 

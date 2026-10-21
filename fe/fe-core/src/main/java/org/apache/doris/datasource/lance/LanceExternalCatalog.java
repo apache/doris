@@ -287,6 +287,21 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
+    public void invalidateDatabaseCachesAfterDrop() {
+        invalidateTableAccessCache();
+        try {
+            // Cascade drops delete descendants, but the replay hook only carries the parent name.
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+        } finally {
+            try {
+                // Object retirement alone leaves name-keyed schema entries for recreated tables.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+            } finally {
+                resetMetaCacheNames();
+            }
+        }
+    }
+
     @Override
     public void onRefreshCache(boolean invalidCache) {
         if (invalidCache) {

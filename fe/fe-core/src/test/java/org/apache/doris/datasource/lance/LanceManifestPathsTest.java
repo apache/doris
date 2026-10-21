@@ -99,12 +99,19 @@ public class LanceManifestPathsTest {
     public void testNormalizedLocationPreservesAuthorityAndNormalizesPath() {
         Assertions.assertEquals("s3://bucket/warehouse/items.lance",
                 LanceManifestPaths.normalizedLocation(
-                        "s3://bucket/warehouse//./staged/../items.lance/?X-Amz-Signature=example#fragment"));
+                        "s3://bucket/warehouse/items.lance/?X-Amz-Signature=example#fragment"));
         Assertions.assertEquals("warehouse/items.lance",
-                LanceManifestPaths.normalizedLocation("/warehouse//./staged/../items.lance/"));
+                LanceManifestPaths.normalizedLocation("/warehouse/items.lance/"));
         Assertions.assertNotEquals(
                 LanceManifestPaths.normalizedLocation("s3://bucket-a/warehouse/items.lance"),
                 LanceManifestPaths.normalizedLocation("s3://bucket-b/warehouse/items.lance"));
+        for (String ambiguous : Arrays.asList("s3://bucket/warehouse//../items.lance",
+                "s3://bucket/warehouse/./items.lance", "s3://bucket/warehouse/../items.lance",
+                "s3://bucket/warehouse/%2e%2e/items.lance", "s3://bucket/warehouse%2Fitems.lance",
+                "s3://bucket/warehouse%5Citems.lance", "/warehouse//./staged/../items.lance/")) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceManifestPaths.normalizedLocation(ambiguous), ambiguous);
+        }
     }
 
     /**
@@ -127,10 +134,10 @@ public class LanceManifestPathsTest {
         Assertions.assertEquals("tmp/a b/t.lance", LanceManifestPaths.objectStorePath("file:///tmp/a%20b/t.lance"));
         Assertions.assertEquals("tmp/t.lance", LanceManifestPaths.objectStorePath("file:/tmp/t.lance"));
         Assertions.assertEquals("tmp/a%20b/t.lance", LanceManifestPaths.objectStorePath("/tmp/a%20b/t.lance"));
-        Assertions.assertEquals("warehouse/items.lance",
-                LanceManifestPaths.objectStorePath("s3://bucket/warehouse//./staged/../items.lance/"));
-        Assertions.assertEquals("warehouse/items.lance",
-                LanceManifestPaths.objectStorePath("/warehouse//./staged/../items.lance/"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceManifestPaths.objectStorePath("s3://bucket/warehouse//./staged/../items.lance/"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceManifestPaths.objectStorePath("/warehouse//./staged/../items.lance/"));
         Assertions.assertEquals("t%zz.lance", LanceManifestPaths.objectStorePath("s3://bucket/t%zz.lance"));
     }
 }

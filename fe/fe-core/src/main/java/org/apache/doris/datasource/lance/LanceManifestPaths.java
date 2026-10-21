@@ -24,7 +24,6 @@ import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayDeque;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -119,29 +118,37 @@ final class LanceManifestPaths {
             int slash = path.indexOf('/', 2);
             path = slash < 0 ? "" : path.substring(slash);
         }
-        return normalizeObjectPath(StringUtils.strip(percentDecode(path), "/"));
+        return normalizeUrlPath(path);
+    }
+
+    private static String normalizeUrlPath(String rawPath) {
+        if (rawPath == null) {
+            throw new IllegalArgumentException("Lance table location must have a hierarchical path");
+        }
+        String path = StringUtils.strip(rawPath, "/");
+        for (String segment : path.split("/", -1)) {
+            if (percentDecode(segment).indexOf('/') >= 0) {
+                throw new IllegalArgumentException(
+                        "Lance table location must not contain encoded path separators");
+            }
+        }
+        return normalizeObjectPath(percentDecode(path));
     }
 
     private static String normalizeObjectPath(String path) {
         if (path.isEmpty()) {
             return "";
         }
-        ArrayDeque<String> segments = new ArrayDeque<>();
-        for (String segment : path.split("/+")) {
-            if (segment.isEmpty() || ".".equals(segment)) {
-                continue;
-            }
-            if ("..".equals(segment)) {
-                if (!segments.isEmpty() && !"..".equals(segments.peekLast())) {
-                    segments.removeLast();
-                } else {
-                    segments.addLast(segment);
-                }
-            } else {
-                segments.addLast(segment);
+        // URL parsing resolves dot segments before percent-decoding, and empty segments affect
+        // which segment ".." consumes. Reject ambiguous paths instead of guessing SDK identity.
+        for (String segment : path.split("/", -1)) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)
+                    || segment.indexOf('\\') >= 0) {
+                throw new IllegalArgumentException(
+                        "Lance table location must not contain ambiguous path segments");
             }
         }
-        return String.join("/", segments);
+        return path;
     }
 
     static String normalizedLocation(String location) {
@@ -154,7 +161,7 @@ final class LanceManifestPaths {
         }
         try {
             URI uri = new URI(stripped);
-            String path = normalizeObjectPath(StringUtils.strip(percentDecode(uri.getRawPath()), "/"));
+            String path = normalizeUrlPath(uri.getRawPath());
             StringBuilder result = new StringBuilder();
             result.append(uri.getScheme()).append(":");
             if (uri.getRawAuthority() != null) {
@@ -170,12 +177,12 @@ final class LanceManifestPaths {
                 int slash = path.indexOf('/', 2);
                 String authority = slash < 0 ? path.substring(2) : path.substring(2, slash);
                 String objectPath = slash < 0 ? ""
-                        : normalizeObjectPath(StringUtils.strip(percentDecode(path.substring(slash)), "/"));
+                        : normalizeUrlPath(path.substring(slash));
                 return stripped.substring(0, stripped.indexOf(':') + 1) + "//" + authority
                         + (objectPath.isEmpty() ? "" : "/" + objectPath);
             }
             return stripped.substring(0, stripped.indexOf(':') + 1)
-                    + normalizeObjectPath(StringUtils.strip(percentDecode(path), "/"));
+                    + normalizeUrlPath(path);
         }
     }
 

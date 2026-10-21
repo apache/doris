@@ -60,6 +60,7 @@ import org.lance.namespace.model.TableVersion;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -86,6 +87,7 @@ final class LanceNamespaceClient {
     private final LanceNamespace namespace;
     private final String catalogType;
     private final String rootDatabase;
+    private final String warehouse;
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
     /**
@@ -126,9 +128,18 @@ final class LanceNamespaceClient {
     LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
             List<String> parentNamespace, List<StorageProperties> storageProperties,
             Map<String, String> namespaceStorageOptions, long tableAccessTtlSeconds, Ticker ticker) {
+        this(namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
+                namespaceStorageOptions, tableAccessTtlSeconds, ticker, null);
+    }
+
+    LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
+            List<String> parentNamespace, List<StorageProperties> storageProperties,
+            Map<String, String> namespaceStorageOptions, long tableAccessTtlSeconds, Ticker ticker,
+            String warehouse) {
         this.namespace = namespace;
         this.catalogType = catalogType;
         this.rootDatabase = rootDatabase;
+        this.warehouse = warehouse;
         this.parentNamespace = Collections.unmodifiableList(new ArrayList<>(parentNamespace));
         this.storageProperties = Collections.unmodifiableList(new ArrayList<>(storageProperties));
         this.namespaceStorageOptions = Collections.unmodifiableMap(
@@ -390,16 +401,20 @@ final class LanceNamespaceClient {
                 } catch (TableNotFoundException | NamespaceNotFoundException e) {
                     throw originalException;
                 }
-                String expectedLocation = tableName + ".lance";
+                String relativeLocation = tableName + ".lance";
                 try {
                     // DirectoryNamespace only accepts locations relative to its warehouse root.
                     namespace.registerTable(new RegisterTableRequest()
                             .id(tableId)
-                            .location(expectedLocation)
+                            .location(relativeLocation)
                             .mode("Create"));
                 } catch (TableAlreadyExistsException e) {
+                    String expectedLocation = warehouseTableLocation(relativeLocation);
                     String registeredLocation = describeTable(tableId).getLocation();
-                    if (!expectedLocation.equals(registeredLocation)) {
+                    String registeredUri = registeredLocation != null && registeredLocation.startsWith("/")
+                            ? Paths.get(registeredLocation).toUri().toString() : registeredLocation;
+                    if (!LanceManifestPaths.normalizedLocation(expectedLocation)
+                            .equals(LanceManifestPaths.normalizedLocation(registeredUri))) {
                         throw new DdlException("Refusing to mutate Lance table " + tableName
                                 + " because it was concurrently registered at "
                                 + registeredLocation + " instead of " + expectedLocation);
@@ -407,6 +422,20 @@ final class LanceNamespaceClient {
                 }
                 mutation.run();
             }
+        }
+    }
+
+    private String warehouseTableLocation(String relativeLocation) throws DdlException {
+        if (StringUtils.isBlank(warehouse)) {
+            throw new DdlException("Cannot verify concurrent Lance table registration without a warehouse");
+        }
+        try {
+            String root = warehouse.startsWith("/") ? Paths.get(warehouse).toUri().toString()
+                    : new URI(warehouse).toString();
+            String path = new URI(null, null, "/" + relativeLocation, null).getRawPath().substring(1);
+            return StringUtils.appendIfMissing(root, "/") + path;
+        } catch (URISyntaxException e) {
+            throw new DdlException("Invalid Lance warehouse URI: " + warehouse, e);
         }
     }
 
@@ -462,6 +491,9 @@ final class LanceNamespaceClient {
             if (StringUtils.startsWithIgnoreCase(datasetUri, "s3+ddb:")) {
                 throw new RuntimeException("Lance namespace returned an s3+ddb URI for managed table " + tableId
                         + ", whose versions the namespace manages");
+            }
+            if (datasetUri.indexOf('#') >= 0) {
+                throw new RuntimeException("Lance managed table URI must not contain a fragment: " + tableId);
             }
             if (StringUtils.isNotBlank(table.getTableUri())
                     && !LanceManifestPaths.normalizedLocation(table.getTableUri())

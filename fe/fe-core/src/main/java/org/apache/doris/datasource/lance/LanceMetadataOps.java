@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.lance.metadata.LanceTypeConverter;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
@@ -81,6 +82,12 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             }
             ExternalDatabase<?> cachedDb = catalog.getDbNullable(dbName);
             if (cachedDb != null) {
+                if (!cachedDb.getRemoteName().equals(dbName)) {
+                    if (ifNotExists) {
+                        return true;
+                    }
+                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+                }
                 if (client.databaseExists(cachedDb.getRemoteName())) {
                     if (ifNotExists) {
                         return true;
@@ -160,19 +167,17 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(dbName);
-        if (db.isPresent()) {
-            catalog.unregisterDatabase(db.get().getFullName());
-            return;
+        try {
+            Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(dbName);
+            catalog.unregisterDatabase(db.map(ExternalDatabase::getFullName).orElse(dbName));
+        } finally {
+            catalog.invalidateDatabaseCachesAfterDrop();
         }
-        catalog.unregisterDatabase(dbName);
-        catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Override
     public void afterDropDbNoOp(String dbName) {
-        catalog.invalidateTableAccessCache();
-        catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+        catalog.invalidateDatabaseCachesAfterDrop();
     }
 
     @Override
@@ -221,9 +226,6 @@ public class LanceMetadataOps implements ExternalMetadataOps {
                     }
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
                 }
-                catalog.invalidateTableAccessCache();
-                db.unregisterTable(cachedTable.getName());
-                db.resetMetaCacheNames();
             }
             try {
                 client.createTable(db.getRemoteName(), tableName, schema, properties);
@@ -293,6 +295,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             if (!invalidated && !db.get().hasLocalTableName(tblName)) {
                 db.get().retireAllTableObjectsWithoutEngineInvalidation();
             }
+            db.get().resetMetaCacheNames();
         }
     }
 
@@ -301,9 +304,14 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         if (!catalog.isRestCatalogConfigured()) {
             throw new DdlException("RENAME TABLE is not supported for Lance filesystem catalogs");
         }
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        ExternalTable source = db == null ? null : db.getTableNullable(oldName);
+        if (source == null) {
+            throw new DdlException("Failed to resolve Lance rename source: " + dbName + "." + oldName);
+        }
         execute("Failed to rename Lance table " + dbName + "." + oldName + " to " + newName,
                 client -> {
-                    client.renameTable(dbName, oldName, newName);
+                    client.renameTable(source.getRemoteDbName(), source.getRemoteName(), newName);
                     return null;
                 });
     }
@@ -313,7 +321,10 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         catalog.invalidateTableAccessCache();
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
-            db.get().unregisterTable(oldName);
+            db.get().unregisterTableForReplay(oldName);
+            if (db.get().getTableForReplay(newName).isPresent() || db.get().hasLocalTableName(newName)) {
+                db.get().unregisterTableForReplay(newName);
+            }
             db.get().resetMetaCacheNames();
         }
     }
@@ -414,10 +425,11 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         }
         boolean nullabilityChanged = column.isNullableSpecified()
                 && currentColumn.isAllowNull() != column.isAllowNull();
-        // Lance rejects casting and tightening nullability in the same alter_columns call.
-        if (typeChanged && nullabilityChanged && !column.isAllowNull()) {
+        // TODO: Support combined changes only when they can commit atomically; separate SDK
+        // calls can leave a partially committed mutation.
+        if (typeChanged && nullabilityChanged) {
             throw new UserException("Lance MODIFY COLUMN does not support changing type and "
-                    + "making the column NOT NULL in one operation. Apply the type change first, "
+                    + "nullability in one operation. Apply the type change first, "
                     + "then change nullability.");
         }
         if (nullabilityChanged) {
@@ -429,34 +441,13 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             return;
         }
 
-        boolean modified = false;
-        DdlException mutationFailure = null;
-        try {
-            for (AlterColumnsEntry alteration : alterations) {
-                execute("Failed to modify column " + currentColumn.getName() + " in Lance table "
-                                + tableName(dorisTable),
-                        client -> {
-                            client.alterColumns(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(),
-                                    Collections.singletonList(alteration));
-                            return null;
-                        });
-                modified = true;
-            }
-        } catch (DdlException e) {
-            mutationFailure = e;
-            throw e;
-        } finally {
-            if (modified) {
-                try {
-                    refreshTable(dorisTable, updateTime);
-                } catch (RuntimeException refreshFailure) {
-                    if (mutationFailure == null) {
-                        throw refreshFailure;
-                    }
-                    mutationFailure.addSuppressed(refreshFailure);
-                }
-            }
-        }
+        execute("Failed to modify column " + currentColumn.getName() + " in Lance table "
+                        + tableName(dorisTable),
+                client -> {
+                    client.alterColumns(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), alterations);
+                    return null;
+                });
+        refreshTable(dorisTable, updateTime);
     }
 
     static void validateAddColumn(Column column, ColumnPosition position) throws UserException {
@@ -567,14 +558,23 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     }
 
     private void refreshTable(ExternalTable dorisTable, long updateTime) {
-        catalog.invalidateTableAccessCache();
-        Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dorisTable.getDbName());
-        if (db.isPresent()) {
-            Optional<?> table = db.get().getTableForReplay(dorisTable.getName());
-            if (table.isPresent()) {
-                Env.getCurrentEnv().getRefreshManager()
-                        .refreshTableInternal(db.get(), (ExternalTable) table.get(), updateTime);
+        try {
+            catalog.invalidateTableAccessCache();
+            // The DDL holds these objects even if their cache entries were evicted during the mutation.
+            Env.getCurrentEnv().getRefreshManager().refreshTableInternal(
+                    (ExternalDatabase<?>) dorisTable.getDatabase(), dorisTable, updateTime);
+        } catch (RuntimeException failure) {
+            // The remote mutation committed. The caller cannot journal it after this exception.
+            try {
+                Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(catalog.getId(),
+                                dorisTable.getDbName(), dorisTable.getName(), updateTime));
+            } catch (RuntimeException journalFailure) {
+                if (journalFailure != failure) {
+                    failure.addSuppressed(journalFailure);
+                }
             }
+            throw failure;
         }
     }
 
