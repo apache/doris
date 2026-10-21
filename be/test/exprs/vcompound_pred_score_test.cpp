@@ -130,14 +130,16 @@ TEST(VCompoundPredScoreTest, FailedAndBranchDoesNotContributeToOrScore) {
             std::make_shared<ScoredBitmapExpr>(std::initializer_list<uint32_t> {1, 3, 4, 5}, 4.0F));
     auto root = make_compound(TExprOpcode::COMPOUND_OR, first, second);
 
+    const std::vector<ColumnId> column_ids;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     segment_v2::ColumnIteratorOptions iterator_options;
     auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
     auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
-            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
+            column_ids, iterators, storage_types, status_map, score_runtime, nullptr,
+            iterator_options,
+            std::make_shared<Schema>(std::vector<TabletColumnPtr> {}, column_ids));
     auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
     query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     auto root_similarity = query_context->collection_similarity;
@@ -167,14 +169,16 @@ TEST(VCompoundPredScoreTest, NotBranchDoesNotContributeToOrScore) {
             std::make_shared<ScoredBitmapExpr>(std::initializer_list<uint32_t> {1, 3}, 5.0F);
     auto root = make_compound(TExprOpcode::COMPOUND_OR, negative, positive);
 
+    const std::vector<ColumnId> column_ids;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     segment_v2::ColumnIteratorOptions iterator_options;
     auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
     auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
-            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
+            column_ids, iterators, storage_types, status_map, score_runtime, nullptr,
+            iterator_options,
+            std::make_shared<Schema>(std::vector<TabletColumnPtr> {}, column_ids));
     auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
     query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     index_context->set_index_query_context(query_context);
@@ -201,14 +205,16 @@ TEST(VCompoundPredScoreTest, IncompleteScoredBranchReturnsErrorWithoutPublishing
             std::make_shared<ScoredBitmapExpr>(std::initializer_list<uint32_t> {1}, 1.0F),
             std::make_shared<UnindexedExpr>());
 
+    const std::vector<ColumnId> column_ids;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> iterators;
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     segment_v2::ColumnIteratorOptions iterator_options;
     auto score_runtime = std::make_shared<ScoreRuntime>(nullptr, false, 0);
     auto index_context = std::make_shared<IndexExecContext>(
-            iterators, storage_types, status_map, score_runtime, nullptr, iterator_options,
-            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
+            column_ids, iterators, storage_types, status_map, score_runtime, nullptr,
+            iterator_options,
+            std::make_shared<Schema>(std::vector<TabletColumnPtr> {}, column_ids));
     auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
     query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     auto parent_similarity = query_context->collection_similarity;
