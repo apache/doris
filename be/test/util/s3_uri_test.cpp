@@ -76,6 +76,24 @@ TEST_F(S3URITest, InvalidSchema) {
     EXPECT_FALSE(uri1.parse());
 }
 
+TEST_F(S3URITest, NativeAzureLocation) {
+    S3URI abfss("abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet");
+    EXPECT_TRUE(abfss.parse());
+    EXPECT_EQ("c1", abfss.get_bucket());
+    EXPECT_EQ("db/t/f.parquet", abfss.get_key());
+
+    S3URI wasbs("wasbs://c1@acct.blob.core.windows.net/db/f?x=1");
+    EXPECT_TRUE(wasbs.parse());
+    EXPECT_EQ("c1", wasbs.get_bucket());
+    EXPECT_EQ("db/f", wasbs.get_key());
+
+    // Same rules as the s3-style form: a container root has no key, a missing container fails.
+    S3URI root("abfss://c1@acct.dfs.core.windows.net/");
+    EXPECT_FALSE(root.parse());
+    S3URI no_container("abfss://acct.dfs.core.windows.net/db/f");
+    EXPECT_FALSE(no_container.parse());
+}
+
 TEST_F(S3URITest, MissingKey) {
     std::string p1 = "https://bucket/";
     S3URI uri1(p1);

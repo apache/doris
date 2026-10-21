@@ -1942,6 +1942,32 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertTrue(update.isWritesDataFiles());
     }
 
+    // BE writes position-delete and deletion-vector files under output_path and commits them under
+    // table_location (VIcebergDeleteSink::_commit_path_of), so both must name the same directory, the
+    // data location, differing only in its normalized vs raw form. If table_location became the table
+    // root, BE would record delete files without the data directory, i.e. files that do not exist,
+    // and nothing would fail. See TIcebergDeleteSink.table_location in DataSinks.thrift.
+    @Test
+    public void planWriteDeleteAndMergeSinksKeepTableLocationInTheOutputDirectory() {
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergDeleteSink deleteSink = planDeleteSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.DELETE));
+        TIcebergMergeSink mergeSink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.UPDATE));
+
+        Assertions.assertEquals(pathAfterScheme(deleteSink.getOutputPath()),
+                pathAfterScheme(deleteSink.getTableLocation()),
+                "delete table_location must be the raw form of output_path's directory");
+        Assertions.assertEquals(pathAfterScheme(mergeSink.getOutputPath()),
+                pathAfterScheme(mergeSink.getTableLocation()),
+                "merge table_location must be the raw form of output_path's directory");
+    }
+
+    // "s3://bucket/wh/db1/t1/data" and "oss://bucket/wh/db1/t1/data" -> "bucket/wh/db1/t1/data".
+    private static String pathAfterScheme(String location) {
+        return location.substring(location.indexOf("://") + 3);
+    }
+
     @Test
     public void planWriteBuildsMergeSinkWithTableDerivedFields() {
         Table table = partitionedSortedTable(freshCatalog());

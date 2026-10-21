@@ -20,7 +20,10 @@
 #include <absl/strings/ascii.h>
 #include <absl/strings/str_split.h>
 
+#include <utility>
 #include <vector>
+
+#include "io/obj_storage/obj_storage_uri.h"
 
 namespace doris {
 
@@ -66,6 +69,19 @@ Status S3URI::parse() {
             // authority_split[1] is host
             _bucket = authority_split[1];
             _key = authority_split[2];
+        } else if (scheme_split[0] == "abfs" || scheme_split[0] == "abfss" ||
+                   scheme_split[0] == "wasb" || scheme_split[0] == "wasbs") {
+            // A native Azure location reaching an entry without typed Azure access, e.g.
+            // abfss://c1@acct.dfs.core.windows.net/db/f. FE rewrites these to s3://c1/db/f for
+            // such entries today; accepting the native form as well keeps them working if that
+            // rewrite is ever dropped. Only container and key are used, exactly as for the
+            // rewritten form, whose account FE has already discarded.
+            auto azure = io::ObjStorageUri::parse_azure(_location);
+            if (!azure.has_value()) {
+                return std::move(azure).error();
+            }
+            _bucket = std::move(azure->bucket);
+            _key = std::move(azure->key);
         } else {
             return Status::InvalidArgument("Invalid S3 URI: {}", _location);
         }
