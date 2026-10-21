@@ -53,6 +53,22 @@ public class AuditStreamLoaderTest {
         Assertions.assertEquals(payload, decompress(bytes));
     }
 
+    /**
+     * The batch label is allocated BEFORE the load is sent (its obligation
+     * is recorded first), so the label's shape is a contract: the audit prefix plus the
+     * timestamp / FE-identity suffix. The allocation itself is stateless, which is what
+     * lets the caller pre-generate it.
+     */
+    @Test
+    public void testAllocatedLabelCarriesTheAuditPrefixAndIdentity() throws Exception {
+        String label = "audit" + Deencapsulation.invoke(AuditStreamLoader.class, "nextLabel",
+                "10_0_0_1_8030");
+        Assertions.assertTrue(label.startsWith("audit_log_"),
+                "the label keeps the audit prefix the transaction manager resolves by: " + label);
+        Assertions.assertTrue(label.endsWith("_10_0_0_1_8030"),
+                "the FE identity stays in the label: " + label);
+    }
+
     private static String decompress(byte[] compressed) throws IOException {
         try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(compressed));
                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {

@@ -931,6 +931,7 @@ public final class MetricRepo {
         COUNTER_STATISTICS_INVALID_STATS = new LongCounterMetric("statistics_invalid_stats", MetricUnit.NOUNIT,
                 "invalid stats");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_INVALID_STATS);
+
         // unhealthy table rate
         GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE = new GaugeMetric<Double>("statistics_unhealthy_table_rate",
                 MetricUnit.NOUNIT, "unhealthy table rate") {

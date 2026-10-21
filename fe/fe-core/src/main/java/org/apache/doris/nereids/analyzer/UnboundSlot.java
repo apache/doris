@@ -72,7 +72,25 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
 
     @Override
     public String toDigest() {
-        return computeToSql();
+        // Component BOUNDARIES must survive the dot-join: `a.b` (ONE component that
+        // contains a dot) and a.b (qualifier a + component b) name different things,
+        // but the shared quoting helper escapes backticks without ever adding the
+        // delimiters a dot-join needs, so both rendered as "a.b" - the plan digest then
+        // treated an unquoted qualifier.column as equal to a quoted dotted column and a
+        // replay could return the captured `a.b` value for a query that selected b.
+        StringBuilder digest = new StringBuilder();
+        for (String part : nameParts) {
+            if (digest.length() > 0) {
+                digest.append('.');
+            }
+            String escaped = Utils.quoteIfNeeded(part);
+            if (escaped.indexOf('.') >= 0) {
+                digest.append('`').append(escaped).append('`');
+            } else {
+                digest.append(escaped);
+            }
+        }
+        return digest.toString();
     }
 
     @Override

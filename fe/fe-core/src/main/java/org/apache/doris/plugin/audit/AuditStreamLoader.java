@@ -111,7 +111,7 @@ public class AuditStreamLoader {
         return sb.toString();
     }
 
-    private String getContent(HttpURLConnection conn) {
+    private static String fetchContent(HttpURLConnection conn) {
         BufferedReader br = null;
         StringBuilder response = new StringBuilder();
         String line;
@@ -137,20 +137,33 @@ public class AuditStreamLoader {
         }
     }
 
+    /**
+     * One un-prefixed label text (static: the format is testable without an Env, and the
+     * allocation carries no state - uniqueness rests on the millisecond + FE identity
+     * components).
+     */
+    static String nextLabel(String feIdentity) {
+        Calendar calendar = Calendar.getInstance();
+        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                calendar.get(Calendar.MILLISECOND),
+                feIdentity);
+    }
+
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
-        String label = genLabel();
+        String label = "audit" + nextLabel(feIdentity);
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
-            label = "audit" + label;
             feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
                 throw new Exception("status is not TEMPORARY_REDIRECT 307, status: " + status
-                        + ", response: " + getContent(feConn) + ", request is: " + toCurl(feConn));
+                        + ", response: " + fetchContent(feConn) + ", request is: " + toCurl(feConn));
             }
             String location = feConn.getHeaderField("Location");
             if (location == null) {
@@ -164,7 +177,7 @@ public class AuditStreamLoader {
             // get respond
             status = beConn.getResponseCode();
             String respMsg = beConn.getResponseMessage();
-            String response = getContent(beConn);
+            String response = fetchContent(beConn);
 
             LOG.info("AuditLoader plugin load with label: {}, response code: {}, msg: {}, content: {}",
                     label, status, respMsg, response);
@@ -184,15 +197,6 @@ public class AuditStreamLoader {
                 beConn.disconnect();
             }
         }
-    }
-
-    private String genLabel() {
-        Calendar calendar = Calendar.getInstance();
-        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
-                calendar.get(Calendar.MILLISECOND),
-                feIdentity);
     }
 
     public static class LoadResponse {
