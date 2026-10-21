@@ -91,13 +91,13 @@ class FilterEstimationTest {
                 .setRowCount(1000)
                 .putColumnStatistics(firstPartitionSlot, partitionColumnStats)
                 .putColumnStatistics(secondPartitionSlot, partitionColumnStats)
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(firstPredicate, secondPredicate))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         Statistics filtered = new FilterEstimation().applyColumnConstraints(
                 ImmutableSet.of(firstPredicate, secondPredicate), input);
 
         Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
-        Assertions.assertEquals(input.getConjunctsAppliedToRowCount(), filtered.getConjunctsAppliedToRowCount());
+        Assertions.assertTrue(filtered.hasSelectedPartitionRowCount());
         Assertions.assertEquals(1, filtered.findColumnStatistics(firstPartitionSlot).ndv, 0.001);
         Assertions.assertEquals(100, filtered.findColumnStatistics(secondPartitionSlot).ndv, 0.001);
     }
@@ -144,7 +144,7 @@ class FilterEstimationTest {
         Statistics input = new StatisticsBuilder()
                 .setRowCount(1000)
                 .putColumnStatistics(partitionSlot, selectedColumnStats)
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(lowerBound, upperBound))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         Statistics filtered = new FilterEstimation().applyColumnConstraints(
                 ImmutableSet.of(lowerBound, upperBound), input);
@@ -172,7 +172,7 @@ class FilterEstimationTest {
                 .setRowCount(1000)
                 .putColumnStatistics(firstPartitionSlot, partitionColumnStats)
                 .putColumnStatistics(secondPartitionSlot, partitionColumnStats)
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionPredicate))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         Statistics filtered = new FilterEstimation().applyColumnConstraints(
                 ImmutableSet.of(partitionPredicate), input);
@@ -192,7 +192,7 @@ class FilterEstimationTest {
                         .setNdv(100)
                         .setNumNulls(100)
                         .build())
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionPredicate))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         Statistics filtered = new FilterEstimation().applyColumnConstraints(
                 ImmutableSet.of(partitionPredicate), input);

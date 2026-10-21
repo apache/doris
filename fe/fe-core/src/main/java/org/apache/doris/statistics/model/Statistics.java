@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.text.DecimalFormat;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -51,9 +49,9 @@ public class Statistics {
 
     private long actualRowCount = -1L;
     private boolean isFromHbo = false;
-    // Predicates whose row-count effect is already included by the scan, but whose column-domain effect
-    // still needs to be applied when the corresponding Filter is estimated.
-    private final Set<Expression> conjunctsAppliedToRowCount;
+    // Whether the scan row count accounts for its selected partitions. Partition-prunable predicates
+    // can then constrain columns without reducing the row count again.
+    private final boolean hasSelectedPartitionRowCount;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -62,23 +60,23 @@ public class Statistics {
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
         this.isFromHbo = another.isFromHbo;
-        this.conjunctsAppliedToRowCount = another.conjunctsAppliedToRowCount;
+        this.hasSelectedPartitionRowCount = another.hasSelectedPartitionRowCount;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo) {
-        this(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo, ImmutableSet.of());
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount, isFromHbo, false);
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo,
-            Set<Expression> conjunctsAppliedToRowCount) {
+            boolean hasSelectedPartitionRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
         this.isFromHbo = isFromHbo;
-        this.conjunctsAppliedToRowCount = ImmutableSet.copyOf(conjunctsAppliedToRowCount);
+        this.hasSelectedPartitionRowCount = hasSelectedPartitionRowCount;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
@@ -104,12 +102,12 @@ public class Statistics {
 
     public Statistics withRowCount(double rowCount) {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo, conjunctsAppliedToRowCount);
+                0, isFromHbo, hasSelectedPartitionRowCount);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        // The replacement map may use a different expression/ExprId namespace (for example MV statistics
-        // normalization), so predicate provenance tied to the previous expressions is no longer reusable.
+        // The replacement map may describe another relation (for example MV statistics normalization),
+        // so it does not retain the scan-specific row-count provenance.
         return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
     }
 
@@ -118,7 +116,7 @@ public class Statistics {
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
-                expressionToColumnStats, 0, isFromHbo, conjunctsAppliedToRowCount);
+                expressionToColumnStats, 0, isFromHbo, hasSelectedPartitionRowCount);
         statistics.normalizeColumnStatistics(this.rowCount, false);
         return statistics;
     }
@@ -177,7 +175,7 @@ public class Statistics {
         }
         double newCount = rowCount * notNullSel + numNull;
         return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
-                0, isFromHbo, conjunctsAppliedToRowCount);
+                0, isFromHbo, hasSelectedPartitionRowCount);
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -350,8 +348,8 @@ public class Statistics {
         return this.isFromHbo;
     }
 
-    public Set<Expression> getConjunctsAppliedToRowCount() {
-        return conjunctsAppliedToRowCount;
+    public boolean hasSelectedPartitionRowCount() {
+        return hasSelectedPartitionRowCount;
     }
 
     public StatisticsBuilder cleanHotValues() {

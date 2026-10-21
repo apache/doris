@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -45,6 +46,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -53,8 +56,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -62,6 +68,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.StatisticsCache;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
@@ -74,6 +81,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -148,30 +157,82 @@ public class StatsCalculatorTest {
 
     @Test
     public void testFilterSkipsConjunctAlreadyAppliedToScanRowCount() {
-        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
-        SlotReference valueSlot = new SlotReference("v", IntegerType.INSTANCE);
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(0, "t1", 0);
+        SlotReference partitionSlot = (SlotReference) scan.getOutput().get(0);
+        SlotReference valueSlot = (SlotReference) scan.getOutput().get(1);
         EqualTo partitionPredicate = new EqualTo(partitionSlot, new IntegerLiteral(1));
         EqualTo valuePredicate = new EqualTo(valueSlot, new IntegerLiteral(2));
         Statistics input = new StatisticsBuilder()
                 .setRowCount(1000)
                 .putColumnStatistics(partitionSlot, new ColumnStatisticBuilder(1000).setNdv(100).build())
                 .putColumnStatistics(valueSlot, new ColumnStatisticBuilder(1000).setNdv(10).build())
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(partitionPredicate))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         StatsCalculator calculator = new StatsCalculator((CascadesContext) null);
 
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
-                ImmutableSet.of(partitionPredicate, valuePredicate), scan1);
+                ImmutableSet.of(partitionPredicate, valuePredicate),
+                withPartitionPruningProof(scan, partitionPredicate));
         Statistics filtered = calculator.computeFilter(filter, input);
         Assertions.assertEquals(100, filtered.getRowCount(), 0.001);
         Assertions.assertEquals(1, filtered.findColumnStatistics(partitionSlot).ndv, 0.001);
         Assertions.assertEquals(1, filtered.findColumnStatistics(valueSlot).ndv, 0.001);
+
+        Statistics tableInput = new StatisticsBuilder(input).setHasSelectedPartitionRowCount(false).build();
+        Statistics tableFiltered = calculator.computeFilter(filter, tableInput);
+        Assertions.assertEquals(1, tableFiltered.getRowCount(), 0.001);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testFilterReadsPartitionProofFromMemo(boolean physicalOnly) {
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(0, "t1", 0);
+        SlotReference partitionSlot = (SlotReference) scan.getOutput().get(0);
+        EqualTo partitionPredicate = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        scan = withPartitionPruningProof(scan, partitionPredicate);
+        Statistics input = new StatisticsBuilder()
+                .setRowCount(1000)
+                .putColumnStatistics(partitionSlot, new ColumnStatisticBuilder(1000).setNdv(100).build())
+                .setHasSelectedPartitionRowCount(true)
+                .build();
+        Filter filter;
+        if (physicalOnly) {
+            PhysicalOlapScan physicalScan = new PhysicalOlapScan(scan.getRelationId(), scan.getTable(),
+                    scan.getQualifier(), scan.getSelectedIndexId(), ImmutableList.of(), scan.getSelectedPartitionIds(),
+                    null, PreAggStatus.on(), scan.getOutput(), Optional.empty(), scan.getLogicalProperties(),
+                    Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
+                    Optional.empty(), ImmutableList.of(), Optional.empty())
+                    .withPartitionPrunablePredicates(scan.getPartitionPrunablePredicates());
+            Group childGroup = new Group(null, new GroupExpression(physicalScan), scan.getLogicalProperties());
+            filter = new PhysicalFilter<>(ImmutableSet.of(partitionPredicate),
+                    scan.getLogicalProperties(), new GroupPlan(childGroup));
+        } else {
+            Group childGroup = new Group(null, new GroupExpression(scan), scan.getLogicalProperties());
+            childGroup.addLogicalExpression(new GroupExpression(
+                    new LogicalProject<>(ImmutableList.copyOf(scan.getOutput()), scan)));
+            filter = new LogicalFilter<>(ImmutableSet.of(partitionPredicate), new GroupPlan(childGroup));
+        }
+
+        Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, input);
+
+        Assertions.assertEquals(1000, filtered.getRowCount(), 0.001);
+        Assertions.assertEquals(1, filtered.findColumnStatistics(partitionSlot).ndv, 0.001);
+    }
+
+    private LogicalOlapScan withPartitionPruningProof(LogicalOlapScan scan, Expression predicate) {
+        scan.getTable().addPartition(new Partition(1L, "p1", new MaterializedIndex(),
+                scan.getTable().getDefaultDistributionInfo()));
+        return scan.withSelectedPartitionIds(ImmutableList.of(1L), true)
+                .withPartitionPrunablePredicates(Optional.of(new PartitionPrunablePredicate(
+                        ImmutableSet.of(1L), ImmutableList.copyOf(predicate.getInputSlots()),
+                        ImmutableSet.of(predicate))));
     }
 
     @Test
     public void testAppliedPredicateKeepsExistingPartitionBoundsForRemainingPredicate() {
-        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
-        SlotReference valueSlot = new SlotReference("v", IntegerType.INSTANCE);
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(0, "t1", 0);
+        SlotReference partitionSlot = (SlotReference) scan.getOutput().get(0);
+        SlotReference valueSlot = (SlotReference) scan.getOutput().get(1);
         GreaterThanEqual appliedPredicate = new GreaterThanEqual(partitionSlot, new IntegerLiteral(1));
         LessThan remainingPredicate = new LessThan(partitionSlot, valueSlot);
         ColumnStatistic tablePartitionStats = new ColumnStatisticBuilder(100_000)
@@ -199,10 +260,11 @@ public class StatsCalculatorTest {
                 .setRowCount(1000)
                 .putColumnStatistics(partitionSlot, selectedPartitionStats)
                 .putColumnStatistics(valueSlot, valueStats)
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(appliedPredicate))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
-                ImmutableSet.of(appliedPredicate, remainingPredicate), scan1);
+                ImmutableSet.of(appliedPredicate, remainingPredicate),
+                withPartitionPruningProof(scan, appliedPredicate));
 
         Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, input);
 
@@ -213,7 +275,8 @@ public class StatsCalculatorTest {
 
     @Test
     public void testRestoredAppliedConjunctStatsKeepNullCountNonNegative() {
-        SlotReference partitionSlot = new SlotReference("p", IntegerType.INSTANCE);
+        LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(0, "t1", 0);
+        SlotReference partitionSlot = (SlotReference) scan.getOutput().get(0);
         GreaterThanEqual appliedPredicate = new GreaterThanEqual(partitionSlot, new IntegerLiteral(9901));
         Not remainingPredicate = new Not(new EqualTo(partitionSlot, new IntegerLiteral(9999)));
         ColumnStatistic tableColumnStats = new ColumnStatisticBuilder(100_000)
@@ -234,10 +297,11 @@ public class StatsCalculatorTest {
         Statistics input = new StatisticsBuilder()
                 .setRowCount(1000)
                 .putColumnStatistics(partitionSlot, selectedColumnStats)
-                .setConjunctsAppliedToRowCount(ImmutableSet.of(appliedPredicate))
+                .setHasSelectedPartitionRowCount(true)
                 .build();
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
-                ImmutableSet.of(appliedPredicate, remainingPredicate), scan1);
+                ImmutableSet.of(appliedPredicate, remainingPredicate),
+                withPartitionPruningProof(scan, appliedPredicate));
 
         Statistics filtered = new StatsCalculator((CascadesContext) null).computeFilter(filter, input);
 
@@ -354,10 +418,6 @@ public class StatsCalculatorTest {
         Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of(selectedPartitionId));
         Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slot));
         Mockito.when(scan.getVirtualColumns()).thenReturn(ImmutableList.of());
-        EqualTo partitionPredicate = new EqualTo(slot, new IntegerLiteral(2));
-        Mockito.when(scan.getPartitionPrunablePredicates()).thenReturn(Optional.of(
-                new PartitionPrunablePredicate(ImmutableSet.of(selectedPartitionId),
-                        ImmutableList.of(slot), ImmutableSet.of(partitionPredicate))));
         Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
         Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
         Mockito.when(table.getRowCountForSelectedPartitions(
@@ -382,8 +442,24 @@ public class StatsCalculatorTest {
             Assertions.assertEquals(1, result.numNulls, 0.001);
             Assertions.assertEquals("2", result.minExpr.getStringValue());
             Assertions.assertEquals("2", result.maxExpr.getStringValue());
-            Assertions.assertEquals(ImmutableSet.of(partitionPredicate),
-                    statistics.getConjunctsAppliedToRowCount());
+            Assertions.assertTrue(statistics.hasSelectedPartitionRowCount());
+
+            TableStatsMeta injectedTableStats = Mockito.mock(TableStatsMeta.class);
+            injectedTableStats.userInjected = true;
+            Mockito.when(injectedTableStats.getRowCount(baseIndexId)).thenReturn(12L);
+            Mockito.when(analysisManager.findTableStatsStatus(table.getId())).thenReturn(injectedTableStats);
+            Statistics injectedStatistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+            Assertions.assertEquals(12, injectedStatistics.getRowCount(), 0.001);
+            Assertions.assertFalse(injectedStatistics.hasSelectedPartitionRowCount());
+
+            Mockito.when(table.getPartitionNum()).thenReturn(1);
+            Statistics allPartitionsStatistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+            Assertions.assertTrue(allPartitionsStatistics.hasSelectedPartitionRowCount());
+
+            connectContext.getState().setPlanWithUnKnownColumnStats(true);
+            Statistics unknownStatistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+            Assertions.assertFalse(unknownStatistics.hasSelectedPartitionRowCount());
+            Assertions.assertSame(ColumnStatistic.UNKNOWN, unknownStatistics.findColumnStatistics(slot));
         } finally {
             ConnectContext.remove();
             if (previousContext != null) {
