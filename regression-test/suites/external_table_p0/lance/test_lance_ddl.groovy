@@ -73,6 +73,10 @@ suite("test_lance_ddl", "p0,external") {
         """
         sql """
             ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+            MODIFY COLUMN score BIGINT NULL
+        """
+        sql """
+            ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
             MODIFY COLUMN score BIGINT NOT NULL
         """
         sql """
@@ -121,7 +125,7 @@ suite("test_lance_ddl", "p0,external") {
 
         test {
             sql """ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}` RENAME `renamed_events`"""
-            exception "Lance table rename is not supported"
+            exception "RENAME TABLE is not supported for Lance filesystem catalogs"
         }
 
         sql """DROP TABLE `${catalogName}`.`${databaseName}`.`${tableName}`"""

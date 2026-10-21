@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
+
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.namespace.LanceNamespace;
@@ -235,7 +238,7 @@ public class LanceNamespaceClientMutationTest {
         Mockito.doThrow(new TableAlreadyExistsException("registered concurrently"))
                 .when(namespace).registerTable(Mockito.any());
         Mockito.when(namespace.describeTable(Mockito.any()))
-                .thenReturn(new DescribeTableResponse().location("events.lance"));
+                .thenReturn(new DescribeTableResponse().location("s3://warehouse/lance_ddl/events.lance"));
         LanceNamespaceClient client = rootFilesystemClient(namespace);
 
         client.addColumns("default", "events", Collections.singletonList(
@@ -252,7 +255,7 @@ public class LanceNamespaceClientMutationTest {
         Mockito.doThrow(new TableAlreadyExistsException("registered concurrently"))
                 .when(namespace).registerTable(Mockito.any());
         Mockito.when(namespace.describeTable(Mockito.any()))
-                .thenReturn(new DescribeTableResponse().location("other.lance"));
+                .thenReturn(new DescribeTableResponse().location("s3://warehouse/lance_ddl/other.lance"));
         LanceNamespaceClient client = rootFilesystemClient(namespace);
 
         Assertions.assertThrows(RuntimeException.class, () -> client.addColumns(
@@ -318,6 +321,8 @@ public class LanceNamespaceClientMutationTest {
 
     private static LanceNamespaceClient rootFilesystemClient(LanceNamespace namespace) {
         return new LanceNamespaceClient(namespace, "filesystem", "default",
-                Collections.emptyList(), Collections.emptyList());
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
+                AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS, Ticker.systemTicker(),
+                "s3://warehouse/lance_ddl");
     }
 }

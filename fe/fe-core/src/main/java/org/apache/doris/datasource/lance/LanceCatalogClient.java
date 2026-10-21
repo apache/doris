@@ -108,7 +108,7 @@ final class LanceCatalogClient implements AutoCloseable {
                     .indexCacheSizeBytes(INDEX_CACHE_SIZE_BYTES).build();
             return new LanceCatalogClient(namespace, allocator, session, properties.getLanceCatalogType(),
                     properties.getRootDatabase(), parent, storageProperties, namespaceOptions, catalogSecrets,
-                    properties.getTableAccessCacheTtlSeconds());
+                    properties.getTableAccessCacheTtlSeconds(), properties.getNamespaceStorageUri());
         } catch (RuntimeException | Error e) {
             closeResource(namespace);
             closeResource(session);
@@ -130,13 +130,21 @@ final class LanceCatalogClient implements AutoCloseable {
             String catalogType, String rootDatabase, List<String> parentNamespace,
             List<StorageProperties> storageProperties, Map<String, String> namespaceStorageOptions,
             List<String> catalogSecrets, int tableAccessCacheTtlSeconds) {
+        this(namespace, allocator, session, catalogType, rootDatabase, parentNamespace,
+                storageProperties, namespaceStorageOptions, catalogSecrets, tableAccessCacheTtlSeconds, null);
+    }
+
+    LanceCatalogClient(LanceNamespace namespace, BufferAllocator allocator, Session session,
+            String catalogType, String rootDatabase, List<String> parentNamespace,
+            List<StorageProperties> storageProperties, Map<String, String> namespaceStorageOptions,
+            List<String> catalogSecrets, int tableAccessCacheTtlSeconds, String warehouse) {
         this.catalogSecrets = Collections.unmodifiableList(new ArrayList<>(catalogSecrets));
         this.namespace = namespace;
         this.namespaceAllocator = allocator;
         this.session = session;
         this.namespaceClient = new LanceNamespaceClient(
                 namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
-                namespaceStorageOptions, tableAccessCacheTtlSeconds, Ticker.systemTicker());
+                namespaceStorageOptions, tableAccessCacheTtlSeconds, Ticker.systemTicker(), warehouse);
         this.namespaceStorageOptions = Collections.unmodifiableMap(new HashMap<>(namespaceStorageOptions));
     }
 
