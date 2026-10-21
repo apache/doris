@@ -753,6 +753,17 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         }
     }
 
+    // A non-empty singleton rowset stores a placeholder for the hidden VERSION column.
+    // Linking [2-2] and [3-3] into [2-3] would make the reader expose that placeholder
+    // instead of synthesizing each row's publish version, so materialize it by merging.
+    if (_input_rowsets.front()->start_version() != _input_rowsets.back()->end_version() &&
+        std::ranges::any_of(_input_rowsets, [](const RowsetSharedPtr& rowset) {
+            return rowset->num_rows() > 0 && rowset->start_version() == rowset->end_version() &&
+                   rowset->tablet_schema()->version_col_idx() >= 0;
+        })) {
+        return false;
+    }
+
     if (is_changelog_compaction) {
         DCHECK(!_input_rowsets.empty()) << "tablet=" << _tablet->tablet_id();
         auto compaction_level = _input_rowsets.front()->rowset_meta()->compaction_level();
