@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -143,10 +144,14 @@ class LanceSearchExpressionPushDownTest {
     }
 
     private Plan rewrite(Expression expression, boolean ascending, Plan input) {
+        return rewrite(expression, ascending, input, 5, 2);
+    }
+
+    private Plan rewrite(Expression expression, boolean ascending, Plan input, long limit, long offset) {
         Alias result = new Alias(expression, "result");
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(id, result), input);
         LogicalTopN<?> topN = new LogicalTopN<>(
-                ImmutableList.of(new OrderKey(result.toSlot(), ascending, false)), 5, 2, project);
+                ImmutableList.of(new OrderKey(result.toSlot(), ascending, false)), limit, offset, project);
         return PlanChecker.from(context, topN)
                 .applyTopDown(new PushDownSearchTopNIntoLanceScan())
                 .getPlan();
@@ -326,6 +331,104 @@ class LanceSearchExpressionPushDownTest {
         search(rewrite(new InnerProductApproximate(embedding, vector()), false, scan));
         Assertions.assertTrue(rewrite(new L2Distance(embedding, vector()), true, scan)
                 .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void fullTextRewritePreservesBoundQueryWhitespace() {
+        for (String query : ImmutableList.of(" foo ", " ")) {
+            Plan input = new LogicalFilter<>(ImmutableSet.of(new MatchAny(body, new StringLiteral(query))), scan);
+            FullTextSearchTableValuedFunction function = (FullTextSearchTableValuedFunction)
+                    search(rewrite(new Score(), false, input)).getFunction().getCatalogFunction();
+            Assertions.assertEquals(query, function.getSearchRequest().getSearchQuery().getFullTextSearch().getQuery());
+        }
+    }
+
+    @Test
+    void boundSearchFactoriesPreservePhysicalColumnWhitespace() throws Exception {
+        List<Field> fields = new ArrayList<>(metadata.getSchema().getFields());
+        fields.add(Field.nullable(" body ", ArrowType.Utf8.INSTANCE));
+        Field vectorField = metadata.getSchema().findField("embedding");
+        fields.add(new Field(" embedding ", vectorField.getFieldType(), vectorField.getChildren()));
+        LanceTableMetadata padded = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
+                new Schema(fields), Collections.emptyList(),
+                ImmutableMap.of("id", 0, "body", 1, "embedding", 2, " body ", 3, " embedding ", 4),
+                Collections.emptyList());
+        VectorSearchTableValuedFunction vectorSearch = VectorSearchTableValuedFunction.forScan(
+                ImmutableMap.of("table", "catalog.db.items", "column", " embedding ", "query_vector", "[1,2]"),
+                table, padded, new byte[0]);
+        Assertions.assertEquals(" embedding ",
+                vectorSearch.getSearchRequest().getSearchQuery().getVectorSearch().getColumn());
+        FullTextSearchTableValuedFunction textSearch = FullTextSearchTableValuedFunction.forScan(
+                ImmutableMap.of("table", "catalog.db.items", "column", " body ", "query", " foo "),
+                table, padded, new byte[0]);
+        Assertions.assertEquals(" body ",
+                textSearch.getSearchRequest().getSearchQuery().getFullTextSearch().getColumn());
+        Assertions.assertEquals(" foo ",
+                textSearch.getSearchRequest().getSearchQuery().getFullTextSearch().getQuery());
+    }
+
+    @Test
+    void unavailableFieldIdsAfterEnrichmentKeepVectorQueriesScalar() {
+        LanceTableMetadata basic = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
+                metadata.getSchema(), Collections.emptyList());
+        LanceTableMetadata unavailable = LanceTableMetadata.createSnapshotWithUnavailableFieldIds(
+                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
+                metadata.getSchema(), Collections.emptyList(), Collections.emptyList());
+        Mockito.when(table.getMetadata(Mockito.any())).thenReturn(basic);
+        Mockito.when(table.loadMetadataForSearch(Mockito.any())).thenReturn(unavailable);
+        Assertions.assertTrue(rewrite(new L2DistanceApproximate(embedding, vector()), true, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        Assertions.assertTrue(rewrite(new InnerProductApproximate(embedding, vector()), false, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void nativeCandidateOverflowKeepsVectorQueriesScalar() {
+        for (long[] bounds : new long[][] {{0x1_0000_0000L, 0}, {1, 0xffff_ffffL},
+                {Long.MAX_VALUE, Long.MAX_VALUE}}) {
+            Assertions.assertTrue(rewrite(new L2DistanceApproximate(embedding, vector()), true, scan,
+                    bounds[0], bounds[1]).collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+            Assertions.assertTrue(rewrite(new InnerProductApproximate(embedding, vector()), false, scan,
+                    bounds[0], bounds[1]).collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        }
+    }
+
+    @Test
+    void nativeCandidateOverflowDoesNotRejectOtherScalarFallbacks() {
+        Plan filtered = new LogicalFilter<>(ImmutableSet.of(
+                new EqualTo(new Md5(body), new StringLiteral("unpushable"))), scan);
+        Assertions.assertTrue(rewrite(new L2DistanceApproximate(embedding, vector()), true, filtered,
+                0x1_0000_0000L, 0).collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        List<Field> fields = new ArrayList<>(metadata.getSchema().getFields());
+        Field field = fields.get(2);
+        fields.set(2, new Field("embedding", FieldType.nullable(ArrowType.List.INSTANCE), field.getChildren()));
+        LanceTableMetadata variableList = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
+                new Schema(fields), Collections.emptyList(), ImmutableMap.of("id", 0, "body", 1, "embedding", 2),
+                Collections.emptyList());
+        Mockito.when(table.getMetadata(Mockito.any())).thenReturn(variableList);
+        Assertions.assertTrue(rewrite(new L2DistanceApproximate(embedding, vector()), true, scan,
+                0x1_0000_0000L, 0).collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void largestNativeCandidateCountStillPushesVectorSearch() {
+        Plan plan = rewrite(new L2DistanceApproximate(embedding, vector()), true, scan, 1, 0xffff_fffeL);
+        VectorSearchTableValuedFunction function = (VectorSearchTableValuedFunction)
+                search(plan).getFunction().getCatalogFunction();
+        Assertions.assertEquals(0xffff_ffffL, function.getTopK());
+        Assertions.assertEquals(0, function.getOffset());
+        Assertions.assertEquals(0xffff_fffeL, ((LogicalTopN<?>) plan).getOffset());
+    }
+
+    @Test
+    void bm25RetainsItsExplicitNativeCandidateLimitError() {
+        Plan input = new LogicalFilter<>(ImmutableSet.of(new MatchAny(body, new StringLiteral("apple"))), scan);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> rewrite(new Score(), false, input, 0x1_0000_0000L, 0));
+        Assertions.assertTrue(error.getMessage().contains("limit + offset <= 4294967295"));
     }
 
     @Test

@@ -112,7 +112,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                         parseTableName(required(params, TABLE, NAME)), table, metadata);
 
         Field vectorField = requireSearchColumn(
-                common.metadata().getSchema(), required(params, COLUMN, NAME), "vector");
+                common.metadata().getSchema(), required(params, COLUMN, NAME, table == null), "vector");
         // Reject matrices at PREPARE as well as EXECUTE; lance-c only supports single-vector ranges.
         if (hasDistanceRange && vectorField.getType() instanceof ArrowType.List) {
             throw new AnalysisException("Distance bounds are not supported for Lance multi-vector search");

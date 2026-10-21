@@ -131,6 +131,10 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
             return null;
         }
         if (topN.getOffset() < 0 || topN.getLimit() > 0xffff_ffffL - topN.getOffset()) {
+            // UINT32 bounds the native candidate budget, not ordinary scalar SQL LIMIT/OFFSET.
+            if (!score) {
+                return null;
+            }
             throw new AnalysisException("Lance search requires limit + offset <= 4294967295");
         }
         LanceExternalTable table = (LanceExternalTable) scan.getTable();
@@ -217,6 +221,11 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
             return null;
         }
         metadata = withIndexes(table, metadata);
+        // SDK schema conversion can leave ordinary fragment scans usable without Lance field IDs.
+        // Missing index-planning metadata must not turn that scalar path into an analysis error.
+        if (!score && !metadata.getLanceFieldId(properties.get("column")).isPresent()) {
+            return null;
+        }
         TableValuedFunctionIf function;
         String name;
         String resultName;

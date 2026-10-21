@@ -79,9 +79,9 @@ public class FullTextSearchTableValuedFunction extends LanceExternalSearchTableV
                 : prepareCommonForScan(params, "FullTextSearchTableValuedFunction",
                         parseTableName(required(params, TABLE, NAME)), table, metadata);
 
-        Field field = findStringField(common.metadata(), required(params, COLUMN, NAME));
+        Field field = findStringField(common.metadata(), required(params, COLUMN, NAME, table == null));
         int fieldId = requireLanceFieldId(common.metadata(), field, "full-text");
-        String query = required(params, QUERY, NAME);
+        String query = required(params, QUERY, NAME, table == null);
         if (query.indexOf('\0') >= 0) {
             throw new AnalysisException("'query' must not contain an embedded NUL byte");
         }
