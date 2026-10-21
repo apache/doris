@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -60,6 +61,13 @@ public class MapAggV2 extends NotNullableAggregateFunction
     /** constructor for withChildren and reuse signature */
     private MapAggV2(AggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).isSpatialType()) {
+            throw new AnalysisException("map_agg does not support spatial keys");
+        }
     }
 
     /**

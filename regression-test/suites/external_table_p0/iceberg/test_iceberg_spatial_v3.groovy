@@ -342,6 +342,37 @@ public class CreateIcebergSpatialV3Table {
                 exception "${function} does not support spatial arguments"
             }
         }
+        for (String suffix : ["", "_state"]) {
+            for (String arguments : ["${column}, 1.0", "${column}, 1.0, 0.0"]) {
+                test {
+                    sql """select linear_histogram${suffix}(${arguments}) from geometry_values"""
+                    exception "linear_histogram does not support spatial arguments"
+                }
+            }
+            for (String function : ["map_agg", "map_agg_v2"]) {
+                test {
+                    sql """select ${function}${suffix}(${column}, id) from geometry_values"""
+                    exception "map_agg does not support spatial keys"
+                }
+            }
+            for (String function : ["count_map", "sum_map", "avg_map", "min_map", "max_map"]) {
+                test {
+                    sql """select ${function}${suffix}(map(${column}, id)) from geometry_values"""
+                    exception "${function} does not support spatial MAP keys"
+                }
+            }
+        }
+        // Ordinary keys retain raw nullable WKB values through MAP_AGG and its alias.
+        "order_qt_spatial_map_agg_values_${column}"("""select id,
+            hex(ST_AsBinary(element_at(primary_values, id))), hex(ST_AsBinary(element_at(alias_values, id)))
+            from geometry_values cross join
+                (select map_agg(id, ${column}) primary_values, map_agg_v2(id, ${column}) alias_values
+                 from geometry_values) aggregates""")
+        // Repeated ordinary keys exercise value updates and nullable aggregate states.
+        "qt_spatial_map_combinator_values_${column}"("""select element_at(counts, 1),
+            hex(ST_AsBinary(element_at(minimums, 1))), hex(ST_AsBinary(element_at(maximums, 1)))
+            from (select count_map(map(1, ${column})) counts, min_map(map(1, ${column})) minimums,
+                max_map(map(1, ${column})) maximums from geometry_values) aggregates""")
     }
     // Imported nested columns must obey the same group-array admission rule.
     for (String function : ["group_array_union", "group_array_intersect"]) {
@@ -357,6 +388,11 @@ public class CreateIcebergSpatialV3Table {
         from geometry_values"""
     order_qt_ordinary_analytic_distinct """select id, count(distinct id) over ()
         from geometry_values"""
+    qt_ordinary_histogram_and_map_aggregates """select linear_histogram(id, 1.0),
+        linear_histogram(id, 1.0, 0.0), element_at(map_agg(id, id), 1),
+        element_at(count_map(map(1, id)), 1), element_at(sum_map(map(1, id)), 1),
+        element_at(avg_map(map(1, id)), 1), element_at(min_map(map(1, id)), 1),
+        element_at(max_map(map(1, id)), 1) from geometry_values"""
     for (String spatialColumn : ["geom", "geog"]) {
         "qt_spatial_multikey_${spatialColumn}"("""select id from geometry_values
             order by ${spatialColumn} asc nulls last, id""")

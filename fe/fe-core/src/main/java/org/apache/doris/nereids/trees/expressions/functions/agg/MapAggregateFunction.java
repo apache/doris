@@ -56,8 +56,20 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
                 .args(MapType.of(keyType, argumentValueType));
     }
 
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getMapType().getKeyType().isSpatialType()) {
+            throw new AnalysisException(getName() + " does not support spatial MAP keys");
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+    }
+
     protected MapType getMapType() {
-        DataType dataType = child().getDataType();
+        DataType dataType = getArgument(0).getDataType();
         if (!(dataType instanceof MapType)) {
             throw new AnalysisException(getName() + " requires a MAP argument");
         }

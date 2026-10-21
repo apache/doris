@@ -28,6 +28,24 @@ id	int	No	true	\N
 geom	GEOMETRY('OGC:CRS84')	Yes	true	\N	
 geog	GEOGRAPHY('OGC:CRS84', 'spherical')	Yes	true	\N	
 
+-- !spatial_map_agg_values_geom --
+1	0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040
+2	\N	\N
+3	010100000000000000000008400000000000001040	010100000000000000000008400000000000001040
+4	\N	\N
+
+-- !spatial_map_combinator_values_geom --
+2	010100000000000000000008400000000000001040	0101000000000000000000F03F0000000000000040
+
+-- !spatial_map_agg_values_geog --
+1	0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040
+2	\N	\N
+3	\N	\N
+4	010100000000000000000008400000000000001040	010100000000000000000008400000000000001040
+
+-- !spatial_map_combinator_values_geog --
+2	010100000000000000000008400000000000001040	0101000000000000000000F03F0000000000000040
+
 -- !ordinary_parallel_aggregates --
 1	4	[1, 2]	[1, 2, 3, 4]	[1]	4
 
@@ -36,6 +54,9 @@ geog	GEOGRAPHY('OGC:CRS84', 'spherical')	Yes	true	\N
 2	4
 3	4
 4	4
+
+-- !ordinary_histogram_and_map_aggregates --
+{"num_buckets":4,"buckets":[{"lower":1.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":3.0,"count":1,"acc_count":2},{"lower":3.0,"upper":4.0,"count":1,"acc_count":3},{"lower":4.0,"upper":5.0,"count":1,"acc_count":4}]}	{"num_buckets":4,"buckets":[{"lower":1.0,"upper":2.0,"count":1,"acc_count":1},{"lower":2.0,"upper":3.0,"count":1,"acc_count":2},{"lower":3.0,"upper":4.0,"count":1,"acc_count":3},{"lower":4.0,"upper":5.0,"count":1,"acc_count":4}]}	1	4	10	2.5	1	4
 
 -- !spatial_multikey_geom --
 3

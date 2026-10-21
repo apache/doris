@@ -29,25 +29,34 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AvgMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
+import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
@@ -64,6 +73,79 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialAggregateLegalityTest {
+    @Test
+    public void linearHistogramAndMapAggRejectUnsupportedSpatialArguments() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType type : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (boolean nullable : List.of(false, true)) {
+                Expression shape = new SlotReference("shape", type, nullable);
+                for (AggregateFunction function : List.of(new LinearHistogram(shape, new DoubleLiteral(1.0)),
+                        new LinearHistogram(shape, new DoubleLiteral(1.0), new DoubleLiteral(0.0)),
+                        new MapAggV2(shape, integer))) {
+                    String expected = function instanceof MapAggV2 ? "map_agg does not support spatial keys"
+                            : "linear_histogram does not support spatial arguments";
+                    for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                            new CombineCombinator(function.getArguments(), function))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                entry::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals(expected, error.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void mapAggregatesRejectSpatialKeysBeforeCoercionAndAfterRewrite() {
+        for (DataType type : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (boolean nullable : List.of(false, true)) {
+                Expression map = new SlotReference("values", MapType.of(type, IntegerType.INSTANCE), nullable);
+                for (AggregateFunction function : List.of(new CountMap(map), new SumMap(map), new AvgMap(map),
+                        new MinMap(map), new MaxMap(map))) {
+                    for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                            new CombineCombinator(function.getArguments(), function))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                entry::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals(function.getName() + " does not support spatial MAP keys",
+                                error.getMessage());
+                        Assertions.assertThrows(AnalysisException.class, entry::checkLegalityAfterRewrite);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void ordinaryMapKeysKeepSupportedSpatialValues() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType type : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (boolean nullable : List.of(false, true)) {
+                Expression shape = new SlotReference("shape", type, nullable);
+                Expression map = new SlotReference("values", MapType.of(IntegerType.INSTANCE, type), nullable);
+                MapAggV2 mapAgg = new MapAggV2(integer, shape);
+                for (BoundFunction entry : List.of(mapAgg, StateCombinator.create(mapAgg),
+                        new CombineCombinator(mapAgg.getArguments(), mapAgg))) {
+                    Assertions.assertDoesNotThrow(entry::checkLegalityBeforeTypeCoercion);
+                }
+                Assertions.assertEquals(type, ((MapType) mapAgg.getDataType()).getValueType());
+                for (AggregateFunction function : List.of(new CountMap(map), new MinMap(map), new MaxMap(map))) {
+                    for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                            new CombineCombinator(function.getArguments(), function))) {
+                        Assertions.assertDoesNotThrow(entry::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertDoesNotThrow(entry::checkLegalityAfterRewrite);
+                    }
+                    DataType expected = function instanceof CountMap ? BigIntType.INSTANCE : type;
+                    Assertions.assertEquals(expected, ((MapType) function.getDataType()).getValueType());
+                }
+                Assertions.assertThrows(AnalysisException.class, new SumMap(map)::getDataType);
+                Assertions.assertThrows(AnalysisException.class, new AvgMap(map)::getDataType);
+            }
+        }
+    }
+
     @Test
     public void minMaxByRejectScalarSpatialValuesAndKeys() {
         Expression integer = new SlotReference("id", IntegerType.INSTANCE);
@@ -172,12 +254,18 @@ public class SpatialAggregateLegalityTest {
     public void ordinaryParallelAggregateFactoriesRemainAdmitted() {
         Expression integer = new SlotReference("id", IntegerType.INSTANCE);
         Expression integers = new SlotReference("ids", ArrayType.of(IntegerType.INSTANCE));
+        Expression map = new SlotReference("values", MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE));
         for (BoundFunction function : List.of(new MinBy(integer, integer), new MaxBy(integer, integer),
                 new TopNArray(integer, new IntegerLiteral(2)),
                 new TopNArray(integer, new IntegerLiteral(2), new IntegerLiteral(4)),
-                new GroupArrayUnion(integers), new GroupArrayIntersect(integers), new MultiDistinctCount(integer))) {
+                new GroupArrayUnion(integers), new GroupArrayIntersect(integers), new MultiDistinctCount(integer),
+                new LinearHistogram(integer, new DoubleLiteral(1.0)),
+                new LinearHistogram(integer, new DoubleLiteral(1.0), new DoubleLiteral(0.0)),
+                new MapAggV2(integer, integer), new CountMap(map), new SumMap(map), new AvgMap(map),
+                new MinMap(map), new MaxMap(map))) {
             Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
             Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+            Assertions.assertDoesNotThrow(function::getDataType);
         }
         Assertions.assertDoesNotThrow(new Count(true, integer)::convertToMultiDistinct);
     }
