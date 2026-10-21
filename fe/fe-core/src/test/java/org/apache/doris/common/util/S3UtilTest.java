@@ -25,6 +25,8 @@ import org.junit.Before;
 import org.junit.Test;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URI;
@@ -83,6 +85,24 @@ public class S3UtilTest {
         }
     }
 
+
+    @Test
+    public void testBearerTokenClientsApplyConfiguredEndpointScheme() {
+        ExecutionInterceptor interceptor = new ExecutionInterceptor() {};
+        for (String scheme : Arrays.asList("https", "http")) {
+            Config.s3_client_http_scheme = scheme;
+            for (String endpoint : Arrays.asList("127.0.0.1:9000", "http://127.0.0.1:9000",
+                    "https://127.0.0.1:9000")) {
+                URI expected = URI.create(endpoint.contains("://") ? endpoint : scheme + "://" + endpoint);
+                try (S3Client client = S3Util.buildBearerTokenS3Client(endpoint, "us-east1", true, interceptor);
+                        S3AsyncClient asyncClient = S3Util.buildBearerTokenS3AsyncClient(
+                                endpoint, "us-east1", true, interceptor)) {
+                    Assert.assertEquals(expected, client.serviceClientConfiguration().endpointOverride().get());
+                    Assert.assertEquals(expected, asyncClient.serviceClientConfiguration().endpointOverride().get());
+                }
+            }
+        }
+    }
 
     @Test
     public void testExtendGlobNumberRange_simpleRange() {

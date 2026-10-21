@@ -27,12 +27,20 @@ class CompletedPart;
 }
 } // namespace Aws::S3
 
+namespace doris {
+class GcpTokenProvider;
+}
+
 namespace doris::io {
 class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
-    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
+    explicit S3ObjStorageClient(
+            std::shared_ptr<Aws::S3::S3Client> client,
+            std::shared_ptr<GcpTokenProvider> gcs_signing_token_provider = nullptr)
+            : _client(std::move(client)),
+              _gcs_signing_token_provider(std::move(gcs_signing_token_provider)) {}
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -58,6 +66,7 @@ public:
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<GcpTokenProvider> _gcs_signing_token_provider;
 };
 
 } // namespace doris::io

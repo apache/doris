@@ -24,9 +24,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.datasource.property.storage.auth.GcsAuth;
+import org.apache.doris.datasource.property.storage.auth.GcsAuthResolver;
+import org.apache.doris.datasource.property.storage.auth.ObjCredentialFactory;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.base.Preconditions;
@@ -46,6 +50,7 @@ import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -230,6 +235,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initNormalizeAndCheckProps() {
+        if (GCSProperties.hasNativeCredentialProperties(origProps)) {
+            GCSProperties.validateNativeCredentialCompatibility(origProps);
+            throw new IllegalArgumentException("Native GCP authentication cannot be used with S3 properties.");
+        }
         super.initNormalizeAndCheckProps();
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isBlank(s3IAMRole)) {
             throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
@@ -245,6 +254,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * @return
      */
     protected static boolean guessIsMe(Map<String, String> origProps) {
+        // GCS is transported through the S3-compatible protocol. Check all GCS-specific signals
+        // before generic fields such as region so native OAuth is never initialized as AWS S3.
+        if (GCSProperties.guessIsMe(origProps)) {
+            return false;
+        }
         String endpoint = Stream.of(ENDPOINT_NAMES_FOR_GUESSING)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
@@ -519,6 +533,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
     public static void convertToStdProperties(Map<String, String> properties) {
+        GCSProperties.validateNativeCredentialCompatibility(properties);
         if (properties.containsKey(Env.ENDPOINT)) {
             properties.putIfAbsent(ENDPOINT, properties.get(Env.ENDPOINT));
         }
@@ -662,7 +677,20 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 || properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE);
     }
 
+    private static boolean hasAnonymousCredentialsProvider(Map<String, String> properties) {
+        return properties.entrySet().stream().anyMatch(entry ->
+                (CREDENTIALS_PROVIDER_TYPE.equalsIgnoreCase(entry.getKey())
+                        || Env.CREDENTIALS_PROVIDER_TYPE.equalsIgnoreCase(entry.getKey()))
+                        && "ANONYMOUS".equalsIgnoreCase(StringUtils.trim(entry.getValue())));
+    }
+
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Optional<GcsAuth> gcsAuth = GcsAuthResolver.resolve(properties);
+        if (gcsAuth.filter(GcsAuth::isAnonymous).isPresent()) {
+            // Keep this restriction in the Vault protobuf path: FE clients and BE Thrift
+            // still support anonymous public-object access, including legacy S3 aliases.
+            throw new IllegalArgumentException("Anonymous GCS authentication is not supported for storage vaults.");
+        }
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(S3Properties.ENDPOINT)) {
             builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
@@ -705,6 +733,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             builder.setCredProviderType(getCredProviderTypePB(properties));
         }
 
+        ObjCredentialFactory.fromProperties(properties, gcsAuth)
+                .ifPresent(credential -> credential.applyTo(builder));
+
         if (properties.containsKey(S3Properties.ROLE_ARN)) {
             String roleArn = properties.get(S3Properties.ROLE_ARN);
             if (!Strings.isNullOrEmpty(roleArn)) {
@@ -722,7 +753,13 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        Optional<GcsAuth> gcsAuth = GcsAuthResolver.resolve(properties);
         TS3StorageParam s3Info = new TS3StorageParam();
+
+        if (properties.containsKey(StorageProperties.FS_PROVIDER_KEY)
+                && StringUtils.isNotBlank(properties.get(StorageProperties.FS_PROVIDER_KEY))) {
+            s3Info.setProvider(toThriftProvider(properties.get(StorageProperties.FS_PROVIDER_KEY)));
+        }
 
         if (properties.containsKey(S3Properties.ROLE_ARN)) {
             s3Info.setRoleArn(properties.get(S3Properties.ROLE_ARN));
@@ -751,7 +788,19 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(S3Properties.USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
+        ObjCredentialFactory.fromProperties(properties, gcsAuth)
+                .ifPresent(credential -> credential.applyTo(s3Info));
+        if (gcsAuth.filter(GcsAuth::isAnonymous).isPresent()
+                || (!gcsAuth.isPresent() && hasAnonymousCredentialsProvider(properties))) {
+            s3Info.setCredProviderType(TCredProviderType.ANONYMOUS);
+        }
         return s3Info;
+    }
+
+    private static TObjStorageType toThriftProvider(String provider) {
+        String normalized = provider.trim().toUpperCase(Locale.ROOT);
+        // The public/protobuf provider is named S3, while the legacy Thrift enum uses AWS.
+        return "S3".equals(normalized) ? TObjStorageType.AWS : TObjStorageType.valueOf(normalized);
     }
 
 }

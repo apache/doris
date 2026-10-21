@@ -115,8 +115,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public S3Client getClient() {
         if (client == null) {
-            client = S3Util.buildS3Client(s3Properties.getEndpoint(), s3Properties.getRegion(),
-                    isUsePathStyle, s3Properties.getAwsCredentialsProvider());
+            client = s3Properties.createS3Client(s3Properties.getEndpoint(), isUsePathStyle);
         }
         return client;
     }

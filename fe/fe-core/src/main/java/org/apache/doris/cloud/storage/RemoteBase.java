@@ -57,17 +57,20 @@ public abstract class RemoteBase {
         // only used for aws
         private final String externalId;
         private final String token;
+        private final boolean hasGcpCredential;
 
         // Used to get sts token
         public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk,
                           String endpoint, String region, String roleName, String arn, String externalId) {
-            this(provider, null, ak, sk, null, endpoint, region, null, roleName, arn, externalId, null);
+            this(provider, null, ak, sk, null, endpoint, region, null, roleName, arn, externalId, null,
+                    false);
         }
 
         // Used by UT
         public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider,
                           String ak, String sk, String bucket, String endpoint, String region, String prefix) {
-            this(provider, null, ak, sk, bucket, endpoint, region, prefix, null, null, null, null);
+            this(provider, null, ak, sk, bucket, endpoint, region, prefix, null, null, null, null,
+                    false);
         }
 
         // Used by upload for internal stage
@@ -76,7 +79,7 @@ public abstract class RemoteBase {
                     objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(), objectStoreInfoPB.getBucket(),
                     objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
                     objectStoreInfoPB.getPrefix(), null, objectStoreInfoPB.getRoleArn(),
-                    objectStoreInfoPB.getExternalId(), null);
+                    objectStoreInfoPB.getExternalId(), null, hasGcpCredential(objectStoreInfoPB));
         }
 
         private ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB, String roleName, String arn,
@@ -84,7 +87,8 @@ public abstract class RemoteBase {
             this(objectStoreInfoPB.getProvider(), getCredProviderType(objectStoreInfoPB),
                     objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(), objectStoreInfoPB.getBucket(),
                     objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
-                    objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token);
+                    objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token,
+                    hasGcpCredential(objectStoreInfoPB));
         }
 
         private static Cloud.CredProviderTypePB getCredProviderType(ObjectStoreInfoPB objectStoreInfoPB) {
@@ -93,9 +97,15 @@ public abstract class RemoteBase {
                     : Cloud.CredProviderTypePB.INSTANCE_PROFILE;
         }
 
+        private static boolean hasGcpCredential(ObjectStoreInfoPB objectStoreInfoPB) {
+            return objectStoreInfoPB.hasCredential()
+                    && objectStoreInfoPB.getCredential().hasGcpCredential();
+        }
+
         private ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, Cloud.CredProviderTypePB credProviderType,
                 String ak, String sk, String bucket, String endpoint, String region, String prefix,
-                String roleName, String arn, String externalId, String token) {
+                String roleName, String arn, String externalId, String token,
+                boolean hasGcpCredential) {
             this.provider = provider;
             this.credProviderType = credProviderType;
             this.ak = ak;
@@ -108,6 +118,11 @@ public abstract class RemoteBase {
             this.arn = arn;
             this.externalId = externalId;
             this.token = token;
+            this.hasGcpCredential = hasGcpCredential;
+        }
+
+        public boolean supportsPresignedUrl() {
+            return !hasGcpCredential;
         }
 
         @Override
@@ -125,6 +140,7 @@ public abstract class RemoteBase {
                 + ", arn='" + arn + '\''
                 + ", externalId='" + externalId + '\''
                 + ", token='" + token + '\''
+                + ", hasGcpCredential=" + hasGcpCredential
                 + '}';
         }
     }
@@ -245,7 +261,7 @@ public abstract class RemoteBase {
             ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), null, stsToken.getLeft(),
                     stsToken.getMiddle(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
                     infoPB.getPrefix(), stagePB.getRoleName(), stagePB.getArn(), encodedExternalId,
-                    stsToken.getRight());
+                    stsToken.getRight(), ObjectInfo.hasGcpCredential(infoPB));
             LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
             return objInfo;
         } catch (Throwable e) {
