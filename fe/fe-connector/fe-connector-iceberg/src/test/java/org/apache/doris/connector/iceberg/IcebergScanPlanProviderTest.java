@@ -108,6 +108,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -1925,7 +1926,8 @@ public class IcebergScanPlanProviderTest {
     @Test
     public void equalityCarrierKeepsLatestDefinitionOfDroppedEqualityKey() throws Exception {
         // BE fills an equality key that an old data file lacks from the key's carrier entry, so a dropped key must
-        // resolve to its latest historical definition: its last name, its optionality and its initial default.
+        // resolve to the latest definition on the scan's lineage: its last name, its optionality and its initial
+        // default. Each schema change is followed by a write, as on a table that keeps ingesting.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional("k").withId(2).ofType(Types.IntegerType.get())
@@ -1938,7 +1940,11 @@ public class IcebergScanPlanProviderTest {
         table.newRowDelta().addDeletes(equalityDeleteFile(
                 "s3://b/db/renamed_dropped_eq_key/eq.parquet", FileFormat.PARQUET, keyId)).commit();
         table.updateSchema().renameColumn("k", "k2").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/renamed_dropped_eq_key/f2.parquet", 1024, null, null)).commit();
         table.updateSchema().deleteColumn("k2").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/renamed_dropped_eq_key/f3.parquet", 1024, null, null)).commit();
 
         IcebergScanPlanProvider provider = providerOver(table);
         Map<String, String> props = provider.getScanNodeProperties(
@@ -2067,6 +2073,159 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(2, carrier.size(),
                 "unrelated schema churn must not increase FE heap or schema RPC size");
         Assertions.assertEquals(table.schema().columns(), carrier);
+    }
+
+    @Test
+    public void equalityCarrierResolvesDroppedKeyWhenSchemaIdIsReused() throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = createTable("reused_schema_id_eq_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        int initialSchemaId = table.schema().schemaId();
+        table.updateSchema().addColumn("k", Types.StringType.get()).commit();
+        int keyId = table.schema().findField("k").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_eq_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/reused_schema_id_eq_key/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        // Dropping k makes the schema equal to the initial one, so Iceberg reuses the initial schema ID, which the
+        // metadata list holds before the schema that still defines the equality key. The next snapshot carries the
+        // reused ID; only its parent records the schema with k.
+        table.updateSchema().deleteColumn("k").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_eq_key/f2.parquet", 1024, null, null)).commit();
+        Assertions.assertEquals(initialSchemaId, table.schema().schemaId());
+        Assertions.assertEquals(initialSchemaId, table.currentSnapshot().schemaId());
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(keyId, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+
+        IcebergScanPlanProvider provider = providerOver(table);
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "reused_schema_id_eq_key"),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+        Assertions.assertTrue(fields.stream().anyMatch(field -> field.getFieldPtr().getId() == keyId),
+                "the scan dictionary must carry the dropped equality key after the schema ID is reused");
+    }
+
+    @Test
+    public void equalityCarrierResolvesReusedSchemaIdAfterParentSnapshotsExpire() throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = createTable("reused_schema_id_expired_parent", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.updateSchema().addColumn("k", Types.StringType.get()).commit();
+        int keyId = table.schema().findField("k").fieldId();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_expired_parent/f1.parquet", 1024, null, null)).commit();
+        long appendSnapshotId = table.currentSnapshot().snapshotId();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/reused_schema_id_expired_parent/eq.parquet", FileFormat.PARQUET, keyId)).commit();
+        long deleteSnapshotId = table.currentSnapshot().snapshotId();
+        table.updateSchema().deleteColumn("k").commit();
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/reused_schema_id_expired_parent/f2.parquet", 1024, null, null)).commit();
+        // With the snapshots that recorded k expired, the scan lineage ends at the reused-ID snapshot, so the key
+        // can only come from the metadata schema list, where it sits after the reused schema.
+        table.expireSnapshots().expireSnapshotId(appendSnapshotId).expireSnapshotId(deleteSnapshotId)
+                .cleanExpiredFiles(false).commit();
+        Assertions.assertNull(table.snapshot(table.currentSnapshot().parentId()));
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, table.newScan(), table.schema());
+        Assertions.assertEquals(2, carrier.size(), "the dropped equality key must stay resolvable: " + carrier);
+        Assertions.assertEquals(keyId, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+    }
+
+    @Test
+    public void equalityCarrierPrefersScanLineageOverLaterRenameForTimeTravel() {
+        // The metadata list also holds schemas committed after a time-travel target. A later schema that renames
+        // the key must not win over the definition recorded on the target's own lineage.
+        NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Schema schemaWithEqualityKey = new Schema(100, Arrays.asList(id, intKeyWithDefault("k")));
+        Schema timeTravelSchema = new Schema(1, Collections.singletonList(id));
+        Schema laterSchema = new Schema(2, Arrays.asList(id, intKeyWithDefault("k2")));
+        Snapshot timeTravelSnapshot = snapshotOf(1001L, 1000L, timeTravelSchema);
+        Table table = tableWithHistory(Arrays.asList(schemaWithEqualityKey, timeTravelSchema, laterSchema),
+                snapshotOf(1000L, null, schemaWithEqualityKey), timeTravelSnapshot);
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, timeTravelSnapshot, timeTravelSchema, Collections.singleton(7));
+        Assertions.assertEquals(2, carrier.size());
+        Assertions.assertEquals(7, carrier.get(1).fieldId());
+        Assertions.assertEquals("k", carrier.get(1).name());
+    }
+
+    @Test
+    public void equalityCarrierKeepsDefaultWhenTimeTravelParentExpiredBeforeLaterRename() {
+        // Once the lineage that recorded the key has expired, the metadata list is the only source left. Its newest
+        // definition may come from a later rename, but the field ID and its initial default stay the same.
+        NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Schema schemaWithEqualityKey = new Schema(100, Arrays.asList(id, intKeyWithDefault("k")));
+        Schema timeTravelSchema = new Schema(1, Collections.singletonList(id));
+        Schema laterSchema = new Schema(2, Arrays.asList(id, intKeyWithDefault("k2")));
+        Snapshot timeTravelSnapshot = snapshotOf(1001L, 1000L, timeTravelSchema);
+        Table table = tableWithHistory(Arrays.asList(schemaWithEqualityKey, timeTravelSchema, laterSchema),
+                timeTravelSnapshot);
+
+        List<NestedField> carrier = IcebergScanPlanProvider.schemaForPotentialEqualityDeletes(
+                table, timeTravelSnapshot, timeTravelSchema, Collections.singleton(7));
+        Assertions.assertEquals(2, carrier.size());
+        Assertions.assertEquals(7, carrier.get(1).fieldId());
+        Assertions.assertEquals(7, carrier.get(1).initialDefault());
+    }
+
+    private static NestedField intKeyWithDefault(String name) {
+        return Types.NestedField.optional(name).withId(7).ofType(Types.IntegerType.get())
+                .withInitialDefault(7).build();
+    }
+
+    /** A snapshot double exposing only its lineage and the ID of the schema it was written with. */
+    private static Snapshot snapshotOf(long snapshotId, Long parentId, Schema schema) {
+        return (Snapshot) Proxy.newProxyInstance(Snapshot.class.getClassLoader(), new Class<?>[] {Snapshot.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "snapshotId":
+                            return snapshotId;
+                        case "parentId":
+                            return parentId;
+                        case "schemaId":
+                            return schema.schemaId();
+                        default:
+                            throw new UnsupportedOperationException(method.getName());
+                    }
+                });
+    }
+
+    /**
+     * A table double exposing only schema history, in metadata-list order, and the retained snapshots. It allows
+     * schema histories that the SDK cannot build, such as a later schema that renames a dropped field ID.
+     */
+    private static Table tableWithHistory(List<Schema> schemas, Snapshot... snapshots) {
+        Map<Integer, Schema> schemasById = new LinkedHashMap<>();
+        for (Schema schema : schemas) {
+            schemasById.put(schema.schemaId(), schema);
+        }
+        Map<Long, Snapshot> snapshotsById = new HashMap<>();
+        for (Snapshot snapshot : snapshots) {
+            snapshotsById.put(snapshot.snapshotId(), snapshot);
+        }
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "schemas":
+                            return schemasById;
+                        case "snapshot":
+                            return snapshotsById.get((Long) args[0]);
+                        default:
+                            throw new UnsupportedOperationException(method.getName());
+                    }
+                });
     }
 
     @Test

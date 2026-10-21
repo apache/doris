@@ -2108,7 +2108,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // every branch so the default and current field type match BE's read.
             if (hasApplicableEqualityDeletes) {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
-                        table, scanSchema, applicableEqualityDeleteFieldIds);
+                        table, exactScan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
                         table, equalityFields, appendRowLineage,
                         enableVarbinary, enableTimestampTz);
@@ -2280,29 +2280,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * delete manifests does not enumerate data files or byte-split tasks, and retained state is bounded by the
      * number of equality keys rather than the table's entire schema history.
      *
-     * <p>The metadata schema list is searched in reverse chronology up to the selected schema (schema IDs are
-     * identifiers, not a sequence), so the latest definition of each stable field ID wins. Current fields remain
-     * first, allowing a dropped/re-added name to resolve the projected field by name while a live historical
-     * equality key resolves by its stable field ID.</p>
+     * <p>Schema IDs are identifiers, not a sequence: Iceberg reuses an ID when evolution returns to an earlier
+     * schema, so a schema's position in the metadata list does not tell when it was last active, and the list may
+     * also hold schemas committed after a time-travel or branch target. The scan snapshot's parent chain is
+     * therefore searched first, so the definition active on that lineage wins; the whole metadata list, newest
+     * first, is the fallback for schema-only changes and expired ancestors. Current fields remain first, allowing
+     * a dropped/re-added name to resolve the projected field by name while a live historical equality key
+     * resolves by its stable field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
             Table table, TableScan scan, Schema scanSchema) {
         return schemaForPotentialEqualityDeletes(
-                table, scanSchema, applicableEqualityDeleteFieldIds(table, scan));
+                table, scan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds(table, scan));
     }
 
-    private static List<NestedField> schemaForPotentialEqualityDeletes(
-            Table table, Schema scanSchema, Set<Integer> equalityFieldIds) {
-        List<Schema> metadataSchemas = metadataSchemaHistory(table);
-        int selectedSchemaIndex = -1;
-        for (int index = 0; index < metadataSchemas.size(); index++) {
-            if (metadataSchemas.get(index).schemaId() == scanSchema.schemaId()) {
-                selectedSchemaIndex = index;
-            }
-        }
-        int lastRelevantIndex = selectedSchemaIndex >= 0
-                ? selectedSchemaIndex : metadataSchemas.size() - 1;
+    @VisibleForTesting
+    static List<NestedField> schemaForPotentialEqualityDeletes(
+            Table table, Snapshot scanSnapshot, Schema scanSchema, Set<Integer> equalityFieldIds) {
         Set<Integer> missing = new HashSet<>(equalityFieldIds);
         missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (missing.isEmpty()) {
@@ -2310,7 +2305,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
+        // Snapshots on one lineage mostly share a schema, so each schema is indexed at most once.
+        Set<Integer> lineageSchemaIds = new HashSet<>();
+        for (Snapshot snapshot = scanSnapshot; snapshot != null && !missing.isEmpty();
+                snapshot = snapshot.parentId() == null ? null : table.snapshot(snapshot.parentId())) {
+            Integer schemaId = snapshot.schemaId();
+            if (schemaId == null || !lineageSchemaIds.add(schemaId)) {
+                continue;
+            }
+            Schema lineageSchema = table.schemas().get(schemaId);
+            if (lineageSchema == null) {
+                throw new IllegalStateException(
+                        "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
+            }
+            addHistoricalEqualityFields(fields, missing, lineageSchema);
+        }
+        List<Schema> metadataSchemas = metadataSchemaHistory(table);
+        for (int index = metadataSchemas.size() - 1; index >= 0 && !missing.isEmpty(); index--) {
             addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
         }
         if (!missing.isEmpty()) {
