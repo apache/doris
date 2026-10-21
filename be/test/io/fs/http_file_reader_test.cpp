@@ -381,7 +381,7 @@ TEST_F(HttpFileReaderTest, ReadMiddleRangeAfterHeadForbidden) {
     static_cast<void>(reader->close());
 }
 
-TEST(HttpFileReaderTest, PlainResponseIsNotFileCachedEither) {
+TEST_F(HttpFileReaderTest, PlainResponseIsNotFileCachedEither) {
     // The file cache keys an external file by path and modification time. An HTTP source has no
     // modification time, so a URL whose content changes must not be served from blocks cached
     // from its old content.
@@ -400,7 +400,7 @@ TEST(HttpFileReaderTest, PlainResponseIsNotFileCachedEither) {
     EXPECT_NE(std::dynamic_pointer_cast<HttpFileReader>(reader.value()), nullptr);
 }
 
-TEST(HttpFileReaderTest, RangeReadDoesNotCrossKnownEof) {
+TEST_F(HttpFileReaderTest, RangeReadDoesNotCrossKnownEof) {
     const std::string content = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     EofSensitiveRangeHandler handler(content);
     EvHttpServer server(0);
