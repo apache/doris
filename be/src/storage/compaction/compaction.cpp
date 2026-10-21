@@ -764,7 +764,7 @@ bool CompactionMixin::handle_ordered_data_compaction() {
                    return rowset->num_rows() > 0 &&
                           rowset->start_version() == rowset->end_version() &&
                           (schema->version_col_idx() >= 0 || schema->commit_tso_col_idx() >= 0 ||
-                           schema->binlog_tso_col_idx() >= 0);
+                           schema->changelog_tso_col_idx() >= 0);
                });
     };
 

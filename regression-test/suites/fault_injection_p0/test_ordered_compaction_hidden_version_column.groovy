@@ -99,7 +99,13 @@ suite("test_ordered_compaction_hidden_version_column", "nonConcurrent") {
             (SELECT COUNT(*) FROM test_ordered_compaction_hidden_version_column
                 WHERE __DORIS_VERSION_COL__ = ${v2})"""
 
-        if (getSyncer().checkEnableFeatureBinlog()) {
+        def featureEnabled = { String name ->
+            def row = sql("SHOW FRONTEND CONFIG LIKE '%${name}'").find {
+                it[0] == name || it[0] == "experimental_${name}"
+            }
+            return row != null && row[1] == "true"
+        }
+        if (featureEnabled("enable_feature_changelog") && featureEnabled("enable_feature_binlog")) {
             sql "DROP TABLE IF EXISTS test_ordered_compaction_hidden_tso_column"
             sql """
                 CREATE TABLE test_ordered_compaction_hidden_tso_column (
@@ -109,8 +115,7 @@ suite("test_ordered_compaction_hidden_version_column", "nonConcurrent") {
                 DISTRIBUTED BY HASH(k) BUCKETS 1
                 PROPERTIES (
                     "replication_num" = "1",
-                    "binlog.enable" = "true",
-                    "binlog.format" = "ROW",
+                    "changelog.enable" = "true",
                     "disable_auto_compaction" = "true")
             """
             sql "INSERT INTO test_ordered_compaction_hidden_tso_column VALUES (10, 10), (11, 11)"
