@@ -45,6 +45,9 @@ public class CloudCommittedTsoTest {
     @Test
     public void testOrdinarySubTransactionAndTwoPhaseCommitReuseTsoAcrossRpcRetries() throws Exception {
         Env env = Mockito.mock(Env.class);
+        TabletInvertedIndex index = Mockito.mock(TabletInvertedIndex.class);
+        Mockito.when(env.getTabletInvertedIndex()).thenReturn(index);
+        Mockito.when(index.getTabletMetaList(Collections.emptyList())).thenReturn(Collections.emptyList());
         TSOService tsoService = Mockito.mock(TSOService.class);
         Mockito.when(env.getTSOService()).thenReturn(tsoService);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
