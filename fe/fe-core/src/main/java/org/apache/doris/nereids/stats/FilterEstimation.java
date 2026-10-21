@@ -125,7 +125,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     /**
      * Applies predicates already accounted for by the scan row count to column statistics only. The returned
-     * statistics preserve the input row count and predicate provenance. Single-column constraints share one
+     * statistics preserve the input row count and its provenance. Single-column constraints share one
      * estimation basis per slot; relationships between columns do not independently bound either column.
      */
     public Statistics applyColumnConstraints(Set<Expression> conjuncts, Statistics inputStats) {

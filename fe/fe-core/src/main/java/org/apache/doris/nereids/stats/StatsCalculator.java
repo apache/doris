@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -610,7 +611,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
-            builder.setConjunctsAppliedToRowCount(getPrunableConjuncts(olapScan));
+            builder.setHasSelectedPartitionRowCount(true);
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
@@ -621,20 +622,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
-            // The table-level row count can carry this provenance only when pruning kept every partition;
-            // otherwise it describes the whole table rather than the selected partitions.
+            // The table-level row count describes the selected partitions only when pruning kept them all.
             if (olapScan.getSelectedPartitionIds().size() >= olapScan.getTable().getPartitionNum()) {
-                builder.setConjunctsAppliedToRowCount(getPrunableConjuncts(olapScan));
+                builder.setHasSelectedPartitionRowCount(true);
             }
         }
         return computeVirtualColumnStats(olapScan, builder.build());
-    }
-
-    private Set<Expression> getPrunableConjuncts(OlapScan olapScan) {
-        Optional<PartitionPrunablePredicate> prunablePredicate = olapScan.getPartitionPrunablePredicates();
-        return prunablePredicate
-                .map(predicate -> predicate.getPrunableConjuncts())
-                .orElse(ImmutableSet.of());
     }
 
     private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
@@ -1191,7 +1184,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // Use predicates already included in the scan row count only to restore column constraints;
         // estimate the remaining predicates to avoid counting a partition predicate twice.
         Set<Expression> appliedConjuncts = new LinkedHashSet<>(filter.getConjuncts());
-        appliedConjuncts.retainAll(inputStats.getConjunctsAppliedToRowCount());
+        appliedConjuncts.retainAll(inputStats.hasSelectedPartitionRowCount()
+                ? getPartitionPrunableConjuncts(filter) : ImmutableSet.of());
         FilterEstimation estimation = new FilterEstimation();
         if (appliedConjuncts.isEmpty()) {
             return estimation.estimate(filter.getPredicate(), inputStats);
@@ -1201,6 +1195,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Set<Expression> remainingConjuncts = new LinkedHashSet<>(filter.getConjuncts());
         remainingConjuncts.removeAll(appliedConjuncts);
         return estimation.estimate(ExpressionUtils.and(remainingConjuncts), inputWithConstrainedColumns);
+    }
+
+    private Set<Expression> getPartitionPrunableConjuncts(Filter filter) {
+        Plan child = ((UnaryPlan<?>) filter).child();
+        if (child instanceof GroupPlan) {
+            Group group = ((GroupPlan) child).getGroup();
+            List<GroupExpression> expressions = group.getLogicalExpressions().isEmpty()
+                    ? group.getPhysicalExpressions() : group.getLogicalExpressions();
+            child = expressions.get(0).getPlan();
+        }
+        if (!(child instanceof OlapScan)) {
+            return ImmutableSet.of();
+        }
+        return ((OlapScan) child).getPartitionPrunablePredicates()
+                .map(PartitionPrunablePredicate::getPrunableConjuncts)
+                .orElse(ImmutableSet.of());
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
