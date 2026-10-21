@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+
+import java.util.Optional;
 
 /**
  * Float type in Nereids.
@@ -29,6 +33,14 @@ public class FloatType extends FractionalType {
     private static final int WIDTH = 4;
 
     private FloatType() {
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // Every binary32 value is exactly representable as binary64. Doris normalizes signed zero
+        // and NaN payloads before DISTINCT and aggregation, and widening preserves those equivalence
+        // classes. Do not include character targets: their formatting can distinguish signed zero.
+        return target instanceof FloatType || target instanceof DoubleType;
     }
 
     @Override
@@ -59,5 +71,10 @@ public class FloatType extends FractionalType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new FloatLiteral(0));
     }
 }

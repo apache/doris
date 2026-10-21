@@ -137,7 +137,8 @@ Status RowGroupReader::init(
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(
                 _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
-                max_buf_size, col_offsets, _state, false, _column_ids, _filter_column_ids));
+                max_buf_size, col_offsets, _state, false, _column_ids, _filter_column_ids,
+                _preserve_binary_uuid));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -893,7 +894,7 @@ Status RowGroupReader::_fill_partition_columns(
         // obtained from block*, it is a mutable object.
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        auto _text_serde = slot_desc->type()->get_serde();
         Slice slice(value.data(), value.size());
         uint64_t num_deserialized = 0;
         // Be careful when reading empty rows from parquet row groups.
@@ -1143,7 +1144,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
             if (slot_desc->id() == slot_id) {
-                auto data_type = slot_desc->get_data_type_ptr();
+                auto data_type = slot_desc->type();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
                             {ColumnNullable::create(
@@ -1160,8 +1161,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
 
             } else {
                 temp_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                        slot_desc->get_data_type_ptr(),
-                                                        slot_desc->col_name()));
+                                                        slot_desc->type(), slot_desc->col_name()));
             }
             ++index;
         }

@@ -24,8 +24,8 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.thrift.protocol.TProtocol;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -41,15 +41,15 @@ public class MaxComputeFeClientTest {
         MaxComputeFeClient client = new MaxComputeFeClient(
                 new TNetworkAddress("fe1", 9010), 1234, "THREAD_POOL", executor, 0);
 
-        Assert.assertEquals(42L, client.requestBlockId(100L, "session-1"));
-        Assert.assertEquals(1, executor.addresses.size());
-        Assert.assertEquals("fe1", executor.addresses.get(0).getHostname());
-        Assert.assertEquals(9010, executor.addresses.get(0).getPort());
-        Assert.assertFalse(executor.framedTransports.get(0));
-        Assert.assertEquals(1234, (int) executor.timeouts.get(0));
-        Assert.assertEquals(100L, executor.requests.get(0).getTxnId());
-        Assert.assertEquals("session-1", executor.requests.get(0).getWriteSessionId());
-        Assert.assertEquals(1L, executor.requests.get(0).getLength());
+        Assertions.assertEquals(42L, client.requestBlockId(100L, "session-1"));
+        Assertions.assertEquals(1, executor.addresses.size());
+        Assertions.assertEquals("fe1", executor.addresses.get(0).getHostname());
+        Assertions.assertEquals(9010, executor.addresses.get(0).getPort());
+        Assertions.assertFalse(executor.framedTransports.get(0));
+        Assertions.assertEquals(1234, (int) executor.timeouts.get(0));
+        Assertions.assertEquals(100L, executor.requests.get(0).getTxnId());
+        Assertions.assertEquals("session-1", executor.requests.get(0).getWriteSessionId());
+        Assertions.assertEquals(1L, executor.requests.get(0).getLength());
     }
 
     @Test
@@ -58,12 +58,12 @@ public class MaxComputeFeClientTest {
         MaxComputeFeClient client = new MaxComputeFeClient(
                 new TNetworkAddress("follower", 9010), 1234, "THREADED_SELECTOR", executor, 0);
 
-        Assert.assertEquals(7L, client.requestBlockId(101L, "session-2"));
-        Assert.assertEquals(2, executor.addresses.size());
-        Assert.assertEquals("follower", executor.addresses.get(0).getHostname());
-        Assert.assertEquals("master", executor.addresses.get(1).getHostname());
-        Assert.assertTrue(executor.framedTransports.get(0));
-        Assert.assertTrue(executor.framedTransports.get(1));
+        Assertions.assertEquals(7L, client.requestBlockId(101L, "session-2"));
+        Assertions.assertEquals(2, executor.addresses.size());
+        Assertions.assertEquals("follower", executor.addresses.get(0).getHostname());
+        Assertions.assertEquals("master", executor.addresses.get(1).getHostname());
+        Assertions.assertTrue(executor.framedTransports.get(0));
+        Assertions.assertTrue(executor.framedTransports.get(1));
     }
 
     @Test
@@ -73,7 +73,7 @@ public class MaxComputeFeClientTest {
                 new TNetworkAddress("fe1", 9010), 1234, "THREAD_POOL", executor, 0);
 
         expectIOExceptionContains(() -> client.requestBlockId(102L, "session-3"), "allocation failed");
-        Assert.assertEquals(1, executor.addresses.size());
+        Assertions.assertEquals(1, executor.addresses.size());
     }
 
     @Test
@@ -85,8 +85,8 @@ public class MaxComputeFeClientTest {
         MaxComputeFeClient client = new MaxComputeFeClient(
                 new TNetworkAddress("fe1", 9010), 1234, "THREAD_POOL", executor, 0);
 
-        Assert.assertEquals(9L, client.requestBlockId(103L, "session-4"));
-        Assert.assertEquals(3, executor.addresses.size());
+        Assertions.assertEquals(9L, client.requestBlockId(103L, "session-4"));
+        Assertions.assertEquals(3, executor.addresses.size());
     }
 
     private static TMaxComputeBlockIdResult okResult(long start) {
@@ -115,9 +115,10 @@ public class MaxComputeFeClientTest {
     private static void expectIOExceptionContains(IOAction action, String expectedMessage) {
         try {
             action.run();
-            Assert.fail("expected IOException");
+            Assertions.fail("expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage(), e.getMessage().contains(expectedMessage));
+            Assertions.assertTrue(e.getMessage().contains(expectedMessage),
+                    e.getMessage());
         }
     }
 

@@ -23,15 +23,15 @@ import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
 public class OlapTableSinkBackendSelectionExplainTest {
 
-    @After
+    @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
     }
@@ -48,8 +48,8 @@ public class OlapTableSinkBackendSelectionExplainTest {
             StringBuilder explain = new StringBuilder();
             Deencapsulation.invoke(sink, "appendSinkSelectionExplain", explain, "");
 
-            Assert.assertEquals("", explain.toString());
-            Assert.assertEquals(0, policy.getLoadSelectionHintCalls);
+            Assertions.assertEquals("", explain.toString());
+            Assertions.assertEquals(0, policy.getLoadSelectionHintCalls);
         } finally {
             ConnectContext.remove();
         }

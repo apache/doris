@@ -124,7 +124,7 @@ private:
     std::shared_ptr<MemTable> _mem_table;
     TabletSchemaSPtr _tablet_schema;
     bool _unique_key_mow = false;
-    bool _need_row_binlog_lsn = false;
+    bool _need_lsn = false;
 
     // This variable is accessed from writer thread and token flush thread
     // use a shared ptr to avoid use after free problem.

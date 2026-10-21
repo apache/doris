@@ -73,7 +73,6 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
@@ -99,6 +98,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/jni-util.h"
+#include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -503,11 +503,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
         if (n > 0) {
             // only count fragment when task is actually starting
-            doris::g_fragment_executing_count << 1;
-            int64_t now = duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-            g_fragment_last_active_time.set_value(now);
+            increment_fragment_executing_count();
         }
         return;
     }
@@ -913,12 +909,18 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
+            // The changelog policy is set when a changelog tablet is created and never changes.
+            if (tablet->is_changelog_tablet()) {
+                status = Status::InvalidArgument(
+                        "can not change compaction policy of changelog tablet {}",
+                        tablet_meta_info.tablet_id);
+                continue;
+            }
             if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
-                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY &&
-                tablet_meta_info.compaction_policy != CUMULATIVE_BINLOG_POLICY) {
+                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "invalid compaction policy, only support for size_based or "
-                        "time_series or binlog");
+                        "time_series");
                 continue;
             }
             tablet->tablet_meta()->set_compaction_policy(tablet_meta_info.compaction_policy);
@@ -1003,18 +1005,17 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     "new_binlog_config={}",
                     tablet_meta_info.tablet_id, tablet->tablet_meta()->binlog_config().to_string(),
                     new_binlog_config.to_string());
-            tablet->set_binlog_config(new_binlog_config);
+            auto st = tablet->set_binlog_config(new_binlog_config);
+            if (!st.ok()) {
+                status = st;
+                continue;
+            }
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.disable_auto_compaction) {
-            std::shared_lock rlock(tablet->get_header_lock());
-            tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
-                    tablet_meta_info.disable_auto_compaction);
-            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                rowset_meta->tablet_schema()->set_disable_auto_compaction(
-                        tablet_meta_info.disable_auto_compaction);
-            }
-            tablet->tablet_schema_unlocked()->set_disable_auto_compaction(
+            std::unique_lock wlock(tablet->get_header_lock());
+            // Scheduling reads the tablet property; rowset schemas are shared and immutable.
+            tablet->tablet_meta()->set_disable_auto_compaction(
                     tablet_meta_info.disable_auto_compaction);
             need_to_save = true;
         }
@@ -1750,9 +1751,9 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
 
     if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::HdfsFileSystem::create(
-                param.hdfs_storage_param, param.hdfs_storage_param.fs_name,
-                std::to_string(param.id), nullptr, std::move(root_path));
+        auto res = io::HdfsFileSystem::create(param.hdfs_storage_param,
+                                              param.hdfs_storage_param.fs_name,
+                                              std::to_string(param.id), std::move(root_path));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -2201,7 +2202,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
-                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                    if (!tablet->tablet_meta()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
                         int32_t max_version_config = tablet->max_version_config();
@@ -2301,11 +2302,7 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         alter_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
-    doris::g_fragment_executing_count << -1;
-    int64_t now = duration_cast<std::chrono::milliseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count();
-    g_fragment_last_active_time.set_value(now);
+    decrement_fragment_executing_count();
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -2327,11 +2324,7 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
         alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
-    doris::g_fragment_executing_count << -1;
-    int64_t now = duration_cast<std::chrono::milliseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count();
-    g_fragment_last_active_time.set_value(now);
+    decrement_fragment_executing_count();
 
     // Clean up alter_version before remove_task_info to avoid race:
     // remove_task_info allows same-signature re-submit, whose pre_submit_callback
@@ -2582,17 +2575,33 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     const auto& clean_req = req.clean_udf_cache_req;
+    if (clean_req.__isset.function_id && clean_req.function_id <= 0) {
+        LOG(WARNING) << "skip clean udf cache request with invalid function_id="
+                     << clean_req.function_id
+                     << ", function_signature=" << clean_req.function_signature;
+        return;
+    }
+    // Requests from old FEs do not set function_id and must keep signature-based cleanup.
+    const bool drop_by_function_id = clean_req.__isset.function_id;
 
     if (doris::config::enable_java_support) {
-        static_cast<void>(Jni::Util::clean_udf_class_load_cache(clean_req.function_signature));
+        // The id, not just the signature: it is what the java-udf plugin keys its compiled
+        // classes by, because the signature carries no database and FE renders a variadic one
+        // differently here than on the requests that execute the function.
+        WARN_IF_ERROR(
+                Jni::PluginRegistry::clean_udf_cache(
+                        drop_by_function_id ? clean_req.function_id : 0,
+                        clean_req.function_signature),
+                fmt::format("failed to clean Java UDF cache, function_signature={}, function_id={}",
+                            clean_req.function_signature, clean_req.function_id));
     }
-
-    if (clean_req.__isset.function_id && clean_req.function_id > 0) {
+    if (drop_by_function_id) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
         PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
     }
 
-    LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
+    LOG(INFO) << "clean udf cache callback finish: function_signature="
+              << clean_req.function_signature << ", function_id=" << clean_req.function_id;
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {

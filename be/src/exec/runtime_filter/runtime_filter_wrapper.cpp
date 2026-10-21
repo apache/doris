@@ -18,9 +18,11 @@
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 
 #include "core/data_type/define_primitive_type.h"
+#include "core/string_ref.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "util/hash_util.hpp"
 
 namespace doris {
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
@@ -74,7 +76,7 @@ Status RuntimeFilterWrapper::init(const size_t real_size) {
     if (get_real_type() == RuntimeFilterType::IN_FILTER && real_size > _max_in_num) {
         set_state(RuntimeFilterWrapper::State::DISABLED, "reach max in num");
     }
-    if (_bloom_filter_func) {
+    if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
         RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(real_size));
     }
     return Status::OK();
@@ -123,7 +125,12 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
     return _bloom_filter_func ? _bloom_filter_func->build_bf_by_runtime_size() : false;
 }
 
-Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
+// Pre-existing size/complexity debt from the per-filter-type switch below, already over
+// threshold before this change; not addressed here to keep this diff focused.
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
+Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other,
+                                   bool other_exclusively_owned) {
+    DORIS_CHECK(!_bucket_prune_hashes_started.load());
     if (_state == State::DISABLED) {
         return Status::OK();
     }
@@ -186,9 +193,15 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
                     RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(0));
                     RETURN_IF_ERROR(_change_to_bloom_filter());
                 }
-            } else {
-                // case1&case2: use input bf directly and insert hybrid set data into bf
+            } else if (other_exclusively_owned) {
+                // `other` has no other reader, so its bf can be taken over directly instead of
+                // cloned before inserting the hybrid set data into it.
                 _bloom_filter_func = other->_bloom_filter_func;
+                RETURN_IF_ERROR(_change_to_bloom_filter());
+            } else {
+                // case1&case2: use a copy of input bf and insert hybrid set data into it. `other`
+                // may still be used by its own consumers, so it must not be written.
+                RETURN_IF_ERROR(other->_bloom_filter_func->clone(&_bloom_filter_func, true));
                 RETURN_IF_ERROR(_change_to_bloom_filter());
             }
         } else {
@@ -206,6 +219,29 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         return Status::InternalError("unknown runtime filter");
     }
     set_state(State::READY);
+    return Status::OK();
+}
+
+Status RuntimeFilterWrapper::clone(std::shared_ptr<RuntimeFilterWrapper>* res) const {
+    auto cloned = std::make_shared<RuntimeFilterWrapper>(_column_return_type, _filter_type,
+                                                         _filter_id, _state.load(), _max_in_num);
+    cloned->_disable_always_true_logic = _disable_always_true_logic;
+    cloned->_reason.update(_reason.status());
+    if (_hybrid_set) {
+        cloned->_hybrid_set.reset(create_set(_column_return_type, _hybrid_set->null_aware()));
+        cloned->_hybrid_set->insert(_hybrid_set.get());
+    }
+    if (_minmax_func) {
+        cloned->_minmax_func.reset(_minmax_func->clone());
+    }
+    if (_bloom_filter_func) {
+        // An IN_OR_BLOOM filter which is still an IN filter never reads its bloom filter: a
+        // later merge which changes the copy to a bloom filter either re-initializes the bloom
+        // filter or takes a copy of the input one first. So do not copy the unused bloom filter.
+        RETURN_IF_ERROR(_bloom_filter_func->clone(
+                &cloned->_bloom_filter_func, get_real_type() == RuntimeFilterType::BLOOM_FILTER));
+    }
+    *res = std::move(cloned);
     return Status::OK();
 }
 
@@ -298,6 +334,8 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
     }
     case TYPE_TIMESTAMPTZ:
         [[fallthrough]];
+    case TYPE_TIMESTAMP_NS:
+        [[fallthrough]];
     case TYPE_DATETIMEV2: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             auto date_v2_val = column.longval();
@@ -305,8 +343,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         });
         break;
     }
-    case TYPE_DATETIME:
-    case TYPE_DATE: {
+    case TYPE_DATETIME: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             const auto& string_val_ref = column.stringval();
             VecDateTimeValue datetime_val;
@@ -315,6 +352,17 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
                     {string_val_ref.c_str(), string_val_ref.length()}, datetime_val, nullptr,
                     params);
             set->insert(&datetime_val);
+        });
+        break;
+    }
+    case TYPE_DATE: {
+        batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            const auto& string_val_ref = column.stringval();
+            VecDateTimeValue date_val;
+            CastParameters params;
+            CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                    {string_val_ref.c_str(), string_val_ref.length()}, date_val, nullptr, params);
+            set->insert(&date_val);
         });
         break;
     }
@@ -406,6 +454,21 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         });
         break;
     }
+    case TYPE_UUID: {
+        batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            const auto string_val = column.stringval();
+            StringParser::ParseResult result;
+            const auto value = StringParser::string_to_int<uint128_t>(string_val.c_str(),
+                                                                      string_val.length(), &result);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse UUID value '{}' in runtime filter assign",
+                                string_val);
+            }
+            set->insert(&value);
+        });
+        break;
+    }
     default: {
         return Status::InternalError("not support assign to in filter, type: " +
                                      type_to_string(_column_return_type));
@@ -490,6 +553,8 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_TIMESTAMPTZ:
+        [[fallthrough]];
+    case TYPE_TIMESTAMP_NS:
         [[fallthrough]];
     case TYPE_DATETIMEV2: {
         int64_t min_val = minmax_filter.min_val().longval();
@@ -596,6 +661,22 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         }
         return _minmax_func->assign(&min_val, &max_val);
     }
+    case TYPE_UUID: {
+        const auto min_string_val = minmax_filter.min_val().stringval();
+        const auto max_string_val = minmax_filter.max_val().stringval();
+        StringParser::ParseResult result;
+        auto min_val = StringParser::string_to_int<uint128_t>(min_string_val.c_str(),
+                                                              min_string_val.length(), &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError("Failed to parse UUID min value '{}'", min_string_val);
+        }
+        auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
+                                                              max_string_val.length(), &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError("Failed to parse UUID max value '{}'", max_string_val);
+        }
+        return _minmax_func->assign(&min_val, &max_val);
+    }
     default:
         break;
     }
@@ -613,6 +694,52 @@ bool RuntimeFilterWrapper::contain_null() const {
         return _minmax_func->contain_null();
     }
     return false;
+}
+
+std::shared_ptr<const std::vector<uint32_t>>
+RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& target_type) const {
+    DORIS_CHECK(_state.load() == State::READY);
+    DORIS_CHECK(_hybrid_set != nullptr);
+    DORIS_CHECK(target_type != nullptr);
+    PrimitiveType primitive_type = target_type->get_primitive_type();
+    DORIS_CHECK_EQ(primitive_type, _column_return_type);
+
+    std::call_once(_bucket_prune_hashes_once, [&] {
+        _bucket_prune_hashes_started.store(true);
+        // Materialize the exact-set values into a column so bucket pruning uses the
+        // column's type-specific CRC implementation. This intentionally makes a
+        // temporary copy of variable-length values. runtime_filter_max_in_num bounds
+        // the number of copied values, but not their total byte size; we accept this
+        // transient memory cost to avoid maintaining a separate per-type hash path.
+        MutableColumnPtr column = target_type->create_column();
+        auto* iter = _hybrid_set->begin();
+        while (iter->has_next()) {
+            const void* value = iter->get_value();
+            DORIS_CHECK(value != nullptr);
+            if (is_string_type(primitive_type)) {
+                const auto* string_value = reinterpret_cast<const StringRef*>(value);
+                column->insert_data(string_value->data, string_value->size);
+            } else {
+                // ColumnVector::insert_data ignores length for fixed-length values.
+                column->insert_data(reinterpret_cast<const char*>(value), 0);
+            }
+            iter->next();
+        }
+
+        auto hashes = std::make_shared<std::vector<uint32_t>>(column->size(), 0);
+        if (!hashes->empty()) {
+            column->update_crcs_with_value(hashes->data(), primitive_type,
+                                           static_cast<uint32_t>(column->size()));
+        }
+        if (_hybrid_set->contain_null()) {
+            // Keep one shared vector for nullable and non-nullable targets. A non-nullable
+            // target may retain this extra bucket, but can never lose matching rows.
+            hashes->push_back(HashUtil::zlib_crc_hash_null(0));
+        }
+        _bucket_prune_hashes = std::move(hashes);
+    });
+    DORIS_CHECK(_bucket_prune_hashes != nullptr);
+    return _bucket_prune_hashes;
 }
 
 std::string RuntimeFilterWrapper::debug_string() const {

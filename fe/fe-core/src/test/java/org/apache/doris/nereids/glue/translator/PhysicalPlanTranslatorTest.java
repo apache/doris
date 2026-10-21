@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -31,15 +32,16 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -74,6 +77,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.tso.MasterTsoProvider;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -81,6 +85,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -96,12 +101,12 @@ import java.util.stream.Collectors;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
-    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableFeatureChangelog;
     private boolean originalEnableTableStream;
 
     @Override
     protected void runBeforeAll() throws Exception {
-        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
         originalEnableTableStream = Config.enable_table_stream;
         createDatabase("test_db");
         createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
@@ -116,16 +121,16 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + ")\n"
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1');");
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         Config.enable_table_stream = true;
-        createTable("create table test_db.binlog_scan_schema_t(\n"
+        createTable("create table test_db.changelog_scan_schema_t(\n"
                 + "k1 int, k2 int, v1 int, v2 int)\n"
                 + "unique key(k1, k2)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1',"
                 + "'enable_unique_key_merge_on_write' = 'true',"
-                + "'binlog.enable' = 'true','binlog.format' = 'ROW',"
-                + "'binlog.need_historical_value' = 'true');");
+                + "'changelog.enable' = 'true',"
+                + "'changelog.need_historical_value' = 'true');");
         createTable("create table test_db.sequence_scan_schema_t(\n"
                 + "k1 int, k2 int, v1 int, v2 int)\n"
                 + "unique key(k1, k2)\n"
@@ -141,17 +146,29 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + "'enable_unique_key_merge_on_write' = 'false',"
                 + "'sequence_mapping.s1' = 'v1',"
                 + "'sequence_mapping.s2' = 'v2');");
-        createTable("create stream test_db.binlog_scan_schema_stream "
-                + "on table test_db.binlog_scan_schema_t properties('type' = 'append_only')");
+        // Bump the base table with a real (positive) tso before creating the stream so that the
+        // stream records a positive consumption offset at creation time; hasConsumedData() only
+        // treats a positive offset as a real baseline, otherwise every partition would be pruned out
+        // of the snapshot scan.
         Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
-        bumpPartitionsAndReplicas(
-                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t"), 2L);
+        OlapTable changelogScanSchemaTable =
+                (OlapTable) database.getTableOrMetaException("changelog_scan_schema_t");
+        bumpPartitionsAndReplicas(changelogScanSchemaTable, 2L, 100L);
+        createTable("create stream test_db.changelog_scan_schema_stream "
+                + "on table test_db.changelog_scan_schema_t properties('type' = 'append_only')");
+        // Advance the base table tso again after the stream is created so the partition has new data
+        // beyond the recorded consumption offset, driving the snapshot scan down the rebuild path
+        // (base scan wrapped in OlapTableWrapper unioned with the changelog before-image).
+        bumpPartitionsAndReplicas(changelogScanSchemaTable, 3L, 200L);
+        createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
+                + "duplicate key(c1) distributed by hash(c1) buckets 1 "
+                + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
         connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
     }
 
     @Override
     protected void runAfterAll() {
-        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
         Config.enable_table_stream = originalEnableTableStream;
     }
 
@@ -228,9 +245,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testBinlogPhysicalScanSchemaDependencies() throws Exception {
+    public void testChangelogPhysicalScanSchemaDependencies() throws Exception {
         OlapScanNode scanNode = getFirstOlapScanNode(
-                "select v1 from test_db.binlog_scan_schema_t"
+                "select v1 from test_db.changelog_scan_schema_t"
                         + "@incr(\"incrementType\" = \"MIN_DELTA\")");
         List<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
                 .map(slot -> slot.getColumn().getName())
@@ -239,8 +256,8 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
                 "k1", "k2", "v1", "v2", Column.generateBeforeColName("v1"),
                 Column.generateBeforeColName("v2"),
-                Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
-        Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
+                Column.CHANGELOG_OP_COL, Column.CHANGELOG_TSO_COL)));
+        Assertions.assertFalse(scanColumns.contains(Column.CHANGELOG_LSN_COL));
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
         Assertions.assertEquals(ImmutableList.of("v1"), scanNode.getOutputTupleDesc().getSlots().stream()
@@ -257,15 +274,15 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testAppendOnlyBinlogPhysicalScanSchemaDependencies() throws Exception {
+    public void testAppendOnlyChangelogPhysicalScanSchemaDependencies() throws Exception {
         OlapScanNode scanNode = getFirstOlapScanNode(
-                "select v1 from test_db.binlog_scan_schema_t"
+                "select v1 from test_db.changelog_scan_schema_t"
                         + "@incr(\"incrementType\" = \"APPEND_ONLY\")");
         Set<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
                 .map(slot -> slot.getColumn().getName())
                 .collect(Collectors.toSet());
         Assertions.assertEquals(ImmutableSet.of(
-                "v1", Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL), scanColumns);
+                "v1", Column.CHANGELOG_OP_COL, Column.CHANGELOG_TSO_COL), scanColumns);
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
     }
@@ -289,12 +306,17 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Test
     public void testSnapshotPhysicalScanSchemaIncludesCommitTso() throws Exception {
-        OlapScanNode snapshotMowScan = getOlapScanNodes(
-                "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
-                .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
-                        && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        OlapScanNode snapshotMowScan;
+        try (MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
+            // Match the fixture's consumed TSO 100 and latest TSO 200 when checking changelog retention.
+            mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(200L);
+            snapshotMowScan = getOlapScanNodes(
+                    "select v1 + 1 as projected_v1 from test_db.changelog_scan_schema_stream@snapshot()").stream()
+                    .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
+                            && !(scan.getOlapTable() instanceof OlapChangelogTableWrapper))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
+        }
         Set<SlotId> physicalSlotIds = snapshotMowScan.getTupleDesc().getSlots().stream()
                 .map(SlotDescriptor::getId)
                 .collect(Collectors.toSet());
@@ -403,7 +425,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         boolean oldDisableJoinReorder = connectContext.getSessionVariable().isDisableJoinReorder();
         try {
             connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
-            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
             connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
             connectContext.getSessionVariable().setDisableJoinReorder(true);
 
@@ -422,7 +444,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                     .orElseThrow();
             Assertions.assertEquals(2, partitionedScan.getSelectedPartitionIds().size());
 
-            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(true);
+            connectContext.getSessionVariable().setEnableRuntimeFilterPartitionPrune(false);
             TPlanNode thriftScanNode = partitionedScan.treeToThrift().getNodes().get(0);
 
             Assertions.assertTrue(thriftScanNode.olap_scan_node.isSetPartitionBoundaries());
@@ -538,10 +560,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         return scanNodes;
     }
 
-    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion) {
+    private static void bumpPartitionsAndReplicas(OlapTable table, long newVersion, long tso) {
         for (Partition partition : table.getPartitions()) {
             long timestamp = System.currentTimeMillis();
-            partition.setVisibleVersionAndTime(newVersion, timestamp, timestamp);
+            partition.setVisibleVersionAndTime(newVersion, timestamp, tso);
             partition.setNextVersion(newVersion + 1);
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 for (Tablet tablet : index.getTablets()) {
@@ -597,5 +619,88 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 ImmutableList.of(singleVariantSubColumnSlot)));
         Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
                 ImmutableList.of(variantRootSlot, variantSubColumnSlot)));
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsUseFinalAggregateTuple() throws Exception {
+        Planner planner = getSQLPlanner("select count(*) from test_db.t");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(AggregationNode.class, rootFragment.getPlanRoot());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+
+        AggregationNode aggregationNode = (AggregationNode) rootFragment.getPlanRoot();
+        SlotRef outputExpr = (SlotRef) rootFragment.getOutputExprs().get(0);
+        TupleDescriptor outputTuple = planner.getDescTable().getTupleDesc(aggregationNode.getOutputTupleIds().get(0));
+
+        Assertions.assertEquals(outputTuple.getSlots().get(0).getId(), outputExpr.getDesc().getId());
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsPruneTopNOrderByOnlySlots() throws Exception {
+        Planner planner = getSQLPlanner(
+                "select Status from tasks('type'='mv') order by CreateTime desc limit 1");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+        Assertions.assertEquals("Status", ((SlotRef) rootFragment.getOutputExprs().get(0)).getColumnName());
+    }
+
+    @Test
+    public void testCountDistinctNullFragmentOutputExprsAreBound() throws Exception {
+        Planner planner = getSQLPlanner("select count(distinct NULL) from test_db.t");
+
+        Assertions.assertNotNull(planner);
+        Assertions.assertFalse(planner.getFragments().isEmpty());
+        Assertions.assertEquals(1, planner.getFragments().get(0).getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, planner.getFragments().get(0).getOutputExprs().get(0));
+
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getOutputExprs() == null) {
+                continue;
+            }
+            for (Expr outputExpr : fragment.getOutputExprs()) {
+                Assertions.assertNotNull(outputExpr);
+            }
+        }
+    }
+
+    @Test
+    public void testComputedProjectionAboveDeferredTopNIsTranslated() throws Exception {
+        boolean originEnableTwoPhaseReadOpt = connectContext.getSessionVariable().enableTwoPhaseReadOpt;
+        long originTopnOptLimitThreshold = connectContext.getSessionVariable().topnOptLimitThreshold;
+        int originTopnLazyMaterializationThreshold =
+                connectContext.getSessionVariable().topNLazyMaterializationThreshold;
+        try {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = true;
+            connectContext.getSessionVariable().topnOptLimitThreshold = 1000;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold = -1;
+
+            String sql = "select c1 + 1, c2 + 1 from "
+                    + "(select c1, c2 from test_db.t_topn_lazy order by c1 limit 10) t";
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+            PlanFragment rootFragment = new PhysicalPlanTranslator(
+                    new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+
+            Assertions.assertEquals(2, rootFragment.getOutputExprs().size());
+            rootFragment.getOutputExprs().forEach(Assertions::assertNotNull);
+            Assertions.assertTrue(rootFragment.getOutputExprs().stream().allMatch(SlotRef.class::isInstance));
+            Assertions.assertNotNull(rootFragment.getPlanRoot().getProjectList());
+            Assertions.assertEquals(2, rootFragment.getPlanRoot().getProjectList().size());
+            Assertions.assertTrue(rootFragment.getPlanRoot().getProjectList().stream()
+                    .allMatch(ArithmeticExpr.class::isInstance));
+        } finally {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = originEnableTwoPhaseReadOpt;
+            connectContext.getSessionVariable().topnOptLimitThreshold = originTopnOptLimitThreshold;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold =
+                    originTopnLazyMaterializationThreshold;
+        }
     }
 }

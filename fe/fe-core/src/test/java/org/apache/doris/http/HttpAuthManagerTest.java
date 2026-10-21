@@ -20,8 +20,8 @@ package org.apache.doris.http;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.httpv2.HttpAuthManager;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,17 +37,20 @@ public class HttpAuthManagerTest {
         HttpAuthManager.SessionValue sessionValue = new HttpAuthManager.SessionValue();
         sessionValue.currentUser = UserIdentity.createAnalyzedUserIdentWithIp(username, "%");
         authMgr.addSessionValue(sessionId, sessionValue);
-        Assert.assertEquals(1, authMgr.getAuthSessions().size());
+        Assertions.assertEquals(1, authMgr.getAuthSessions().size());
+        Assertions.assertNotNull(sessionValue.csrfToken);
+        Assertions.assertFalse(sessionValue.csrfToken.isEmpty());
         List<String> sessionIds = new ArrayList<>();
         sessionIds.add(sessionId);
         System.out.println("username in test: " + authMgr.getSessionValue(sessionIds).currentUser);
-        Assert.assertEquals(username, authMgr.getSessionValue(sessionIds).currentUser.getQualifiedUser());
+        Assertions.assertEquals(username, authMgr.getSessionValue(sessionIds).currentUser.getQualifiedUser());
 
 
         String noExistSession = "no-exist-session-id";
         sessionIds.clear();
         sessionIds.add(noExistSession);
-        Assert.assertNull(authMgr.getSessionValue(sessionIds));
-        Assert.assertEquals(1, authMgr.getAuthSessions().size());
+        Assertions.assertNull(authMgr.getSessionValue(sessionIds));
+        Assertions.assertEquals(1, authMgr.getAuthSessions().size());
+        authMgr.removeSession(sessionId);
     }
 }

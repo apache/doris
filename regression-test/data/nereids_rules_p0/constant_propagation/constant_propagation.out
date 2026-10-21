@@ -96,10 +96,8 @@ PhysicalResultSink
 
 -- !join_2_shape --
 PhysicalResultSink
---NestedLoopJoin[LEFT_OUTER_JOIN]
-----PhysicalProject[t1.a]
-------PhysicalOlapScan[t1]
-----PhysicalEmptyRelation
+--PhysicalProject[NULL AS `x`, t1.a]
+----PhysicalOlapScan[t1]
 
 -- !join_2_result --
 1	\N

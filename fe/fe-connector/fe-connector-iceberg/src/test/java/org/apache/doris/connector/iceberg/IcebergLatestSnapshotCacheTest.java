@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Unit tests for {@link IcebergLatestSnapshotCache} (mirrors PaimonLatestSnapshotCacheTest). The cache is now
- * backed by the shared {@link org.apache.doris.connector.cache.MetaCacheEntry} framework; these tests cover the
+ * backed by the shared {@link org.apache.doris.connector.cache.MetaCache} framework; these tests cover the
  * adapter's contract — within-TTL stability, the {@code ttl <= 0} disable, and invalidation. Timed-expiry
  * mechanics are the framework's responsibility (the ttl→duration mapping is unit-tested in the framework
  * module's {@code CacheSpecTest}; Caffeine {@code expireAfterAccess} itself is the library's behavior), so they

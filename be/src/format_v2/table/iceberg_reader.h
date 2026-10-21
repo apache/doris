@@ -33,6 +33,7 @@
 
 namespace doris {
 class Block;
+class EqualityDeleteHashIndex;
 struct DeleteFileDesc;
 namespace io {
 struct FileDescription;
@@ -73,14 +74,47 @@ public:
         if (!_data_reader.file_schema.empty() && has_field_ids) {
             return format::TableColumnMappingMode::BY_FIELD_ID;
         }
+        if (!_data_reader.file_schema.empty() && supports_iceberg_scan_semantics_v2(_scan_params) &&
+            !_scan_has_any_authoritative_name_mapping()) {
+            // ID-less migrated files are name-readable only while Iceberg's explicit default name
+            // mapping exists; current names must not resurrect file fields after it is removed.
+            return format::TableColumnMappingMode::BY_FIELD_ID;
+        }
         return format::TableColumnMappingMode::BY_NAME;
     }
 
 protected:
+    // Iceberg UUID uses the same 16-byte STRING/VARBINARY carrier in data, defaults and deletes.
+    bool preserve_binary_uuid() const override { return true; }
+
     Status validate_file_mapping(const format::TableColumnMapper& mapper) const override;
+
+    // Iceberg's Parquet reader resolves a data file that carries no field ids at all through the
+    // table's `schema.name-mapping.default`; when that mapping is absent it falls back to
+    // positional ids (ParquetSchemaUtil.addFallbackIds + pruneColumnsFallback, gated by
+    // `iceberg.netflix.unsafe-parquet-id-fallback.enabled`, default true through 1.12 and
+    // scheduled for removal in 2.0). Mirror that decision for Parquet by stamping ordinal ids
+    // (1..N) on the file's top-level fields, so the shared BY_FIELD_ID path resolves those files
+    // instead of silently materializing NULL. Only top-level fields are stamped: Iceberg assigns
+    // no ids to nested fields, so struct children of an id-less file stay unreadable without a
+    // name mapping (or a rewrite that persists field ids).
+    Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
+
+    // Iceberg's positional fallback matches an ID-less Parquet file by physical ordinals, so the
+    // same table column can bind a different file column when the table's
+    // `schema.name-mapping.default` is added or removed without touching the data file. The
+    // condition cache key covers the file identity and the table-level predicate digest only, so it
+    // cannot tell those bindings apart; keep such splits out of the cache (neither read nor
+    // written) instead of reusing a verdict produced by the other binding.
+    bool _should_enable_condition_cache(
+            const format::FileScanRequest& file_request) const override {
+        return !_positional_id_fallback &&
+               format::TableReader::_should_enable_condition_cache(file_request);
+    }
 
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
+        options->enable_iceberg_metadata_virtual_columns = true;
         options->reject_missing_required_field = supports_iceberg_scan_semantics_v2(_scan_params);
         options->allow_idless_complex_wrapper_projection =
                 supports_iceberg_scan_semantics_v1(_scan_params) && _format == FileFormat::PARQUET;
@@ -113,6 +147,8 @@ private:
     static constexpr const char* ICEBERG_ROW_POS = "pos";
     static constexpr size_t ICEBERG_FILE_PATH_BLOCK_POSITION = 0;
     static constexpr size_t ICEBERG_ROW_POS_BLOCK_POSITION = 1;
+
+    bool _scan_has_any_authoritative_name_mapping() const;
 
     class PositionDeleteRowsCollector final {
     public:
@@ -182,6 +218,8 @@ private:
 
     // Materialize row lineage virtual columns based on the position delete file.
     Status _materialize_iceberg_rowid(Block* table_block, size_t column_idx);
+    Status _materialize_iceberg_file_path(Block* table_block, size_t column_idx);
+    Status _materialize_iceberg_row_position(Block* table_block, size_t column_idx);
     Status _materialize_row_lineage_row_id(Block* table_block, size_t column_idx);
     Status _materialize_row_lineage_last_updated_sequence_number(Block* table_block,
                                                                  size_t column_idx);
@@ -190,6 +228,10 @@ private:
     size_t _row_position_block_position = 0;
     std::optional<TIcebergFileDesc> _iceberg_params;
     bool _delete_predicates_initialized = false;
+    // Set when this split's Parquet file carried no field ids and the table exposed no usable name
+    // mapping, so the reader stamped Iceberg's positional fallback ids on the file's top-level
+    // fields. Observability only; the decision itself lives in annotate_file_schema().
+    bool _positional_id_fallback = false;
     format::DeleteRows _position_delete_rows_storage;
     struct EqualityDeleteFilter {
         std::vector<int> field_ids;
@@ -198,6 +240,7 @@ private:
         std::vector<std::string> field_names;
         std::vector<DataTypePtr> key_types;
         Block delete_block;
+        std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
     // Scanner-shared cache supplied in SplitReadOptions. Parsed delete files outlive one data-file
@@ -206,6 +249,7 @@ private:
 
     bool _need_row_lineage_row_id() const;
     bool _need_iceberg_rowid() const;
+    bool _need_iceberg_metadata() const;
 };
 
 } // namespace doris::format::iceberg

@@ -20,8 +20,8 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
@@ -34,7 +34,7 @@ public class CommonUserPropertiesTest {
             String json = String.format("{\"%s\":%s}", fieldName, RESOURCE_TAG_JSON);
             CommonUserProperties properties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
 
-            Assert.assertEquals(Collections.singleton(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_a")),
+            Assertions.assertEquals(Collections.singleton(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_a")),
                     properties.getResourceTags());
         }
     }
@@ -45,8 +45,8 @@ public class CommonUserPropertiesTest {
             String json = String.format("{\"%s\":\"rule_a, rule_b\"}", fieldName);
             CommonUserProperties properties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
 
-            Assert.assertEquals("rule_a, rule_b", properties.getSqlBlockRules());
-            Assert.assertArrayEquals(new String[] {"rule_a", "rule_b"}, properties.getSqlBlockRulesSplit());
+            Assertions.assertEquals("rule_a, rule_b", properties.getSqlBlockRules());
+            Assertions.assertArrayEquals(new String[] {"rule_a", "rule_b"}, properties.getSqlBlockRulesSplit());
         }
     }
 
@@ -68,19 +68,19 @@ public class CommonUserPropertiesTest {
                 + "}";
         CommonUserProperties properties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
 
-        Assert.assertEquals(101L, properties.getMaxConn());
-        Assert.assertEquals(102L, properties.getMaxQueryInstances());
-        Assert.assertEquals(103, properties.getParallelFragmentExecInstanceNum());
-        Assert.assertEquals("rule_a, rule_b", properties.getSqlBlockRules());
-        Assert.assertArrayEquals(new String[] {"rule_a", "rule_b"}, properties.getSqlBlockRulesSplit());
-        Assert.assertEquals(104, properties.getCpuResourceLimit());
-        Assert.assertEquals(Collections.singleton(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_a")),
+        Assertions.assertEquals(101L, properties.getMaxConn());
+        Assertions.assertEquals(102L, properties.getMaxQueryInstances());
+        Assertions.assertEquals(103, properties.getParallelFragmentExecInstanceNum());
+        Assertions.assertEquals("rule_a, rule_b", properties.getSqlBlockRules());
+        Assertions.assertArrayEquals(new String[] {"rule_a", "rule_b"}, properties.getSqlBlockRulesSplit());
+        Assertions.assertEquals(104, properties.getCpuResourceLimit());
+        Assertions.assertEquals(Collections.singleton(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_a")),
                 properties.getResourceTags());
-        Assert.assertEquals(105L, properties.getExecMemLimit());
-        Assert.assertEquals(106, properties.getQueryTimeout());
-        Assert.assertEquals(107, properties.getInsertTimeout());
-        Assert.assertEquals("legacy_group", properties.getWorkloadGroup());
-        Assert.assertTrue(properties.getEnablePreferCachedRowset());
-        Assert.assertEquals(108L, properties.getQueryFreshnessToleranceMs());
+        Assertions.assertEquals(105L, properties.getExecMemLimit());
+        Assertions.assertEquals(106, properties.getQueryTimeout());
+        Assertions.assertEquals(107, properties.getInsertTimeout());
+        Assertions.assertEquals("legacy_group", properties.getWorkloadGroup());
+        Assertions.assertTrue(properties.getEnablePreferCachedRowset());
+        Assertions.assertEquals(108L, properties.getQueryFreshnessToleranceMs());
     }
 }

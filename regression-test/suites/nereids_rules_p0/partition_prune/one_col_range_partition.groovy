@@ -79,7 +79,7 @@ suite("one_col_range_partition") {
     explain {
         sql """SELECT count(*) FROM one_col_range_partition_date WHERE
         (dt>='2020-10-01 00:00:00' or dt<='2020-9-01 00:00:00' ) and (date_trunc(dt,'month')>='2020-9-01' or date_trunc(dt,'month')<='2020-6-01' )"""
-        contains("partitions=327/1826")
+        contains("partitions=326/1826")
     }
 
     // !

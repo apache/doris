@@ -23,6 +23,9 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -30,6 +33,8 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -560,7 +565,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * withSelectedPartitionIds
      */
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
-        return withSelectedPartitionIds(selectedPartitionIds, false);
+        return withSelectedPartitionIds(selectedPartitionIds, hasPartitionPredicate);
     }
 
     /**
@@ -657,11 +662,10 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public LogicalOlapScan withRelationId(RelationId relationId) {
-        // we have to set partitionPruned to false, so that mtmv rewrite can prevent deadlock when rewriting union
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 Optional.empty(), Optional.empty(),
-                selectedPartitionIds, false, false, selectedTabletIds,
+                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, Maps.newHashMap(), Optional.empty(), tableSample, directMvScan,
                 colToSubPathsMap, selectedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
@@ -762,6 +766,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     public boolean isPartitionPruned() {
         return partitionPruned;
+    }
+
+    /**
+     * Return a new scan with the specified partition pruning state.
+     */
+    public LogicalOlapScan withPartitionPruned(boolean partitionPruned) {
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapScan(relationId, (Table) table, qualifier,
+                Optional.empty(), Optional.of(getLogicalProperties()),
+                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
+                colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                partitionPrunablePredicates, scanParams));
     }
 
     public List<Long> getSelectedTabletIds() {
@@ -929,6 +948,28 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return scoreRangeInfo;
     }
 
+    /** Build a pre-refresh snapshot as a stream scan in snapshot mode. */
+    public LogicalPlan withPreSnapshot(Optional<OlapTableStream> stream) {
+        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
+                stream.get(), getTable(), selectedPartitionIds);
+        return new LogicalOlapTableStreamScan(
+                StatementScopeIdGenerator.newRelationId(),
+                streamWrapper,
+                qualifier,
+                selectedPartitionIds,
+                selectedTabletIds,
+                hints,
+                tableSample,
+                operativeSlots
+        ).withReadMode(StreamReadMode.SNAPSHOT);
+    }
+
+    /** Build a post-refresh snapshot as a regular olap scan. */
+    public LogicalPlan withPostSnapshot() {
+        return LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                (LogicalPlan) this, new DeepCopierContext());
+    }
+
     protected List<SlotReference> createSlotsVectorized(List<Column> columns) {
         List<String> qualified = qualified();
         SlotReference[] slots = new SlotReference[columns.size()];
@@ -941,14 +982,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * BE needs the {@code __BEFORE__} columns to build before-images on an {@code @incr} read, but
+     * BE needs the changelog before columns to build before-images on an {@code @incr} read, but
      * they are storage bookkeeping: {@code SELECT * FROM t@incr(...)} should return t's own columns,
      * not the mirrors behind them. The flag is set on a copy because these Column instances belong
      * to the table's persisted metadata and are shared across statements.
      */
     private Column getOutputColumn(Column column) {
         if (scanParams.isPresent() && scanParams.get().incrementalRead()
-                && column.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+                && Column.isChangelogBeforeColumn(column.getName())) {
             Column outputColumn = new Column(column);
             outputColumn.setIsVisible(false);
             return outputColumn;
@@ -1159,9 +1200,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         if (producesDuplicateRows()) {
             return true;
         }
-        // Row-binlog incremental scan (TableScanParams.INCREMENTAL_READ):
+        // Changelog incremental scan (TableScanParams.INCREMENTAL_READ):
         // same hazard as the stream-scan case — the scan returns rows
-        // keyed by binlog position and duplicate key rows are possible.
+        // keyed by changelog position and duplicate key rows are possible.
         if (scanParams.isPresent() && scanParams.get().incrementalRead()) {
             return true;
         }

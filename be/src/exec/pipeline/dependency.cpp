@@ -272,6 +272,10 @@ Status BucketedAggSharedState::init_instances(int num_instances,
         for (auto& bs : bucket_states) {
             bs.merged_instances.resize(num_instances, false);
         }
+        source_merge_arenas.resize(source_deps.size());
+        for (auto& arena : source_merge_arenas) {
+            arena = std::make_unique<Arena>();
+        }
         _init_status = metadata_init();
     });
     return _init_status;

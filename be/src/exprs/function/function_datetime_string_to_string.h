@@ -84,7 +84,7 @@ public:
     };
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         std::shared_ptr<FormatState> state = std::make_shared<FormatState>();
@@ -160,7 +160,7 @@ public:
                            ColumnString::Chars& res_data,
                            ColumnString::Offsets& res_offsets) const {
         auto* format_state = reinterpret_cast<FormatState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!format_state) {
             return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
                                         get_name());
@@ -229,6 +229,7 @@ public:
                                               std::is_same_v<ColumnType, ColumnDateV2> ||
                                               std::is_same_v<ColumnType, ColumnDateTime> ||
                                               std::is_same_v<ColumnType, ColumnDateTimeV2> ||
+                                              std::is_same_v<ColumnType, ColumnTimeStampNs> ||
                                               std::is_same_v<ColumnType, ColumnTimeStampTz>) {
                                     char buf[64];
                                     pod_array[i].to_string(buf);

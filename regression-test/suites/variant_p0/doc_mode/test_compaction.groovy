@@ -19,8 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("compaction_variant_doc_value", "p0") {
-    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    def enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     // ColumnVariantV2 intentionally does not support nested arrays yet.
     sql """ set default_variant_enable_doc_mode = true; """
     try {
@@ -61,7 +61,7 @@ suite("compaction_variant_doc_value", "p0") {
             """
         }
 
-       
+
 
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
@@ -118,7 +118,7 @@ suite("compaction_variant_doc_value", "p0") {
                 qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
                 qt_sql_22 "select k, cast(v['a'] as array<int>) from ${tableName} where size(cast(v['a'] as array<int>)) > 0 order by k"
             }
-            qt_sql_11_supported "SELECT k, cast(cast(v as json) as string) FROM ${tableName} where k != 18 ORDER BY k, cast(v as string); "
+            qt_sql_11_supported "SELECT k, cast(cast(v as json) as string) FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_22_supported "select k, cast(v['a'] as array<int>) from ${tableName} where size(array_filter(x -> x is not null, cast(v['a'] as array<int>))) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
         }

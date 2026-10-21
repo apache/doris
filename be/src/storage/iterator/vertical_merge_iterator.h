@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <list>
 #include <memory>
+#include <optional>
 #include <queue>
 #include <string>
 #include <utility>
@@ -34,7 +35,6 @@
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
-#include "storage/utils.h"
 
 #pragma once
 
@@ -161,12 +161,11 @@ private:
 // takes ownership of rowwise iterator
 class VerticalMergeIteratorContext {
 public:
-    VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter, RowsetId rowset_id, uint32_t order,
-                                 int32_t seq_col_idx, VerticalCompactionContextStats* context_stats,
+    VerticalMergeIteratorContext(RowwiseIteratorUPtr&& iter, uint32_t order, int32_t seq_col_idx,
+                                 VerticalCompactionContextStats* context_stats,
                                  bool use_insert_order_when_same = false,
                                  std::vector<uint32_t> key_group_cluster_key_idxes = {})
             : _iter(std::move(iter)),
-              _rowset_id(rowset_id),
               _order(order),
               _seq_col_idx(seq_col_idx),
               _num_key_columns(_iter->schema().num_key_columns()),
@@ -216,10 +215,6 @@ public:
         ref->row_pos = _index_in_block;
     }
     bool inited() const { return _inited; }
-    RowLocation current_row_location() {
-        DCHECK(_record_rowids);
-        return _block_row_locations[_index_in_block];
-    }
 
     size_t bytes() {
         if (_block) {
@@ -256,7 +251,6 @@ private:
     void _mark_inactive();
 
     RowwiseIteratorUPtr _iter;
-    RowsetId _rowset_id;
 
     // segment order, used to compare key
     const uint32_t _order = 0;
@@ -281,8 +275,6 @@ private:
     // use to identify whether it's first block load from RowwiseIterator
     bool _is_first_row = true;
     bool _is_active_context_counted = false;
-    bool _record_rowids = false;
-    std::vector<RowLocation> _block_row_locations;
 };
 
 // --------------- VerticalHeapMergeIterator ------------- //
@@ -290,14 +282,12 @@ class VerticalHeapMergeIterator : public RowwiseIterator {
 public:
     // VerticalMergeIterator takes the ownership of input iterators
     VerticalHeapMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
-                              std::vector<bool> iterator_init_flags,
-                              std::vector<RowsetId> rowset_ids, KeysType keys_type,
+                              std::vector<bool> iterator_init_flags, KeysType keys_type,
                               int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats,
                               std::vector<uint32_t> key_group_cluster_key_idxes)
             : _origin_iters(std::move(iters)),
               _iterator_init_flags(std::move(iterator_init_flags)),
-              _rowset_ids(std::move(rowset_ids)),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
               _row_sources_buf(row_sources_buf),
@@ -312,11 +302,6 @@ public:
     Status next_batch(Block* block) override;
     const ReadSchema& schema() const override { return *_schema; }
     uint64_t merged_rows() const override { return _merged_rows; }
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
-        DCHECK(_record_rowids);
-        *block_row_locations = _block_row_locations;
-        return Status::OK();
-    }
 
 private:
     int64_t _get_size(Block* block) { return block->rows(); }
@@ -324,7 +309,6 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
     std::vector<bool> _iterator_init_flags;
-    std::vector<RowsetId> _rowset_ids;
 
     const ReadSchema* _schema = nullptr;
 
@@ -347,9 +331,9 @@ private:
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
-    StorageReadOptions _opts;
-    bool _record_rowids = false;
-    std::vector<RowLocation> _block_row_locations;
+    // StorageReadOptions is supplied by init(), after this iterator is constructed, and must be
+    // retained for lazily initialized segment contexts.
+    std::optional<StorageReadOptions> _opts;
     std::vector<uint32_t> _key_group_cluster_key_idxes;
 };
 
@@ -358,13 +342,11 @@ class VerticalFifoMergeIterator : public RowwiseIterator {
 public:
     // VerticalFifoMergeIterator takes the ownership of input iterators
     VerticalFifoMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters,
-                              std::vector<bool> iterator_init_flags,
-                              std::vector<RowsetId> rowset_ids, KeysType keys_type,
+                              std::vector<bool> iterator_init_flags, KeysType keys_type,
                               int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
                               VerticalCompactionContextStats* context_stats)
             : _origin_iters(std::move(iters)),
               _iterator_init_flags(std::move(iterator_init_flags)),
-              _rowset_ids(std::move(rowset_ids)),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
               _row_sources_buf(row_sources_buf),
@@ -378,11 +360,6 @@ public:
     Status next_batch(Block* block) override;
     const ReadSchema& schema() const override { return *_schema; }
     uint64_t merged_rows() const override { return _merged_rows; }
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override {
-        DCHECK(_record_rowids);
-        *block_row_locations = _block_row_locations;
-        return Status::OK();
-    }
 
 private:
     int64_t _get_size(Block* block) { return block->rows(); }
@@ -390,7 +367,6 @@ private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
     std::vector<bool> _iterator_init_flags;
-    std::vector<RowsetId> _rowset_ids;
 
     const ReadSchema* _schema = nullptr;
 
@@ -401,9 +377,9 @@ private:
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
-    StorageReadOptions _opts;
-    bool _record_rowids = false;
-    std::vector<RowLocation> _block_row_locations;
+    // StorageReadOptions is supplied by init(), after this iterator is constructed, and must be
+    // retained for lazily initialized segment contexts.
+    std::optional<StorageReadOptions> _opts;
 };
 
 // --------------- RowBatch for batch optimization ------------- //
@@ -467,21 +443,23 @@ private:
     size_t _filtered_rows = 0;
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
-    StorageReadOptions _opts;
+    // StorageReadOptions is supplied by init(), after this iterator is constructed, and must be
+    // retained for lazily initialized segment contexts.
+    std::optional<StorageReadOptions> _opts;
     CompactionSampleInfo* _sample_info = nullptr;
 };
 
 // segment merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        const std::vector<RowsetId>& rowset_ids, KeysType key_type, int32_t seq_col_idx,
-        RowSourcesBuffer* row_sources_buf, VerticalCompactionContextStats* context_stats,
+        KeysType key_type, int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
+        VerticalCompactionContextStats* context_stats,
         std::vector<uint32_t> key_group_cluster_key_idxes);
 
 std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
-        const std::vector<RowsetId>& rowset_ids, KeysType key_type, int32_t seq_col_idx,
-        RowSourcesBuffer* row_sources_buf, VerticalCompactionContextStats* context_stats);
+        KeysType key_type, int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf,
+        VerticalCompactionContextStats* context_stats);
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, RowSourcesBuffer* row_sources_buf,

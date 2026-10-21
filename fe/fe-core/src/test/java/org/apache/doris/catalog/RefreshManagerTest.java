@@ -21,6 +21,8 @@ import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -31,8 +33,7 @@ import org.apache.doris.datasource.ExternalRowCountCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
-import org.apache.doris.datasource.metacache.ExternalMetaCacheRegistry;
-import org.apache.doris.datasource.metacache.MetaCacheEntry;
+import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -41,10 +42,10 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.persist.EditLog;
 
 import com.google.common.util.concurrent.MoreExecutors;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
@@ -80,9 +81,10 @@ public class RefreshManagerTest {
     private ExternalMetaCacheMgr metaCacheMgr;
     private RecordingConstraintManager constraintManager;
     private EditLog editLog;
+    private AtomicInteger databaseObjectLoadCalls;
     private TestingCatalogMgr testingCatalogMgr;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Map<String, String> properties = Collections.singletonMap(
                 "catalog_provider.class", EmptyCatalogProvider.class.getName());
@@ -94,9 +96,11 @@ public class RefreshManagerTest {
         catalog.addDatabaseForTest(database);
 
         engineCache = new RecordingExternalMetaCache();
+        databaseObjectLoadCalls = new AtomicInteger();
         metaCacheMgr = Mockito.spy(new ExternalMetaCacheMgr(true));
-        ExternalMetaCacheRegistry cacheRegistry = Deencapsulation.getField(metaCacheMgr, "cacheRegistry");
-        cacheRegistry.resetForTest(Collections.singletonList(engineCache));
+        Map<String, ExternalMetaCache> cacheTypes = Deencapsulation.getField(metaCacheMgr, "cacheTypes");
+        cacheTypes.clear();
+        cacheTypes.put(engineCache.engine(), engineCache);
         constraintManager = new RecordingConstraintManager();
         testingCatalogMgr = new TestingCatalogMgr(catalog);
         TestingEnv testingEnv = new TestingEnv(testingCatalogMgr, metaCacheMgr, constraintManager);
@@ -106,7 +110,7 @@ public class RefreshManagerTest {
         mockedEnv.when(Env::getCurrentEnv).thenReturn(testingEnv);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnv != null) {
             mockedEnv.close();
@@ -143,7 +147,7 @@ public class RefreshManagerTest {
         engineCache.failDbInvalidation = true;
         ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(CATALOG_ID, DATABASE_NAME);
 
-        Assert.assertThrows(IllegalStateException.class, () -> new RefreshManager().replayRefreshDb(log));
+        Assertions.assertThrows(IllegalStateException.class, () -> new RefreshManager().replayRefreshDb(log));
 
         InOrder order = Mockito.inOrder(metaCacheMgr);
         order.verify(metaCacheMgr).invalidateDbMetadataCache(CATALOG_ID, DATABASE_NAME);
@@ -180,7 +184,7 @@ public class RefreshManagerTest {
         CountDownLatch finishConnectorInvalidation = new CountDownLatch(1);
         Mockito.doAnswer(inv -> {
             connectorInvalidationStarted.countDown();
-            Assert.assertTrue(finishConnectorInvalidation.await(3L, TimeUnit.SECONDS));
+            Assertions.assertTrue(finishConnectorInvalidation.await(3L, TimeUnit.SECONDS));
             sourceRowCount.set(200L);
             return null;
         }).when(fixture.connector).invalidateTable(DATABASE_NAME, TABLE_NAME);
@@ -196,7 +200,7 @@ public class RefreshManagerTest {
             Deencapsulation.setField(metaCacheMgr, "rowCountCache", rowCountCache);
 
             Future<Long> loadDuringConnectorInvalidation = executor.submit(() -> {
-                Assert.assertTrue(connectorInvalidationStarted.await(3L, TimeUnit.SECONDS));
+                Assertions.assertTrue(connectorInvalidationStarted.await(3L, TimeUnit.SECONDS));
                 try {
                     return rowCountCache.getCachedRowCount(CATALOG_ID, DATABASE_ID, TABLE_ID, false);
                 } finally {
@@ -205,10 +209,10 @@ public class RefreshManagerTest {
             });
             new RefreshManager().refreshTableInternal(fixture.database, table, 123L);
 
-            Assert.assertEquals(100L, loadDuringConnectorInvalidation.get(3L, TimeUnit.SECONDS).longValue());
-            Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+            Assertions.assertEquals(100L, loadDuringConnectorInvalidation.get(3L, TimeUnit.SECONDS).longValue());
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
                     rowCountCache.getCachedRowCountIfPresent(CATALOG_ID, DATABASE_ID, TABLE_ID));
-            Assert.assertEquals(200L,
+            Assertions.assertEquals(200L,
                     rowCountCache.getCachedRowCount(CATALOG_ID, DATABASE_ID, TABLE_ID, false));
             Mockito.verify(metaCacheMgr).invalidateTable(
                     CATALOG_ID, DATABASE_ID, DATABASE_NAME, TABLE_ID, TABLE_NAME);
@@ -231,7 +235,7 @@ public class RefreshManagerTest {
         Mockito.doThrow(new IllegalStateException("connector invalidation failed"))
                 .when(fixture.connector).invalidateTable(DATABASE_NAME, TABLE_NAME);
 
-        Assert.assertThrows(IllegalStateException.class,
+        Assertions.assertThrows(IllegalStateException.class,
                 () -> new RefreshManager().refreshTableInternal(fixture.database, table, 123L));
 
         Mockito.verify(metaCacheMgr).invalidateTable(table);
@@ -252,17 +256,17 @@ public class RefreshManagerTest {
         Mockito.doThrow(refreshFailure).when(refreshManager)
                 .refreshTableInternal(Mockito.eq(database), Mockito.eq(table), Mockito.anyLong());
 
-        IllegalStateException thrown = Assert.assertThrows(IllegalStateException.class,
+        IllegalStateException thrown = Assertions.assertThrows(IllegalStateException.class,
                 () -> refreshManager.refreshTableAfterExternalMutation(table));
-        Assert.assertSame(refreshFailure, thrown);
+        Assertions.assertSame(refreshFailure, thrown);
 
         InOrder order = Mockito.inOrder(editLog, refreshManager);
         ArgumentCaptor<ExternalObjectLog> logCaptor = ArgumentCaptor.forClass(ExternalObjectLog.class);
         order.verify(editLog).logRefreshExternalTable(logCaptor.capture());
         ExternalObjectLog log = logCaptor.getValue();
-        Assert.assertEquals(CATALOG_ID, log.getCatalogId());
-        Assert.assertEquals(DATABASE_NAME, log.getDbName());
-        Assert.assertEquals(TABLE_NAME, log.getTableName());
+        Assertions.assertEquals(CATALOG_ID, log.getCatalogId());
+        Assertions.assertEquals(DATABASE_NAME, log.getDbName());
+        Assertions.assertEquals(TABLE_NAME, log.getTableName());
         order.verify(refreshManager).refreshTableInternal(database, table, log.getLastUpdateTime());
     }
 
@@ -272,11 +276,11 @@ public class RefreshManagerTest {
         Mockito.doThrow(new IllegalStateException("connector invalidation failed"))
                 .when(fixture.connector).invalidateDb(DATABASE_NAME);
 
-        Assert.assertThrows(IllegalStateException.class,
+        Assertions.assertThrows(IllegalStateException.class,
                 () -> new RefreshManager().replayRefreshDb(
                         ExternalObjectLog.createForRefreshDb(CATALOG_ID, DATABASE_NAME)));
 
-        Assert.assertFalse(fixture.database.isInitialized());
+        Assertions.assertFalse(fixture.database.isInitialized());
         Mockito.verify(metaCacheMgr).invalidateDbMetadataCache(CATALOG_ID, DATABASE_NAME);
         Mockito.verify(metaCacheMgr).invalidateDbRowCountCache(CATALOG_ID, DATABASE_ID);
     }
@@ -296,24 +300,24 @@ public class RefreshManagerTest {
             ExternalRowCountCache rowCountCache =
                     new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
             Deencapsulation.setField(metaCacheMgr, "rowCountCache", rowCountCache);
-            Assert.assertEquals(100L,
+            Assertions.assertEquals(100L,
                     rowCountCache.getCachedRowCount(CATALOG_ID, DATABASE_ID, sourceTableId, false));
-            Assert.assertEquals(200L,
+            Assertions.assertEquals(200L,
                     rowCountCache.getCachedRowCount(CATALOG_ID, DATABASE_ID, destinationTableId, false));
 
             database.addTableForTest(
                     new TestExternalTable(sourceTableId, TABLE_NAME, TABLE_NAME, catalog, database));
             database.addTableForTest(
                     new TestExternalTable(destinationTableId, NEW_TABLE_NAME, NEW_TABLE_NAME, catalog, database));
-            Assert.assertNotNull(database.getCachedTableForTest(NEW_TABLE_NAME));
+            Assertions.assertNotNull(database.getCachedTableForTest(NEW_TABLE_NAME));
             new RefreshManager().replayRefreshTable(ExternalObjectLog.createForRenameTable(
                     CATALOG_ID, DATABASE_NAME, TABLE_NAME, NEW_TABLE_NAME));
 
-            Assert.assertNull(database.getCachedTableForTest(TABLE_NAME));
-            Assert.assertNull(database.getCachedTableForTest(NEW_TABLE_NAME));
-            Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+            Assertions.assertNull(database.getCachedTableForTest(TABLE_NAME));
+            Assertions.assertNull(database.getCachedTableForTest(NEW_TABLE_NAME));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
                     rowCountCache.getCachedRowCountIfPresent(CATALOG_ID, DATABASE_ID, sourceTableId));
-            Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
                     rowCountCache.getCachedRowCountIfPresent(CATALOG_ID, DATABASE_ID, destinationTableId));
         }
     }
@@ -333,7 +337,32 @@ public class RefreshManagerTest {
         TestExternalTable table = new TestExternalTable(TABLE_ID, TABLE_NAME, TABLE_NAME, catalog, database);
         database.addTableForTest(table);
         database.evictTableObjectForTest(TABLE_NAME);
-        Assert.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
+        Assertions.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
+    }
+
+    private void disableDatabaseObjectCacheWithTtlZero() {
+        disableDatabaseObjectCacheWithTtlZero(catalog, database);
+    }
+
+    private void disableDatabaseObjectCacheWithTtlZero(
+            ExternalCatalog targetCatalog, ExternalDatabase<? extends ExternalTable> targetDatabase) {
+        FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> disabledDatabases = new FeMetaCacheEntry<>(
+                "ttl_zero_databases",
+                ignored -> {
+                    databaseObjectLoadCalls.incrementAndGet();
+                    return targetDatabase;
+                },
+                CacheSpec.of(true, 0L, 10L),
+                Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
+                false);
+        Deencapsulation.setField(targetCatalog, "databases", disabledDatabases);
+        Assertions.assertFalse(targetCatalog.getDbForReplay(DATABASE_NAME).isPresent());
+    }
+
+    private Connector usePluginCatalogWithDisabledDatabaseObjectCache() {
+        PluginCatalogFixture fixture = usePluginCatalog();
+        disableDatabaseObjectCacheWithTtlZero(fixture.catalog, fixture.database);
+        return fixture.connector;
     }
 
     private PluginCatalogFixture usePluginCatalog() {
@@ -351,29 +380,29 @@ public class RefreshManagerTest {
     }
 
     private void assertColdTableInvalidatedByName() {
-        Assert.assertEquals(1, engineCache.invalidateTableCalls.get());
-        Assert.assertEquals(CATALOG_ID, engineCache.lastCatalogId);
-        Assert.assertEquals(DATABASE_NAME, engineCache.lastDatabaseName);
-        Assert.assertEquals(TABLE_NAME, engineCache.lastTableName);
-        Assert.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
-        Assert.assertEquals(0, database.buildTableCalls.get());
+        Assertions.assertEquals(1, engineCache.invalidateTableCalls.get());
+        Assertions.assertEquals(CATALOG_ID, engineCache.lastCatalogId);
+        Assertions.assertEquals(DATABASE_NAME, engineCache.lastDatabaseName);
+        Assertions.assertEquals(TABLE_NAME, engineCache.lastTableName);
+        Assertions.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
+        Assertions.assertEquals(0, database.buildTableCalls.get());
     }
 
     private void assertColdRenameMigrated() {
-        Assert.assertEquals(CATALOG_ID, engineCache.lastCatalogId);
-        Assert.assertEquals(DATABASE_NAME, engineCache.lastDatabaseName);
-        Assert.assertEquals(NEW_TABLE_NAME, engineCache.lastTableName);
-        Assert.assertNull(database.getCachedTableNameByIdForTest(TABLE_ID));
-        Assert.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
-        Assert.assertNull(database.getCachedTableNamesForTest());
-        Assert.assertEquals(0, database.buildTableCalls.get());
-        Assert.assertEquals(1, constraintManager.renameTableCalls.get());
-        Assert.assertEquals("test_catalog", constraintManager.oldTableName.getCtl());
-        Assert.assertEquals(DATABASE_NAME, constraintManager.oldTableName.getDb());
-        Assert.assertEquals(TABLE_NAME, constraintManager.oldTableName.getTbl());
-        Assert.assertEquals("test_catalog", constraintManager.newTableName.getCtl());
-        Assert.assertEquals(DATABASE_NAME, constraintManager.newTableName.getDb());
-        Assert.assertEquals(NEW_TABLE_NAME, constraintManager.newTableName.getTbl());
+        Assertions.assertEquals(CATALOG_ID, engineCache.lastCatalogId);
+        Assertions.assertEquals(DATABASE_NAME, engineCache.lastDatabaseName);
+        Assertions.assertEquals(NEW_TABLE_NAME, engineCache.lastTableName);
+        Assertions.assertNull(database.getCachedTableNameByIdForTest(TABLE_ID));
+        Assertions.assertFalse(database.getTableForReplay(TABLE_NAME).isPresent());
+        Assertions.assertNull(database.getCachedTableNamesForTest());
+        Assertions.assertEquals(0, database.buildTableCalls.get());
+        Assertions.assertEquals(1, constraintManager.renameTableCalls.get());
+        Assertions.assertEquals("test_catalog", constraintManager.oldTableName.getCtl());
+        Assertions.assertEquals(DATABASE_NAME, constraintManager.oldTableName.getDb());
+        Assertions.assertEquals(TABLE_NAME, constraintManager.oldTableName.getTbl());
+        Assertions.assertEquals("test_catalog", constraintManager.newTableName.getCtl());
+        Assertions.assertEquals(DATABASE_NAME, constraintManager.newTableName.getDb());
+        Assertions.assertEquals(NEW_TABLE_NAME, constraintManager.newTableName.getTbl());
     }
 
     public static class EmptyCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
@@ -509,7 +538,7 @@ public class RefreshManagerTest {
         }
 
         @Override
-        public <K, V> MetaCacheEntry<K, V> entry(
+        public <K, V> MetaCache<K, V> entry(
                 long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
             throw new UnsupportedOperationException();
         }

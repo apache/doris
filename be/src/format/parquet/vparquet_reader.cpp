@@ -367,8 +367,11 @@ Status ParquetReader::_open_file() {
             // parse magic number & parse meta data
             _reader_statistics.file_footer_read_calls += 1;
         } else {
-            const auto& file_meta_cache_key =
+            auto file_meta_cache_key =
                     FileMetaCache::get_key(_tracing_file_reader, _file_description);
+            // Parsed schemas differ between canonical UUID text and binary carrier mappings.
+            file_meta_cache_key.push_back(static_cast<char>(enable_mapping_varbinary));
+            file_meta_cache_key.push_back(static_cast<char>(enable_mapping_timestamp_tz));
             if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
                 RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
                                                     &meta_size, _io_ctx, enable_mapping_varbinary,
@@ -608,8 +611,12 @@ bool ParquetReader::_type_matches(const int cid) const {
     auto table_col_type = remove_nullable(slot->type());
 
     const auto& file_col_name = _table_info_node_ptr->children_file_column_name(slot->col_name());
-    const auto& file_col_type =
-            remove_nullable(_file_metadata->schema().get_column(file_col_name)->data_type);
+    const auto* field = _file_metadata->schema().get_column(file_col_name);
+    const auto& file_col_type = remove_nullable(field->data_type);
+    // Raw UUID bounds and Bloom hashes cannot filter canonical UUID text.
+    if (field->parquet_schema.logicalType.__isset.UUID && !_preserve_binary_uuid) {
+        return false;
+    }
 
     return (table_col_type->get_primitive_type() == file_col_type->get_primitive_type()) &&
            !is_complex_type(table_col_type->get_primitive_type());
@@ -1017,6 +1024,7 @@ Status ParquetReader::_next_row_group_reader() {
             position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
     _row_group_eof = false;
 
+    _current_group_reader->set_preserve_binary_uuid(_preserve_binary_uuid);
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
     if (_condition_cache_ctx) {
@@ -1128,6 +1136,11 @@ bool ParquetReader::_expr_zonemap_page_slot_index(const VExprContextSPtr& conjun
     std::set<int> column_ids;
     conjunct->root()->collect_slot_column_ids(column_ids);
     if (column_ids.size() != 1) {
+        return false;
+    }
+    // The v1 reader does not take on slot-vs-slot pruning. A same-column pair like `a < a` still has
+    // one column id, so exclude any slot-vs-slot leaf explicitly rather than by column count.
+    if (expr_zonemap::contains_slot_slot_comparison(conjunct->root())) {
         return false;
     }
 
@@ -1392,6 +1405,11 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
         if (!cached_page_index->get_stat_func(&stat, cid) || stat == nullptr || !stat->available) {
             continue;
         }
+        // Same domain requirement as the row-group path above.
+        if (stat->col_schema == nullptr ||
+            !expr_zonemap::data_types_compatible(stat->col_schema->data_type, slot->type())) {
+            continue;
+        }
         RowRanges expr_ranges;
         ZoneMapEvalStats page_stats;
         for (int64_t page_id = 0; page_id < stat->num_of_pages; ++page_id) {
@@ -1403,7 +1421,7 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
 
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-            slot_zone_map.data_type = slot->type();
+            slot_zone_map.set_data_type_from_parquet(slot->type());
             segment_v2::ZoneMap zone_map;
             zone_map.has_null = stat->has_null[page_id];
             zone_map.has_not_null = !stat->is_all_null[page_id];
@@ -1507,6 +1525,8 @@ Status ParquetReader::_process_column_stat_filter(
     // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
     // when there are multiple predicates on the same column
     std::unordered_map<int, std::unique_ptr<ParquetBlockSplitBloomFilter>> bloom_filter_cache;
+    constexpr size_t MAX_CACHED_BLOOM_FILTER_BYTES = 16 * 1024 * 1024;
+    size_t cached_bloom_filter_bytes = 0;
 
     // Initialize output parameters
     *filtered_by_min_max = false;
@@ -1565,6 +1585,7 @@ Status ParquetReader::_process_column_stat_filter(
                     auto cache_iter = bloom_filter_cache.find(parquet_col_id);
                     if (cache_iter != bloom_filter_cache.end()) {
                         // Bloom filter already loaded for this column, reuse it
+                        cached_bloom_filter_bytes -= cache_iter->second->size();
                         stat->bloom_filter = std::move(cache_iter->second);
                         bloom_filter_cache.erase(cache_iter);
                         return stat->bloom_filter != nullptr;
@@ -1607,6 +1628,12 @@ Status ParquetReader::_process_column_stat_filter(
 
         // After evaluating, if the bloom filter was used, cache it for subsequent predicates
         if (stat.bloom_filter) {
+            // Large filters remain tracked but are not retained across predicates; this bounds the
+            // row-group cache independently of the number of predicate columns.
+            if (stat.bloom_filter->size() >
+                MAX_CACHED_BLOOM_FILTER_BYTES - cached_bloom_filter_bytes) {
+                continue;
+            }
             // Find the column id for caching
             for (auto* slot : _tuple_descriptor->slots()) {
                 if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
@@ -1616,6 +1643,7 @@ Status ParquetReader::_process_column_stat_filter(
                             _file_metadata->schema().get_column(file_col_name);
                     int parquet_col_id = col_schema->physical_column_index;
                     if (stat.col_schema == col_schema) {
+                        cached_bloom_filter_bytes += stat.bloom_filter->size();
                         bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
                         break;
                     }
@@ -1638,11 +1666,24 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         return Status::OK();
     }
 
+    // The v1 Parquet reader is being removed, so it does not take on the new slot-vs-slot pruning.
+    // Restrict this path to single-column conjuncts that carry no slot-vs-slot leaf: counting
+    // distinct columns alone is not enough, because a same-column pair like `a < a` still has one
+    // column id. A two-slot shape falls back to no pruning here. Native and v2 keep it.
     std::set<int> column_ids;
+    VExprContextSPtrs single_slot_conjuncts;
     for (const auto& conjunct : all_conjuncts) {
-        if (conjunct->root() != nullptr && conjunct->root()->can_evaluate_zonemap_filter()) {
-            conjunct->root()->collect_slot_column_ids(column_ids);
+        if (conjunct->root() == nullptr || !conjunct->root()->can_evaluate_zonemap_filter()) {
+            continue;
         }
+        std::set<int> conjunct_column_ids;
+        conjunct->root()->collect_slot_column_ids(conjunct_column_ids);
+        if (conjunct_column_ids.size() != 1 ||
+            expr_zonemap::contains_slot_slot_comparison(conjunct->root())) {
+            continue;
+        }
+        single_slot_conjuncts.emplace_back(conjunct);
+        column_ids.insert(*conjunct_column_ids.begin());
     }
     if (column_ids.empty()) {
         return Status::OK();
@@ -1655,7 +1696,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         }
         auto* slot = _tuple_descriptor->slots()[cid];
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-        slot_zone_map.data_type = slot->type();
+        slot_zone_map.set_data_type_from_parquet(slot->type());
         if (!_exists_in_file(slot->col_name()) || !_type_matches(cid)) {
             ctx.slots.emplace(cid, std::move(slot_zone_map));
             continue;
@@ -1663,6 +1704,14 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         const auto& file_col_name =
                 _table_info_node_ptr->children_file_column_name(slot->col_name());
         const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+        // parse_min_max_value decodes the bounds in the file's own logical type, while _type_matches
+        // only compares primitive types. A DECIMAL bound decoded at the file's scale would then be
+        // compared against the table's scale as if the payloads shared a domain, so leave the zone
+        // map out unless the two types agree exactly.
+        if (!expr_zonemap::data_types_compatible(col_schema->data_type, slot->type())) {
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            continue;
+        }
         int parquet_col_id = col_schema->physical_column_index;
         if (parquet_col_id < 0) {
             // Complex parent fields do not map to a physical Parquet column.
@@ -1696,7 +1745,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         ctx.slots.emplace(cid, std::move(slot_zone_map));
     }
 
-    const auto result = VExprContext::evaluate_zonemap_filter(all_conjuncts, ctx);
+    const auto result = VExprContext::evaluate_zonemap_filter(single_slot_conjuncts, ctx);
     ctx.stats.accumulate_to(&_reader_statistics);
     if (result == ZoneMapFilterResult::kNoMatch) {
         *filter_group = true;

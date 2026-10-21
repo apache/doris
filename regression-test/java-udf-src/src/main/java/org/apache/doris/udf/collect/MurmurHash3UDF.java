@@ -21,7 +21,6 @@
 package org.apache.doris.udf.collect;
 
 import org.apache.hadoop.hive.ql.exec.UDF;
-import org.apache.hadoop.io.IntWritable;
 
 /**
  * Evaluates the 32 bit x86 version of MurmurHash3 of String input.

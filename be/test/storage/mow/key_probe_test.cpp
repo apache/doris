@@ -257,7 +257,7 @@ TEST_F(KeyProbeTest, FoundNewerMarksTheIncomingRow) {
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 1U);
 }
 
-// Same losing row, but with use_defaults_for_seq_loser off (the row binlog policy): the surviving
+// Same losing row, but with use_defaults_for_seq_loser off (the changelog policy): the surviving
 // old row still has to be read, so its rowset comes back.
 TEST_F(KeyProbeTest, FoundNewerReadsOldRowWhenDefaultsForSeqLoserIsOff) {
     auto schema = create_mow_schema(/*has_seq=*/true);
@@ -310,8 +310,8 @@ TEST_F(KeyProbeTest, DeleteSignTakesDefaultsOnlyWithoutSequenceColumn) {
     }
 }
 
-// The row binlog retriever keeps the old values of a delete-signed row so it can emit the
-// __BEFORE__ image: use_defaults_for_delete_signed off flips that same case.
+// The changelog retriever keeps the old values of a delete-signed row so it can emit the
+// before image: use_defaults_for_delete_signed off flips that same case.
 TEST_F(KeyProbeTest, DeleteSignReadsHistoryWhenDefaultsForDeleteSignedIsOff) {
     auto schema = create_mow_schema(/*has_seq=*/false);
     TabletSharedPtr tablet;
@@ -346,9 +346,9 @@ TEST_F(KeyProbeTest, MarkNoneLeavesTheDeleteBitmapAlone) {
     std::vector<RowsetSharedPtr> rowsets {rowset};
     std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
     PartialUpdateStats stats;
-    // through the factory the row binlog retriever calls, so its MarkDeleted::NONE is pinned here
-    auto probe = MowKeyProbe::for_row_binlog(tablet.get(), schema.get(), schema->has_sequence_col(),
-                                             mow, /*write_before=*/true);
+    // through the factory the changelog retriever calls, so its MarkDeleted::NONE is pinned here
+    auto probe = MowKeyProbe::for_changelog(tablet.get(), schema.get(), schema->has_sequence_col(),
+                                            mow, /*write_before=*/true);
 
     // a replaced row ...
     auto found = probe.probe(encode_key_with_seq(schema, encoder, 1, 20), /*segment_pos=*/0,

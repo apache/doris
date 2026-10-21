@@ -39,6 +39,9 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -53,12 +56,12 @@ import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.ExternalAnalysisTask;
-import org.apache.doris.statistics.PluginDrivenSampleAnalysisTask;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.analysis.ExternalAnalysisTask;
+import org.apache.doris.statistics.analysis.PluginDrivenSampleAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -77,6 +80,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -175,15 +179,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorWritePlanProvider provider = writePlanProvider();
         // requiresParallelWrite is byte-inert for a heterogeneous gateway (hive and iceberg both true), so the
         // connector-level answer needs no per-handle resolution here.
-        return provider != null && provider.requiresParallelWrite();
+        return provider != null && withPluginContextClassLoader(provider, provider::requiresParallelWrite);
     }
 
-    /**
-     * Resolves this table's connector handle for a per-handle write-capability probe, or empty on any miss (a
-     * null connector, or an unresolvable handle). A heterogeneous gateway needs the handle to answer write
-     * capabilities per-table (its iceberg tables differ from its hive tables); a single-format connector ignores
-     * the handle (the per-handle overloads default to connector-level), so this is byte-identical for it.
-     */
     /**
      * The CONNECTOR-LEVEL write plan provider, or null when this catalog's connector is absent or declares no
      * write support. Callers must have already checked that the catalog is plugin-driven. Used by the write
@@ -193,12 +191,35 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     private ConnectorWritePlanProvider writePlanProvider() {
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector == null ? null : connector.getWritePlanProvider();
+        return connector == null ? null
+                : withPluginContextClassLoader(connector, connector::getWritePlanProvider);
     }
 
     private Optional<ConnectorTableHandle> resolveWriteCapabilityHandle(Connector connector) {
-        ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
-        return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
+            return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
+        });
+    }
+
+    private ConnectorWritePlanProvider writePlanProvider(
+            Connector connector, ConnectorTableHandle handle) {
+        return withPluginContextClassLoader(connector, () -> connector.getWritePlanProvider(handle));
+    }
+
+    private Optional<ConnectorWritePlanProvider> resolveWritePlanProvider(Connector connector) {
+        return resolveWriteCapabilityHandle(connector)
+                .map(handle -> writePlanProvider(connector, handle));
+    }
+
+    private static <T> T withPluginContextClassLoader(Object plugin, Supplier<T> callback) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(plugin.getClass().getClassLoader());
+            return callback.get();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /**
@@ -214,10 +235,103 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return EnumSet.noneOf(WriteOperation.class);
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::supportedOperations)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::supportedOperations))
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
+    }
+
+    /** Returns the row-change representation declared for this table's write provider. */
+    public ConnectorRowChangeStyle getConnectorRowChangeStyle() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return ConnectorRowChangeStyle.NONE;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return ConnectorRowChangeStyle.NONE;
+        }
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::getRowChangeStyle))
+                .orElse(ConnectorRowChangeStyle.NONE);
+    }
+
+    /** Returns the operation-column encoding declared for this table's changelog writes. */
+    public Optional<ConnectorChangelogMode> getConnectorChangelogMode() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        return resolveWritePlanProvider(connector)
+                .flatMap(provider -> withPluginContextClassLoader(provider, provider::getChangelogMode));
+    }
+
+    /** Returns the primary-key columns used by this table's changelog row-level plan. */
+    public List<String> getConnectorRowLevelPrimaryKeyColumns() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve row-level DML target " + getName()));
+            ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
+            return withPluginContextClassLoader(provider,
+                    () -> provider.getRowLevelPrimaryKeyColumns(session, handle));
+        });
+    }
+
+    /** Runs the engine-neutral mode check and connector-specific row-level validation. */
+    public void validateConnectorRowLevelDml(ConnectorRowLevelDmlRequest request) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve row-level DML target " + getName()));
+            metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
+            ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
+            withPluginContextClassLoader(provider, () -> {
+                provider.validateRowLevelDml(session, handle, request);
+                return null;
+            });
+            return null;
+        });
+    }
+
+    /** Returns connector-declared synthetic columns excluded from row-level write constraints. */
+    public Set<String> getConnectorRowLevelWriteConstraintExcludedColumns() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptySet();
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return Collections.emptySet();
+        }
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        provider::getRowLevelWriteConstraintExcludedColumns))
+                .orElseGet(Collections::emptySet);
+    }
+
+    /** Returns the connector-owned transaction-label prefix for one row-level operation. */
+    public String getConnectorRowLevelDmlLabelPrefix(WriteOperation operation) {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            throw new DorisConnectorException("Row-level DML requires a plugin-driven catalog");
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            throw new DorisConnectorException("Connector is unavailable for row-level DML");
+        }
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        () -> provider.getRowLevelDmlLabelPrefix(operation)))
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve the connector write provider for row-level DML"));
     }
 
     /**
@@ -232,9 +346,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return false;
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::supportsWriteBranch)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::supportsWriteBranch))
                 .orElse(false);
     }
 
@@ -276,6 +389,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public boolean supportsNestedColumnPrune() {
         return hasCapability(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+    }
+
+    /** Whether this table's storage reader can use inferred bare-column predicates for data skipping. */
+    public boolean supportsStoragePredicatePruning() {
+        return hasCapability(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
+    }
+
+    /**
+     * Returns whether THIS table's connector carries stable field ids down its column tree, so
+     * {@code SlotTypeReplacer} may rewrite nested access paths from names to those ids. Separate from
+     * {@link #supportsNestedColumnPrune()} because the two answers differ: paimon and fluss honour a pruned
+     * nested type but have no field ids, and rewriting their paths would produce {@code "-1"} segments BE
+     * matches against nothing.
+     */
+    public boolean usesFieldIdAccessPath() {
+        return hasCapability(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH);
     }
 
     /**
@@ -343,7 +472,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /** The connector-declared per-table capability set, from the cached schema; empty on any miss. */
-    private Set<ConnectorCapability> tableCapabilities() {
+    protected Set<ConnectorCapability> tableCapabilities() {
         makeSureInitialized();
         return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableCapabilities())
@@ -392,7 +521,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         ConnectorWritePlanProvider provider = writePlanProvider();
-        return provider != null && provider.requiresPartitionLocalSort();
+        return provider != null
+                && withPluginContextClassLoader(provider, provider::requiresPartitionLocalSort);
     }
 
     /**
@@ -412,10 +542,41 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         // Per-table: hive requires partition-hash writes but iceberg does not, so resolve the handle.
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::requiresPartitionHashWrite)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        provider::requiresPartitionHashWrite))
                 .orElse(false);
+    }
+
+    /** Resolves all objects and traits used to plan one physical connector write in one metadata view. */
+    public ConnectorWritePlanContext resolveWritePlanContext() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            throw new DorisConnectorException("Write target is not backed by a plugin-driven catalog: "
+                    + getName());
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            throw new DorisConnectorException("Connector is unavailable for write target " + getName());
+        }
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve connector table handle for write target " + getName()));
+            ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+            if (provider == null) {
+                throw new DorisConnectorException(
+                        "Connector does not provide a write plan for target " + getName());
+            }
+            return withPluginContextClassLoader(provider, () -> new ConnectorWritePlanContext(
+                    session, metadata, handle, provider,
+                    provider.getWriteDistribution(session, handle), provider.requiresParallelWrite(),
+                    provider.requiresPartitionLocalSort(), provider.requiresPartitionHashWrite(),
+                    provider.requiresFullSchemaWriteOrder(),
+                    ConnectContext.get().getStatementContext().getBeExecVersion()));
+        });
     }
 
     /**
@@ -429,7 +590,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         ConnectorWritePlanProvider provider = writePlanProvider();
-        return provider != null && provider.requiresFullSchemaWriteOrder();
+        return provider != null
+                && withPluginContextClassLoader(provider, provider::requiresFullSchemaWriteOrder);
     }
 
     /**
@@ -449,9 +611,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         // Per-table: iceberg retains partition columns and hive derives the partition directory from the row
         // (both materialize the PARTITION literal); maxcompute refills from the static spec instead.
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::requiresMaterializeStaticPartitionValues)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        provider::requiresMaterializeStaticPartitionValues))
                 .orElse(false);
     }
 
@@ -488,29 +650,46 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorSession session = buildSchemaSession(pluginCatalog);
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            String dbName = db != null ? db.getRemoteName() : "";
+            String tableName = getRemoteName();
+            if (isView()) {
+                // A connector view has no table handle (the SDK tableExists() is false for views); build the schema
+                // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
+                // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
+                // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
+                ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
+                ConnectorTableSchema viewSchema = new ConnectorTableSchema(
+                        tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
+                return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
+            }
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
+                return Optional.empty();
+            }
 
-        String dbName = db != null ? db.getRemoteName() : "";
-        String tableName = getRemoteName();
-        if (isView()) {
-            // A connector view has no table handle (the SDK tableExists() is false for views); build the schema
-            // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
-            // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
-            // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
-            ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
-            ConnectorTableSchema viewSchema = new ConnectorTableSchema(
-                    tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
-            return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
+            ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+            return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
+        } finally {
+            closeSchemaSession(session);
         }
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
-            return Optional.empty();
-        }
+    }
 
-        ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
-        return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
+    /**
+     * The session used while binding this table's schema. Persisted base tables fill a cross-statement
+     * schema cache, so their default is an operation-local scope. Transient system relations override
+     * this to borrow the live SQL statement scope that their later hidden-column and scan paths also use.
+     */
+    protected ConnectorSession buildSchemaSession(PluginDrivenExternalCatalog pluginCatalog) {
+        return pluginCatalog.buildCrossStatementSession();
+    }
+
+    /** Releases the operation-local schema scope; a borrower overrides this with a no-op. */
+    protected void closeSchemaSession(ConnectorSession session) {
+        session.getStatementScope().closeAll();
     }
 
     /**
@@ -540,6 +719,10 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
 
         List<Column> columns = ConnectorColumnConverter.convertColumns(mappedColumns);
+        // The display view is projected HERE, from the same mapped columns, so the read and display schemas
+        // always belong to one schema generation (a connector may deliberately read a column as nullable
+        // while its source contract declares it NOT NULL; only metadata statements show the latter).
+        List<Column> displayColumns = toDisplayColumns(columns, mappedColumns);
 
         // Identify partition columns from the connector's reserved PARTITION_COLUMNS_KEY property (a CSV of
         // RAW remote column names; producer: hive/hudi/iceberg/paimon/maxcompute). We keep two aligned
@@ -570,7 +753,40 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
                 tableSchema.getProperties(), tableSchema.getTableCapabilities(),
-                tableSchema.getWriteMetadataIdentity());
+                tableSchema.getWriteMetadataIdentity(), displayColumns);
+    }
+
+    /**
+     * Projects {@code readColumns} onto the nullability the connector's source declares
+     * ({@link ConnectorColumn#isSourceNullable()}), index-aligned with and the same size as {@code readColumns}
+     * (the converter maps connector columns 1:1 and in order). A column whose declared nullability equals its
+     * read nullability is shared, not copied, so a connector that declares no divergence — and every
+     * never-opted-in connector — keeps a display view that is literally the read schema. A copied column
+     * re-applies the one display marker {@link Column#Column(Column)} does not carry (the WITH_TIMEZONE
+     * "Extra" marker the connector declared), so a required TIMESTAMP WITH TIME ZONE column keeps showing it.
+     */
+    private static List<Column> toDisplayColumns(List<Column> readColumns, List<ConnectorColumn> connectorColumns) {
+        List<Column> displayColumns = new ArrayList<>(readColumns.size());
+        for (int i = 0; i < readColumns.size(); i++) {
+            Column readColumn = readColumns.get(i);
+            ConnectorColumn connectorColumn = connectorColumns.get(i);
+            boolean sourceNullable = connectorColumn.isSourceNullable();
+            if (sourceNullable == readColumn.isAllowNull()) {
+                displayColumns.add(readColumn);
+                continue;
+            }
+            Column displayColumn = new Column(readColumn);
+            displayColumn.setIsAllowNull(sourceNullable);
+            // Column's copy constructor does not carry `extraInfo`, so the WITH_TIMEZONE marker
+            // (ConnectorColumn.withTimeZone(), re-applied by ConnectorColumnConverter on the read column)
+            // has to be re-applied here as well — otherwise DESC would show "Extra: NONE" for exactly the
+            // required TZ columns this projection touches.
+            if (connectorColumn.isWithTimeZone()) {
+                displayColumn.setWithTZExtraInfo();
+            }
+            displayColumns.add(displayColumn);
+        }
+        return displayColumns;
     }
 
     @Override
@@ -706,6 +922,36 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return appendSyntheticWriteColumns(super.getFullSchema());
     }
 
+    @Override
+    public List<Column> getBaseSchemaForDisplay() {
+        boolean showHidden = Util.showHiddenColumns();
+        if (!showHidden && needInternalHiddenColumns()) {
+            showHidden = true;
+        }
+        return getBaseSchemaForDisplay(showHidden);
+    }
+
+    /**
+     * The metadata view of this table's base schema: the same columns and order, with the nullability the
+     * connector's source declares. Mirrors {@link ExternalTable#getBaseSchema(boolean)} exactly — {@code full}
+     * only decides whether invisible columns are kept, and request-scoped synthetic write columns join the
+     * hidden view — but serves one schema-cache generation and never the read nullability.
+     */
+    @Override
+    public List<Column> getBaseSchemaForDisplay(boolean full) {
+        // ONE cache read: the columns and the declared-nullability projection were produced together at
+        // schema load, so this can never mix generations or hit the connector twice (which it would under
+        // a bypassed schema cache, e.g. a per-user delegated credential). Mirrors getWriteSchemaSnapshot().
+        List<Column> displayColumns = getSchemaCacheValue()
+                .map(value -> ((PluginDrivenSchemaCacheValue) value).getDisplayColumns())
+                .orElse(null);
+        if (displayColumns == null) {
+            return null;
+        }
+        List<Column> schema = appendSyntheticWriteColumns(displayColumns);
+        return full ? schema : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+    }
+
     /**
      * Same as {@link #getFullSchema()}, but the BASE schema is resolved AS OF {@code snapshot} (this
      * reference's own pin). The synthetic write columns are request-scoped, not version-scoped, so they are
@@ -817,11 +1063,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handleOpt.isPresent()) {
             return Collections.emptyList();
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(handleOpt.get());
+        ConnectorWritePlanProvider writePlanProvider = writePlanProvider(connector, handleOpt.get());
         if (writePlanProvider == null) {
             return Collections.emptyList();
         }
-        return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
+        return withPluginContextClassLoader(writePlanProvider,
+                () -> writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get()));
     }
 
     /**
@@ -851,13 +1098,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handle.isPresent()) {
             return Optional.empty();
         }
-        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        ConnectorWritePlanProvider provider = writePlanProvider(connector, handle.get());
         if (provider == null) {
             return Optional.empty();
         }
-        ClassLoader previous = Thread.currentThread().getContextClassLoader();
-        try {
-            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+        return withPluginContextClassLoader(provider, () -> {
             Optional<List<ConnectorColumn>> connectorColumns =
                     provider.getWriteColumns(session, handle.get(), branchName);
             if (!connectorColumns.isPresent()) {
@@ -869,9 +1114,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
             }
             return connectorColumns.map(ConnectorColumnConverter::convertColumns);
-        } finally {
-            Thread.currentThread().setContextClassLoader(previous);
-        }
+        });
     }
 
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
@@ -1160,17 +1403,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Optional.empty();
         }
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            return Optional.empty();
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return Optional.empty();
+            }
+            Optional<ConnectorColumnStatistics> statsOpt =
+                    metadata.getColumnStatistics(session, handleOpt.get(), colName);
+            if (!statsOpt.isPresent()) {
+                return Optional.empty();
+            }
+            return toColumnStatistic(statsOpt.get(), getColumn(colName));
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        Optional<ConnectorColumnStatistics> statsOpt =
-                metadata.getColumnStatistics(session, handleOpt.get(), colName);
-        if (!statsOpt.isPresent()) {
-            return Optional.empty();
-        }
-        return toColumnStatistic(statsOpt.get(), getColumn(colName));
     }
 
     /**
@@ -1195,12 +1442,16 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Collections.emptyList();
         }
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
-            return Collections.emptyList();
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return Collections.emptyList();
+            }
+            return metadata.listFileSizes(session, handleOpt.get());
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        return metadata.listFileSizes(session, handleOpt.get());
     }
 
     /**
@@ -1261,8 +1512,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        try {
+            return fetchRowCount(session, PluginDrivenMetadata.get(session, connector));
+        } finally {
+            session.getStatementScope().closeAll();
+        }
+    }
 
+    private long fetchRowCount(ConnectorSession session, ConnectorMetadata metadata) {
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return UNKNOWN_ROW_COUNT;
@@ -1353,17 +1610,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
-        if (!handleOpt.isPresent()) {
+        try {
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return UNKNOWN_ROW_COUNT;
+            }
+            Optional<ConnectorTableStatistics> statsOpt =
+                    metadata.getTableStatistics(session, handleOpt.get(), snapshot);
+            if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
+                return statsOpt.get().getRowCount();
+            }
             return UNKNOWN_ROW_COUNT;
+        } finally {
+            session.getStatementScope().closeAll();
         }
-        Optional<ConnectorTableStatistics> statsOpt =
-                metadata.getTableStatistics(session, handleOpt.get(), snapshot);
-        if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
-            return statsOpt.get().getRowCount();
-        }
-        return UNKNOWN_ROW_COUNT;
     }
 
     /**

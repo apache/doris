@@ -84,7 +84,7 @@ suite("test_properties", "p0"){
             "replication_allocation" = "tag.location.default: 1"
         );
     """
-    create_table_with_inverted_index_properties(wrong_parser_mode, "parser_mode is only available for chinese and ik parser")
+    create_table_with_inverted_index_properties(wrong_parser_mode, "parser_mode is only available for chinese, ik and kuromoji parser")
     assertEquals(success, false)
 
     def valid_parser_and_mode = """

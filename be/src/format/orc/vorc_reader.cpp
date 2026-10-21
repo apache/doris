@@ -940,7 +940,8 @@ std::pair<bool, orc::Literal> OrcReader::_make_orc_literal(const VSlotRef* slot_
     M(DECIMALV2)                    \
     M(BOOLEAN)                      \
     M(IPV4)                         \
-    M(IPV6)
+    M(IPV6)                         \
+    M(UUID)
         APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
     default: {
@@ -1583,8 +1584,14 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::STRING:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        if (_scan_params.__isset.enable_mapping_varbinary &&
-            _scan_params.enable_mapping_varbinary) {
+        // Logical UUID annotations take precedence over physical binary mapping.
+        if ((orc_type->hasAttributeKey("doris.logical_type") &&
+             orc_type->getAttributeValue("doris.logical_type") == "uuid") ||
+            (orc_type->hasAttributeKey("iceberg.binary-type") &&
+             orc_type->getAttributeValue("iceberg.binary-type") == "UUID")) {
+            return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_UUID, true);
+        } else if (_scan_params.__isset.enable_mapping_varbinary &&
+                   _scan_params.enable_mapping_varbinary) {
             return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARBINARY,
                                                                 true);
         } else {
@@ -1941,6 +1948,14 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 #undef DISPATCH
     case PrimitiveType::TYPE_INT:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
+    case PrimitiveType::TYPE_UUID: {
+        OrcDecodedColumnView view;
+        view.file_type = orc_column_type;
+        view.selected_type = orc_column_type;
+        view.batch = cvb;
+        view.rows = num_values;
+        return data_type->get_serde()->read_column_from_orc(*data_column, view);
+    }
     case PrimitiveType::TYPE_DECIMAL32:
         return _decode_decimal_column<TYPE_DECIMAL32, is_filter>(col_name, data_column, data_type,
                                                                  cvb, num_values);
@@ -3123,7 +3138,7 @@ Status OrcReader::on_string_dicts_loaded(
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
             if (slot_desc->id() == slot_id) {
-                auto data_type = slot_desc->get_data_type_ptr();
+                auto data_type = slot_desc->type();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
                             {ColumnNullable::create(
@@ -3140,8 +3155,7 @@ Status OrcReader::on_string_dicts_loaded(
 
             } else {
                 temp_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                        slot_desc->get_data_type_ptr(),
-                                                        slot_desc->col_name()));
+                                                        slot_desc->type(), slot_desc->col_name()));
             }
             ++index;
         }

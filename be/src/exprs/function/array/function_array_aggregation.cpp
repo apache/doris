@@ -90,7 +90,8 @@ struct AggregateFunctionTraits<AggregateOperation::AVERAGE> {
     struct TypeTraits {
         static constexpr PrimitiveType ResultType =
                 Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : TYPE_DOUBLE;
-        using AggregateDataType = AggregateFunctionAvgData<ResultType>;
+        // Add up the values in the same type as avg(). A double sum loses digits of large integers.
+        using AggregateDataType = AggregateFunctionAvgData<avg_sum_type(Element)>;
         using Function = AggregateFunctionAvg<Element, ResultType, AggregateDataType>;
         static_assert(std::is_same_v<typename PrimitiveTypeTraits<ResultType>::CppType,
                                      typename Function::ResultType>,
@@ -167,9 +168,10 @@ struct ArrayAggregateImpl {
         const auto& offsets = array.get_offsets();
         if constexpr (operation == AggregateOperation::MAX ||
                       operation == AggregateOperation::MIN) {
-            // min/max can only be applied on ip type
+            // These fixed-width non-numeric types support min/max only.
             if (execute_type<TYPE_IPV4>(res, type, data, offsets) ||
-                execute_type<TYPE_IPV6>(res, type, data, offsets)) {
+                execute_type<TYPE_IPV6>(res, type, data, offsets) ||
+                execute_type<TYPE_UUID>(res, type, data, offsets)) {
                 block.replace_by_position(result, std::move(res));
                 return Status::OK();
             }
@@ -189,6 +191,7 @@ struct ArrayAggregateImpl {
             execute_type<TYPE_DECIMAL256>(res, type, data, offsets) ||
             execute_type<TYPE_DATEV2>(res, type, data, offsets) ||
             execute_type<TYPE_DATETIMEV2>(res, type, data, offsets) ||
+            execute_type<TYPE_TIMESTAMP_NS>(res, type, data, offsets) ||
             execute_type<TYPE_TIMESTAMPTZ>(res, type, data, offsets) ||
             execute_type<TYPE_VARCHAR>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
@@ -261,8 +264,8 @@ struct ArrayAggregateImpl {
             if constexpr ((operation == AggregateOperation::SUM ||
                            operation == AggregateOperation::PRODUCT ||
                            operation == AggregateOperation::AVERAGE) &&
-                          (is_date_type(Element) || is_timestamptz_type(Element) ||
-                           is_decimalv3(Element))) {
+                          (is_date_type(Element) || is_timestamp_ns_type(Element) ||
+                           is_timestamptz_type(Element) || is_decimalv3(Element))) {
                 return false;
             } else {
                 using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;

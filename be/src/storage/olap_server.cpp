@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <gen_cpp/Status_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <chrono> // IWYU pragma: keep
@@ -62,7 +63,7 @@
 #include "storage/compaction/cold_data_compaction.h"
 #include "storage/compaction/compaction_permit_limiter.h"
 #include "storage/compaction/cumulative_compaction.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction_task_tracker.h"
@@ -105,7 +106,7 @@ CompactionSubmitRegistry::CompactionSubmitRegistry(CompactionSubmitRegistry&& r)
     std::swap(_tablet_submitted_cumu_compaction, r._tablet_submitted_cumu_compaction);
     std::swap(_tablet_submitted_base_compaction, r._tablet_submitted_base_compaction);
     std::swap(_tablet_submitted_full_compaction, r._tablet_submitted_full_compaction);
-    std::swap(_tablet_submitted_binlog_compaction, r._tablet_submitted_binlog_compaction);
+    std::swap(_tablet_submitted_changelog_compaction, r._tablet_submitted_changelog_compaction);
 }
 
 CompactionSubmitRegistry CompactionSubmitRegistry::create_snapshot() {
@@ -114,7 +115,7 @@ CompactionSubmitRegistry CompactionSubmitRegistry::create_snapshot() {
     CompactionSubmitRegistry registry;
     registry._tablet_submitted_base_compaction = _tablet_submitted_base_compaction;
     registry._tablet_submitted_cumu_compaction = _tablet_submitted_cumu_compaction;
-    registry._tablet_submitted_binlog_compaction = _tablet_submitted_binlog_compaction;
+    registry._tablet_submitted_changelog_compaction = _tablet_submitted_changelog_compaction;
     return registry;
 }
 
@@ -124,7 +125,7 @@ void CompactionSubmitRegistry::reset(const std::vector<DataDir*>& stores) {
     for (const auto& store : stores) {
         _tablet_submitted_cumu_compaction[store] = {};
         _tablet_submitted_base_compaction[store] = {};
-        _tablet_submitted_binlog_compaction[store] = {};
+        _tablet_submitted_changelog_compaction[store] = {};
     }
 }
 
@@ -184,8 +185,8 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
         return _tablet_submitted_cumu_compaction[dir];
     case CompactionType::FULL_COMPACTION:
         return _tablet_submitted_full_compaction[dir];
-    case CompactionType::CUMU_BINLOG_COMPACTION:
-        return _tablet_submitted_binlog_compaction[dir];
+    case CompactionType::CHANGELOG_COMPACTION:
+        return _tablet_submitted_changelog_compaction[dir];
     default:
         CHECK(false) << "invalid compaction type";
     }
@@ -210,8 +211,8 @@ static int32_t get_base_compaction_threads_num(size_t data_dirs_num) {
     return threads_num;
 }
 
-static int32_t get_binlog_compaction_threads_num(size_t data_dirs_num) {
-    int32_t threads_num = config::max_binlog_compaction_threads;
+static int32_t get_changelog_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_changelog_compaction_threads;
     if (threads_num == -1) {
         threads_num = cast_set<int32_t>(data_dirs_num);
     }
@@ -249,7 +250,7 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
 
     auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
     auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
-    auto binlog_compaction_threads = get_binlog_compaction_threads_num(data_dirs.size());
+    auto changelog_compaction_threads = get_changelog_compaction_threads_num(data_dirs.size());
 
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
                             .set_min_threads(base_compaction_threads)
@@ -259,10 +260,12 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .set_min_threads(cumu_compaction_threads)
                             .set_max_threads(cumu_compaction_threads)
                             .build(&_cumu_compaction_thread_pool));
-    RETURN_IF_ERROR(ThreadPoolBuilder("BinlogCompactionTaskThreadPool")
-                            .set_min_threads(binlog_compaction_threads)
-                            .set_max_threads(binlog_compaction_threads)
-                            .build(&_binlog_compaction_thread_pool));
+    // ATTN(changelog-rename): formerly "BinlogCompactionTaskThreadPool"
+    RETURN_IF_ERROR(ThreadPoolBuilder("ChangelogCompactionTaskThreadPool")
+                            .set_min_threads(changelog_compaction_threads)
+                            .set_max_threads(changelog_compaction_threads)
+                            .set_max_queue_size(changelog_compaction_threads)
+                            .build(&_changelog_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
         RETURN_IF_ERROR(ThreadPoolBuilder("SegCompactionTaskThreadPool")
@@ -284,11 +287,13 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
 
+    // ATTN(changelog-rename): formerly "binlog_compaction_tasks_producer_thread"
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "binlog_compaction_tasks_producer_thread",
-            [this]() { this->_binlog_compaction_tasks_producer_callback(); },
-            &_binlog_compaction_tasks_producer_thread));
-    LOG(INFO) << "binlog compaction tasks producer thread started";
+            "StorageEngine", "changelog_compaction_tasks_producer_thread",
+            [this]() { this->_changelog_compaction_tasks_producer_callback(); },
+            &_changelog_compaction_tasks_producer_thread));
+    LOG(INFO) << "changelog compaction tasks producer thread started";
+    RETURN_IF_ERROR(_start_changelog_ttl_scanner());
 
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
     if (max_checkpoint_thread_num < 0) {
@@ -628,23 +633,23 @@ void StorageEngine::_adjust_compaction_thread_num() {
         }
     }
 
-    auto binlog_compaction_threads_num = get_binlog_compaction_threads_num(_store_map.size());
-    if (_binlog_compaction_thread_pool->max_threads() != binlog_compaction_threads_num) {
-        int old_max_threads = _binlog_compaction_thread_pool->max_threads();
-        Status status =
-                _binlog_compaction_thread_pool->set_max_threads(binlog_compaction_threads_num);
+    auto changelog_compaction_threads_num = get_changelog_compaction_threads_num(_store_map.size());
+    if (_changelog_compaction_thread_pool->max_threads() != changelog_compaction_threads_num) {
+        int old_max_threads = _changelog_compaction_thread_pool->max_threads();
+        Status status = _changelog_compaction_thread_pool->set_max_threads(
+                changelog_compaction_threads_num);
         if (status.ok()) {
-            VLOG_NOTICE << "update binlog compaction thread pool max_threads from "
-                        << old_max_threads << " to " << binlog_compaction_threads_num;
+            VLOG_NOTICE << "update changelog compaction thread pool max_threads from "
+                        << old_max_threads << " to " << changelog_compaction_threads_num;
         }
     }
-    if (_binlog_compaction_thread_pool->min_threads() != binlog_compaction_threads_num) {
-        int old_min_threads = _binlog_compaction_thread_pool->min_threads();
-        Status status =
-                _binlog_compaction_thread_pool->set_min_threads(binlog_compaction_threads_num);
+    if (_changelog_compaction_thread_pool->min_threads() != changelog_compaction_threads_num) {
+        int old_min_threads = _changelog_compaction_thread_pool->min_threads();
+        Status status = _changelog_compaction_thread_pool->set_min_threads(
+                changelog_compaction_threads_num);
         if (status.ok()) {
-            VLOG_NOTICE << "update binlog compaction thread pool min_threads from "
-                        << old_min_threads << " to " << binlog_compaction_threads_num;
+            VLOG_NOTICE << "update changelog compaction thread pool min_threads from "
+                        << old_min_threads << " to " << changelog_compaction_threads_num;
         }
     }
 }
@@ -764,37 +769,37 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
-void StorageEngine::_binlog_compaction_tasks_producer_callback() {
-    LOG(INFO) << "try to start binlog compaction producer process!";
+void StorageEngine::_changelog_compaction_tasks_producer_callback() {
+    LOG(INFO) << "try to start changelog compaction producer process!";
 
     std::vector<DataDir*> data_dirs = get_stores();
 
-    int64_t last_binlog_score_update_time = 0;
+    int64_t last_changelog_score_update_time = 0;
     static const int64_t check_score_interval_ms = 5000;
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         int64_t cur_time = UnixMillis();
-        if (config::enable_feature_binlog && !config::disable_auto_compaction &&
+        if (!config::disable_auto_compaction &&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             _adjust_compaction_thread_num();
 
             bool check_score = false;
-            if (cur_time - last_binlog_score_update_time >= check_score_interval_ms) {
+            if (cur_time - last_changelog_score_update_time >= check_score_interval_ms) {
                 check_score = true;
-                last_binlog_score_update_time = cur_time;
+                last_changelog_score_update_time = cur_time;
             }
 
             std::vector<TabletCompactionContext> tablet_compaction_contexts =
-                    _generate_compaction_tasks(CompactionType::CUMU_BINLOG_COMPACTION, data_dirs,
+                    _generate_compaction_tasks(CompactionType::CHANGELOG_COMPACTION, data_dirs,
                                                check_score);
             for (const auto& tablet_compaction_context : tablet_compaction_contexts) {
                 const auto& tablet = tablet_compaction_context.tablet;
-                Status st = _submit_compaction_task(tablet, CompactionType::CUMU_BINLOG_COMPACTION,
+                Status st = _submit_compaction_task(tablet, CompactionType::CHANGELOG_COMPACTION,
                                                     false, 0);
                 if (!st.ok()) {
-                    LOG(WARNING) << "failed to submit binlog compaction task for tablet: "
+                    LOG(WARNING) << "failed to submit changelog compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;
                 }
             }
@@ -823,7 +828,7 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
 
 bool need_generate_compaction_tasks(int task_cnt_per_disk, int thread_per_disk,
                                     CompactionType compaction_type, bool all_base) {
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         return task_cnt_per_disk < thread_per_disk;
     }
 
@@ -871,8 +876,8 @@ int get_concurrent_per_disk(int64_t max_score, int thread_per_disk) {
 }
 
 int32_t disk_compaction_slot_num(const DataDir& data_dir, CompactionType compaction_type) {
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
-        return config::binlog_compaction_task_num_per_disk;
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+        return config::changelog_compaction_task_num_per_disk;
     }
     return data_dir.is_ssd_disk() ? config::compaction_task_num_per_fast_disk
                                   : config::compaction_task_num_per_disk;
@@ -890,7 +895,7 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
            compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-           compaction_type == CompactionType::CUMU_BINLOG_COMPACTION);
+           compaction_type == CompactionType::CHANGELOG_COMPACTION);
     TEST_SYNC_POINT_RETURN_WITH_VALUE("olap_server::_generate_compaction_tasks.return_empty",
                                       std::vector<TabletCompactionContext> {});
     _update_cumulative_compaction_policy();
@@ -909,9 +914,9 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
     for (auto* data_dir : data_dirs) {
         bool need_pick_tablet = true;
         uint32_t executing_task_num =
-                compaction_type == CompactionType::CUMU_BINLOG_COMPACTION
+                compaction_type == CompactionType::CHANGELOG_COMPACTION
                         ? compaction_registry_snapshot.count_executing_compaction(
-                                  data_dir, CompactionType::CUMU_BINLOG_COMPACTION)
+                                  data_dir, CompactionType::CHANGELOG_COMPACTION)
                         : compaction_registry_snapshot.count_executing_cumu_and_base(data_dir);
         need_pick_tablet = has_free_compaction_slot(&compaction_registry_snapshot, data_dir,
                                                     compaction_type, executing_task_num);
@@ -972,9 +977,9 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
                                 max_score_stats.size_based_max_score);
             update_policy_score(DorisMetrics::instance()->tablet_time_series_max_compaction_score,
                                 max_score_stats.time_series_max_score);
-        } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION &&
+        } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION &&
                    max_score_stats.max_score > 0) {
-            DorisMetrics::instance()->tablet_binlog_max_compaction_score->set_value(
+            DorisMetrics::instance()->tablet_changelog_max_compaction_score->set_value(
                     max_score_stats.max_score);
         }
     }
@@ -990,9 +995,9 @@ void StorageEngine::_update_cumulative_compaction_policy() {
         _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
                 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                         CUMULATIVE_TIME_SERIES_POLICY);
-        _cumulative_compaction_policies[CUMULATIVE_BINLOG_POLICY] =
+        _cumulative_compaction_policies[CUMULATIVE_CHANGELOG_POLICY] =
                 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                        CUMULATIVE_BINLOG_POLICY);
+                        CUMULATIVE_CHANGELOG_POLICY);
     }
 }
 
@@ -1002,9 +1007,10 @@ CumuCompactionPolicyTable StorageEngine::_snapshot_cumulative_compaction_policy(
 }
 
 std::shared_ptr<CumulativeCompactionPolicy> StorageEngine::_get_cumulative_compaction_policy(
-        std::string_view compaction_policy) {
+        std::string_view compaction_policy, int64_t tablet_id) {
     std::lock_guard<std::mutex> lock(_cumulative_compaction_policy_mtx);
-    return _cumulative_compaction_policies.at(compaction_policy);
+    return CumulativeCompactionPolicyFactory::get_cumulative_compaction_policy(
+            _cumulative_compaction_policies, compaction_policy, tablet_id);
 }
 
 void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
@@ -1032,11 +1038,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                                                  compaction, permits);
     if (st.ok() && permits > 0) {
         if (!force) {
-            if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+            if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
                 if (!_permit_limiter.try_request(permits)) {
                     _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                     tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
-                    return Status::OK();
+                    return Status::TooManyTasks("Insufficient changelog compaction permits");
                 }
             } else {
                 _permit_limiter.request(permits);
@@ -1061,7 +1067,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             case CompactionType::FULL_COMPACTION:
                 info.compaction_type = CompactionProfileType::FULL;
                 break;
-            case CompactionType::CUMU_BINLOG_COMPACTION:
+            case CompactionType::CHANGELOG_COMPACTION:
                 info.compaction_type = CompactionProfileType::CUMULATIVE;
                 break;
             default:
@@ -1092,9 +1098,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             thread_pool = &_cumu_compaction_thread_pool;
             compaction_type_name = "CUMU";
             break;
-        case CompactionType::CUMU_BINLOG_COMPACTION:
-            thread_pool = &_binlog_compaction_thread_pool;
-            compaction_type_name = "BINLOG";
+        case CompactionType::CHANGELOG_COMPACTION:
+            thread_pool = &_changelog_compaction_thread_pool;
+            compaction_type_name = "CHANGELOG";
             break;
         case CompactionType::BASE_COMPACTION:
         case CompactionType::FULL_COMPACTION:
@@ -1165,10 +1171,10 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
         DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                 _base_compaction_thread_pool->get_queue_size());
-    } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
-        DorisMetrics::instance()->binlog_compaction_task_running_total->increment(1);
-        DorisMetrics::instance()->binlog_compaction_task_pending_total->set_value(
-                _binlog_compaction_thread_pool->get_queue_size());
+    } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+        DorisMetrics::instance()->changelog_compaction_task_running_total->increment(1);
+        DorisMetrics::instance()->changelog_compaction_task_pending_total->set_value(
+                _changelog_compaction_thread_pool->get_queue_size());
     }
     bool is_large_task = true;
     Defer defer {[&]() {
@@ -1193,10 +1199,10 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
             DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
             DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                     _base_compaction_thread_pool->get_queue_size());
-        } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
-            DorisMetrics::instance()->binlog_compaction_task_running_total->increment(-1);
-            DorisMetrics::instance()->binlog_compaction_task_pending_total->set_value(
-                    _binlog_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
+            DorisMetrics::instance()->changelog_compaction_task_running_total->increment(-1);
+            DorisMetrics::instance()->changelog_compaction_task_pending_total->set_value(
+                    _changelog_compaction_thread_pool->get_queue_size());
         }
     }};
     do {
@@ -1290,8 +1296,8 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
         tablet->get_cumulative_compaction_policy()->name() !=
                 tablet->tablet_meta()->compaction_policy()) {
-        tablet->set_cumulative_compaction_policy(
-                _get_cumulative_compaction_policy(tablet->tablet_meta()->compaction_policy()));
+        tablet->set_cumulative_compaction_policy(_get_cumulative_compaction_policy(
+                tablet->tablet_meta()->compaction_policy(), tablet->tablet_id()));
     }
     tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type, force, trigger_method);
@@ -1585,7 +1591,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
             return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
                    t->tablet_state() == TABLET_RUNNING &&
                    !copied_tablet_submitted.contains(t->tablet_id()) &&
-                   !t->tablet_meta()->tablet_schema()->disable_auto_compaction();
+                   !t->tablet_meta()->disable_auto_compaction();
         });
         std::vector<std::pair<TabletSharedPtr, int64_t>> tablet_to_compact;
         tablet_to_compact.reserve(n + 1);
@@ -1661,8 +1667,8 @@ void StorageEngine::_handle_cold_data_compaction(TabletSharedPtr t) {
     _update_cumulative_compaction_policy();
     if (t->get_cumulative_compaction_policy() == nullptr ||
         t->get_cumulative_compaction_policy()->name() != t->tablet_meta()->compaction_policy()) {
-        t->set_cumulative_compaction_policy(
-                _get_cumulative_compaction_policy(t->tablet_meta()->compaction_policy()));
+        t->set_cumulative_compaction_policy(_get_cumulative_compaction_policy(
+                t->tablet_meta()->compaction_policy(), t->tablet_id()));
     }
 
     auto st = compaction->prepare_compact();

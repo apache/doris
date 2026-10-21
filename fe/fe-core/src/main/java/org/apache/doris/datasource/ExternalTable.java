@@ -41,9 +41,9 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.BaseAnalysisTask;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
@@ -238,13 +238,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public String getEngine() {
         return getType().toEngineName();
-    }
-
-    /**
-     * Returns the effective meta cache engine for this table.
-     */
-    public String getMetaCacheEngine() {
-        return "default";
     }
 
     public String getHiveParquetTimeZone() throws UserException {
@@ -535,6 +528,14 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public boolean supportInternalPartitionPruned() {
         return false;
+    }
+
+    /**
+     * Whether this snapshot's partition values can be pruned using source-column predicates.
+     * Enumeration may still be needed for partition counts when this returns false.
+     */
+    public boolean supportInternalPartitionPruned(Optional<MvccSnapshot> snapshot) {
+        return supportInternalPartitionPruned();
     }
 
     /**

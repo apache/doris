@@ -84,6 +84,12 @@ public:
         _output_blocks.push_back(std::move(block));
     }
 
+    // Mirrors the constructor of ScanOperatorX: the shared counter starts at the SQL LIMIT.
+    void set_limit_for_test(int64_t limit) {
+        _limit = limit;
+        _shared_scan_limit.store(limit, std::memory_order_relaxed);
+    }
+
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         if (_output_blocks.empty()) {
             *eos = true;

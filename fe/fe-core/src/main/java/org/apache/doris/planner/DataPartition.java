@@ -24,8 +24,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
+import org.apache.doris.thrift.TExternalTableSinkHashPartitionInfo;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TIcebergPartitionField;
 import org.apache.doris.thrift.TMergePartitionInfo;
 import org.apache.doris.thrift.TPartitionType;
@@ -33,9 +37,11 @@ import org.apache.doris.thrift.TPartitionType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Specification of the partition of a single stream of data.
@@ -55,6 +61,10 @@ public class DataPartition {
     // for hash partition: exprs used to compute hash value
     private ImmutableList<Expr> partitionExprs;
     private MergePartitionInfo mergePartitionInfo;
+    private String externalPartitionFunction;
+    private ImmutableMap<String, String> externalPartitionFunctionOptions = ImmutableMap.of();
+    private TExternalTableSinkWriterAssignment externalWriterAssignment;
+    private TExternalTableSinkHashAlgorithm externalPartitionAlgorithm;
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
@@ -62,15 +72,35 @@ public class DataPartition {
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
                 || type == TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED
+                || type == TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
+    }
+
+    public DataPartition(TPartitionType type, List<Expr> exprs, String partitionFunction,
+            Map<String, String> partitionFunctionOptions,
+            TExternalTableSinkWriterAssignment writerAssignment) {
+        this(type, exprs, partitionFunction, partitionFunctionOptions, writerAssignment, null);
+    }
+
+    private DataPartition(TPartitionType type, List<Expr> exprs, String partitionFunction,
+            Map<String, String> partitionFunctionOptions,
+            TExternalTableSinkWriterAssignment writerAssignment,
+            TExternalTableSinkHashAlgorithm partitionAlgorithm) {
+        this(type, exprs);
+        Preconditions.checkState(type == TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED);
+        this.externalPartitionFunction = Preconditions.checkNotNull(partitionFunction);
+        this.externalPartitionFunctionOptions = ImmutableMap.copyOf(partitionFunctionOptions);
+        this.externalWriterAssignment = Preconditions.checkNotNull(writerAssignment);
+        this.externalPartitionAlgorithm = partitionAlgorithm;
     }
 
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
                 || type == TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED
+                || type == TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED
                 || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
@@ -110,7 +140,35 @@ public class DataPartition {
         if (mergePartitionInfo != null) {
             result.setMergePartitionInfo(mergePartitionInfo.toThrift());
         }
+        if (externalPartitionFunction != null) {
+            TExternalTableSinkHashPartitionInfo info = new TExternalTableSinkHashPartitionInfo();
+            info.setPartitionFunction(externalPartitionFunction);
+            info.setPartitionFunctionOptions(externalPartitionFunctionOptions);
+            info.setWriterAssignment(externalWriterAssignment);
+            if (externalPartitionAlgorithm != null) {
+                info.setAlgorithm(externalPartitionAlgorithm);
+            }
+            result.setExternalTableSinkHashPartitionInfo(info);
+        }
         return result;
+    }
+
+    /** Builds the complete Hive table-sink wire dialect for one statement execution version. */
+    public static DataPartition forHiveTableSink(List<Expr> partitionExprs, int beExecVersion) {
+        if (partitionExprs.isEmpty()) {
+            TPartitionType type = beExecVersion
+                    < Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION
+                    ? TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED
+                    : TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED;
+            return new DataPartition(type);
+        }
+        if (beExecVersion < Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION) {
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, "direct_hash", ImmutableMap.of(),
+                    TExternalTableSinkWriterAssignment.SKEWED,
+                    TExternalTableSinkHashAlgorithm.DIRECT_HASH);
+        }
+        return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
     }
 
     public String getExplainString(TExplainLevel explainLevel) {

@@ -51,7 +51,7 @@ public final class IdNameIndex {
      *
      * <p>Callers use this before mutating names/object caches so a pre-existing identity conflict fails without
      * leaving those caches partially updated. The final {@link #put(long, String)} must still run inside the
-     * MetaCacheEntry publication action to keep the ID side effect ordered with object invalidation.
+     * FeMetaCacheEntry publication action to keep the ID side effect ordered with object invalidation.
      */
     public void checkCanPut(long id, String name) {
         Objects.requireNonNull(name, "name can not be null");
@@ -59,7 +59,7 @@ public final class IdNameIndex {
         String existingName = idToName.get(id);
 
         // Keep the common exact-match and cold-index paths lock-free. A later put remains the authoritative
-        // validation inside the caller's MetaCacheEntry publication window.
+        // validation inside the caller's FeMetaCacheEntry publication window.
         if ((existingId == null && existingName == null)
                 || (Long.valueOf(id).equals(existingId) && name.equals(existingName))) {
             return;

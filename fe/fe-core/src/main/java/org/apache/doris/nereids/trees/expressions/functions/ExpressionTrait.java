@@ -21,7 +21,6 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.types.DataType;
 
@@ -40,6 +39,18 @@ public interface ExpressionTrait extends TreeNode<Expression> {
         return !nullable();
     }
 
+    /**
+     * Prepare the expression before type coercion: called once its children are bound, before
+     * checkLegalityBeforeTypeCoercion and before the signature is computed. Unlike the checkLegality methods,
+     * it may replace children and return a rebuilt expression. Override it only when the signature depends on
+     * the value of an argument, e.g. the precision of now(1 + 2), and fold that argument with
+     * {@link org.apache.doris.nereids.util.ExpressionUtils#foldConstantArgument}.
+     */
+    @Developing
+    default Expression prepareBeforeTypeCoercion() {
+        return (Expression) this;
+    }
+
     // check legality before do type coercion.
     // maybe we should merge checkInputDataTypes and checkLegality later.
     @Developing
@@ -52,38 +63,14 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      * getArguments.
      */
     default List<Expression> getArguments() {
-        boolean hasVariableArg = false;
-        for (Expression arg : children()) {
-            if (arg instanceof Variable) {
-                hasVariableArg = true;
-                break;
-            }
-        }
-        if (hasVariableArg) {
-            ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
-            for (Expression arg : children()) {
-                if (arg instanceof Variable) {
-                    arguments.add(((Variable) arg).getRealExpression());
-                } else {
-                    arguments.add(arg);
-                }
-            }
-            return arguments.build();
-        } else {
-            return children();
-        }
+        return children();
     }
 
     /**
      * getArgument.
      */
     default Expression getArgument(int index) {
-        Expression arg = child(index);
-        if (arg instanceof Variable) {
-            return ((Variable) arg).getRealExpression();
-        } else {
-            return arg;
-        }
+        return child(index);
     }
 
     default List<DataType> getArgumentsTypes() {
@@ -138,5 +125,10 @@ public interface ExpressionTrait extends TreeNode<Expression> {
 
     default boolean containsVolatileExpression() {
         return containsType(VolatileExpression.class) && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile());
+    }
+
+    default boolean containsVolatileOrNoneMovableExpression() {
+        return containsType(VolatileExpression.class, NoneMovableFunction.class)
+                && anyMatch(expr -> ((ExpressionTrait) expr).isVolatile() || expr instanceof NoneMovableFunction);
     }
 }

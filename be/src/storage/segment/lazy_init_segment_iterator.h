@@ -18,6 +18,7 @@
 #pragma once
 
 #include "core/block/block.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
@@ -30,8 +31,9 @@ namespace doris::segment_v2 {
 
 class LazyInitSegmentIterator : public RowwiseIterator {
 public:
-    LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int64_t segment_id, bool should_use_cache,
-                            ReadSchemaSPtr schema, const StorageReadOptions& opts);
+    LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, RowsetSegmentRef segment,
+                            bool should_use_cache, ReadSchemaSPtr schema,
+                            const StorageReadOptions& opts);
 
     ~LazyInitSegmentIterator() override = default;
 
@@ -48,10 +50,6 @@ public:
 
     const ReadSchema& schema() const override { return *_schema; }
 
-    Status current_block_row_locations(std::vector<RowLocation>* locations) override {
-        return _inner_iterator->current_block_row_locations(locations);
-    }
-
     void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {
             _inner_iterator->update_profile(profile);
@@ -61,7 +59,7 @@ public:
 private:
     bool _need_lazy_init {true};
     BetaRowsetSharedPtr _rowset;
-    int64_t _segment_id {-1};
+    RowsetSegmentRef _segment {0, -1};
     bool _should_use_cache {false};
     ReadSchemaSPtr _schema = nullptr;
     StorageReadOptions _read_options;

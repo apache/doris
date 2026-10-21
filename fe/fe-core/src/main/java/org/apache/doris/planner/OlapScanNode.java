@@ -43,6 +43,7 @@ import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
@@ -53,7 +54,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -65,6 +65,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -80,7 +81,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -99,6 +100,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -128,6 +130,9 @@ import java.util.stream.Collectors;
 // Full scan of an Olap table.
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
+    @VisibleForTesting
+    static final String MISSING_RF_BUCKET_METADATA_DEBUG_POINT =
+            "OlapScanNode.setRuntimeFilterBucketPruneParameters.missingBucketMetadata";
 
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
@@ -210,7 +215,9 @@ public class OlapScanNode extends ScanNode {
     private Set<Long> nereidsPrunedTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
-    private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    // Pack bucket number and sequence into one value to avoid retaining two all-tablet maps.
+    private Map<Long, Long> tabletId2BucketInfo = Maps.newHashMap();
+    private boolean runtimeFilterBucketPruneParametersSet = false;
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -416,7 +423,7 @@ public class OlapScanNode extends ScanNode {
 
     private Collection<Long> distributionPrune(
             List<Column> schema,
-            List<Long> tabletIdsInOrder,
+            MaterializedIndex index,
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
         if (pruneTablesByNereids) {
@@ -428,7 +435,8 @@ public class OlapScanNode extends ScanNode {
             // getTablet hash lookups (most returning null), which dominates plan time
             // when both partition count and pruned tablet count are large.
             List<Long> result = new ArrayList<>();
-            for (Long id : tabletIdsInOrder) {
+            for (Tablet tablet : index.getTablets()) {
+                long id = tablet.getId();
                 if (nereidsPrunedTabletIds.contains(id)) {
                     result.add(id);
                 }
@@ -439,7 +447,7 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(schema, tabletIdsInOrder,
+                distributionPruner = new HashDistributionPruner(schema, index,
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
@@ -570,21 +578,25 @@ public class OlapScanNode extends ScanNode {
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
             if (olapTable instanceof OlapTableWrapper) {
-                TBinlogScanType binlogScanType =
-                        parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
+                TChangelogScanType changelogScanType =
+                        parseChangelogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
                 Pair<Long, Long> update = getPartitionOffset(partition.getId());
                 if (update != null) {
+                    // push down tso range as half-open [startTso, endTso) bounds
                     if (update.first != null) {
                         paloRange.setStartTso(update.first);
                     }
-                    if (update.second != null) {
-                        paloRange.setEndTso(update.second);
-                    } else {
-                        paloRange.setEndTso(partition.getTso());
+                    // No end recorded: fall back to the current committed TSO. toExclusiveBound
+                    // returns null for a partition that never got a real TSO (getTso() == -1), in
+                    // which case we leave endTso unset (no upper bound) instead of using -1.
+                    Long endTso = update.second != null
+                            ? update.second : TSOTimestamp.toExclusiveBound(partition.getTso());
+                    if (endTso != null) {
+                        paloRange.setEndTso(endTso);
                     }
                 }
-                if (binlogScanType != TBinlogScanType.NONE) {
-                    paloRange.setBinlogScanType(binlogScanType);
+                if (changelogScanType != TChangelogScanType.NONE) {
+                    paloRange.setChangelogScanType(changelogScanType);
                 }
             }
 
@@ -797,7 +809,9 @@ public class OlapScanNode extends ScanNode {
 
     private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {
         if (!isPointQuery()) {
-            Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
+            long bucketInfo = Preconditions.checkNotNull(tabletId2BucketInfo.get(tabletId),
+                    "missing bucket metadata for tablet %s", tabletId);
+            int bucketSeq = decodeBucketSeq(bucketInfo);
             bucketSeq2locations.put(bucketSeq, locations);
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
         }
@@ -999,30 +1013,21 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.isEmpty());
         Preconditions.checkState(scanTabletIds.isEmpty());
-        Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
-        for (Backend backend : olapTable.getAllBackendsByAllCluster().values()) {
-            Set<Long> hashSet = Sets.newLinkedHashSet();
-            for (DiskInfo diskInfo : backend.getDisks().values()) {
-                if (diskInfo.isAlive()) {
-                    hashSet.add(diskInfo.getPathHash());
-                }
-            }
-            backendAlivePathHashs.put(backend.getId(), hashSet);
-        }
-
         ConnectContext connectContext = ConnectContext.get();
         boolean isNereids = connectContext != null && connectContext.getState().isNereids();
         boolean isPointQuery = connectContext != null
                 && connectContext.getStatementContext() != null
                 && connectContext.getStatementContext().isShortCircuitQuery();
+        ImmutableMap<Long, Backend> allBackends = olapTable.getAllBackendsByAllCluster();
+        Map<Long, Set<Long>> backendAlivePathHashes = isPointQuery
+                ? null : getBackendAlivePathHashes(allBackends.values());
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
             Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
-                    allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
+                    selectedTable, partition.getDistributionInfo(), isNereids && !isPointQuery);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
             }
@@ -1058,20 +1063,62 @@ public class OlapScanNode extends ScanNode {
                     }
                 }
             } else {
-                tablets.addAll(selectedTable.getTablets());
-                scanTabletIds.addAll(allTabletIds);
+                for (Tablet tablet : selectedTable.getTablets()) {
+                    tablets.add(tablet);
+                    scanTabletIds.add(tablet.getId());
+                }
             }
 
-            if (!isPointQuery()) {
-                for (int i = 0; i < allTabletIds.size(); i++) {
-                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            if (!isPointQuery) {
+                List<Tablet> allTablets = selectedTable.getTablets();
+                int bucketNum = partition.getDistributionInfo().getBucketNum();
+                for (int i = 0; i < allTablets.size(); i++) {
+                    tabletId2BucketInfo.put(allTablets.get(i).getId(), encodeBucketInfo(i, bucketNum));
                 }
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
             selectedSplitNum += tablets.size();
-            addScanRangeLocations(partition, tablets, backendAlivePathHashs);
+            Map<Long, Set<Long>> currentBackendAlivePathHashes = isPointQuery
+                    ? getBackendAlivePathHashes(allBackends, tablets) : backendAlivePathHashes;
+            addScanRangeLocations(partition, tablets, currentBackendAlivePathHashes);
         }
+    }
+
+    private static Map<Long, Set<Long>> getBackendAlivePathHashes(Collection<Backend> backends) {
+        Map<Long, Set<Long>> backendAlivePathHashes = Maps.newHashMap();
+        for (Backend backend : backends) {
+            backendAlivePathHashes.put(backend.getId(), getBackendAlivePathHashes(backend));
+        }
+        return backendAlivePathHashes;
+    }
+
+    @VisibleForTesting
+    static Map<Long, Set<Long>> getBackendAlivePathHashes(
+            Map<Long, Backend> backends, List<Tablet> tablets) {
+        Map<Long, Set<Long>> backendAlivePathHashes = Maps.newHashMap();
+        for (Tablet tablet : tablets) {
+            for (Replica replica : tablet.getReplicas()) {
+                long backendId = replica.getBackendIdWithoutException();
+                Backend backend = backends.get(backendId);
+                if (backend != null) {
+                    backendAlivePathHashes.computeIfAbsent(
+                            backendId, id -> getBackendAlivePathHashes(backend));
+                }
+            }
+        }
+        return backendAlivePathHashes;
+    }
+
+    private static Set<Long> getBackendAlivePathHashes(Backend backend) {
+        Map<String, DiskInfo> disks = backend.getDisks();
+        Set<Long> alivePathHashes = Sets.newHashSetWithExpectedSize(disks.size());
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.isAlive()) {
+                alivePathHashes.add(diskInfo.getPathHash());
+            }
+        }
+        return alivePathHashes;
     }
 
     /**
@@ -1094,7 +1141,7 @@ public class OlapScanNode extends ScanNode {
         selectionHint = null;
         scanBackendOrderBySelection = false;
         scanTabletIds.clear();
-        tabletId2BucketSeq.clear();
+        tabletId2BucketInfo.clear();
         bucketSeq2locations.clear();
         bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
@@ -1107,9 +1154,8 @@ public class OlapScanNode extends ScanNode {
         return scanRangeLocations;
     }
 
-    @VisibleForTesting
-    static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
-            ComputeGroup computeGroup, String beTagName) {
+    public static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup,
+            boolean isNotCloudComputeGroup, ComputeGroup computeGroup, String beTagName) {
         return isInvalidComputeGroup
                 || (Config.enable_resource_tag_location_check
                         && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
@@ -1384,8 +1430,8 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
-        if (olapTable instanceof RowBinlogTableWrapper) {
-            msg.olap_scan_node.setReadRowBinlog(true);
+        if (olapTable instanceof OlapChangelogTableWrapper) {
+            msg.olap_scan_node.setReadChangelog(true);
         }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
@@ -1465,9 +1511,9 @@ public class OlapScanNode extends ScanNode {
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
-        if (parseBinlogScanType(scanParams, olapTable) != TBinlogScanType.NONE
-                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex())) {
-            msg.olap_scan_node.setReadRowBinlog(true);
+        if (parseChangelogScanType(scanParams, olapTable) != TChangelogScanType.NONE
+                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isChangelogIndex())) {
+            msg.olap_scan_node.setReadChangelog(true);
         }
 
         // Populate partition boundaries for BE-side runtime filter partition pruning.
@@ -1475,14 +1521,13 @@ public class OlapScanNode extends ScanNode {
         // filter whose target expression can drive partition pruning according
         // to the FE-side classifier, so we don't bloat thrift for tables with
         // many partitions but no usable RF target.
-        // Gated by session variable `enable_runtime_filter_partition_prune`.
-        ConnectContext rfPruneCtx = ConnectContext.get();
-        if (rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()
-                && hasRfDrivingPartitionPruning()) {
+        if (hasRfDrivingPartitionPruning()) {
             setPartitionBoundariesForRuntimeFilter(msg.olap_scan_node);
         }
-
+        if (hasRfDrivingBucketPruning()) {
+            setRuntimeFilterBucketPruneParameters();
+        }
+        setScanKeyBucketPruneParameters(msg.olap_scan_node);
         super.toThrift(msg);
     }
 
@@ -1530,6 +1575,87 @@ public class OlapScanNode extends ScanNode {
         if (!runtimeFilterPartitionBoundaries.isEmpty()) {
             olapScanNode.setPartitionBoundaries(new ArrayList<>(runtimeFilterPartitionBoundaries));
         }
+    }
+
+    private boolean hasRfDrivingBucketPruning() {
+        PlanNodeId myId = this.getId();
+        for (RuntimeFilter rf : runtimeFilters) {
+            if (rf.canPruneBucketsFor(myId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @VisibleForTesting
+    synchronized void setScanKeyBucketPruneParameters(TOlapScanNode node) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || !context.getSessionVariable().enableScanKeyBucketPrune
+                || isPointQuery() || tableSample != null || scanParams != null
+                || olapTable instanceof OlapTableWrapper
+                || selectedIndexId != olapTable.getBaseIndexId()
+                || olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                || !(olapTable.getDefaultDistributionInfo() instanceof HashDistributionInfo)
+                || olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            return;
+        }
+        List<Column> keys = olapTable.getKeyColumnsByIndexId(selectedIndexId);
+        List<Column> distributionColumns =
+                ((HashDistributionInfo) olapTable.getDefaultDistributionInfo()).getDistributionColumns();
+        if (keys.size() != 1 || distributionColumns.size() != 1
+                || !keys.get(0).equals(distributionColumns.get(0))
+                || !keys.get(0).getType().isVarchar() || keys.get(0).isAllowNull()) {
+            return;
+        }
+        setRuntimeFilterBucketPruneParameters();
+        // Missing metadata can deliberately disable attachment (e.g. the debug point).
+        // Do not attest eligibility unless every range has its full bucket ordinal/count.
+        if (scanRangeLocations.stream().allMatch(locations ->
+                locations.getScanRange().getPaloScanRange().isSetBucketNum())) {
+            node.setEnableScanKeyBucketPrune(true);
+        }
+    }
+
+    @VisibleForTesting
+    synchronized void setRuntimeFilterBucketPruneParameters() {
+        if (runtimeFilterBucketPruneParametersSet) {
+            return;
+        }
+        long debugMissingTabletId = DebugPointUtil.getDebugParamOrDefault(
+                MISSING_RF_BUCKET_METADATA_DEBUG_POINT, -1L);
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            Long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
+            if (scanRange.getTabletId() == debugMissingTabletId) {
+                bucketInfo = null;
+            }
+            if (bucketInfo == null || decodeBucketNum(bucketInfo) <= 0) {
+                LOG.warn("missing bucket metadata for runtime-filter bucket pruning, "
+                                + "scanNode={}, tablet={}; disable pruning for this scan node",
+                        getId(), scanRange.getTabletId());
+                runtimeFilterBucketPruneParametersSet = true;
+                return;
+            }
+        }
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
+            scanRange.setBucketSeq(decodeBucketSeq(bucketInfo));
+            scanRange.setBucketNum(decodeBucketNum(bucketInfo));
+        }
+        runtimeFilterBucketPruneParametersSet = true;
+    }
+
+    private static long encodeBucketInfo(int bucketSeq, int bucketNum) {
+        return ((long) bucketNum << Integer.SIZE) | Integer.toUnsignedLong(bucketSeq);
+    }
+
+    private static int decodeBucketSeq(long bucketInfo) {
+        return (int) bucketInfo;
+    }
+
+    private static int decodeBucketNum(long bucketInfo) {
+        return (int) (bucketInfo >>> Integer.SIZE);
     }
 
     private List<TPartitionBoundary> buildPartitionBoundariesForRuntimeFilter() {
@@ -1872,14 +1998,6 @@ public class OlapScanNode extends ScanNode {
         return scanParams;
     }
 
-    public long getIncrementalScanEndTime() {
-        if (scanParams != null && scanParams.incrementalRead()
-                && scanParams.getMapParams().containsKey(OLAP_END_TIMESTAMP)) {
-            return parseChangeTimestamp(scanParams.getMapParams().get(OLAP_END_TIMESTAMP));
-        }
-        return 0;
-    }
-
     public static long parseChangeTimestamp(String ts) {
         if (ts != null) {
             long changeTimestamp;
@@ -1891,28 +2009,31 @@ public class OlapScanNode extends ScanNode {
             if (changeTimestamp < 0) {
                 throw new ParseException("Invalid TIMESTAMP format in incr clause: " + ts);
             }
+            if (changeTimestamp > TSOTimestamp.MAX_PHYSICAL_TIMESTAMP) {
+                throw new ParseException("Timestamp exceeds supported TSO range: " + ts);
+            }
             return changeTimestamp;
         }
         throw new ParseException("Invalid timestamp:" + ts);
     }
 
-    public static TBinlogScanType parseBinlogScanType(TableScanParams scanParams, OlapTable olapTable)
+    public static TChangelogScanType parseChangelogScanType(TableScanParams scanParams, OlapTable olapTable)
             throws ParseException {
         if (scanParams == null) {
-            return TBinlogScanType.NONE;
+            return TChangelogScanType.NONE;
         }
-        TBinlogScanType scanType = TBinlogScanType.MIN_DELTA;
+        TChangelogScanType scanType = TChangelogScanType.MIN_DELTA;
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            scanType = TBinlogScanType.APPEND_ONLY;
+            scanType = TChangelogScanType.APPEND_ONLY;
         }
         if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_INCREMENT_TYPE)) {
             String info = scanParams.getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE).toUpperCase();
             if ("APPEND_ONLY".equals(info) || olapTable.getKeysType() == KeysType.DUP_KEYS) {
-                scanType = TBinlogScanType.APPEND_ONLY;
+                scanType = TChangelogScanType.APPEND_ONLY;
             } else if ("MIN_DELTA".equals(info)) {
-                scanType = TBinlogScanType.MIN_DELTA;
+                scanType = TChangelogScanType.MIN_DELTA;
             } else if ("DETAIL".equals(info)) {
-                scanType = TBinlogScanType.DETAIL;
+                scanType = TChangelogScanType.DETAIL;
             } else {
                 throw new ParseException("Unsupported increment type in incr query: " + info);
             }

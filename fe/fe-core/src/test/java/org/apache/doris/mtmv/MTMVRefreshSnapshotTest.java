@@ -21,9 +21,9 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Map;
@@ -39,7 +39,25 @@ public class MTMVRefreshSnapshotTest {
     private BaseTableInfo existTable = Mockito.mock(BaseTableInfo.class);
     private BaseTableInfo nonExistTable = Mockito.mock(BaseTableInfo.class);
 
-    @Before
+    @Test
+    public void testRemoveSnapshotsDropsOnlyTheNamedPartitions() {
+        Map<String, MTMVRefreshPartitionSnapshot> others = Maps.newHashMap();
+        others.put("mvp2", new MTMVRefreshPartitionSnapshot());
+        refreshSnapshot.updateSnapshots(others, Sets.newHashSet(mvExistPartitionName, "mvp2"));
+
+        refreshSnapshot.removeSnapshots(Sets.newHashSet(mvExistPartitionName));
+
+        // A dropped entry is an invalidation's mark: transparent rewrite reads this map to decide what it
+        // may serve, so the entry has to stay gone until the partition is rebuilt.
+        Assertions.assertTrue(refreshSnapshot.getPctSnapshots(mvExistPartitionName, existTable).isEmpty());
+        Assertions.assertEquals(Sets.newHashSet("mvp2"), refreshSnapshot.getPartitionSnapshots().keySet());
+
+        // Nothing named, nothing dropped.
+        refreshSnapshot.removeSnapshots(Sets.newHashSet());
+        Assertions.assertEquals(Sets.newHashSet("mvp2"), refreshSnapshot.getPartitionSnapshots().keySet());
+    }
+
+    @BeforeEach
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
         Mockito.when(existTable.getCtlName()).thenReturn("ctl1");
         Mockito.when(existTable.getDbName()).thenReturn("db1");
@@ -64,24 +82,24 @@ public class MTMVRefreshSnapshotTest {
         // normal
         boolean sync = refreshSnapshot.equalsWithPct(mvExistPartitionName, relatedExistPartitionName,
                 new MTMVVersionSnapshot(correctVersion, 0), existTable);
-        Assert.assertTrue(sync);
+        Assertions.assertTrue(sync);
         // non exist mv partition
         sync = refreshSnapshot.equalsWithPct("mvp2", relatedExistPartitionName,
                 new MTMVVersionSnapshot(correctVersion, 0), existTable);
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
         // non exist related partition
         sync = refreshSnapshot
                 .equalsWithPct(mvExistPartitionName, "p2", new MTMVVersionSnapshot(correctVersion, 0),
                         existTable);
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
         // snapshot value not equal
         sync = refreshSnapshot.equalsWithPct(mvExistPartitionName, relatedExistPartitionName,
                 new MTMVVersionSnapshot(2L, 0), existTable);
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
         // snapshot type not equal
         sync = refreshSnapshot.equalsWithPct(mvExistPartitionName, relatedExistPartitionName,
                 new MTMVTimestampSnapshot(correctVersion), existTable);
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
     }
 
     @Test
@@ -89,22 +107,22 @@ public class MTMVRefreshSnapshotTest {
         // normal
         boolean sync = refreshSnapshot.equalsWithBaseTable(mvExistPartitionName, existTable,
                 new MTMVVersionSnapshot(correctVersion, 0));
-        Assert.assertTrue(sync);
+        Assertions.assertTrue(sync);
         // non exist mv partition
         sync = refreshSnapshot
                 .equalsWithBaseTable("mvp2", existTable, new MTMVVersionSnapshot(correctVersion, 0));
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
         // non exist related partition
         sync = refreshSnapshot
                 .equalsWithBaseTable(mvExistPartitionName, nonExistTable, new MTMVVersionSnapshot(correctVersion, 0));
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
         // snapshot value not equal
         sync = refreshSnapshot
                 .equalsWithBaseTable(mvExistPartitionName, existTable, new MTMVVersionSnapshot(2L, 0));
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
         // snapshot type not equal
         sync = refreshSnapshot.equalsWithBaseTable(mvExistPartitionName, existTable,
                 new MTMVTimestampSnapshot(correctVersion));
-        Assert.assertFalse(sync);
+        Assertions.assertFalse(sync);
     }
 }

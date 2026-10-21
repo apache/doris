@@ -39,6 +39,9 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.proto.FunctionService;
+import org.apache.doris.proto.PFunctionServiceGrpc;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -47,6 +50,9 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.ImmutableList;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -58,6 +64,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /*
  * Author: Chenmingyu
@@ -71,6 +78,34 @@ public class CreateFunctionTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
+    }
+
+    @Test
+    public void testRpcUuidSignature() throws Exception {
+        AtomicReference<FunctionService.PCheckFunctionRequest> received = new AtomicReference<>();
+        Server server = ServerBuilder.forPort(0).addService(new PFunctionServiceGrpc.PFunctionServiceImplBase() {
+            @Override
+            public void checkFn(FunctionService.PCheckFunctionRequest request,
+                    StreamObserver<FunctionService.PCheckFunctionResponse> observer) {
+                received.set(request);
+                observer.onNext(FunctionService.PCheckFunctionResponse.newBuilder()
+                        .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+                observer.onCompleted();
+            }
+        }).build().start();
+        try {
+            ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+            createDatabase(ctx, "create database rpc_uuid_db");
+            createFunction("create function rpc_uuid_db.uuid_echo(UUID) returns UUID properties("
+                    + "'type'='RPC', 'symbol'='uuid_echo', 'file'='127.0.0.1:" + server.getPort() + "')", ctx);
+            Assertions.assertNotNull(received.get());
+            Assertions.assertEquals(Types.PGenericType.TypeId.UUID,
+                    received.get().getFunction().getInputs(0).getId());
+            Assertions.assertEquals(Types.PGenericType.TypeId.UUID,
+                    received.get().getFunction().getOutput().getId());
+        } finally {
+            server.shutdownNow();
+        }
     }
 
     @Test
@@ -155,6 +190,12 @@ public class CreateFunctionTest extends TestWithFeService {
         assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.j_bitmap_arg(bitmap) returns int "
                 + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
                 "JAVA_UDF does not support argument 1 type bitmap");
+        createFunction("create function py_obj_type_db.j_timestamp_ns(timestamp_ns) returns timestamp_ns "
+                + "properties('type'='JAVA_UDF', "
+                + "'symbol'='org.apache.doris.catalog.TimestampNsUdf');", ctx);
+        createFunction("create function py_obj_type_db.j_timestamp_ns_array(array<timestamp_ns>) "
+                + "returns array<timestamp_ns> properties('type'='JAVA_UDF', "
+                + "'symbol'='org.apache.doris.catalog.TimestampNsUdf');", ctx);
         assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_hll_ret(int) returns hll "
                 + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
                 "PYTHON_UDF does not support return type hll");
@@ -169,6 +210,39 @@ public class CreateFunctionTest extends TestWithFeService {
                 + "returns array<bitmap> properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
                 + "'runtime_version'='3.10.2');",
                 "ARRAY unsupported sub-type: bitmap");
+    }
+
+    @Test
+    public void testCreateFunctionRejectsBuiltinAggStateCombinatorNames() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database reserved_function_db;");
+        String expectedMessage = "is reserved for built-in aggregate state combinators";
+
+        assertCreateFunctionAnalysisException(ctx,
+                "create alias function reserved_function_db.avg_combine(int, int) "
+                        + "with parameter(lhs, rhs) as lhs + rhs;",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create function reserved_function_db.avg_union(int) returns int "
+                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create aggregate function reserved_function_db.avg_merge(int) returns int "
+                        + "properties('type'='JAVA_UDF', 'symbol'='Agg');",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create tables function reserved_function_db.avg_foreach(int) returns array<int> "
+                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
+                expectedMessage);
+        assertCreateFunctionAnalysisException(ctx,
+                "create global alias function avg_state(int) with parameter(value) as value;",
+                expectedMessage);
+
+        createFunction("create alias function reserved_function_db.abs_combine(int) "
+                + "with parameter(value) as abs(value);", ctx);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("reserved_function_db");
+        Assertions.assertNotNull(db);
+        Assertions.assertNotNull(findFunction(db, "abs_combine"));
     }
 
     @Test
@@ -204,6 +278,37 @@ public class CreateFunctionTest extends TestWithFeService {
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
         }
+    }
+
+    @Test
+    public void testDropFunctionReturnsCurrentGenerationId() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database drop_function_id_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("drop_function_id_db");
+        Assertions.assertNotNull(db);
+
+        Function firstGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(firstGeneration, false);
+        Assertions.assertEquals(ImmutableList.of(firstGeneration.getId()),
+                db.dropFunction(searchDesc(firstGeneration), false));
+
+        Function secondGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(secondGeneration, false);
+        Assertions.assertNotEquals(firstGeneration.getId(), secondGeneration.getId());
+        Assertions.assertEquals(ImmutableList.of(secondGeneration.getId()),
+                db.dropFunction(searchDesc(secondGeneration), false));
+    }
+
+    @Test
+    public void testDropGlobalFunctionReturnsCurrentGenerationId() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        Function function = createJavaUdf(null, "drop_global_function_id_fn", Type.INT);
+        FunctionSearchDesc functionDesc = searchDesc(function);
+        globalFunctionMgr.dropFunction(functionDesc, true);
+
+        globalFunctionMgr.addFunction(function, false);
+        Assertions.assertEquals(ImmutableList.of(function.getId()),
+                globalFunctionMgr.dropFunction(functionDesc, false));
     }
 
     @Test

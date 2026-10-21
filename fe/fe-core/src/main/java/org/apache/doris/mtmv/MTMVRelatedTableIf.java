@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -84,6 +85,24 @@ public interface MTMVRelatedTableIf extends TableIf {
      */
     MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException;
+
+    /**
+     * Loads partition snapshots in bulk when the table supports it. The compatibility default retains the
+     * original one-at-a-time behavior while retaining failures by partition name in the refresh context;
+     * plugin-driven external tables override it to reach connector batching.
+     */
+    default Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
+        for (String partitionName : partitionNames) {
+            try {
+                snapshots.put(partitionName, getPartitionSnapshot(partitionName, context, snapshot));
+            } catch (AnalysisException e) {
+                context.recordPartitionSnapshotFailure(this, partitionName, e);
+            }
+        }
+        return snapshots;
+    }
 
     /**
      * getTableSnapshot

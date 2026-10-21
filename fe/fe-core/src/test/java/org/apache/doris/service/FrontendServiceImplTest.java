@@ -66,7 +66,7 @@ import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowUserRequest;
-import org.apache.doris.thrift.TShowUserResult;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
@@ -163,6 +163,58 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Assertions.assertEquals("Current user identity is not set", exception.getMessage());
     }
 
+    /**
+     * A {@code checkAuth} request has to name what its hierarchy is about, and for everything below a catalog
+     * that includes the catalog.
+     *
+     * <p>Every name in {@code TPrivilegeCtrl} is optional in the IDL, and the names below a catalog end up in
+     * {@code AuthorizedResource}, whose constructors require them. Only the {@code COLUMNS} branch is
+     * exempt - it hard-codes the internal catalog and never reads the one the request carries. The in-repo BE
+     * only ever sends {@code GLOBAL}, so what this pins is what an external client gets: a refusal naming
+     * what it left out, rather than a thrift-level failure out of a null name deep inside.
+     */
+    @Test
+    public void testCheckAuthRefusesARequestThatNamesNoCatalog() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+        for (TPrivilegeHier hier : new TPrivilegeHier[] {TPrivilegeHier.DATABASE, TPrivilegeHier.TABLE}) {
+            TPrivilegeCtrl unnamed = new TPrivilegeCtrl();
+            unnamed.setPrivHier(hier);
+            unnamed.setDb("test");
+            unnamed.setTbl("whatever");
+
+            TStatus refused = impl.checkAuth(rootCheckAuthRequest(unnamed)).getStatus();
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, refused.getStatusCode(),
+                    "a " + hier + " check naming no catalog was answered rather than refused");
+            Assertions.assertTrue(String.valueOf(refused.getErrorMsgs()).contains("must name the catalog"),
+                    "a " + hier + " check naming no catalog failed on something other than the missing name: "
+                            + refused.getErrorMsgs());
+        }
+
+        // The same request with the catalog named is answered, so what the assertions above pin is the
+        // missing name and not the hierarchy being unsupported.
+        TPrivilegeCtrl named = new TPrivilegeCtrl();
+        named.setPrivHier(TPrivilegeHier.DATABASE);
+        named.setCtl(InternalCatalog.INTERNAL_CATALOG_NAME);
+        named.setDb("test");
+
+        TStatus answered = impl.checkAuth(rootCheckAuthRequest(named)).getStatus();
+
+        Assertions.assertEquals(TStatusCode.OK, answered.getStatusCode(),
+                "root was refused LOAD on a database it holds it on: " + answered.getErrorMsgs());
+    }
+
+    private static TCheckAuthRequest rootCheckAuthRequest(TPrivilegeCtrl privilegeCtrl) {
+        TCheckAuthRequest request = new TCheckAuthRequest();
+        request.setUser("root");
+        request.setPasswd("");
+        request.setUserIp("127.0.0.1");
+        request.setPrivCtrl(privilegeCtrl);
+        request.setPrivType(TPrivilegeType.LOAD);
+        return request;
+    }
+
     @Test
     public void testGetTableNamesWithSysTablePattern() throws Exception {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
@@ -255,6 +307,124 @@ public class FrontendServiceImplTest extends TestWithFeService {
             Assertions.assertFalse(status.isSetUpdateTime());
             Assertions.assertFalse(status.isSetRows());
             Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusPrunesCommentLookupWhenNotProjected() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_comment_status_column");
+            params.setRequiredColumns(Collections.singleton("UPDATE_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            // comment is a required Thrift field: it must be set (empty placeholder),
+            // and the response must pass Thrift validation without the lookup.
+            Assertions.assertTrue(status.isSetComment());
+            Assertions.assertEquals("", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.never()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusFillsCommentWhenProjected() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.fill_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("fill_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn("projected comment").when(spyTable).getComment();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("fill_comment_status_column");
+            params.setRequiredColumns(Collections.singleton("TABLE_COMMENT"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertTrue(status.isSetComment());
+            Assertions.assertEquals("projected comment", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.atLeastOnce()).getComment();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusFillsCommentWhenRequiredColumnsUnset() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.legacy_comment_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("legacy_comment_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn("legacy comment").when(spyTable).getComment();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("legacy_comment_status_column");
+            // required_columns unset: an older BE — everything is filled.
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assertions.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assertions.assertTrue(status.isSetComment());
+            Assertions.assertEquals("legacy comment", status.getComment());
+            status.validate();
+            Mockito.verify(spyTable, Mockito.atLeastOnce()).getComment();
         } finally {
             db.unregisterTable(spyTable.getName());
             db.registerTable(table);
@@ -389,8 +559,110 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreatePartitionWithRowBinlog() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_row_binlog(\n"
+    public void testCreatePartitionRangeLimitDoesNotLeavePartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_range_limit (event_day DATETIME NOT NULL, id INT) "
+                + "DUPLICATE KEY(event_day, id) "
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(
+                    createPartitionRequest(db, table, "2023-08-07 00:00:00", "2023-08-08 00:00:00"));
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assertions.assertEquals(0, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionListLimitCountsOnlyNewPartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_list_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assertions.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult existing = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, existing.getStatus().getStatusCode());
+            Assertions.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult overflow = impl.createPartition(
+                    createPartitionRequest(db, table, "BEIJING", "SHANGHAI"));
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, overflow.getStatus().getStatusCode());
+            Assertions.assertTrue(overflow.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assertions.assertEquals(1, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionLimitIsRecheckedAtPublication() throws Exception {
+        createTable("CREATE TABLE test.partition_list_concurrent_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_concurrent_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+
+            // Model a concurrent publication after the request's read-lock precheck.
+            OlapTable spyTable = Mockito.spy(table);
+            AtomicBoolean stalePrecheck = new AtomicBoolean(true);
+            db.unregisterTable(table.getName());
+            db.registerTable(spyTable);
+            try {
+                Mockito.doAnswer(invocation -> stalePrecheck.compareAndSet(true, false)
+                        ? 0 : invocation.callRealMethod()).when(spyTable).getPartitionNum();
+                TCreatePartitionResult result = impl.createPartition(createPartitionRequest(db, spyTable, "SHANGHAI"));
+                Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+                Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+                Assertions.assertFalse(stalePrecheck.get());
+                Assertions.assertEquals(1, spyTable.getPartitionNum());
+            } finally {
+                db.unregisterTable(spyTable.getName());
+                db.registerTable(table);
+            }
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    private static TCreatePartitionRequest createPartitionRequest(Database db, OlapTable table, String... values) {
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        for (String value : values) {
+            TNullableStringLiteral literal = new TNullableStringLiteral();
+            literal.setValue(value);
+            partitionValues.add(Collections.singletonList(literal));
+        }
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        return request;
+    }
+
+    @Test
+    public void testCreatePartitionWithChangelog() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_changelog(\n"
                 + "    event_day DATETIME NOT NULL,\n"
                 + "    site_id INT,\n"
                 + "    city_code VARCHAR(100)\n"
@@ -398,12 +670,11 @@ public class FrontendServiceImplTest extends TestWithFeService {
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
                 + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
-                + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
-                + "\"binlog.format\" = \"ROW\");";
-        createTable(createOlapTblStmt);
+                + "PROPERTIES(\"replication_num\" = \"1\", \"changelog.enable\" = \"true\");";
+        createTableWithChangelog(createOlapTblStmt);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
-        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_changelog");
         TNullableStringLiteral start = new TNullableStringLiteral();
         start.setValue("2023-08-09 00:00:00");
         TCreatePartitionRequest request = new TCreatePartitionRequest();
@@ -419,20 +690,20 @@ public class FrontendServiceImplTest extends TestWithFeService {
 
         Partition createdPartition = table.getPartition("p20230809000000");
         Assertions.assertNotNull(createdPartition);
-        MaterializedIndex rowBinlogIndex = createdPartition
+        MaterializedIndex changelogIndex = createdPartition
                 .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true).stream()
-                .filter(MaterializedIndex::isRowBinlog)
+                .filter(MaterializedIndex::isChangelog)
                 .findFirst()
                 .orElseThrow();
         Assertions.assertEquals(createdPartition.getBaseIndex().getTablets().size() * 2,
                 result.getTabletsSize());
-        for (Tablet rowBinlogTablet : rowBinlogIndex.getTablets()) {
+        for (Tablet changelogTablet : changelogIndex.getTablets()) {
             TTabletLocation location = result.getTablets().stream()
-                    .filter(tablet -> tablet.getTabletId() == rowBinlogTablet.getId())
+                    .filter(tablet -> tablet.getTabletId() == changelogTablet.getId())
                     .findFirst()
                     .orElseThrow();
             Assertions.assertTrue(location.isSetBaseTabletId());
-            Assertions.assertEquals(rowBinlogTablet.getRowBinlogBaseTabletId(), location.getBaseTabletId());
+            Assertions.assertEquals(changelogTablet.getChangelogBaseTabletId(), location.getBaseTabletId());
         }
     }
 
@@ -583,11 +854,56 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
-    public void testShowUser() {
+    public void testShowUser() throws Exception {
+        // Column indexes in the mysql.user row layout that carry password-derived material.
+        final int authStringIdx = 23;   // authentication_string
+        final int historyPwIdx = 27;    // password_policy.history_passwords
+        final int userNameIdx = 1;      // User
+
+        addUser("show_user_a", true);
+        addUser("show_user_b", true);
+
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
-        TShowUserRequest request = new TShowUserRequest();
-        TShowUserResult result = impl.showUser(request);
-        System.out.println(result);
+
+        // A role administrator (root has ADMIN_PRIV) sees every account, but the password-derived
+        // columns are always masked, even for accounts with an empty password.
+        TShowUserRequest adminRequest = new TShowUserRequest();
+        adminRequest.setCurrentUserIdent(UserIdentity.ROOT.toThrift());
+        List<List<String>> adminRows = impl.showUser(adminRequest).getUserinfoList();
+        Assertions.assertTrue(adminRows.size() >= 2, "admin should see all accounts");
+        Assertions.assertTrue(adminRows.stream().anyMatch(r -> "show_user_a".equals(r.get(userNameIdx))));
+        Assertions.assertTrue(adminRows.stream().anyMatch(r -> "show_user_b".equals(r.get(userNameIdx))));
+        for (List<String> row : adminRows) {
+            Assertions.assertEquals("***", row.get(authStringIdx));
+            Assertions.assertEquals("***", row.get(historyPwIdx));
+        }
+
+        // A non-privileged user only sees their own row, with the password columns masked, so
+        // mysql.user does not leak the cluster's account list or privilege topology.
+        TShowUserRequest userRequest = new TShowUserRequest();
+        userRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("show_user_a", "%").toThrift());
+        List<List<String>> userRows = impl.showUser(userRequest).getUserinfoList();
+        Assertions.assertEquals(1, userRows.size());
+        Assertions.assertEquals("show_user_a", userRows.get(0).get(userNameIdx));
+        Assertions.assertEquals("***", userRows.get(0).get(authStringIdx));
+        Assertions.assertEquals("***", userRows.get(0).get(historyPwIdx));
+
+        // Same name, different host are distinct accounts: a non-privileged caller must see only
+        // its exact user@host row, not the same-named account bound to another host.
+        executeCommand("create user 'dup_host_user'@'192.168.0.1'");
+        executeCommand("create user 'dup_host_user'@'10.0.0.1'");
+        TShowUserRequest dupRequest = new TShowUserRequest();
+        dupRequest.setCurrentUserIdent(
+                UserIdentity.createAnalyzedUserIdentWithIp("dup_host_user", "192.168.0.1").toThrift());
+        List<List<String>> dupRows = impl.showUser(dupRequest).getUserinfoList();
+        Assertions.assertEquals(1, dupRows.size());
+        Assertions.assertEquals("dup_host_user", dupRows.get(0).get(userNameIdx));
+        Assertions.assertEquals("192.168.0.1", dupRows.get(0).get(0));
+
+        // Fail closed: a request without a caller identity (e.g. a pre-upgrade BE that does not
+        // set the field) exposes no rows rather than leaking every account.
+        Assertions.assertTrue(impl.showUser(new TShowUserRequest()).getUserinfoList().isEmpty());
     }
 
     @Test

@@ -52,6 +52,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -110,7 +111,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
-                    table, nameParts, tableAlias, assignments, logicalQuery);
+                    table, nameParts, tableAlias, assignments, logicalQuery, cte);
             new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).run(ctx, executor);
             return;
         }
@@ -197,7 +198,11 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                         break;
                     }
                 }
-                if (column.isKey() || existInExpr) {
+                boolean isGeneratedColumnDependency = column.getGeneratedColumnInfo() == null
+                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis());
+                boolean shouldReadGeneratedColumnDependency = isGeneratedColumnDependency
+                        && !column.hasOnUpdateDefaultValue();
+                if (column.isKey() || existInExpr || shouldReadGeneratedColumnDependency) {
                     partialUpdateSelectItems.add(expr instanceof UnboundSlot
                             ? ((NamedExpression) expr)
                             : new UnboundAlias(expr));
@@ -280,7 +285,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(
-                    table, nameParts, tableAlias, assignments, logicalQuery);
+                    table, nameParts, tableAlias, assignments, logicalQuery, cte);
             return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.UPDATE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);

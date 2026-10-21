@@ -27,7 +27,7 @@ public:
 
     void set_data_writer(const RowsetWriterSharedPtr& txn_rowset_writer);
 
-    void set_row_binlog_writer(const RowsetWriterSharedPtr& row_binlog_rowset_writer);
+    void set_changelog_writer(const RowsetWriterSharedPtr& changelog_rowset_writer);
 
     ~GroupRowsetWriter() = default;
 
@@ -35,14 +35,11 @@ public:
 
     Status build_rowsets(std::vector<RowsetSharedPtr>& rowsets);
 
-    RowsetWriterSharedPtr row_binlog_writer() { return _row_binlog_rowset_writer; }
+    RowsetWriterSharedPtr changelog_writer() { return _changelog_rowset_writer; }
 
     RowsetWriterSharedPtr data_writer() { return _txn_rowset_writer; }
 
-    Status init(const RowsetWriterContext& rowset_writer_context) override {
-        _context = rowset_writer_context;
-        return Status::OK();
-    }
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_block(const Block* block) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
@@ -108,17 +105,18 @@ public:
         return Status::NotSupported("GroupRowsetWriter::get_segment_num_rows to be implemented");
     }
 
-    int32_t allocate_segment_id() override;
+    Result<int32_t> allocate_segment_id() override;
 
     int32_t get_allocated_segment_id() override {
         DCHECK(_txn_rowset_writer != nullptr);
-        DCHECK(_row_binlog_rowset_writer != nullptr);
+        DCHECK(_changelog_rowset_writer != nullptr);
         auto seg_id = _txn_rowset_writer->get_allocated_segment_id();
-        DCHECK_EQ(seg_id, _row_binlog_rowset_writer->get_allocated_segment_id());
+        DCHECK_EQ(seg_id, _changelog_rowset_writer->get_allocated_segment_id());
         return seg_id;
     }
 
-    void set_segment_start_id(int num_segment) override {
+    void set_segment_start_id(int32_t start_seg_id,
+                              int32_t max_seg_num = MAX_SEGMENT_NUM) override {
         LOG(FATAL) << "GroupRowsetWriter::set_segment_start_id not supported";
     }
 
@@ -134,7 +132,7 @@ public:
 
 private:
     RowsetWriterSharedPtr _txn_rowset_writer;
-    RowsetWriterSharedPtr _row_binlog_rowset_writer;
+    RowsetWriterSharedPtr _changelog_rowset_writer;
 };
 
 } // namespace doris

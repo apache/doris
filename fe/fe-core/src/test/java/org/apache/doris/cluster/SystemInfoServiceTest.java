@@ -37,10 +37,10 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -67,7 +67,7 @@ public class SystemInfoServiceTest {
 
     private long backendId = 10000L;
 
-    @Before
+    @BeforeEach
     public void setUp() throws IOException {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
 
@@ -87,7 +87,7 @@ public class SystemInfoServiceTest {
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -149,16 +149,20 @@ public class SystemInfoServiceTest {
         Env.getCurrentSystemInfo().dropAllBackend();
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void validHostAndPortTest1() throws Exception {
-        createHostAndPort(1);
-        systemInfoService.validateHostAndPort(hostPort);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            createHostAndPort(1);
+            systemInfoService.validateHostAndPort(hostPort);
+        });
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void validHostAndPortTest3() throws Exception {
-        createHostAndPort(3);
-        systemInfoService.validateHostAndPort(hostPort);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            createHostAndPort(3);
+            systemInfoService.validateHostAndPort(hostPort);
+        });
     }
 
     @Test
@@ -175,25 +179,25 @@ public class SystemInfoServiceTest {
         try {
             Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
         } catch (DdlException e) {
-            Assert.fail();
+            Assertions.fail();
         }
 
         try {
             Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), true);
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("already exists"));
+            Assertions.assertTrue(e.getMessage().contains("already exists"));
         }
 
-        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackend(backendId));
-        Assert.assertNotNull(Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", 1234));
+        Assertions.assertNotNull(Env.getCurrentSystemInfo().getBackend(backendId));
+        Assertions.assertNotNull(Env.getCurrentSystemInfo().getBackendWithHeartbeatPort("192.168.0.1", 1234));
 
-        Assert.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).size() == 1);
-        Assert.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).get(0) == backendId);
+        Assertions.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).size() == 1);
+        Assertions.assertTrue(Env.getCurrentSystemInfo().getAllBackendIds(false).get(0) == backendId);
 
-        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
+        Assertions.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 0L);
 
         Env.getCurrentSystemInfo().updateBackendReportVersion(backendId, 2L, 20000L, 30000L, true);
-        Assert.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 2L);
+        Assertions.assertTrue(Env.getCurrentSystemInfo().getBackendReportVersion(backendId) == 2L);
     }
 
     @Test
@@ -213,13 +217,13 @@ public class SystemInfoServiceTest {
             Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
 
         try {
             Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("does not exist"));
+            Assertions.assertTrue(e.getMessage().contains("does not exist"));
         }
     }
 
@@ -240,13 +244,13 @@ public class SystemInfoServiceTest {
             Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
 
         try {
             Env.getCurrentSystemInfo().dropBackends(dropBackendOp.getHostInfos());
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("does not exist"));
+            Assertions.assertTrue(e.getMessage().contains("does not exist"));
         }
     }
 
@@ -269,10 +273,10 @@ public class SystemInfoServiceTest {
 
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         long checksum2 = systemInfoService.loadBackends(dis, 0);
-        Assert.assertEquals(checksum1, checksum2);
-        Assert.assertEquals(1, systemInfoService.getAllBackendsByAllCluster().size());
+        Assertions.assertEquals(checksum1, checksum2);
+        Assertions.assertEquals(1, systemInfoService.getAllBackendsByAllCluster().size());
         Backend back2 = systemInfoService.getBackend(1);
-        Assert.assertEquals(back1, back2);
+        Assertions.assertEquals(back1, back2);
         dis.close();
 
         deleteDir(dir);

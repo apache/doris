@@ -117,6 +117,10 @@ public class TabletSchedulerStat {
     public AtomicLong counterReplicaColocateMismatch = new AtomicLong(0L);
     @StatField("num of colocate replica redundant")
     public AtomicLong counterReplicaColocateRedundant = new AtomicLong(0L);
+    @StatField("num of changelog replica mismatch")
+    public AtomicLong counterReplicaChangelogMismatch = new AtomicLong(0L);
+    @StatField("num of changelog replica redundant")
+    public AtomicLong counterReplicaChangelogRedundant = new AtomicLong(0L);
 
     private TabletSchedulerStat lastSnapshot = null;
 

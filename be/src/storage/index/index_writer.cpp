@@ -17,9 +17,9 @@
 
 #include "common/exception.h"
 #include "storage/index/ann/ann_index_writer.h"
-#include "storage/index/inverted/inverted_index_writer.h"
-#include "storage/index/snii/snii_bkd_index_writer.h"
-#include "storage/index/snii/snii_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/snii/snii_bkd_index_writer.h"
+#include "storage/index/inverted/snii/snii_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 
@@ -126,6 +126,7 @@ Status IndexColumnWriter::create(const TabletColumn* column,
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
             M(FieldType::OLAP_FIELD_TYPE_DATEV2)
             M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+            M(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS)
             M(FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
             M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
@@ -134,6 +135,7 @@ Status IndexColumnWriter::create(const TabletColumn* column,
             M(FieldType::OLAP_FIELD_TYPE_BOOL)
             M(FieldType::OLAP_FIELD_TYPE_IPV4)
             M(FieldType::OLAP_FIELD_TYPE_IPV6)
+            M(FieldType::OLAP_FIELD_TYPE_UUID)
             M(FieldType::OLAP_FIELD_TYPE_FLOAT)
             M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
 #undef M

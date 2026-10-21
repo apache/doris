@@ -21,6 +21,7 @@ import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.factory.SourceReaderFactory;
 import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
@@ -140,12 +141,15 @@ public class Env {
         try {
             JobContext context = jobContexts.get(jobId);
             if (context != null
-                    && jobConfig instanceof WriteRecordRequest
-                    && ((WriteRecordRequest) jobConfig).isRebuildReader()) {
-                // FE declared the previous task abnormal: swap in a fresh reader instance so the
-                // old task's thread can never reach the new fetcher.
+                    && (jobConfig instanceof FetchRecordRequest
+                            || (jobConfig instanceof WriteRecordRequest
+                                    && ((WriteRecordRequest) jobConfig).isRebuildReader()))) {
+                // Swap in a fresh reader instance so the old task's thread
+                // can never reach the new fetcher.
                 LOG.info(
-                        "Rebuild reader for job {} on FE request, discard current instance", jobId);
+                        "Rebuild reader for job {} task {}, discard current instance",
+                        jobId,
+                        taskId);
                 jobContexts.remove(jobId);
                 staleReader = context.reader;
                 staleConfig = context.jobConfig != null ? context.jobConfig : jobConfig;

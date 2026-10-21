@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_compute_v2", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+suite("variant_compute_v2", "p0") {
     def variantV2Function = "parse_to_variant"
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
@@ -261,7 +259,7 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
 
     qt_typed_scalar_is_not_a_document """
         SELECT CAST(${variantV2Function}('{"a":1}') AS STRING),
-               element_at(${variantV2Function}('{"a":1}'), 'a') IS NULL,
+               CAST(element_at(${variantV2Function}('{"a":1}'), 'a') AS INT),
                element_at(CAST(CAST(42 AS BIGINT) AS VARIANT), 0) IS NULL
     """
 
@@ -281,7 +279,7 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     """
 
     qt_variant_selector_semantics """
-        SELECT CAST(element_at(${variantV2Function}('{"1":"object-key"}'), '1') AS STRING),
+        SELECT CAST(${variantV2Function}('{"1":"object-key"}')['1'] AS STRING),
                element_at(${variantV2Function}('{"1":"object-key"}'), 1) IS NULL
     """
 
@@ -290,23 +288,21 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
         FROM numbers("number" = "1")
     """
 
-    setBeConfigTemporary([variant_throw_exeception_on_invalid_json: true]) {
-        order_qt_parse_error_to_null """
+    order_qt_parse_error_to_null """
+        SELECT number,
+               CAST(try_parse_to_variant(payload) AS STRING),
+               try_parse_to_variant(payload) IS NULL
+        FROM (
             SELECT number,
-                   CAST(try_parse_to_variant(payload) AS STRING),
-                   try_parse_to_variant(payload) IS NULL
-            FROM (
-                SELECT number,
-                       CASE number
-                           WHEN 0 THEN '{"ok":1}'
-                           WHEN 1 THEN 'not-json'
-                           ELSE NULL
-                       END AS payload
-                FROM numbers("number" = "3")
-            ) t
-            ORDER BY number
-        """
-    }
+                   CASE number
+                       WHEN 0 THEN '{"ok":1}'
+                       WHEN 1 THEN 'not-json'
+                       ELSE NULL
+                   END AS payload
+            FROM numbers("number" = "3")
+        ) t
+        ORDER BY number
+    """
 
     order_qt_direct_result """
         SELECT ${variantV2Function}(CONCAT('{"id":', number, '}'))
@@ -798,5 +794,5 @@ suite("variant_compute_v2", "p0,nonConcurrent") {
     """
 
     sql "DROP TABLE IF EXISTS ${segmentScanTable}"
-    }
+
 }

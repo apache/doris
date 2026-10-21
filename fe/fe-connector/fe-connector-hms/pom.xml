@@ -47,12 +47,11 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Shared external meta-cache framework (CacheSpec + MetaCacheEntry/CacheFactory) that
-             CachingHmsClient is built on. The public API (MetaCacheEntry) is Caffeine-free, so no Caffeine
-             compile dep is needed here; each CONSUMING plugin (fe-connector-hive, and later -hudi if it
+        <!-- Shared external meta-cache framework that CachingHmsClient is built on. The public API is
+             Caffeine-free, so no Caffeine compile dep is needed here; each consuming plugin
              wraps its own client) self-bundles Caffeine 2.9.3 for the runtime backing store. The C-a step
              already added Caffeine + this framework to fe-connector-hive/pom.xml for bundling; this compile
-             dep is what puts CacheSpec/MetaCacheEntry on -hms's own compile classpath. -->
+             dep is what puts the cache API on -hms's own compile classpath. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-cache</artifactId>
@@ -140,7 +139,7 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds MetaCacheEntry (backed by
+        <!-- TEST ONLY: CachingHmsClientTest constructs the decorator, which builds shared MetaCache entries (backed by
              Caffeine). fe-connector-cache declares Caffeine `provided` (non-transitive), and this library
              module carries no Caffeine of its own — in production it runs inside the assembled hive plugin
              whose zip bundles Caffeine 2.9.3 (C-a), but the -hms unit-test classpath needs its own copy.

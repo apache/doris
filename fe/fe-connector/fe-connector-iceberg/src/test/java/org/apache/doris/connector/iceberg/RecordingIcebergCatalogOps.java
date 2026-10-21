@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Hand-written recording fake for {@link IcebergCatalogOps} (no Mockito), mirroring the paimon
@@ -78,6 +79,10 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean throwOnLoadTable;
     /** Optional exact failure thrown by {@link #loadTable(String, String)}. */
     RuntimeException loadTableFailure;
+    /** Bounded-table lifecycle hooks used to assert cleanup and catalog-lease ordering. */
+    int tableCleanupCount;
+    Runnable beforeTableOperation;
+    Runnable onTableCleanup;
     /** When set, {@link #loadTable(String, String)} throws {@link NoSuchTableException} (concurrent-drop race). */
     boolean throwNoSuchTableOnLoadTable;
     /**
@@ -110,6 +115,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastRenameTableDb;
     String lastRenameTableOld;
     String lastRenameTableNew;
+    String lastSetPropertiesDb;
+    String lastSetPropertiesTable;
+    Map<String, String> lastSetProperties;
     /** Canned location answers for the load-before-drop helpers (default: absent). */
     Optional<String> tableLocation = Optional.empty();
     Optional<String> namespaceLocation = Optional.empty();
@@ -218,6 +226,22 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     }
 
     @Override
+    public <T> T withTable(String dbName, String tableName, Function<Table, T> operation) {
+        Table loaded = loadTable(dbName, tableName);
+        try {
+            if (beforeTableOperation != null) {
+                beforeTableOperation.run();
+            }
+            return operation.apply(loaded);
+        } finally {
+            tableCleanupCount++;
+            if (onTableCleanup != null) {
+                onTableCleanup.run();
+            }
+        }
+    }
+
+    @Override
     public void createDatabase(String dbName, Map<String, String> properties) {
         log.add("createDatabase:" + dbName);
         lastCreateDb = dbName;
@@ -259,6 +283,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastRenameTableDb = dbName;
         lastRenameTableOld = oldName;
         lastRenameTableNew = newName;
+    }
+
+    @Override
+    public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+        log.add("setTableProperties:" + dbName + "." + tableName + ":" + properties);
+        lastSetPropertiesDb = dbName;
+        lastSetPropertiesTable = tableName;
+        lastSetProperties = properties;
     }
 
     @Override

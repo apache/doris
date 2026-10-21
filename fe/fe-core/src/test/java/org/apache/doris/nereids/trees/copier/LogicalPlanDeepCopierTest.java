@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.trees.copier;
 
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -51,6 +55,36 @@ public class LogicalPlanDeepCopierTest {
     }
 
     @Test
+    public void testDeepCopyOlapScanPreservesPartitionPruningState() {
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        relationPlan = relationPlan.withSelectedPartitionIds(relationPlan.getSelectedPartitionIds(), true);
+
+        LogicalOlapScan copiedPlan =
+                (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        Assertions.assertTrue(relationPlan.isPartitionPruned());
+        Assertions.assertTrue(relationPlan.hasPartitionPredicate());
+        Assertions.assertTrue(copiedPlan.isPartitionPruned());
+        Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testDeepCopyOlapScanInvalidatesPartitionPruning() {
+        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        relationPlan = relationPlan.withSelectedPartitionIds(relationPlan.getSelectedPartitionIds(), true);
+        DeepCopierContext context = new DeepCopierContext();
+        context.setInvalidatePartitionPruning(true);
+
+        LogicalOlapScan copiedPlan =
+                (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, context);
+
+        Assertions.assertTrue(relationPlan.isPartitionPruned());
+        Assertions.assertTrue(relationPlan.hasPartitionPredicate());
+        Assertions.assertFalse(copiedPlan.isPartitionPruned());
+        Assertions.assertTrue(copiedPlan.hasPartitionPredicate());
+    }
+
+    @Test
     public void testDeepCopyOlapScanWithNonFirstOperativeSlot() {
         LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
         relationPlan = (LogicalOlapScan) relationPlan.withOperativeSlots(
@@ -59,6 +93,29 @@ public class LogicalPlanDeepCopierTest {
                 (LogicalOlapScan) relationPlan.accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
 
         Assertions.assertEquals(ImmutableList.of(aCopy.getOutput().get(1)), aCopy.getOperativeSlots());
+    }
+
+    @Test
+    public void testDeepCopySchemaScanCopiesFrontendConjunctSlots() {
+        LogicalSchemaScan scan = new LogicalSchemaScan(PlanConstructor.getNextRelationId(),
+                SchemaTable.TABLE_MAP.get("table_stream_consumption"), ImmutableList.of("information_schema"));
+        SlotReference dbName = (SlotReference) scan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("DB_NAME"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+        scan = scan.withFrontendConjuncts(Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(new EqualTo(dbName, new VarcharLiteral("db1"))));
+
+        LogicalSchemaScan copied = (LogicalSchemaScan) scan.accept(
+                LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+        Slot copiedConjunctSlot = copied.getFrontendConjuncts().get(0).getInputSlots().iterator().next();
+        Slot copiedDbName = copied.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("DB_NAME"))
+                .findFirst()
+                .orElseThrow(IllegalStateException::new);
+
+        Assertions.assertNotEquals(dbName.getExprId(), copiedConjunctSlot.getExprId());
+        Assertions.assertEquals(copiedDbName.getExprId(), copiedConjunctSlot.getExprId());
     }
 
     @Test

@@ -32,6 +32,11 @@ import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.kerberos.HadoopAuthenticator;
+
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -40,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -69,6 +75,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     // (fail-closed); every other catalog (and the offline-test ctor) resolves the single shared ops (s -> catalogOps).
     private final Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver;
     private final ConnectorContext context;
+    private final IcebergCatalogResourceTracker resourceTracker;
 
     public IcebergProcedureOps(Map<String, String> properties, IcebergCatalogOps catalogOps,
             ConnectorContext context) {
@@ -85,9 +92,16 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     public IcebergProcedureOps(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context) {
+        this(properties, catalogOpsResolver, context, null);
+    }
+
+    IcebergProcedureOps(Map<String, String> properties,
+            Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context,
+            IcebergCatalogResourceTracker resourceTracker) {
         this.properties = properties;
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
+        this.resourceTracker = resourceTracker;
     }
 
     @Override
@@ -179,16 +193,22 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private ConnectorProcedureResult runInAuthScope(IcebergTableHandle handle, BaseIcebergAction action,
             ConnectorSession session) {
+        return withCatalogLease(() -> runInAuthScopeUntracked(handle, action, session));
+    }
+
+    private ConnectorProcedureResult runInAuthScopeUntracked(IcebergTableHandle handle, BaseIcebergAction action,
+            ConnectorSession session) {
         // Resolve the per-request ops before the auth scope so a session=user fail-closed surfaces the
         // DorisConnectorException verbatim (not wrapped by executeAuthenticated's catch).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         ConnectorProcedureResult result;
         if (context == null) {
-            result = action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session);
+            result = ops.withTable(handle.getDbName(), handle.getTableName(), table -> action.execute(table, session));
         } else {
             try {
                 result = context.executeAuthenticated(() ->
-                        action.execute(ops.loadTable(handle.getDbName(), handle.getTableName()), session));
+                        ops.withTable(handle.getDbName(), handle.getTableName(),
+                                table -> action.execute(wrapTableForProcedure(table), session)));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -207,6 +227,11 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      */
     private List<ConnectorRewriteGroup> planInAuthScope(IcebergTableHandle handle,
             IcebergRewriteDataFilesAction action, ConnectorSession session) {
+        return withCatalogLease(() -> planInAuthScopeUntracked(handle, action, session));
+    }
+
+    private List<ConnectorRewriteGroup> planInAuthScopeUntracked(IcebergTableHandle handle,
+            IcebergRewriteDataFilesAction action, ConnectorSession session) {
         ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
         RewriteDataFilePlanner planner = new RewriteDataFilePlanner(action.buildRewriteParameters(), sessionZone);
         // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
@@ -214,12 +239,14 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         List<RewriteDataGroup> groups;
         if (context == null) {
-            groups = planner.planAndOrganizeTasks(
-                    ops.loadTable(handle.getDbName(), handle.getTableName()));
+            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
         } else {
             try {
-                groups = context.executeAuthenticated(() -> planner.planAndOrganizeTasks(
-                        ops.loadTable(handle.getDbName(), handle.getTableName())));
+                // A server-planned table (RESTTable) keeps its own newScan(), which asks the REST server for the
+                // file scan tasks; rebuilding it as a plain BaseTable would plan from local manifests instead.
+                groups = context.executeAuthenticated(() -> ops.withTable(handle.getDbName(), handle.getTableName(),
+                        table -> planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
+                                ? table : wrapTableForProcedure(table))));
             } catch (DorisConnectorException e) {
                 throw e;
             } catch (Exception e) {
@@ -228,6 +255,45 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             }
         }
         return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+    }
+
+    /**
+     * Routes the procedure table's {@code io()} through the plugin-side Kerberos {@code doAs} — the procedure-path
+     * mirror of {@code IcebergScanPlanProvider.wrapTableForScan} and
+     * {@code IcebergConnectorTransaction.openTransaction}. The {@code executeAuthenticated} scope around the body
+     * covers only the calling thread, while iceberg reads and writes metadata files on its shared worker pool:
+     * {@code expire_snapshots} reads the expired snapshots' manifest lists there after committing (CI:
+     * test_iceberg_hadoop_catalog_kerberos failed "Failed to open input stream for file: .../snap-*.avro"),
+     * {@code cherrypick_snapshot} writes the picked files' manifest there, and rewrite planning reads the manifests
+     * of a multi-manifest table there. The wrapped FileIO keeps prefix listing for {@code remove_orphan_files}
+     * ({@link IcebergAuthenticatedFileIO#withPrefixOperations}). Rewrite planning skips the wrap for a server-planned
+     * table, whose scan tasks come from the REST server ({@link #planInAuthScopeUntracked}).
+     *
+     * <p>Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) and offline tests (plain context /
+     * non-{@link BaseTable} fakes) get the table unchanged. Package-private for unit testing.
+     */
+    Table wrapTableForProcedure(Table table) {
+        if (!(context instanceof TcclPinningConnectorContext) || !(table instanceof BaseTable)) {
+            return table;
+        }
+        HadoopAuthenticator auth = ((TcclPinningConnectorContext) context).getPluginAuthenticator();
+        if (auth == null) {
+            return table;
+        }
+        BaseTable baseTable = (BaseTable) table;
+        TableOperations rawOps = baseTable.operations();
+        return new BaseTable(new IcebergAuthenticatedTableOperations(rawOps,
+                IcebergAuthenticatedFileIO.withPrefixOperations(rawOps.io(), auth)),
+                table.name(), baseTable.reporter());
+    }
+
+    private <T> T withCatalogLease(Supplier<T> operation) {
+        if (resourceTracker == null) {
+            return operation.get();
+        }
+        try (IcebergCatalogResourceTracker.TrackedResource<T> tracked = resourceTracker.load(operation)) {
+            return tracked.resource();
+        }
     }
 
     /**

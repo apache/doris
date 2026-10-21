@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
@@ -25,9 +27,11 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 
 import com.google.common.collect.ImmutableList;
@@ -310,6 +314,21 @@ public class InsertUtilsTest {
 
         Assertions.assertInstanceOf(UnboundAlias.class, expression);
         Assertions.assertEquals("7", expression.child(0).toSql());
+    }
+
+    @Test
+    public void timestampNsCurrentTimestampNineDefaultRemainsDynamic() {
+        Column column = new Column("ts", Type.TIMESTAMP_NS, false, null, true,
+                ColumnDef.DefaultValue.CURRENT_TIMESTAMP + "(9)", "", true,
+                new DefaultValueExprDef(ColumnDef.DefaultValue.NOW, 9L),
+                Column.COLUMN_UNIQUE_ID_INIT_VALUE, null);
+
+        NamedExpression expression = InsertUtils.generateDefaultExpression(column);
+
+        UnboundFunction currentTimestamp = Assertions.assertInstanceOf(
+                UnboundFunction.class, expression.child(0));
+        Assertions.assertEquals(ColumnDef.DefaultValue.NOW, currentTimestamp.getName());
+        Assertions.assertEquals(new TinyIntLiteral((byte) 9), currentTimestamp.child(0));
     }
 
     @Test

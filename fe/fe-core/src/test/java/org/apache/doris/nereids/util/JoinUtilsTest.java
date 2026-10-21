@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,6 +59,29 @@ public class JoinUtilsTest {
         Assertions.assertFalse(checker.isHashJoinCondition(equalTo));
         Assertions.assertTrue(JoinUtils.extractExpressionForHashTable(
                 Lists.newArrayList(leftKey), Lists.newArrayList(rightKey), Lists.newArrayList(equalTo)).first.isEmpty());
+    }
+
+    @Test
+    public void testNormalizedTimestampNsAndDateTimeV2EqualPredicateIsHashCondition() {
+        SlotReference leftKey = new SlotReference(new ExprId(1), "ts",
+                TimeStampNsType.INSTANCE, false, Lists.newArrayList());
+        SlotReference rightKey = new SlotReference(new ExprId(2), "dt",
+                DateTimeV2Type.MAX, false, Lists.newArrayList());
+        EqualTo equalTo = (EqualTo) TypeCoercionUtils.processJoinComparisonPredicate(
+                new EqualTo(leftKey, rightKey));
+
+        JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey));
+
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, equalTo.left().getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, equalTo.right().getDataType());
+        Assertions.assertTrue(checker.isHashJoinCondition(equalTo));
+        Assertions.assertEquals(Lists.newArrayList(equalTo), JoinUtils.extractExpressionForHashTable(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey),
+                Lists.newArrayList(equalTo)).first);
+        Assertions.assertTrue(JoinUtils.extractExpressionForHashTable(
+                Lists.newArrayList(leftKey), Lists.newArrayList(rightKey),
+                Lists.newArrayList(equalTo)).second.isEmpty());
     }
 
     @Test

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -39,7 +40,10 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -62,16 +66,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
@@ -93,10 +99,12 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -125,12 +133,21 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Immutable for one statement execution. PREPARE does not initialize this value: each EXECUTE
+    // receives a fresh StatementContext and NereidsPlanner pins the query-option snapshot before
+    // analysis starts.
+    private Integer beExecVersion;
+    // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
+    private CostWeight costWeight;
+    private Optional<IvmRewriteContext> ivmRewriteContext = Optional.empty();
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
+    private boolean changelogReferenceTsoRequired;
+    private Long changelogReferenceTso;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -148,6 +165,9 @@ public class StatementContext implements Closeable {
     private boolean isDelete = false;
 
     private boolean hasNondeterministic = false;
+
+    // Alias UDF calls disappear after expansion; retain their definition dependency.
+    private boolean hasAliasUdf = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
     // unknown
@@ -210,6 +230,19 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+
+    // Scan nodes that hold something on this frontend for the backend (a remote Doris scan's Flight
+    // SQL session on the other frontend) and release it in ScanNode.stop(), which the coordinator
+    // of the statement calls when it closes. Not every plan gets a coordinator, and not every
+    // coordinator is closed: a plan probed and discarded (INSERT OVERWRITE), a statement failing
+    // between planning and dispatch (a SQL block rule on the scan, an INSERT whose transaction
+    // cannot begin), a load job created from the plan. close() stops what is still registered here
+    // as the fallback (stop() is idempotent, so a coordinator that already closed costs nothing).
+    // A coordinator that outlives the statement on purpose - an Arrow Flight SQL query kept alive
+    // until DoGet, StmtExecutor.deferForArrowFlight - takes its nodes out first
+    // (handOverScanNodesToDeferredCoordinator). Guarded by its own monitor: registered on the
+    // planning thread, closed on the statement's thread or the forwarded-request finally.
+    private final Set<ScanNode> scanNodesToStopAtClose = Collections.newSetFromMap(new IdentityHashMap<>());
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -308,6 +341,11 @@ public class StatementContext implements Closeable {
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
+    // When the Env-wide MTMVCacheManager is disabled (mtmv_cache_manage_num=0), reuse rewrite plans
+    // in the same statement so multiple rewrite paths do not rebuild the same MV plan. Each value
+    // carries the MV's cache generation because a planning retry can reuse this statement context.
+    private final Map<Pair<Long, Boolean>, Pair<Long, MTMVCache>> queryLocalMtmvCaches = new HashMap<>();
+
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
     private long dictionaryUsedSrcVersion; // base table data version used in this refreshing.
@@ -351,6 +389,7 @@ public class StatementContext implements Closeable {
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
+    private final Set<TableNameInfo> excludedTriggerTables = new HashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
@@ -393,6 +432,73 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    /**
+     * Create a fresh StatementContext for the next EXECUTE of a prepared statement.
+     *
+     * <p>A prepared statement keeps its StatementContext inside {@code PreparedStatementContext}
+     * for the whole lifetime of the connection. Reusing the same object across executions makes
+     * its per-statement state (bound tables, CTE maps, statistics, snapshots, connector scope,
+     * ...) accumulate and it is only released when the connection closes, which can OOM
+     * long-lived connections. Instead of clearing in place, allocate a brand-new context per
+     * EXECUTE and copy over only the state that must survive between executions, so the previous
+     * context becomes unreachable and is promptly GC'd.
+     *
+     * <p>Carried over:
+     * <ul>
+     *   <li>id generator positions, so ids generated during this execution never collide with
+     *       ids already present in the cached analyzed plan from PREPARE;</li>
+     *   <li>the placeholder real expressions bound by this EXECUTE (the protocol layer fills
+     *       them on the previous context before this method runs) and the placeholder list;</li>
+     *   <li>the placeholder to comparison-slot registry used by the short-circuit fast path;</li>
+     *   <li>the short-circuit and nondeterministic flags that gate the short-circuit fast path
+     *       before this execution re-plans.</li>
+     * </ul>
+     * Everything else (tables, CTEs, statistics, snapshots, planner resources, connector
+     * scope, ...) starts empty/fresh on the new context.
+     */
+    public StatementContext createNextExecuteContext() {
+        // Continue the id generators from the previous context. The cached analyzed plan from
+        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
+        // generator starting at 0 would collide with those ids during this execution's planning.
+        StatementContext next = new StatementContext(connectContext, originStatement,
+                exprIdGenerator.getCurrentId());
+        next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
+        next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
+        next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
+        next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
+        next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
+        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
+        // conjuncts on the cached short-circuit plan without re-planning.
+        next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.placeholders = new ArrayList<>(placeholders);
+        // Short-circuit gating flags are computed by the previous execution's planning and gate
+        // the fast path of this execution before any re-planning happens.
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
+    }
+
+    /** Pins the backend execution version selected for this statement execution. */
+    public void initializeBeExecVersion(int beExecVersion) {
+        Preconditions.checkState(this.beExecVersion == null || this.beExecVersion == beExecVersion,
+                "BE execution version is already pinned to %s, cannot change it to %s",
+                this.beExecVersion, beExecVersion);
+        this.beExecVersion = beExecVersion;
+    }
+
+    /** Returns whether this context belongs to an execution whose query options have been pinned. */
+    public boolean hasBeExecVersion() {
+        return beExecVersion != null;
+    }
+
+    /** Returns the backend execution version pinned for this statement execution. */
+    public int getBeExecVersion() {
+        Preconditions.checkState(beExecVersion != null,
+                "BE execution version must be initialized at the execution entry point");
+        return beExecVersion;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -444,6 +550,17 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getOneLevelTables() {
         return oneLevelTables;
+    }
+
+    public Set<TableNameInfo> getExcludedTriggerTables() {
+        return excludedTriggerTables;
+    }
+
+    public void setExcludedTriggerTables(Set<TableNameInfo> excludedTriggerTables) {
+        this.excludedTriggerTables.clear();
+        if (excludedTriggerTables != null) {
+            this.excludedTriggerTables.addAll(excludedTriggerTables);
+        }
     }
 
     public Set<MTMV> getCandidateMTMVs() {
@@ -502,6 +619,9 @@ public class StatementContext implements Closeable {
 
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+        // Prepared statements reuse their StatementContext across executions. Each execution must
+        // capture the weights currently effective in the owning ConnectContext.
+        this.costWeight = null;
     }
 
     public void setHasNondeterministic(boolean hasNondeterministic) {
@@ -512,8 +632,36 @@ public class StatementContext implements Closeable {
         return hasNondeterministic;
     }
 
+    public void recordAliasUdf() {
+        hasAliasUdf = true;
+    }
+
+    public boolean hasAliasUdf() {
+        return hasAliasUdf;
+    }
+
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /** Get the cost weights shared by all cost calculations in this statement. */
+    public CostWeight getCostWeight() {
+        if (costWeight == null) {
+            costWeight = CostWeight.get(connectContext.getSessionVariable());
+        }
+        return costWeight;
+    }
+
+    public Optional<IvmRewriteContext> getIvmRewriteContext() {
+        return ivmRewriteContext;
+    }
+
+    public void setIvmRewriteContext(Optional<IvmRewriteContext> ivmRewriteContext) {
+        this.ivmRewriteContext = Objects.requireNonNull(ivmRewriteContext, "ivmRewriteContext can not be null");
+    }
+
+    public boolean isIvmMTMVRewrite() {
+        return getIvmRewriteContext().isPresent();
     }
 
     public Set<String> getUsedAIResourceNames() {
@@ -671,6 +819,29 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
+    public synchronized void requireChangelogReferenceTso() {
+        changelogReferenceTsoRequired = true;
+        getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
+    }
+
+    public synchronized boolean isChangelogReferenceTsoRequired() {
+        return changelogReferenceTsoRequired;
+    }
+
+    public synchronized long getOrRegisterChangelogReferenceTso(Supplier<Long> tsoSupplier) {
+        if (changelogReferenceTso == null) {
+            changelogReferenceTso = tsoSupplier.get();
+        }
+        return changelogReferenceTso;
+    }
+
+    public synchronized long getChangelogReferenceTso() {
+        if (changelogReferenceTso == null) {
+            throw new AnalysisException("Changelog reference TSO was not initialized");
+        }
+        return changelogReferenceTso;
+    }
+
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
         if (this.disableRules != null) {
             return this.disableRules;
@@ -693,6 +864,17 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Drops the values of this statement's connector scope that only planning reads (see
+     * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
+     * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
+     */
+    private synchronized void endConnectorPlanning() {
+        if (this.connectorStatementScope != null) {
+            this.connectorStatementScope.endPlanning();
+        }
+    }
+
+    /**
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
      * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
@@ -708,6 +890,8 @@ public class StatementContext implements Closeable {
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
+        changelogReferenceTsoRequired = false;
+        changelogReferenceTso = null;
     }
 
     /**
@@ -998,9 +1182,55 @@ public class StatementContext implements Closeable {
                 }
             }
         }
+        // NereidsPlanner.planWithLock runs this once its plan is translated and the scans are finalized, so what
+        // connectors kept only for planning, such as the ranges identical scans share, can go, also when a resource
+        // failed to close.
+        endConnectorPlanning();
         if (throwable != null) {
             Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
             throw new IllegalStateException("Release resource failed", throwable);
+        }
+    }
+
+    /**
+     * Registers a scan node whose {@link ScanNode#stop()} must have run by the time this statement
+     * ends: the coordinator of the statement runs it when it closes, and {@link #close()} runs it
+     * for a plan that never got a coordinator or whose coordinator nobody closed (see
+     * {@link #scanNodesToStopAtClose}).
+     */
+    public void stopScanNodeAtClose(ScanNode scanNode) {
+        synchronized (scanNodesToStopAtClose) {
+            scanNodesToStopAtClose.add(scanNode);
+        }
+    }
+
+    /**
+     * The coordinator of the statement outlives it on purpose (an Arrow Flight SQL query kept alive
+     * until the client has pulled its result, see {@code StmtExecutor.deferForArrowFlight}) and
+     * takes over these nodes: their {@link ScanNode#stop()} runs when that coordinator closes, not
+     * when this statement ends.
+     */
+    public void handOverScanNodesToDeferredCoordinator(Collection<ScanNode> scanNodes) {
+        synchronized (scanNodesToStopAtClose) {
+            scanNodesToStopAtClose.removeAll(scanNodes);
+        }
+    }
+
+    // The fallback of scanNodesToStopAtClose. Never throws: this runs on the statement's teardown
+    // path, after the statement's outcome is decided, and one node failing to stop must not keep
+    // the next from stopping.
+    private void stopScanNodesLeftBehind() {
+        List<ScanNode> leftBehind;
+        synchronized (scanNodesToStopAtClose) {
+            leftBehind = new ArrayList<>(scanNodesToStopAtClose);
+            scanNodesToStopAtClose.clear();
+        }
+        for (ScanNode scanNode : leftBehind) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.warn("failed to stop scan node {} at the end of the statement", scanNode.getId(), t);
+            }
         }
     }
 
@@ -1018,6 +1248,9 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+        // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
+        // frontend, which must not be waited for under a lock.
+        stopScanNodesLeftBehind();
         // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
         // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
         // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
@@ -1454,6 +1687,15 @@ public class StatementContext implements Closeable {
 
     public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
         this.materializationRewrittenSuccessSet.add(materializationQualifier);
+    }
+
+    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation) {
+        Pair<Long, MTMVCache> entry = queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+        return entry != null && entry.first == generation ? entry.second : null;
+    }
+
+    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, long generation, MTMVCache cache) {
+        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), Pair.of(generation, cache));
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {

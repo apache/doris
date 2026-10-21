@@ -56,12 +56,12 @@ suite("always_mono_func") {
     }
     explain {
         sql """select * from always_mono_func where date_format(dt, "yyyy-MM-dd") = "2019-01-01" """
-        contains("partitions=2/5 (p3,p4)")
+        contains("partitions=1/5 (p4)")
     }
 
     explain {
         sql """select * from always_mono_func where date_format(dt, "yyyy-MM-dd HH:mm:ss") = "2019-01-01 00:00:00" """
-        contains("partitions=2/5 (p3,p4)")
+        contains("partitions=1/5 (p4)")
     }
     explain {
         sql """select * from always_mono_func where date_format(dt, "%Y") <= "2018" and date_format(dt, "%Y") > "2017" """
@@ -123,11 +123,11 @@ suite("always_mono_func") {
     // year
     explain {
         sql """ select * from always_mono_func where year(dt) >= 2019 """
-        contains("partitions=3/5 (p3,p4,p5)")
+        contains("partitions=2/5 (p4,p5)")
     }
     explain {
         sql """select * from always_mono_func where year(dt) < 2019 and year(dt) > 2017"""
-        contains("partitions=2/5 (p2,p3)")
+        contains("partitions=1/5 (p3)")
     }
     explain {
         sql """select * from always_mono_func where year(dt) <2023"""
@@ -140,15 +140,15 @@ suite("always_mono_func") {
     }
     explain {
         sql """select * from always_mono_func where to_monday(dt) ='2019-01-01' """
-        contains("partitions=2/5 (p1,p4)")
+        contains("partitions=1/5 (p4)")
     }
     explain {
         sql """select * from always_mono_func where to_monday(dt) >='2018-01-01' and to_monday(dt) <'2019-01-01' """
-        contains("partitions=4/5 (p1,p2,p3,p4)")
+        contains("partitions=2/5 (p3,p4)")
     }
     explain {
         sql """ select * from always_mono_func where to_monday(dt) >= "2019-01-01" """
-        contains("partitions=3/5 (p1,p4,p5)")
+        contains("partitions=2/5 (p4,p5)")
     }
     // to_date
     explain {
@@ -169,7 +169,7 @@ suite("always_mono_func") {
     }
     explain {
         sql """select * from always_mono_func where to_date(dt) >='2018-01-01' and to_date(dt) <'2019-01-01' """
-        contains("partitions=2/5 (p2,p3)")
+        contains("partitions=1/5 (p3)")
     }
     explain {
         sql """ select * from always_mono_func where to_date(dt) > "2019-01-01" """

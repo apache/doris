@@ -36,14 +36,18 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PredicateInferUtils;
 
+import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class UnequalPredicateInferTest {
@@ -684,5 +688,100 @@ public class UnequalPredicateInferTest {
         Set<? extends Expression> result = UnequalPredicateInfer.inferUnequalPredicates(inputs);
         EqualTo expected = new EqualTo(a, b);
         Assertions.assertTrue(result.contains(expected) || result.contains(expected.commute()), "Expected to find a = b in the result.");
+    }
+
+    @Test
+    public void testInputPredicateSemantics() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false, ImmutableList.of("t"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false, ImmutableList.of("t"));
+        List<List<Relation>> relations = new ArrayList<>();
+        for (Relation first : ImmutableList.of(Relation.GT, Relation.GTE)) {
+            for (Relation second : ImmutableList.of(Relation.GT, Relation.GTE, Relation.EQ)) {
+                for (Relation third : ImmutableList.of(Relation.GT, Relation.GTE)) {
+                    relations.add(ImmutableList.of(first, second, third));
+                }
+            }
+        }
+        relations.add(ImmutableList.of(Relation.EQ, Relation.EQ, Relation.EQ));
+        // Window outputs have no table qualifier. Also cover same-table and cross-table slots.
+        for (List<String> qualifier : ImmutableList.of(ImmutableList.<String>of(),
+                ImmutableList.of("t"), ImmutableList.of("other"))) {
+            SlotReference rn = new SlotReference("rn", IntegerType.INSTANCE, false, qualifier);
+            for (List<Relation> types : relations) {
+                List<Expression> predicates = ImmutableList.of(comparison(a, b, types.get(0)),
+                        comparison(rn, b, types.get(1)), comparison(a, rn, types.get(2)));
+                for (List<Expression> permutation : Collections2.permutations(predicates)) {
+                    Set<Expression> inputs = new LinkedHashSet<>(permutation);
+                    Set<? extends Expression> inferred = UnequalPredicateInfer.inferUnequalPredicates(inputs);
+                    assertPredicateSemantics(inputs, inferred, a, b, rn);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testStrictReverseRelationWithEquality() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false, ImmutableList.of("t"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false, ImmutableList.of("t"));
+        for (List<String> qualifier : ImmutableList.of(ImmutableList.<String>of(),
+                ImmutableList.of("t"), ImmutableList.of("other"))) {
+            SlotReference c = new SlotReference("c", IntegerType.INSTANCE, false, qualifier);
+            List<Expression> predicates = ImmutableList.of(new EqualTo(a, c), new GreaterThan(c, a),
+                    new GreaterThanEqual(c, b), new GreaterThan(b, c), new EqualTo(b, c));
+            // Check the reported order first, then all permutations. Clearing a chosen equality must
+            // not discard a distinct reverse inequality needed to keep the contradiction.
+            Set<Expression> inputs = new LinkedHashSet<>(predicates);
+            assertPredicateSemantics(inputs, UnequalPredicateInfer.inferUnequalPredicates(inputs), a, b, c);
+            for (List<Expression> permutation : Collections2.permutations(predicates)) {
+                inputs = new LinkedHashSet<>(permutation);
+                assertPredicateSemantics(inputs, UnequalPredicateInfer.inferUnequalPredicates(inputs), a, b, c);
+                assertPredicateSemantics(inputs, UnequalPredicateInfer.inferAllPredicates(inputs), a, b, c);
+            }
+        }
+    }
+
+    private static void assertPredicateSemantics(Set<Expression> inputs, Set<? extends Expression> inferred,
+            SlotReference a, SlotReference b, SlotReference c) {
+        for (int av = 0; av <= 3; av++) {
+            for (int bv = 0; bv <= 3; bv++) {
+                for (int cv = 0; cv <= 3; cv++) {
+                    Map<Expression, Integer> values = ImmutableMap.of(a, av, b, bv, c, cv);
+                    boolean expected = inputs.stream().allMatch(p -> evaluateComparison(p, values));
+                    boolean actual = inferred.stream().allMatch(p -> evaluateComparison(p, values));
+                    Assertions.assertEquals(expected, actual,
+                            () -> "inputs=" + inputs + ", inferred=" + inferred + ", values=" + values);
+                }
+            }
+        }
+    }
+
+    private static Expression comparison(Expression left, Expression right, Relation relation) {
+        switch (relation) {
+            case GT:
+                return new GreaterThan(left, right);
+            case GTE:
+                return new GreaterThanEqual(left, right);
+            case EQ:
+                return new EqualTo(left, right);
+            default:
+                throw new AssertionError("Unexpected relation: " + relation);
+        }
+    }
+
+    private static boolean evaluateComparison(Expression expression, Map<Expression, Integer> values) {
+        int left = values.get(expression.child(0));
+        int right = values.get(expression.child(1));
+        if (expression instanceof GreaterThan) {
+            return left > right;
+        } else if (expression instanceof GreaterThanEqual) {
+            return left >= right;
+        } else if (expression instanceof LessThan) {
+            return left < right;
+        } else if (expression instanceof LessThanEqual) {
+            return left <= right;
+        } else if (expression instanceof EqualTo) {
+            return left == right;
+        }
+        throw new AssertionError("Unexpected comparison: " + expression);
     }
 }

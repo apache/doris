@@ -36,17 +36,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -57,6 +52,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -73,15 +69,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             Sum.class,
             Max.class,
             Min.class);
-
-    private final Set<Class> acceptNodeType = Sets.newHashSet(
-            LogicalIntersect.class,
-            LogicalAggregate.class,
-            LogicalUnion.class,
-            LogicalProject.class,
-            LogicalFilter.class,
-            LogicalRelation.class,
-            LogicalJoin.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -109,7 +96,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, JobContext context) {
         Plan newChild = agg.child().accept(this, context);
         if (newChild != agg.child()) {
-            return agg.withChildren(newChild);
+            agg = (LogicalAggregate<? extends Plan>) agg.withChildren(newChild);
         }
 
         if (agg.getSourceRepeat().isPresent()) {
@@ -132,15 +119,25 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         boolean hasDecomposedAggIf = false;
         boolean containsNullToNonNull = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();
-        for (NamedExpression aggOutput : agg.getOutputExpressions()) {
-            List<AggregateFunction> funcs = Lists.newArrayList();
-            aggFunctionsForOutputExpressions.put(aggOutput, funcs);
-            for (Object obj : aggOutput.collect(AggregateFunction.class::isInstance)) {
-                AggregateFunction aggFunction = (AggregateFunction) obj;
-                if (aggFunction.isDistinct()) {
-                    return agg;
-                }
-                if (pushDownAggFunctionSet.contains(aggFunction.getClass())) {
+        Set<AggregateFunction> allAggFunctions = agg.getAggregateFunctions();
+        boolean hasDistinctAgg = allAggFunctions.stream().anyMatch(AggregateFunction::isDistinct);
+        if (hasDistinctAgg) {
+            // Keep the distinct aggregate functions unchanged at the upper aggregate. The common distinct keys
+            // become extra group keys for duplicate elimination below joins.
+            Optional<Set<SlotReference>> distinctKeys = getCommonDistinctKeys(allAggFunctions);
+            if (!distinctKeys.isPresent()) {
+                return agg;
+            }
+            groupKeys.addAll(distinctKeys.get());
+        } else {
+            for (NamedExpression aggOutput : agg.getOutputExpressions()) {
+                List<AggregateFunction> funcs = Lists.newArrayList();
+                aggFunctionsForOutputExpressions.put(aggOutput, funcs);
+                for (Object obj : aggOutput.collect(AggregateFunction.class::isInstance)) {
+                    AggregateFunction aggFunction = (AggregateFunction) obj;
+                    if (!pushDownAggFunctionSet.contains(aggFunction.getClass())) {
+                        return agg;
+                    }
                     if (aggFunction.containsVolatileExpression()) {
                         return agg;
                     }
@@ -187,22 +184,15 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         aggFunctions.add(aggFunction);
                         funcs.add(aggFunction);
                     }
-
-                } else {
-                    return agg;
                 }
             }
         }
 
-        if (!checkSubTreePattern(agg.child())) {
-            return agg;
-        }
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
-
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, containsNullToNonNull,
                 new BilateralState());
-        if (groupKeys.isEmpty()) {
+        if (groupKeys.isEmpty() || !pushDownContext.isValid()) {
             return agg;
         }
         try {
@@ -230,42 +220,47 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                 //                                 ->scan(T1[A...])
                 //                       ->scan(T2)
                 List<NamedExpression> newOutputExpressions = new ArrayList<>();
-                for (NamedExpression ne : agg.getOutputExpressions()) {
-                    if (ne instanceof SlotReference) {
-                        newOutputExpressions.add(ne);
-                    } else {
-                        // every expression has its own replaceMap
-                        // aggregation(output=[min(A), sum(A)])
-                        //     --> join
-                        //            -> T1 [A ...]
-                        //            -> T2 [...]
-                        // =>
-                        // aggregation(output=[min(minA), sum(sumA)])
-                        //     --> join
-                        //            -> agg(output=[min(A) as minA, sum(A) as sumA])
-                        //                  -> T1 [A ...]
-                        //            -> T2 [...]
-                        // for min(A), replaceMap: A->minA
-                        // for sum(A), replaceMap: A->sumA
-                        // for count(A), replaceMap: count(A)->sum(countA), because count needs rollup to sum
-                        Map<Expression, Expression> replaceMap = new HashMap<>();
-                        List<AggregateFunction> relatedAggFunc = aggFunctionsForOutputExpressions.get(ne);
-                        for (AggregateFunction func : relatedAggFunc) {
-                            Alias pushedAlias = pushDownContext.getAliasMap().get(func);
-                            ExprId pushId = pushedAlias.getExprId();
-                            if (!state.hasAggFuncOutput(pushId)) {
-                                continue;
+                if (hasDistinctAgg) {
+                    newOutputExpressions.addAll(agg.getOutputExpressions());
+                } else {
+                    for (NamedExpression ne : agg.getOutputExpressions()) {
+                        if (ne instanceof SlotReference) {
+                            newOutputExpressions.add(ne);
+                        } else {
+                            // every expression has its own replaceMap
+                            // aggregation(output=[min(A), sum(A)])
+                            //     --> join
+                            //            -> T1 [A ...]
+                            //            -> T2 [...]
+                            // =>
+                            // aggregation(output=[min(minA), sum(sumA)])
+                            //     --> join
+                            //            -> agg(output=[min(A) as minA, sum(A) as sumA])
+                            //                  -> T1 [A ...]
+                            //            -> T2 [...]
+                            // for min(A), replaceMap: A->minA
+                            // for sum(A), replaceMap: A->sumA
+                            // for count(A), replaceMap: count(A)->sum(countA), because count needs rollup to sum
+                            Map<Expression, Expression> replaceMap = new HashMap<>();
+                            List<AggregateFunction> relatedAggFunc = aggFunctionsForOutputExpressions.get(ne);
+                            for (AggregateFunction func : relatedAggFunc) {
+                                Alias pushedAlias = pushDownContext.getAliasMap().get(func);
+                                ExprId pushId = pushedAlias.getExprId();
+                                if (!state.hasAggFuncOutput(pushId)) {
+                                    continue;
+                                }
+                                Expression value = state.getPushedAggFuncSlot(pushId);
+                                if (func instanceof Count) {
+                                    replaceMap.put(func, new Sum0(value));
+                                } else if (func.arity() > 0) {
+                                    replaceMap.put(func.child(0), value);
+                                }
                             }
-                            Expression value = state.getPushedAggFuncSlot(pushId);
-                            if (func instanceof Count) {
-                                replaceMap.put(func, new Sum0(value));
-                            } else if (func.arity() > 0) {
-                                replaceMap.put(func.child(0), value);
-                            }
+                            NamedExpression replaceAliasExpr =
+                                    (NamedExpression) ExpressionUtils.replace(ne, replaceMap);
+                            replaceAliasExpr = (NamedExpression) ExpressionUtils.rebuildSignature(replaceAliasExpr);
+                            newOutputExpressions.add(replaceAliasExpr);
                         }
-                        NamedExpression replaceAliasExpr = (NamedExpression) ExpressionUtils.replace(ne, replaceMap);
-                        replaceAliasExpr = (NamedExpression) ExpressionUtils.rebuildSignature(replaceAliasExpr);
-                        newOutputExpressions.add(replaceAliasExpr);
                     }
                 }
                 LogicalAggregate<Plan> eagerAgg =
@@ -280,32 +275,30 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         return agg;
     }
 
-    private boolean checkSubTreePattern(Plan root) {
-        return containsPushDownJoin(root)
-                && checkPlanNodeType(root);
-    }
-
-    private boolean containsPushDownJoin(Plan root) {
-        if (root instanceof LogicalJoin && !((LogicalJoin) root).isMarkJoin()) {
-            return true;
-        }
-        if (root.children().isEmpty()) {
-            return false;
-        }
-        return root.children().stream().anyMatch(this::containsPushDownJoin);
-    }
-
-    private boolean checkPlanNodeType(Plan root) {
-        boolean accepted = acceptNodeType.stream()
-                .anyMatch(clazz -> clazz.isAssignableFrom(root.getClass()));
-        if (!accepted) {
-            return false;
-        }
-        for (Plan child : root.children()) {
-            if (!checkPlanNodeType(child)) {
-                return false;
+    private Optional<Set<SlotReference>> getCommonDistinctKeys(Set<AggregateFunction> aggFunctions) {
+        Set<SlotReference> commonDistinctKeys = null;
+        for (AggregateFunction aggFunction : aggFunctions) {
+            if (!aggFunction.isDistinct() || !pushDownAggFunctionSet.contains(aggFunction.getClass())
+                    || aggFunction.containsVolatileExpression()) {
+                return Optional.empty();
+            }
+            ImmutableSet.Builder<SlotReference> distinctKeysBuilder = ImmutableSet.builder();
+            for (Expression child : aggFunction.children()) {
+                if (!(child instanceof SlotReference)) {
+                    return Optional.empty();
+                }
+                distinctKeysBuilder.add((SlotReference) child);
+            }
+            Set<SlotReference> distinctKeys = distinctKeysBuilder.build();
+            if (distinctKeys.isEmpty()) {
+                return Optional.empty();
+            }
+            if (commonDistinctKeys == null) {
+                commonDistinctKeys = distinctKeys;
+            } else if (!commonDistinctKeys.equals(distinctKeys)) {
+                return Optional.empty();
             }
         }
-        return true;
+        return Optional.ofNullable(commonDistinctKeys);
     }
 }

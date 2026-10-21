@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -107,6 +109,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         LogicalCatalogRelation newRelation =
                 catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        if (context.shouldInvalidatePartitionPruning() && newRelation instanceof LogicalOlapScan) {
+            newRelation = ((LogicalOlapScan) newRelation).withPartitionPruned(false);
+        }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
                 .map(e -> {
@@ -124,6 +129,16 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
         newRelation = newRelation.withVirtualColumns(virtualColumns);
+        if (catalogRelation instanceof LogicalSchemaScan
+                && ((LogicalSchemaScan) catalogRelation).isFilterPushed()) {
+            LogicalSchemaScan oldSchemaScan = (LogicalSchemaScan) catalogRelation;
+            List<Expression> frontendConjuncts = oldSchemaScan.getFrontendConjuncts().stream()
+                    .map(expression -> ExpressionDeepCopier.INSTANCE.deepCopy(expression, context))
+                    .collect(ImmutableList.toImmutableList());
+            newRelation = ((LogicalSchemaScan) newRelation).withFrontendConjuncts(
+                    oldSchemaScan.getSchemaCatalog(), oldSchemaScan.getSchemaDatabase(), oldSchemaScan.getSchemaTable(),
+                    frontendConjuncts);
+        }
         context.putRelation(catalogRelation.getRelationId(), newRelation);
         return updateOperativeSlots(catalogRelation, newRelation);
     }
