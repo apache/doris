@@ -208,7 +208,7 @@ bool is_valid_file_content_type(std::string_view content_type) {
 }
 
 std::string_view infer_file_content_type_from_name(std::string_view name) {
-    // Shared by TO_FILE and list_file. Keep inference independent of URI rewriting.
+    // Shared by TO_FILE and list_files. Keep inference independent of URI rewriting.
     static constexpr std::pair<std::string_view, std::string_view> TYPES[] = {
             {".csv", "text/csv"},
             {".tsv", "text/tab-separated-values"},

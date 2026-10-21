@@ -44,15 +44,15 @@ import java.util.Locale;
 import java.util.Map;
 
 /** Resource-backed S3 directory listing, executed by one backend. */
-public class ListFileTableValuedFunction extends DataGenTableValuedFunction {
-    public static final String NAME = "list_file";
+public class ListFilesTableValuedFunction extends DataGenTableValuedFunction {
+    public static final String NAME = "list_files";
     private static final ImmutableSet<String> PROPERTIES = ImmutableSet.of("resource", "uri", "recursive");
 
     private final String resourceName;
     private final String uri;
     private final boolean recursive;
 
-    public ListFileTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public ListFilesTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
         for (Map.Entry<String, String> entry : params.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
@@ -64,14 +64,14 @@ public class ListFileTableValuedFunction extends DataGenTableValuedFunction {
         resourceName = properties.get("resource");
         uri = properties.get("uri");
         if (resourceName == null || resourceName.isEmpty()) {
-            throw new AnalysisException("list_file resource is required");
+            throw new AnalysisException("list_files resource is required");
         }
         if (uri == null) {
-            throw new AnalysisException("list_file uri is required");
+            throw new AnalysisException("list_files uri is required");
         }
-        String recursiveValue = properties.getOrDefault("recursive", "false");
+        String recursiveValue = properties.getOrDefault("recursive", "true");
         if (!"true".equalsIgnoreCase(recursiveValue) && !"false".equalsIgnoreCase(recursiveValue)) {
-            throw new AnalysisException("list_file recursive must be true or false");
+            throw new AnalysisException("list_files recursive must be true or false");
         }
         recursive = Boolean.parseBoolean(recursiveValue);
         checkS3Resource(ConnectContext.get());
@@ -93,14 +93,15 @@ public class ListFileTableValuedFunction extends DataGenTableValuedFunction {
 
     @Override
     public String getTableName() {
-        return "ListFileTableValuedFunction";
+        return "ListFilesTableValuedFunction";
     }
 
     @Override
     public List<Column> getTableColumns() {
         return ImmutableList.of(
                 new Column("path", Type.STRING, false),
-                new Column("file", FileType.create(), false));
+                new Column("size", Type.BIGINT, false),
+                new Column("file", FileType.create(), true));
     }
 
     @Override

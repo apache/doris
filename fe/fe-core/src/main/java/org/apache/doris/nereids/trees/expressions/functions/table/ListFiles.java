@@ -23,17 +23,17 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.FileType;
-import org.apache.doris.tablefunction.ListFileTableValuedFunction;
+import org.apache.doris.tablefunction.ListFilesTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 
-/** list_file */
-public class ListFile extends TableValuedFunction {
-    public ListFile(Properties properties) {
-        super(ListFileTableValuedFunction.NAME, properties);
+/** list_files */
+public class ListFiles extends TableValuedFunction {
+    public ListFiles(Properties properties) {
+        super(ListFilesTableValuedFunction.NAME, properties);
     }
 
     @Override
@@ -44,20 +44,20 @@ public class ListFile extends TableValuedFunction {
     @Override
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
-            return new ListFileTableValuedFunction(getTVFProperties().getMap());
+            return new ListFilesTableValuedFunction(getTVFProperties().getMap());
         } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException("Can not build list_file(): " + e.getMessage(), e);
+            throw new AnalysisException("Can not build list_files(): " + e.getMessage(), e);
         }
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitListFile(this, context);
+        return visitor.visitListFiles(this, context);
     }
 
     @Override
-    public ListFile withChildren(List<Expression> children) {
+    public ListFiles withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 && children.get(0) instanceof Properties);
-        return new ListFile((Properties) children.get(0));
+        return new ListFiles((Properties) children.get(0));
     }
 }

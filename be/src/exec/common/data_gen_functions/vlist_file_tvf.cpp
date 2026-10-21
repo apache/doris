@@ -49,7 +49,7 @@ Status VListFileTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_r
         _path.prefix += '/';
     }
     _path.delimiter = params.recursive ? "" : "/";
-    static constexpr std::array<std::string_view, 2> NAMES {"path", "file"};
+    static constexpr std::array<std::string_view, 3> NAMES {"path", "size", "file"};
     _column_indices.clear();
     for (const auto* slot : _tuple_desc->slots()) {
         const auto* const field = std::ranges::find(NAMES, slot->col_name());
@@ -81,6 +81,9 @@ Status VListFileTVF::_fetch_next_page(RuntimeState* state) {
         return {page.resp.status.code, std::move(page.resp.status.msg)};
     }
     _objects = std::move(page.objects);
+    for (auto& prefix : page.common_prefixes) {
+        _objects.emplace_back(ObjectMeta {.key = std::move(prefix)});
+    }
     _next_index = 0;
     _continuation_token = std::move(page.continuation_token);
     _has_more = page.has_more;
@@ -116,19 +119,26 @@ Status VListFileTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
         }
         RETURN_IF_CANCELLED(state);
         const auto& object = _objects[_next_index++];
-        if (object.key.ends_with('/')) {
+        const bool is_directory = object.key.ends_with('/');
+        // The prefix marker names the listed directory itself; recursive scans omit all markers.
+        if (is_directory && (_path.delimiter.empty() || object.key == _path.prefix)) {
             continue;
         }
-        File value(DataTypeFile::FIELD_COUNT);
-        value[0] = Field::create_field<TYPE_STRING>("s3://" + _path.bucket + "/" + object.key);
-        value[2] = Field::create_field<TYPE_BIGINT>(object.size);
-        value[3] = Field::create_field<TYPE_STRING>(
-                std::string(infer_file_content_type_from_name(object.key)));
-        if (auto checksum = file_checksum_from_etag(object.etag)) {
-            value[4] = Field::create_field<TYPE_STRING>(std::move(*checksum));
+        std::array<Field, 3> fields {
+                Field::create_field<TYPE_STRING>("s3://" + _path.bucket + "/" + object.key),
+                Field::create_field<TYPE_BIGINT>(is_directory ? 0 : object.size), Field()};
+        if (!is_directory) {
+            File value(DataTypeFile::FIELD_COUNT);
+            value[0] = fields[0];
+            value[2] = fields[1];
+            value[3] = Field::create_field<TYPE_STRING>(
+                    std::string(infer_file_content_type_from_name(object.key)));
+            if (auto checksum = file_checksum_from_etag(object.etag)) {
+                value[4] = Field::create_field<TYPE_STRING>(std::move(*checksum));
+            }
+            RETURN_IF_ERROR(validate_file(value));
+            fields[2] = Field::create_field<TYPE_FILE>(std::move(value));
         }
-        RETURN_IF_ERROR(validate_file(value));
-        std::array<Field, 2> fields {value[0], Field::create_field<TYPE_FILE>(std::move(value))};
         for (size_t i = 0; i < columns.size(); ++i) {
             columns[i]->insert(fields[_column_indices[i]]);
         }
