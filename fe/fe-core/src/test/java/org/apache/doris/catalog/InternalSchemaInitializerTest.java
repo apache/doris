@@ -22,7 +22,6 @@ import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
@@ -35,9 +34,8 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 class InternalSchemaInitializerTest {
     @Test
@@ -349,49 +347,42 @@ class InternalSchemaInitializerTest {
 
 
     /**
-     * A transient ALTER failure must be retried INSIDE the initializer: run() calls the
-     * upgrade only once and the replica-upgrade loop never comes back, so without the
-     * retry loop an upgraded cluster stayed without the provenance columns until a
-     * restart although BaselineManager always reads / writes them.
+     * The initializer CONVERGES every SPM internal table to the schema this release
+     * publishes - there is no upgrade path: the three tables are published for the first
+     * time here, so no earlier release wrote a row a user keeps, and no additive ALTER can
+     * rename a column or turn a nullable one into NOT NULL. The declaration therefore has to
+     * cover exactly the tables BaselineManager reads and writes, with every column NOT NULL
+     * (a writer that loses a value must FAIL at the INSERT instead of storing a NULL the
+     * readers would have to interpret).
      */
     @Test
-    public void testSqlModeUpgradeRetriesUntilColumnObserved() {
-        AtomicInteger attempts = new AtomicInteger();
-        AtomicInteger sleeps = new AtomicInteger();
-        AtomicBoolean exists = new AtomicBoolean(false);
-        InternalSchemaInitializer.ensureSpmBaselinesColumnsExist(
-                exists::get,
-                () -> {
-                    if (attempts.incrementAndGet() == 1) {
-                        throw new RuntimeException("transient alter failure");
-                    }
-                    exists.set(true);
-                },
-                sleeps::incrementAndGet);
-        Assertions.assertEquals(2, attempts.get(),
-                "the first failed ALTER must be retried without a restart");
-        Assertions.assertEquals(1, sleeps.get(),
-                "exactly one back-off between the two attempts");
-    }
-
-    @Test
-    public void testSqlModeUpgradeSkipsAlterWhenColumnExists() {
-        AtomicInteger attempts = new AtomicInteger();
-        InternalSchemaInitializer.ensureSpmBaselinesColumnsExist(
-                () -> true, attempts::incrementAndGet, () -> { });
-        Assertions.assertEquals(0, attempts.get(),
-                "an already upgraded table must not be altered");
+    public void testDeclaredSpmSchemaCoversTheThreeTables() {
+        Assertions.assertEquals(
+                List.of(InternalSchema.SPM_BASELINES_TBL_NAME,
+                        InternalSchema.SPM_BASELINES_SEQ_TBL_NAME,
+                        InternalSchema.SPM_BASELINES_HWM_TBL_NAME),
+                List.copyOf(InternalSchemaInitializer.SPM_INTERNAL_TABLES.keySet()),
+                "every SPM internal table takes part in the schema convergence");
+        for (Map.Entry<String, List<ColumnDef>> entry
+                : InternalSchemaInitializer.SPM_INTERNAL_TABLES.entrySet()) {
+            List<ColumnDef> declared = entry.getValue();
+            Assertions.assertFalse(declared.isEmpty(), entry.getKey() + " declares columns");
+            for (ColumnDef def : declared) {
+                Assertions.assertFalse(def.isAllowNull(),
+                        entry.getKey() + "." + def.getName() + " must be NOT NULL");
+            }
+        }
     }
 
     /**
-     * The upgrade set must cover every provenance / schema-identity column the load path
-     * reads: forgetting one leaves an upgraded cluster reading NULL forever (mode /
-     * frozen classification) or silently disabling a guard (schema fingerprint).
+     * The published schema must carry every provenance / schema-identity column the load path
+     * reads: forgetting one leaves a reload reading NULL forever (mode / frozen
+     * classification) or silently disabling a guard (schema fingerprint).
      */
     @Test
     public void testProvenanceUpgradeCoversEveryEvolvedColumn() {
         for (String column : new String[] {"sql_mode", "plan_sql_mode", "plan_frozen",
-                "schema_fingerprint"}) {
+                "schema_fingerprint", "plan_sql_digest"}) {
             Assertions.assertTrue(
                     InternalSchema.SPM_BASELINES_SCHEMA.stream()
                             .anyMatch(def -> column.equalsIgnoreCase(def.getName())),
@@ -400,17 +391,18 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * Round-55 #5: the upgrade map must declare the CREATE schema's TIMESTAMPTZ for
-     * reserve_time, and the upgrade checker must notice an existing column of the WRONG
-     * type. The checker used to compare NAMES only, so a cluster already upgraded with a
-     * DATETIME column counted as done: the reservation writer stores a zone-qualified
+     * The reservation instant is declared as TIMESTAMPTZ at the SPM microsecond scale, and
+     * the schema gate must notice an existing column of the WRONG type / scale. A name-only
+     * comparison accepted a DATETIME column: the reservation writer stores a zone-qualified
      * instant, DATETIME converts it into the WRITING session's zone, and a successor in
      * another zone reading UNIX_TIMESTAMP(reserve_time) shifts the reservation's age by
      * hours - a seconds-old ambiguous CREATE can be condemned as expired (its later
-     * published row repaired away) or a retry stays fenced for hours.
+     * published row repaired away) or a retry stays fenced for hours. A second-precision
+     * TIMESTAMPTZ is just as wrong: it ROUNDS AWAY the microseconds every instant
+     * comparison now relies on.
      */
     @Test
-    public void testReserveTimeUpgradeTypeMatchesTheCreateSchema() {
+    public void testReserveTimeTypeMatchesTheDeclaredSchema() {
         ScalarType createType = InternalSchema.SPM_BASELINES_SEQ_SCHEMA.stream()
                 .filter(def -> "reserve_time".equalsIgnoreCase(def.getName()))
                 .map(def -> def.getType())
@@ -418,57 +410,52 @@ class InternalSchemaInitializerTest {
                 .map(ScalarType.class::cast)
                 .findFirst().orElse(null);
         Assertions.assertNotNull(createType, "the seq table must carry reserve_time");
-        ScalarType upgradeType =
-                InternalSchemaInitializer.SPM_BASELINES_SEQ_UPGRADE_COLUMNS.get("reserve_time");
-        Assertions.assertNotNull(upgradeType,
-                "an upgraded cluster must gain the reservation-time column");
         Assertions.assertEquals(PrimitiveType.TIMESTAMPTZ, createType.getPrimitiveType(),
-                "the create schema pins the reservation INSTANT");
-        Assertions.assertEquals(PrimitiveType.TIMESTAMPTZ, upgradeType.getPrimitiveType(),
-                "the upgrade must add the SAME type as the create schema");
+                "the declared schema pins the reservation INSTANT");
+        Assertions.assertEquals(InternalSchema.SPM_TIMESTAMP_SCALE, createType.getScalarScale(),
+                "the reservation instant keeps MICROSECOND precision");
+        Type upgradeType = createType;
 
-        Assertions.assertTrue(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertTrue(InternalSchemaInitializer.spmColumnTypeMatches(
                 upgradeType, upgradeType), "the declared type itself matches");
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createType(PrimitiveType.DATETIME), upgradeType),
                 "a legacy DATETIME column must be RE-MODELLED (MODIFY), not accepted by name");
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createType(PrimitiveType.DATETIMEV2), upgradeType),
                 "a DATETIMEV2 column is not a TIMESTAMPTZ either");
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
                 null, upgradeType), "an absent column is never 'upgraded'");
         // the WIDTH is part of the type: a legacy VARCHAR(4096) against the unbounded
         // STRING target must be widened (a >4096-char canonical digest failed its
         // reservation INSERT in that column while a fresh table accepted it)
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createVarchar(4096),
                         ScalarType.createType(PrimitiveType.STRING)),
                 "a fixed-width legacy column must trigger the widening MODIFY");
-        Assertions.assertTrue(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertTrue(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createVarchar(4096), ScalarType.createVarchar(4096)),
                 "equal widths are the same type");
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createVarchar(4096), ScalarType.createVarchar(20)),
                 "different widths are different types");
-        Assertions.assertTrue(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertTrue(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createStringType(),
                         ScalarType.createType(PrimitiveType.STRING)),
                 "STRING and the unlimited VARCHAR are the same column type");
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
                         ScalarType.createType(PrimitiveType.BIGINT), upgradeType),
                 "a genuinely different type stays a mismatch");
-        // the BASELINES table's upgrade map carries the unbounded targets as well: a
-        // pre-existing fixed-width schema_fingerprint used to be accepted by NAME and
+        // the BASELINES table's own declaration pins the unbounded fingerprint type as well:
+        // a pre-existing fixed-width schema_fingerprint used to be accepted by NAME and
         // never widened
-        Assertions.assertEquals(PrimitiveType.STRING,
-                InternalSchemaInitializer.SPM_BASELINES_UPGRADE_COLUMNS
-                        .get("schema_fingerprint").getPrimitiveType(),
-                "the fingerprint column must be upgraded to the create schema's STRING");
-        Assertions.assertFalse(InternalSchemaInitializer.upgradeColumnTypeMatches(
-                        ScalarType.createVarchar(4096),
-                        InternalSchemaInitializer.SPM_BASELINES_UPGRADE_COLUMNS
-                                .get("schema_fingerprint")),
-                "a legacy fixed-width fingerprint column must be widened too");
+        Type fingerprintType = declaredType(InternalSchema.SPM_BASELINES_SCHEMA,
+                "schema_fingerprint");
+        Assertions.assertEquals(PrimitiveType.STRING, fingerprintType.getPrimitiveType(),
+                "the fingerprint column is the declared unbounded STRING");
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
+                        ScalarType.createVarchar(4096), fingerprintType),
+                "a legacy fixed-width fingerprint column does not match the declaration");
     }
 
     /**
@@ -477,23 +464,18 @@ class InternalSchemaInitializerTest {
      * - #6: the seq identity column stores the FULL canonical bind digest (SPMPlanner
      *   has no length cap, and spm_baselines.bind_sql_digest is STRING): a fixed VARCHAR
      *   failed the RESERVATION INSERT for a valid >4096-char bind, so a GLOBAL CREATE
-     *   errored before writing anything. Both the create schema and the upgrade map must
-     *   use the unbounded value type.
+     *   errored before writing anything. The declared schema must use the unbounded value
+     *   type, and a fixed-width legacy column must NOT count as matching it.
      */
     @Test
     public void testRound40SchemaColumnsAndTypes() {
-        Type digestType = InternalSchema.SPM_BASELINES_SEQ_SCHEMA.stream()
-                .filter(def -> "bind_sql_digest".equalsIgnoreCase(def.getName()))
-                .map(ColumnDef::getType).findFirst().orElse(null);
+        Type digestType = declaredType(InternalSchema.SPM_BASELINES_SEQ_SCHEMA, "bind_sql_digest");
         Assertions.assertNotNull(digestType, "the seq table must carry the identity column");
         Assertions.assertEquals(PrimitiveType.STRING, digestType.getPrimitiveType(),
                 "the full digest has no length cap: the column must be STRING");
-        ScalarType upgradeType =
-                InternalSchemaInitializer.SPM_BASELINES_SEQ_UPGRADE_COLUMNS.get("bind_sql_digest");
-        Assertions.assertNotNull(upgradeType,
-                "an upgraded cluster must gain the identity column");
-        Assertions.assertEquals(PrimitiveType.STRING, upgradeType.getPrimitiveType(),
-                "the upgrade must use the unbounded value type as well");
+        Assertions.assertFalse(InternalSchemaInitializer.spmColumnTypeMatches(
+                        ScalarType.createVarchar(4096), digestType),
+                "a fixed-width legacy column does not match the declaration");
     }
 
     /**
@@ -525,7 +507,7 @@ class InternalSchemaInitializerTest {
         Assertions.assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS"
                         + " `internal`.`__internal_schema`.`spm_baselines_hwm`"),
                 "the completion gate re-runs createTbl(): it must create the table: " + sql);
-        Assertions.assertTrue(sql.contains("`last_id`"),
+        Assertions.assertTrue(sql.contains("`watermark`"),
                 "the compact record carries the newest allocated id: " + sql);
         Assertions.assertTrue(sql.contains("`update_time`"),
                 "the record's write instant is kept: " + sql);
@@ -537,7 +519,7 @@ class InternalSchemaInitializerTest {
                 "the record is append-only (a superseded row never regresses the MAX): " + sql);
         Assertions.assertEquals(4, InternalSchema.getCopiedSchema(
                         InternalSchema.SPM_BASELINES_HWM_TBL_NAME).size(),
-                "the copied schema carries exactly last_id / update_time / tick / pending");
+                "the copied schema carries exactly watermark / update_time / tick / pending");
         Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
                         .contains(InternalSchema.SPM_BASELINES_HWM_TBL_NAME),
                 "losing the hosting BE must not make the id watermark unreadable");
@@ -546,22 +528,32 @@ class InternalSchemaInitializerTest {
 
 
     /**
-     * (found while verifying #5): every upgraded SPM column is a VALUE column.
-     * An ADD COLUMN flagged KEY lands AFTER the existing value columns, and the schema
-     * change validator rejects any key column that follows a value column
-     * ("Invalid column order. value should be after key"): the ALTER threw, the wait loop
-     * retried the same column forever and an in-place upgraded cluster never gained the
-     * columns its reader / writer already use.
+     * The id columns are published under their FINAL names: spm_baselines_seq.baseline_id (the
+     * reserved baseline id) and spm_baselines_hwm.watermark (the compact id watermark). A
+     * pre-release table still carrying `last_id` therefore does NOT match the declaration -
+     * the writers' explicit column lists name the published columns - and is rebuilt.
      */
     @Test
-    public void testUpgradedSpmColumnsAreValueColumns() {
-        for (String column : List.of("bind_sql_digest", "reserve_time", "dropped")) {
-            ColumnDefinition definition = InternalSchemaInitializer.spmUpgradeColumnDefinition(
-                    column, ScalarType.createType(PrimitiveType.STRING));
-            Assertions.assertEquals(column, definition.getName());
-            Assertions.assertFalse(definition.isKey(),
-                    column + " must be added as a VALUE column, not a key: " + definition);
+    public void testIdColumnsCarryThePublishedNames() {
+        Assertions.assertNotNull(declaredType(InternalSchema.SPM_BASELINES_SEQ_SCHEMA,
+                "baseline_id"), "the reservation column is baseline_id");
+        Assertions.assertNotNull(declaredType(InternalSchema.SPM_BASELINES_HWM_SCHEMA,
+                "watermark"), "the compact watermark column is watermark");
+        for (Map.Entry<String, List<ColumnDef>> entry
+                : InternalSchemaInitializer.SPM_INTERNAL_TABLES.entrySet()) {
+            for (ColumnDef def : entry.getValue()) {
+                Assertions.assertFalse("last_id".equalsIgnoreCase(def.getName()),
+                        entry.getKey() + " must not keep the pre-release `last_id` column");
+            }
         }
+    }
+
+    /** The declared type of one column of an internal-table schema (null when absent). */
+    private static Type declaredType(List<ColumnDef> schema, String column) {
+        return schema.stream()
+                .filter(def -> column.equalsIgnoreCase(def.getName()))
+                .map(ColumnDef::getType)
+                .findFirst().orElse(null);
     }
 
 }

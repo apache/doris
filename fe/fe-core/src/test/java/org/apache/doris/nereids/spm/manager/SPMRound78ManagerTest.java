@@ -55,7 +55,7 @@ public class SPMRound78ManagerTest {
         final List<Long> pendingTicks = new java.util.concurrent.CopyOnWriteArrayList<>();
         final List<Long> closedWindows = new java.util.concurrent.CopyOnWriteArrayList<>();
         long failDeletesForId = -1L;
-        long newestStoredSecond;
+        long newestStoredMicros;
         long idWatermark;
         final AtomicLong clockJumpMillis = new AtomicLong();
 
@@ -129,8 +129,8 @@ public class SPMRound78ManagerTest {
         }
 
         @Override
-        public long newestStoredUpdateSecond(long id) {
-            return newestStoredSecond;
+        public long newestStoredUpdateMicros(long id) {
+            return newestStoredMicros;
         }
 
         @Override
@@ -213,13 +213,13 @@ public class SPMRound78ManagerTest {
      * tie-break reverses it.
      */
     @Test
-    public void testRealFlipRefusesAnUnboundedStoredSecondLead() {
+    public void testRealFlipRefusesAnUnboundedStoredInstantLead() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
         manager.applyRefreshedBaselines(Map.of(41L, store.rows.get(41L)));
-        // the id's newest stored second is far ahead of wall time
-        store.newestStoredSecond = System.currentTimeMillis() / 1000L + 3_600L;
+        // the id's newest stored instant is far ahead of wall time
+        store.newestStoredMicros = System.currentTimeMillis() * 1000L + 3_600_000_000L;
 
         IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
                 () -> manager.updateStatus(41L, BaselineStatus.DISABLED),
@@ -230,12 +230,12 @@ public class SPMRound78ManagerTest {
 
     /** A lead inside the bound keeps the ordinary flip working. */
     @Test
-    public void testRealFlipAcceptsABoundedStoredSecondLead() {
+    public void testRealFlipAcceptsABoundedStoredInstantLead() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
         manager.applyRefreshedBaselines(Map.of(41L, store.rows.get(41L)));
-        store.newestStoredSecond = System.currentTimeMillis() / 1000L + 1L;
+        store.newestStoredMicros = System.currentTimeMillis() * 1000L + 1_000_000L;
 
         Assertions.assertTrue(manager.updateStatus(41L, BaselineStatus.DISABLED),
                 "a one-second lead is the ordinary bump and must still succeed");

@@ -53,18 +53,18 @@ public interface BaselinePersistence {
      */
     final class SeqReservation {
         final long id;
-        final long reserveTimeMs;
+        final long reserveTimeMicros;
         final boolean unconfirmed;
         final boolean dropped;
 
-        public SeqReservation(long id, long reserveTimeMs) {
-            this(id, reserveTimeMs, true, false);
+        public SeqReservation(long id, long reserveTimeMicros) {
+            this(id, reserveTimeMicros, true, false);
         }
 
-        public SeqReservation(long id, long reserveTimeMs, boolean unconfirmed,
+        public SeqReservation(long id, long reserveTimeMicros, boolean unconfirmed,
                 boolean dropped) {
             this.id = id;
-            this.reserveTimeMs = reserveTimeMs;
+            this.reserveTimeMicros = reserveTimeMicros;
             this.unconfirmed = unconfirmed;
             this.dropped = dropped;
         }
@@ -73,8 +73,8 @@ public interface BaselinePersistence {
             return id;
         }
 
-        public long reserveTimeMs() {
-            return reserveTimeMs;
+        public long reserveTimeMicros() {
+            return reserveTimeMicros;
         }
 
         public boolean unconfirmed() {
@@ -178,12 +178,12 @@ public interface BaselinePersistence {
     /**
      * Whether the durable table holds a row with this (id, key) AND - when
      * {@code status} is given - the expected status, the schema fingerprint (when given)
-     * and the REQUIRED stored second (when given; the attempted second of a fresh write
+     * and the REQUIRED stored instant (when given; the attempted instant of a fresh write
      * is strictly later than every row it met, see the manager's status bump). A read
      * that cannot answer is UNKNOWN - never ABSENT.
      */
     default DurablePresence probeRow(long id, String bindSqlDigest, String planSql,
-            BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMs) {
+            BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMicros) {
         return DurablePresence.UNKNOWN;
     }
 
@@ -197,7 +197,7 @@ public interface BaselinePersistence {
 
     /**
      * Whether the row just written is READABLE (the insert-visibility confirmation): the
-     * identity, the attempted status and the ATTEMPTED stored second all match. A
+     * identity, the attempted status and the ATTEMPTED stored instant all match. A
      * simulated store is synchronous by default (answer true); the check is polled by
      * the caller, so an implementation modeling a publication window may answer false
      * for a bounded number of probes.
@@ -223,11 +223,21 @@ public interface BaselinePersistence {
     }
 
     /**
-     * The newest stored update_time of THIS id's rows, in epoch SECONDS (0 = none): the
-     * status flip advances its new row strictly past it, so the flipped row is the
-     * durable winner at the table's second precision.
+     * The newest stored update_time of THIS id's rows, in epoch MICROSECONDS (0 = none).
+     *
+     * MICROSECONDS are the SPM time unit of every stored instant: the internal columns are
+     * TIMESTAMPTZ(6) (see InternalSchema#SPM_TIMESTAMP_SCALE), the writers take their `now`
+     * from a microsecond clock, and every durable-order comparison of the status-flip
+     * protocol - "no newer row of this id exists" (see
+     * BaselineManager#conditionalStatusInsertSql) and "this is the version I complete" (see
+     * deleteByIdAndStatusSql) - is made against the EXACT instant. A coarser unit would be
+     * strictly EARLIER than the row it was derived from, so those comparisons would see the
+     * id's own row as a newer write and void themselves.
+     *
+     * @param id the baseline id
+     * @return the newest stored instant in epoch microseconds
      */
-    default long newestStoredUpdateSecond(long id) {
+    default long newestStoredUpdateMicros(long id) {
         return 0;
     }
 
@@ -256,11 +266,13 @@ public interface BaselinePersistence {
      *
      * @param plan                 the new-status row
      * @param previousStatus       the status the flip starts from
-     * @param previousUpdateSecond the stored second the flip is based on (0 = unknown)
+     * @param previousUpdateMicros the stored INSTANT the flip is based on, in epoch
+     *                             microseconds
+     *                             (0 = unknown)
      * @return whether a row was written
      */
     default boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus,
-            long previousUpdateSecond) {
+            long previousUpdateMicros) {
         return insertIfPreviousPresent(plan, previousStatus);
     }
 
@@ -274,12 +286,12 @@ public interface BaselinePersistence {
      * deleteByIdAndStatusSql): only that row is removed; 0 = not bound.
      */
     default void deleteByIdAndStatus(BaselinePlan plan, BaselineStatus status,
-            long oldUpdateTimeMs) {
+            long oldUpdateTimeMicros) {
     }
 
     /**
      * Reclaims the SUPERSEDED versions of one baseline identity: every row of the id whose
-     * stored second is strictly EARLIER than keepFromSecond (see
+     * stored instant is strictly EARLIER than keepFromMicros (see
      * BaselineManager#persistNoOpStatusIntent).
      *
      * A successful no-op ALTER appends an ordering-intent row and nothing ever removed the
@@ -289,23 +301,24 @@ public interface BaselinePersistence {
      *
      * @param identity       the baseline identity scoping the delete (id, digest, plan text,
      *                       fingerprint)
-     * @param keepFromSecond the stored second to keep from (0 = nothing to prune)
+     * @param keepFromMicros the stored instant (epoch microseconds) to keep from
+     *                       (0 = nothing to prune)
      */
-    default void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
+    default void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
     }
 
     /**
-     * How many versions of one baseline identity are still READABLE below a stored second -
+     * How many versions of one baseline identity are still READABLE below a stored instant -
      * the visibility probe of a prune (see BaselineManager#confirmPruneVisible). SQL OK only
      * proves the DELETE was dispatched, and a paginated snapshot reader could still step
      * over a row it removes.
      *
      * @param identity       the identity scoping the read
-     * @param keepFromSecond the stored second the prune keeps from
+     * @param keepFromMicros the stored instant the prune keeps from
      * @return the count of older readable versions (0 = none / a store that models no
      *         versions, -1 = the store cannot answer)
      */
-    default long countVersionsBefore(BaselinePlan identity, long keepFromSecond) {
+    default long countVersionsBefore(BaselinePlan identity, long keepFromMicros) {
         return 0;
     }
 
@@ -330,7 +343,7 @@ public interface BaselinePersistence {
      * high-water mark, appends the identity-carrying reservation and flips the compact
      * identity slot (strict - a failed reservation fails the CREATE).
      */
-    default void reserveId(long id, String bindSqlDigest, long planSqlHash, long reserveTimeMs) {
+    default void reserveId(long id, String bindSqlDigest, long planSqlHash, long reserveTimeMicros) {
     }
 
     /**

@@ -210,13 +210,13 @@ public class SPMRound73ManagerTest {
         }
 
         @Override
-        public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
+        public void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
             pruneWindowTicks.add(pendingTicks.isEmpty() ? 0L
                     : pendingTicks.get(pendingTicks.size() - 1));
         }
 
         @Override
-        public long countVersionsBefore(BaselinePlan identity, long keepFromSecond) {
+        public long countVersionsBefore(BaselinePlan identity, long keepFromMicros) {
             return 0L;
         }
 

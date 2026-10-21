@@ -471,7 +471,7 @@ public class SPMFrozenTreeReplayTest {
 
         ResultRow row = new ResultRow(List.of(
                 "77", bindSql, digest, String.valueOf(hash), frozenPlanSql, "", "1.0",
-                "-1", "USER", "ENABLED", "1767225600000", "1767225600000",
+                "-1", "USER", "ENABLED", "1767225600.000000", "1767225600.000000",
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),
                 String.valueOf(SqlModeHelper.MODE_DEFAULT), "true", ""));
         BaselinePlan rebuilt = BaselineManagerTestAccess.parsePersistedRow(row);
@@ -505,7 +505,7 @@ public class SPMFrozenTreeReplayTest {
         long hash = SPMUtils.hashOf(digest);
         ResultRow row = new ResultRow(List.of(
                 "88", bindSql, digest, String.valueOf(hash), rawPlanSql, "", "1.0",
-                "-1", "USER", "ENABLED", "1767225600000", "1767225600000",
+                "-1", "USER", "ENABLED", "1767225600.000000", "1767225600.000000",
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),
                 String.valueOf(SqlModeHelper.MODE_DEFAULT), "false", ""));
         BaselinePlan rebuilt = BaselineManagerTestAccess.parsePersistedRow(row);

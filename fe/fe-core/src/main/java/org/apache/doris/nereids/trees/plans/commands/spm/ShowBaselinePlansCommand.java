@@ -330,17 +330,22 @@ public class ShowBaselinePlansCommand extends ShowCommand {
     }
 
     @VisibleForTesting
-    static String formatTime(long epochMillis) {
-        if (epochMillis <= 0) {
+    static String formatTime(long epochMicros) {
+        if (epochMicros <= 0) {
             return "";
         }
-        // UTC, the zone the internal-table DATETIME columns are stored / parsed in (see
-        // BaselineManager.toTs / fromTs): every FE of a cluster must render the SAME row
-        // identically. Formatting with ZoneId.systemDefault() turned a stored
+        // UTC, the zone the internal-table TIMESTAMPTZ columns are stored / read in (see
+        // BaselineManager.toTs / storedMicros): every FE of a cluster must render the SAME
+        // row identically. Formatting with ZoneId.systemDefault() turned a stored
         // "2026-01-01 12:00:00" into 20:00:00 on an Asia/Shanghai host and 12:00:00 on a
         // UTC host - SHOW reported a different create / update time per FE host zone.
+        //
+        // The value is epoch MICROSECONDS - the SPM unit of every stored instant (see
+        // InternalSchema#SPM_TIMESTAMP_SCALE) - so the instant is rebuilt at that resolution
+        // and rendered only to SECONDS (the SHOW column's format).
         LocalDateTime time = LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC);
+                Instant.EPOCH.plus(epochMicros, java.time.temporal.ChronoUnit.MICROS),
+                ZoneOffset.UTC);
         return time.format(DATETIME_FORMAT);
     }
 

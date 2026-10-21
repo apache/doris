@@ -23,6 +23,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 import org.apache.commons.codec.digest.DigestUtils;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+
 /**
  * SPMUtils - common utility methods for SPM.
  *
@@ -35,6 +38,24 @@ import org.apache.commons.codec.digest.DigestUtils;
 public final class SPMUtils {
 
     private SPMUtils() {
+    }
+
+    /**
+     * The clock of every SPM STORED instant, in epoch MICROSECONDS.
+     *
+     * Every instant column of the three internal tables is TIMESTAMPTZ(6)
+     * (see InternalSchema#SPM_TIMESTAMP_SCALE), and the durable ordering of two status flips
+     * relies on the stored instants DIFFERING: two flips landing inside one millisecond still
+     * order correctly (and the flip bump then advances a single microsecond). A SESSION
+     * baseline carries the same unit, because SHOW renders it with the same formatter.
+     *
+     * Wall-clock DURATIONS (fence ages, window bounds) stay in MILLISECONDS - they measure
+     * elapsed time, not a stored value.
+     *
+     * @return the current epoch microseconds
+     */
+    public static long nowMicros() {
+        return ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now());
     }
 
     /**

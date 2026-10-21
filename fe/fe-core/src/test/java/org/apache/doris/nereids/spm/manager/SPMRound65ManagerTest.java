@@ -316,10 +316,10 @@ public class SPMRound65ManagerTest {
 
         @Override
         public void reserveId(long id, String bindSqlDigest, long planSqlHash,
-                long reserveTimeMs) {
+                long reserveTimeMicros) {
             reserveId(id);
             records.put(key(bindSqlDigest, planSqlHash),
-                    new long[] {id, reserveTimeMs, 0, 0});
+                    new long[] {id, reserveTimeMicros, 0, 0});
         }
 
         @Override

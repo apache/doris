@@ -21,6 +21,7 @@ import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineScope;
 import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.nereids.spm.SPMForwardedSession;
+import org.apache.doris.nereids.spm.SPMUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -186,7 +187,9 @@ public class SessionBaselineStore {
                     + SPMForwardedSession.MAX_PAYLOAD_CHARS + " characters; drop some SESSION"
                     + " baselines (DROP SESSION BASELINE PLAN <id>) first");
         }
-        long now = System.currentTimeMillis();
+        // every SPM stored instant is epoch MICROSECONDS (see SPMUtils#nowMicros): SHOW
+        // renders a SESSION row with the same formatter as a GLOBAL one
+        long now = SPMUtils.nowMicros();
         plan.setCreateTime(now);
         plan.setUpdateTime(now);
         if (replaced != null) {
@@ -241,7 +244,7 @@ public class SessionBaselineStore {
             return false;
         }
         plan.setStatus(status);
-        plan.setUpdateTime(System.currentTimeMillis());
+        plan.setUpdateTime(SPMUtils.nowMicros());
         return true;
     }
 

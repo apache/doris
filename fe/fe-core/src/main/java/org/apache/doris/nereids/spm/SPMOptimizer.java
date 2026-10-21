@@ -441,6 +441,11 @@ public class SPMOptimizer {
         // a baseline whose expansion and fingerprint disagree (round-77 #4).
         java.util.TreeSet<String> bindFunctionSnapshot =
                 SPMPlanTreeSupport.bindFunctionDependencyEntries(ctx, logicalPlan);
+        // The registry's monotonic UDF version at the SAME instant: equal entry sets before /
+        // after analysis do not prove nothing changed - a definition recreated and then restored
+        // leaves both snapshots identical while the expansion inlined the INTERMEDIATE body, so
+        // CREATE also requires that the definitions did not MOVE at all (round-79 #9).
+        long functionRegistryVersionBefore = SPMPlanTreeSupport.functionRegistryVersion();
         StatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
 
@@ -533,7 +538,8 @@ public class SPMOptimizer {
                     statementContext instanceof CaptureStatementContext
                             ? ((CaptureStatementContext) statementContext).getTableFingerprints()
                             : java.util.Map.of(),
-                    bindFunctionSnapshot);
+                    bindFunctionSnapshot,
+                    functionRegistryVersionBefore);
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -744,42 +750,61 @@ public class SPMOptimizer {
          */
         private final java.util.Set<String> bindFunctionDependencies;
 
+        /**
+         * The registry's UDF-definition version read together with the snapshot above, or null
+         * when the caller recorded none (see
+         * SPMPlanTreeSupport#schemaFingerprintForCreateFromLockedEntries).
+         */
+        private final Long functionRegistryVersion;
+
         public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
-            this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of(), null);
+            this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of(), null, null);
         }
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot) {
-            this(physicalPlan, cost, tableSnapshot, java.util.Map.of(), null);
+            this(physicalPlan, cost, tableSnapshot, java.util.Map.of(), null, null);
         }
 
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
                 java.util.Map<String, String> tableFingerprints) {
-            this(physicalPlan, cost, tableSnapshot, tableFingerprints, null);
+            this(physicalPlan, cost, tableSnapshot, tableFingerprints, null, null);
+        }
+
+        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
+                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
+                java.util.Map<String, String> tableFingerprints,
+                java.util.Set<String> bindFunctionDependencies) {
+            this(physicalPlan, cost, tableSnapshot, tableFingerprints, bindFunctionDependencies,
+                    null);
         }
 
         /**
          * The full result: the physical plan, its cost, the under-lock table snapshot, the
-         * fingerprint entries hashed under the locks and the bind-side FUNCTION entries captured
-         * before analysis (see the field javadoc).
+         * fingerprint entries hashed under the locks, the bind-side FUNCTION entries captured
+         * before analysis and the UDF registry version read at that same instant (see the field
+         * javadocs).
          *
          * @param physicalPlan           the optimized physical plan
          * @param cost                   its estimated cost
          * @param tableSnapshot          the under-lock bind-side tables
          * @param tableFingerprints      the under-lock table fingerprint entries
          * @param bindFunctionDependencies the pre-analysis function entries, or null
+         * @param functionRegistryVersion the pre-analysis UDF registry version, or null
          */
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
                 java.util.Map<String, String> tableFingerprints,
-                java.util.Set<String> bindFunctionDependencies) {
+                java.util.Set<String> bindFunctionDependencies,
+                Long functionRegistryVersion) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
             this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
             this.tableFingerprints = tableFingerprints == null
                     ? java.util.Map.of() : tableFingerprints;
             this.bindFunctionDependencies = bindFunctionDependencies;
+            this.functionRegistryVersion = functionRegistryVersion;
         }
 
         public PhysicalPlan getPhysicalPlan() {
@@ -818,6 +843,16 @@ public class SPMOptimizer {
          */
         public java.util.Set<String> getBindFunctionDependencies() {
             return bindFunctionDependencies;
+        }
+
+        /**
+         * The UDF registry version read at the same instant as the function entries above (see
+         * the field javadoc), or null when the capture recorded none.
+         *
+         * @return the pre-analysis UDF version
+         */
+        public Long getFunctionRegistryVersion() {
+            return functionRegistryVersion;
         }
     }
 

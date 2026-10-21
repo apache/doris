@@ -646,7 +646,7 @@ public final class SPMPlanTreeSupport {
         // identified by its CTE's DEFINITION ORDER index instead of the alias - the
         // same trick the occurrence ordinal plays for table aliases (see
         // SPMPlanTreeSupport#relationNameOf).
-        Map<String, Integer> cteOrder = cteDefinitionOrder(plan);
+        CteOrder cteOrder = cteDefinitionOrder(plan);
         assignRelationOrdinals(plan, new HashMap<>(), relationOrdinals, cteOrder,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
         collectRowLimits(plan, out, relationOrdinals, cteOrder,
@@ -655,7 +655,7 @@ public final class SPMPlanTreeSupport {
 
     private static void collectRowLimits(Plan plan, Map<String, Integer> out,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            Map<String, Integer> cteOrder, Set<Plan> visited) {
+            CteOrder cteOrder, Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
@@ -682,7 +682,7 @@ public final class SPMPlanTreeSupport {
     /** Recurses one expression tree looking for subquery plans (see walkSubqueryPlans). */
     private static void collectRowLimits(Expression expression, Map<String, Integer> out,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            Map<String, Integer> cteOrder, Set<Plan> visited) {
+            CteOrder cteOrder, Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
             collectRowLimits(((SubqueryExpr) expression).getQueryPlan(), out,
                     relationOrdinals, cteOrder, visited);
@@ -698,33 +698,148 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Maps every CTE alias DEFINED in the tree (normalized, see normalizeCteName) to
-     * its definition-order index, assigned in the walk order of walkPlansScoped. The
-     * two sides of one replay - the caller's raw tree and the parsed frozen planSql -
+     * The CTE identities one statement's row-limit keys compare (see cteDefinitionOrder).
+     *
+     * Two views of the same information: the flat NAME map answers for a name whose
+     * definitions are all equivalent (the common case), and the per-REFERENCE map keeps
+     * the binding actually VISIBLE at that reference, which is what a SHADOWED name needs
+     * (round-79 #7): a nested `WITH c AS ...` reuses the name `c`, and the flat map's
+     * first-definition-wins index then gave both references the SAME identity - a cap
+     * moved from the outer `c` to the inner one kept its key and passed the cap check
+     * although it truncated another CTE.
+     */
+    private static final class CteOrder {
+        /** Normalized alias -> definition-order index (the FIRST definition of a name). */
+        private final Map<String, Integer> definitionOrder = new HashMap<>();
+        /** Reference node -> the index of the binding visible at it (shadowing resolved). */
+        private final IdentityHashMap<Plan, Integer> referenceIndex = new IdentityHashMap<>();
+
+        /**
+         * The identity of one CTE reference.
+         *
+         * @param reference the referencing node
+         * @param written   the name the statement wrote
+         * @return the definition-order index, or null when the name is not a CTE
+         */
+        Integer indexOf(Plan reference, String written) {
+            Integer scoped = referenceIndex.get(reference);
+            return scoped != null ? scoped : definitionOrder.get(normalizeCteName(written));
+        }
+    }
+
+    /**
+     * Assigns every CTE of the tree (normalized, see normalizeCteName) its
+     * definition-order index AND resolves every reference to the binding visible at it.
+     * The two sides of one replay - the caller's raw tree and the parsed frozen planSql -
      * spell the same CTE with different aliases (the decompiler regenerates every
      * derived alias), but the WITH structure and its order are preserved, so the
      * INDEX is the name-independent identity the row-limit keys compare. Distinct
      * CTEs keep distinct indices, so a cap moved between two CTEs still changes its
      * key.
+     *
+     * The walk mirrors walkPlansScoped's scoping rules, carrying the name -> index map
+     * instead of the visible-name set so a SHADOWED definition resolves to the innermost
+     * binding (round-79 #7).
+     *
+     * @param root the parsed (unbound) tree
+     * @return the identity maps
      */
-    private static Map<String, Integer> cteDefinitionOrder(Plan root) {
-        Map<String, Integer> order = new HashMap<>();
+    private static CteOrder cteDefinitionOrder(Plan root) {
+        CteOrder order = new CteOrder();
         int[] next = {0};
-        walkPlansScoped(root, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
-            if (node instanceof LogicalCTE) {
-                for (LogicalSubQueryAlias<Plan> alias
-                        : ((LogicalCTE<? extends Plan>) node).getAliasQueries()) {
-                    String name = normalizeCteName(alias.getAlias());
-                    order.putIfAbsent(name, next[0]++);
+        assignCteOrder(root, new HashMap<>(), order, next,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+        return order;
+    }
+
+    /**
+     * One scoped step of cteDefinitionOrder.
+     *
+     * @param root    the node to visit (may be null)
+     * @param visible the name -> index bindings visible at root
+     * @param order   the maps being filled
+     * @param next    the definition-order counter
+     * @param visited the identity set of already-visited nodes
+     */
+    private static void assignCteOrder(Plan root, Map<String, Integer> visible, CteOrder order,
+            int[] next, Set<Plan> visited) {
+        if (root == null || !visited.add(root)) {
+            return;
+        }
+        if (root instanceof UnboundRelation) {
+            List<String> parts = ((UnboundRelation) root).getNameParts();
+            if (parts != null && parts.size() == 1) {
+                Integer index = visible.get(normalizeCteName(parts.get(0)));
+                if (index != null) {
+                    order.referenceIndex.put(root, index);
                 }
             }
-        });
-        return order;
+        }
+        if (root instanceof LogicalCTE) {
+            LogicalCTE<? extends Plan> cte = (LogicalCTE<? extends Plan>) root;
+            List<LogicalSubQueryAlias<Plan>> aliases = cte.getAliasQueries();
+            Map<String, Integer> extended = new HashMap<>(visible);
+            for (LogicalSubQueryAlias<Plan> alias : aliases) {
+                String name = normalizeCteName(alias.getAlias());
+                order.definitionOrder.putIfAbsent(name, next[0]);
+                extended.put(name, next[0]++);
+            }
+            assignCteOrder(cte.child(0), extended, order, next, visited);
+            for (int i = 0; i < aliases.size(); i++) {
+                Map<String, Integer> bodyScope = new HashMap<>(visible);
+                for (int j = 0; j < i; j++) {
+                    String name = normalizeCteName(aliases.get(j).getAlias());
+                    bodyScope.put(name, extended.get(name));
+                }
+                // a self reference binds to the WITH clause only in a real recursive CTE;
+                // under a plain WITH it is an ordinary base-table reference
+                if (cte.isRecursive() && aliases.get(i).isRecursiveCte()) {
+                    String name = normalizeCteName(aliases.get(i).getAlias());
+                    bodyScope.put(name, extended.get(name));
+                }
+                assignCteOrder(aliases.get(i), bodyScope, order, next, visited);
+            }
+            return;
+        }
+        for (Plan child : root.children()) {
+            assignCteOrder(child, visible, order, next, visited);
+        }
+        for (Plan extra : root.extraPlans()) {
+            assignCteOrder(extra, visible, order, next, visited);
+        }
+        for (Expression expression : root.getExpressions()) {
+            assignCteOrderInSubqueries(expression, visible, order, next, visited);
+        }
+    }
+
+    /**
+     * Scoped counterpart of walkSubqueryPlans for cteDefinitionOrder.
+     *
+     * @param expression the expression to scan
+     * @param visible    the bindings visible at the expression
+     * @param order      the maps being filled
+     * @param next       the definition-order counter
+     * @param visited    the identity set of already-visited nodes
+     */
+    private static void assignCteOrderInSubqueries(Expression expression,
+            Map<String, Integer> visible, CteOrder order, int[] next, Set<Plan> visited) {
+        if (expression instanceof SubqueryExpr) {
+            assignCteOrder(((SubqueryExpr) expression).getQueryPlan(), visible, order, next,
+                    visited);
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                assignCteOrderInSubqueries(replaced, visible, order, next, visited);
+            }
+        }
+        for (Expression child : expression.children()) {
+            assignCteOrderInSubqueries(child, visible, order, next, visited);
+        }
     }
 
     /** Pre-order walk assigning each relation node its per-name occurrence ordinal. */
     private static void assignRelationOrdinals(Plan plan, Map<String, Integer> counters,
-            IdentityHashMap<Plan, Integer> ordinals, Map<String, Integer> cteOrder,
+            IdentityHashMap<Plan, Integer> ordinals, CteOrder cteOrder,
             Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
@@ -747,7 +862,7 @@ public final class SPMPlanTreeSupport {
     /** Recurses one expression tree for relation ordinals (see assignRelationOrdinals). */
     private static void assignRelationOrdinals(Expression expression,
             Map<String, Integer> counters, IdentityHashMap<Plan, Integer> ordinals,
-            Map<String, Integer> cteOrder, Set<Plan> visited) {
+            CteOrder cteOrder, Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
             assignRelationOrdinals(((SubqueryExpr) expression).getQueryPlan(), counters,
                     ordinals, cteOrder, visited);
@@ -784,7 +899,7 @@ public final class SPMPlanTreeSupport {
      */
     private static String rowLimitKey(long limit, long offset, Plan limitNode,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            Map<String, Integer> cteOrder) {
+            CteOrder cteOrder) {
         Set<String> inputs = new TreeSet<>();
         collectRelationInputs(limitNode, relationOrdinals, cteOrder, inputs,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
@@ -810,7 +925,7 @@ public final class SPMPlanTreeSupport {
      */
     private static void collectRelationInputs(Plan plan,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            Map<String, Integer> cteOrder, Set<String> out,
+            CteOrder cteOrder, Set<String> out,
             Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
@@ -834,7 +949,7 @@ public final class SPMPlanTreeSupport {
     /** Recurses one expression tree for relation inputs (see collectRelationInputs). */
     private static void collectRelationInputs(Expression expression,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            Map<String, Integer> cteOrder, Set<String> out,
+            CteOrder cteOrder, Set<String> out,
             Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
             collectRelationInputs(((SubqueryExpr) expression).getQueryPlan(),
@@ -863,14 +978,14 @@ public final class SPMPlanTreeSupport {
      * index keeps distinct CTEs distinct, so a cap moved between two CTEs still
      * changes its key.
      */
-    private static String relationNameOf(Plan plan, Map<String, Integer> cteOrder) {
+    private static String relationNameOf(Plan plan, CteOrder cteOrder) {
         if (plan instanceof UnboundRelation) {
             List<String> parts = ((UnboundRelation) plan).getNameParts();
             if (parts == null || parts.isEmpty()) {
                 return null;
             }
             if (parts.size() == 1 && cteOrder != null) {
-                Integer cteIndex = cteOrder.get(normalizeCteName(parts.get(0)));
+                Integer cteIndex = cteOrder.indexOf(plan, parts.get(0));
                 if (cteIndex != null) {
                     return "cte#" + cteIndex;
                 }
@@ -3401,7 +3516,24 @@ public final class SPMPlanTreeSupport {
                     "the caller's * EXCEPT column " + excluded.toSql() + " names no"
                             + " relation of the replay; the headers cannot be positioned");
         }
-        return side.openTail;
+        if (!side.openTail) {
+            return false;
+        }
+        // A PARTLY derivable side is the other case (round-79 #6): a join side may expose a
+        // KNOWN prefix plus an unknown tail, and `* EXCEPT(e.x)` then names a REAL prefix
+        // column. Skipping the entry because the side is open kept that column, so the
+        // derived label run was one position too long and every following label shifted -
+        // the width does not have to be unknown for a column to be derivable.
+        String name = outputLabelOf(excluded);
+        if (name == null) {
+            return true;
+        }
+        for (String known : side.labels) {
+            if (known != null && known.equalsIgnoreCase(name)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -3559,6 +3691,11 @@ public final class SPMPlanTreeSupport {
             Plan userNode, List<NamedExpression> userItems,
             List<NamedExpression> rewrittenItems, Plan rewritten,
             java.util.ArrayDeque<Plan> rewrittenAncestors, CteScope cteScope) {
+        // The SAME block-scoped qualifier set the ordinary projection path uses: without it a
+        // trailing struct field reference (SELECT *, s.a FROM t with s STRUCT&lt;a:INT&gt;) was read
+        // as the bare column `a` and the correct frozen header `s.a` was renamed even for an
+        // identical replay (round-79 #5). The preceding items have the same exposure.
+        Set<String> relationQualifiers = collectRelationQualifiers(userNode);
         int starIndex = -1;
         List<String> prefix = null;
         if (userNode.children().size() == 1) {
@@ -3614,7 +3751,7 @@ public final class SPMPlanTreeSupport {
                         precedingItems.add(null);
                     }
                 } else {
-                    precedingLabels.add(outputLabelOf(item));
+                    precedingLabels.add(outputLabelOf(item, relationQualifiers));
                     precedingItems.add(item);
                 }
             }
@@ -3650,7 +3787,7 @@ public final class SPMPlanTreeSupport {
                         followingItems.add(null);
                     }
                 } else {
-                    followingLabels.add(outputLabelOf(item));
+                    followingLabels.add(outputLabelOf(item, relationQualifiers));
                     followingItems.add(item);
                 }
             }
@@ -3681,7 +3818,7 @@ public final class SPMPlanTreeSupport {
                 userLabel = followingLabels.get(userIndex);
                 userItem = followingItems.get(userIndex);
             }
-            String rewrittenLabel = outputLabelOf(rewrittenItem);
+            String rewrittenLabel = outputLabelOf(rewrittenItem, relationQualifiers);
             if (userLabel == null || rewrittenLabel == null
                     || (userLabel.equals(rewrittenLabel)
                             && headerAlreadyExposes(rewrittenItem, rewrittenLabel))) {
@@ -4959,6 +5096,68 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * The output ALIASES a statement's HAVING predicates consume (see
+     * rejectManualPlanDivergence).
+     *
+     * Only components that name one of the block's OWN output labels count: a HAVING name that
+     * matches no output item is a base column and is compared by the predicate text already. The
+     * names are lower-cased (identifiers bind case-insensitively).
+     *
+     * @param plan  the parsed tree
+     * @param items the block's output items
+     * @return the consumed output aliases
+     */
+    private static Set<String> havingConsumedOutputAliases(Plan plan,
+            List<NamedExpression> items) {
+        Set<String> labels = new HashSet<>();
+        for (NamedExpression item : items) {
+            String label = outputLabelOf(item);
+            if (label != null && !label.isEmpty()) {
+                labels.add(label.toLowerCase(Locale.ROOT));
+            }
+        }
+        Set<String> referenced = new HashSet<>();
+        if (plan == null || labels.isEmpty()) {
+            return referenced;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            if (node instanceof LogicalHaving) {
+                for (Expression conjunct : ((LogicalHaving<?>) node).getConjuncts()) {
+                    collectBareSlotNames(conjunct, referenced);
+                }
+            }
+        });
+        referenced.retainAll(labels);
+        return referenced;
+    }
+
+    /**
+     * Collects the BARE (single-component) slot names of one expression tree (see
+     * havingConsumedOutputAliases). A qualified reference addresses a relation, never an output
+     * alias, so it is skipped.
+     *
+     * @param expression the expression to scan
+     * @param out        the collected lower-cased names
+     */
+    private static void collectBareSlotNames(Expression expression, Set<String> out) {
+        if (expression instanceof UnboundSlot) {
+            java.util.List<String> parts = ((UnboundSlot) expression).getNameParts();
+            if (parts != null && parts.size() == 1) {
+                out.add(parts.get(0).toLowerCase(Locale.ROOT));
+            }
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced
+                    : ((UnboundStar) expression).getReplacedAlias()) {
+                collectBareSlotNames(replaced, out);
+            }
+        }
+        for (Expression child : expression.children()) {
+            collectBareSlotNames(child, out);
+        }
+    }
+
+    /**
      * Rejects a manual plan whose LOGICAL query diverges from the bind text.
      * The bind text is the MATCHING KEY: any caller matching it gets the
      * plan side replayed with the caller's values, so a plan that drops the caller's row
@@ -4966,7 +5165,7 @@ public final class SPMPlanTreeSupport {
      * caller's uncapped result silently returns rows the caller never asked for - and
      * neither the schema fingerprint nor the scan-selector guard can see it.
      *
-     * The four contracts checked here:
+     * The five contracts checked here:
      *    sources: every table the plan reads is read by the bind text - bind
      *       SELECT k FROM t with plan SELECT k FROM u makes a caller's
      *       t-query return u's rows (t={1}, u={9} returns 9);
@@ -4982,7 +5181,12 @@ public final class SPMPlanTreeSupport {
      *    ordering: both trees expose the same TOP-LEVEL ORDER BY contract
      *       (keys, direction, null placement, or none) - an uncapped caller keeps its
      *       ordering contract, and a plan that flips the direction returns (2,1) for the
-     *       caller that asked for (1,2).
+     *       caller that asked for (1,2);
+     *    HAVING aliases: an output label a HAVING predicate CONSUMES is semantic
+     *       (bind SELECT k AS x FROM t HAVING x > 0 vs a plan with k AS y): HAVING binds
+     *       the block's output names before the base columns, so the renamed plan filters
+     *       t.x while the bind filtered k, and the label restoration cannot repair the
+     *       predicate - both sides must consume the SAME aliases.
      * After those set-wise contracts the two trees are compared NODE BY NODE and input by
      * input (see rejectRelationalTopologyDivergence): a predicate that MOVED to another
      * input, an operator that was added / dropped (DISTINCT, a window, a join type) and a
@@ -5050,6 +5254,22 @@ public final class SPMPlanTreeSupport {
                                 + " the column LABEL may differ). Write the plan with the"
                                 + " SAME output expressions: " + bindSql);
             }
+        }
+        // An output label is NOT always just a label (round-79 #2): a HAVING predicate binds the
+        // block's output names BEFORE the base columns, so `SELECT k AS x FROM t HAVING x > 0`
+        // filters the ALIASED value while a plan that renames the item to `y` makes the same
+        // `x` resolve to the BASE column t.x - a different predicate over a different column, and
+        // the label alignment cannot repair a predicate. Every alias a HAVING consumes must
+        // therefore exist on BOTH sides.
+        Set<String> bindHavingAliases = havingConsumedOutputAliases(bindPlan, bindItems);
+        Set<String> planHavingAliases = havingConsumedOutputAliases(planPlan, planItems);
+        if (!bindHavingAliases.equals(planHavingAliases)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their HAVING predicates"
+                            + " consume different output aliases (bind " + bindHavingAliases
+                            + ", plan " + planHavingAliases + "). A HAVING name binds the"
+                            + " block's OUTPUT column first, so renaming that item silently"
+                            + " filters another column: " + bindSql);
         }
         Set<String> bindFilters = filterConjunctTexts(bindPlan);
         Set<String> planFilters = filterConjunctTexts(planPlan);
@@ -6621,6 +6841,32 @@ public final class SPMPlanTreeSupport {
     public static String schemaFingerprintForCreateFromLockedEntries(ConnectContext ctx,
             Plan bindPlan, String storedPlanSql, Map<String, String> tableFingerprints,
             java.util.Set<String> bindFunctionSnapshot) {
+        return schemaFingerprintForCreateFromLockedEntries(ctx, bindPlan, storedPlanSql,
+                tableFingerprints, bindFunctionSnapshot, null);
+    }
+
+    /**
+     * As {@link #schemaFingerprintForCreateFromLockedEntries(ConnectContext, Plan, String, Map,
+     * java.util.Set)}, also verifying that the UDF definitions did not MOVE during the capture.
+     *
+     * The entry comparison above is only as strong as the two snapshots it compares: a
+     * definition re-created and then restored to the original body inside the capture window
+     * leaves both snapshots identical although the expansion inlined the INTERMEDIATE body
+     * (round-79 #9). When the bind text references a UDF, the registry's monotonic UDF version
+     * must therefore be unchanged as well - it records that nothing happened, not just that the
+     * endpoints agree.
+     *
+     * @param ctx                     the creating session
+     * @param bindPlan                the parsed (unbound) bind tree
+     * @param storedPlanSql           the planSql text that gets STORED
+     * @param tableFingerprints       the under-lock table entries
+     * @param bindFunctionSnapshot    the bind-side function entries captured BEFORE analysis
+     * @param functionRegistryVersion the UDF version read BEFORE analysis, or null
+     * @return the fingerprint (possibly empty, never null)
+     */
+    public static String schemaFingerprintForCreateFromLockedEntries(ConnectContext ctx,
+            Plan bindPlan, String storedPlanSql, Map<String, String> tableFingerprints,
+            java.util.Set<String> bindFunctionSnapshot, Long functionRegistryVersion) {
         if (bindPlan == null || ctx == null || ctx.getStatementContext() == null) {
             return "";
         }
@@ -6637,6 +6883,16 @@ public final class SPMPlanTreeSupport {
                         + " " + changed + ", before: " + gone + "); nothing was changed - retry"
                         + " the CREATE");
             }
+            if (functionRegistryVersion != null && functionRegistryVersion >= 0
+                    && referencesUdf(current)
+                    && functionRegistryVersion() != functionRegistryVersion.longValue()) {
+                throw new IllegalStateException("SPM cannot certify the function definitions of"
+                        + " a baseline whose bind text references a UDF: the UDF definitions"
+                        + " MOVED while the plan was being captured (version "
+                        + functionRegistryVersion + " -> " + functionRegistryVersion() + "). The"
+                        + " derived entries agree NOW, but the expansion inlined whatever body"
+                        + " was live in between; nothing was changed - retry the CREATE");
+            }
         }
         TreeSet<String> entries = new TreeSet<>();
         if (tableFingerprints != null) {
@@ -6652,6 +6908,38 @@ public final class SPMPlanTreeSupport {
         }
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
+    }
+
+    /**
+     * The current UDF-definition version of the function registry (see
+     * schemaFingerprintForCreateFromLockedEntries).
+     *
+     * @return a monotonically increasing version, bumped by every UDF (re)definition; -1 when
+     *         the registry is unreachable (then the version check is skipped)
+     */
+    public static long functionRegistryVersion() {
+        try {
+            return org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry()
+                    .getUdfModifyVersion();
+        } catch (RuntimeException e) {
+            return -1L;
+        }
+    }
+
+    /**
+     * Whether one function-entry set references at least one UDF (see
+     * schemaFingerprintForCreateFromLockedEntries).
+     *
+     * @param entries the derived function entries
+     * @return whether any entry resolved to a UDF
+     */
+    private static boolean referencesUdf(java.util.Set<String> entries) {
+        for (String entry : entries) {
+            if (entry != null && entry.contains("|udf|")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -7391,15 +7679,36 @@ public final class SPMPlanTreeSupport {
     /** One dependency entry shared by the bind-side (unbound) and plan-text walkers. */
     private static String describeFunctionResolution(ConnectContext ctx, String writtenDbRaw,
             String nameRaw) {
+        return describeFunctionResolution(ctx, writtenDbRaw, nameRaw,
+                new java.util.LinkedHashSet<>());
+    }
+
+    /**
+     * As {@link #describeFunctionResolution(ConnectContext, String, String)}, also carrying the
+     * names whose alias body is EXPANDING on the current path (see describeAliasBodyEntries).
+     *
+     * @param ctx                the session providing the current database
+     * @param writtenDbRaw       the written database qualifier (may be null)
+     * @param nameRaw            the written function name
+     * @param expandingAliasBody the function names being expanded on this path
+     * @return the dependency entry
+     */
+    private static String describeFunctionResolution(ConnectContext ctx, String writtenDbRaw,
+            String nameRaw, Set<String> expandingAliasBody) {
         // normalized: the parser preserves the written case, SUM and sum are the same
         // function and must produce the same entry
         String name = nameRaw == null ? "" : nameRaw.toLowerCase(java.util.Locale.ROOT);
         if ("key".equals(name)) {
             return "fn:key|volatile";
         }
-        String writtenDb = writtenDbRaw == null || writtenDbRaw.isEmpty() ? null : writtenDbRaw;
-        boolean qualified = writtenDb != null;
+        if (!expandingAliasBody.add(name)) {
+            // a body that (transitively) references itself: the identity is the name, the
+            // expansion cannot be described any further
+            return "fn:" + name + "|cycle";
+        }
         try {
+            String writtenDb = writtenDbRaw == null || writtenDbRaw.isEmpty() ? null : writtenDbRaw;
+            boolean qualified = writtenDb != null;
             org.apache.doris.catalog.FunctionRegistry registry =
                     org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry();
             // NAME-level UDF lookup: the plans checked here are UNBOUND, so the
@@ -7418,7 +7727,7 @@ public final class SPMPlanTreeSupport {
             java.util.TreeSet<String> overloads = new java.util.TreeSet<>();
             for (org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder candidate
                     : udfCandidates) {
-                overloads.add(describeUdfCandidate(candidate));
+                overloads.add(describeUdfCandidate(ctx, candidate, expandingAliasBody));
             }
             // the effective resolution MIRRORS FunctionRegistry#findFunctionBuilder's
             // scope / preference order (arity and argument-type filtering cannot be
@@ -7442,12 +7751,22 @@ public final class SPMPlanTreeSupport {
             // name-level lookup hiccup (null database / privilege probe): a stable
             // identity, so both sides degrade identically instead of mismatching
             return "fn?:" + name;
+        } finally {
+            expandingAliasBody.remove(name);
         }
     }
 
-    /** Stable identity of one same-name UDF candidate (body for alias UDFs). */
-    private static String describeUdfCandidate(
-            org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder) {
+    /**
+     * Stable identity of one same-name UDF candidate (body for alias UDFs).
+     *
+     * @param ctx                the session providing the current database
+     * @param builder            the candidate builder
+     * @param expandingAliasBody the function names being expanded on this path
+     * @return the candidate's identity
+     */
+    private static String describeUdfCandidate(ConnectContext ctx,
+            org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder,
+            Set<String> expandingAliasBody) {
         String signature = "";
         if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
                 .UdfBuilder) {
@@ -7462,9 +7781,126 @@ public final class SPMPlanTreeSupport {
                             builder).getAliasUdf();
             return "alias:" + (udf == null ? "null"
                     : udf.getUnboundFunction().toSql() + "|" + udf.getSessionVariables())
-                    + "|" + signature;
+                    + "|" + signature + "|" + planBehaviorOf(udf)
+                    + "|" + describeAliasBodyEntries(ctx, udf, expandingAliasBody);
         }
-        return "other:" + builder.functionClass().getName() + "|" + signature;
+        return "other:" + builder.functionClass().getName() + "|" + signature
+                + "|" + planBehaviorOf(builder.functionClass());
+    }
+
+    /**
+     * The RESOLVED dependencies of one alias UDF body (see describeUdfCandidate).
+     *
+     * The body TEXT alone is lossy for a QUALIFIED call (round-79 #8): the body of
+     * `f(x)` = `my_db.g(x) + 1` renders identically whether `my_db.g` is one alias UDF or
+     * another, so re-creating the INNER function changed what the outer expansion INLINES
+     * while the dependency identity stayed the same - the frozen text kept the old inner
+     * body and the replay returned its value (or the derived fingerprint could not
+     * separate the two definitions at all). The body's own function RESOLUTIONS are
+     * therefore part of the identity, recursively; the names on the current path break a
+     * cyclic self reference.
+     *
+     * @param ctx                the session providing the current database
+     * @param udf                the alias UDF (may be null)
+     * @param expandingAliasBody the function names being expanded on this path
+     * @return the body's dependency entries, or "-" when it references no function
+     */
+    private static String describeAliasBodyEntries(ConnectContext ctx,
+            org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf udf,
+            Set<String> expandingAliasBody) {
+        if (udf == null) {
+            return "-";
+        }
+        java.util.TreeSet<String> entries = new java.util.TreeSet<>();
+        collectBodyFunctionEntries(ctx, udf.getUnboundFunction(), entries, expandingAliasBody);
+        return entries.isEmpty() ? "-" : String.join(",", entries);
+    }
+
+    /**
+     * Collects the dependency entries of the functions referenced inside one alias body (see
+     * describeAliasBodyEntries).
+     *
+     * @param ctx                the session providing the current database
+     * @param expr               the body expression to scan
+     * @param entries            the collected entries
+     * @param expandingAliasBody the function names being expanded on this path
+     */
+    private static void collectBodyFunctionEntries(ConnectContext ctx, Expression expr,
+            java.util.TreeSet<String> entries, Set<String> expandingAliasBody) {
+        if (expr instanceof org.apache.doris.nereids.analyzer.UnboundFunction) {
+            org.apache.doris.nereids.analyzer.UnboundFunction function =
+                    (org.apache.doris.nereids.analyzer.UnboundFunction) expr;
+            entries.add(describeFunctionResolution(ctx, function.getDbName(),
+                    function.getName(), expandingAliasBody));
+        }
+        if (expr instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
+                collectBodyFunctionEntries(ctx, replaced, entries, expandingAliasBody);
+            }
+        }
+        for (Expression child : expr.children()) {
+            collectBodyFunctionEntries(ctx, child, entries, expandingAliasBody);
+        }
+    }
+
+    /**
+     * The plan-SHAPE-relevant CREATION-TIME metadata of one UDF (see describeUdfCandidate).
+     *
+     * The optimizer reads a function's NULLABILITY, not only its name: an AlwaysNullable UDF keeps
+     * an outer join alive, a PropagateNullLiteral one lets `f(NULL)` fold to a constant, and
+     * AlwaysNotNullable removes the null-rejecting filter. Re-creating the alias / the jar with the
+     * SAME class name and argument types but another nullability therefore changed the frozen SQL
+     * while the fingerprint stayed identical, so a replay served the old plan text (round-79 #4).
+     *
+     * @param udf the alias UDF (may be null)
+     * @return the behavior flags of the alias body (empty for a Java UDF, whose class is
+     *         fingerprinted through its name at the caller)
+     */
+    private static String planBehaviorOf(
+            org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf udf) {
+        if (udf == null) {
+            return "-";
+        }
+        Expression body = udf.getUnboundFunction();
+        return body instanceof org.apache.doris.nereids.trees.expressions.functions.Function
+                ? planBehaviorOf(
+                        ((org.apache.doris.nereids.trees.expressions.functions.Function) body)
+                                .getClass())
+                : "-";
+    }
+
+    /**
+     * The plan-SHAPE-relevant nullability metadata of one function class (see planBehaviorOf).
+     *
+     * Read from the CLASS, because the plans checked here are UNBOUND: the flags are exactly the
+     * ones the optimizer consults and none of them is implied by the name or the signature.
+     *
+     * @param clazz the function class (may be null)
+     * @return the flag string ('N' always-nullable, 'T' always-not-nullable, 'P'
+     *         propagate-nullable, 'L' propagate-null-literal)
+     */
+    private static String planBehaviorOf(Class<?> clazz) {
+        if (clazz == null) {
+            return "-";
+        }
+        StringBuilder flags = new StringBuilder();
+        if (org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable.class
+                .isAssignableFrom(clazz)) {
+            flags.append('N');
+        }
+        if (org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable.class
+                .isAssignableFrom(clazz)) {
+            flags.append('T');
+        }
+        if (org.apache.doris.nereids.trees.expressions.functions.PropagateNullable.class
+                .isAssignableFrom(clazz)) {
+            flags.append('P');
+        }
+        if (org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral.class
+                .isAssignableFrom(clazz)) {
+            flags.append('L');
+        }
+        return flags.length() == 0 ? "-" : flags.toString();
     }
 
     /**

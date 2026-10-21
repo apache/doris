@@ -144,7 +144,7 @@ public class BaselineManagerMutationClockTest {
 
         @Override
         public void prune(long lastId, long tick) {
-            // PRUNE_HWM_SQL ('last_id' < lastId OR same watermark with an older tick) with
+            // PRUNE_HWM_SQL ('watermark' < lastId OR same watermark with an older tick) with
             // its OPEN-WINDOW guard: a pending row is never a victim
             rows.removeIf(row -> (row[0] < lastId || (row[0] == lastId && row[1] < tick))
                     && row[2] == 0);
@@ -234,14 +234,14 @@ public class BaselineManagerMutationClockTest {
          * wrote carries another (newer) version and must survive.
          */
         @Override
-        public void deleteByIdAndStatus(long id, BaselineStatus status, long oldUpdateTimeMs) {
-            operations.add("delete:" + status + "@" + oldUpdateTimeMs);
-            if (oldUpdateTimeMs <= 0) {
+        public void deleteByIdAndStatus(long id, BaselineStatus status, long oldUpdateTimeMicros) {
+            operations.add("delete:" + status + "@" + oldUpdateTimeMicros);
+            if (oldUpdateTimeMicros <= 0) {
                 deleteByIdAndStatus(id, status);
                 return;
             }
             List<Long> stored = versions.get(status);
-            if (stored == null || !stored.remove(oldUpdateTimeMs)) {
+            if (stored == null || !stored.remove(oldUpdateTimeMicros)) {
                 return; // the predicate matches no row: nothing is deleted
             }
             rows.computeIfPresent(status, (key, count) -> count > 1 ? count - 1 : null);
@@ -253,9 +253,9 @@ public class BaselineManagerMutationClockTest {
         }
 
         @Override
-        public long newestStoredUpdateSecond() {
+        public long newestStoredUpdateMicros() {
             return versions.values().stream().flatMap(List::stream)
-                    .mapToLong(Long::longValue).max().orElse(0L) / 1000L;
+                    .mapToLong(Long::longValue).max().orElse(0L);
         }
     }
 
@@ -581,7 +581,7 @@ public class BaselineManagerMutationClockTest {
         String select = BaselineManagerTestAccess.droppedMarkerReadSql();
         Assertions.assertTrue(select.contains("`id` IN (${tombstoneIds})"),
                 "the scoped read must SEEK the keyed ids: " + select);
-        Assertions.assertTrue(select.contains("`last_id` IN (${ids})")
+        Assertions.assertTrue(select.contains("`baseline_id` IN (${ids})")
                         && select.contains("`dropped` = 1"),
                 "and still pin the requested identities / the tombstone flag: " + select);
     }

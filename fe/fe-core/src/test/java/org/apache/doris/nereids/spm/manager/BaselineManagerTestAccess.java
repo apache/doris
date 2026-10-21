@@ -335,9 +335,9 @@ public final class BaselineManagerTestAccess {
     }
 
     /**
-     * The stored second (epoch millis) the single HELD mutation window expects: a snapshot
-     * row only proves the outcome when it carries this second or a LATER one (a same-status
-     * row the intent supersedes is NOT the outcome, see round-71 #10a).
+     * The stored instant (epoch microseconds) the single HELD mutation window expects: a
+     * snapshot row only proves the outcome when it carries this instant or a LATER one (a
+     * same-status row the intent supersedes is NOT the outcome, see round-71 #10a).
      */
     public static long heldMutationWindowAttemptedUpdateTime() {
         Map<?, ?> windows = (Map<?, ?>) staticValue("unresolvedMutationWindows");
@@ -346,7 +346,7 @@ public final class BaselineManagerTestAccess {
         }
         Object window = windows.values().iterator().next();
         try {
-            Field attempted = window.getClass().getDeclaredField("attemptedUpdateTimeMillis");
+            Field attempted = window.getClass().getDeclaredField("attemptedUpdateTimeMicros");
             attempted.setAccessible(true);
             return (Long) attempted.get(window);
         } catch (ReflectiveOperationException e) {
@@ -356,11 +356,11 @@ public final class BaselineManagerTestAccess {
 
     /** Records one mutation fence (round-63: the by-hash miss reconciliation). */
     public static void recordPendingMutationFence(BaselineManager manager, long id,
-            org.apache.doris.nereids.spm.BaselineStatus status, long updateTimeMs) {
+            org.apache.doris.nereids.spm.BaselineStatus status, long updateTimeMicros) {
         invoke(manager, "recordPendingMutationFence",
                 new Class<?>[] {long.class, org.apache.doris.nereids.spm.BaselineStatus.class,
                         long.class},
-                id, status, updateTimeMs);
+                id, status, updateTimeMicros);
     }
 
     public static void removePendingMutationFence(BaselineManager manager, long id) {

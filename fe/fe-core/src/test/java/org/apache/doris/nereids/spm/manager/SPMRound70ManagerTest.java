@@ -55,7 +55,7 @@ public class SPMRound70ManagerTest {
     private static final class TestStore implements BaselinePersistence {
         final Map<Long, BaselinePlan> rows = new ConcurrentHashMap<>();
         final List<BaselinePlan> inserted = new CopyOnWriteArrayList<>();
-        /** (id, keepFromSecond) of every prune request. */
+        /** (id, keepFromMicros) of every prune request. */
         final List<long[]> pruned = new CopyOnWriteArrayList<>();
         /** Whether the prune ran while a shared window was OPEN. */
         boolean pruneRanInsideWindow;
@@ -107,7 +107,7 @@ public class SPMRound70ManagerTest {
         }
 
         @Override
-        public long newestStoredUpdateSecond(long id) {
+        public long newestStoredUpdateMicros(long id) {
             if (newestSecondUnreadable) {
                 throw new RuntimeException("internal read failed");
             }
@@ -129,9 +129,9 @@ public class SPMRound70ManagerTest {
         }
 
         @Override
-        public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
+        public void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
             pruneRanInsideWindow = windowOpen();
-            pruned.add(new long[] {identity.getId(), keepFromSecond});
+            pruned.add(new long[] {identity.getId(), keepFromMicros});
         }
 
         /** The window is OPEN while the last high-water-mark row is still pending. */

@@ -132,7 +132,7 @@ public class SPMRound72ManagerTest {
 
         @Override
         public DurablePresence probeRow(long id, String bindSqlDigest, String planSql,
-                BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMs) {
+                BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMicros) {
             BaselinePlan row = rows.get(id);
             if (row == null) {
                 return DurablePresence.ABSENT;
