@@ -112,7 +112,7 @@ public class FileTypeExpressionTest {
             }
             for (String sql : Arrays.asList("select 1", "select named_struct('s', 'text')",
                     "select element_at(" + file + ", 'uri')",
-                    "select cast(" + file + " as json)")) {
+                    "select to_json(" + file + ")")) {
                 Assertions.assertDoesNotThrow(() -> PlanChecker.from(flight).analyze(sql), sql);
             }
         } finally {
@@ -228,12 +228,36 @@ public class FileTypeExpressionTest {
     }
 
     @Test
+    public void testFileJsonCastsAreUnsupported() {
+        for (boolean strict : Arrays.asList(true, false)) {
+            for (String wrapper : Arrays.asList("%s", "ARRAY<%s>", "STRUCT<f:%s>", "MAP<STRING,%s>")) {
+                DataType file = type(String.format(wrapper, "FILE"));
+                DataType json = type(String.format(wrapper, "JSON"));
+                Assertions.assertFalse(CheckCast.check(file, json, strict));
+                Assertions.assertFalse(CheckCast.check(json, file, strict));
+                Assertions.assertFalse(CheckCast.check(file, JsonType.INSTANCE, strict));
+                Assertions.assertFalse(CheckCast.check(JsonType.INSTANCE, file, strict));
+            }
+        }
+    }
+
+    @Test
+    public void testToJsonAcceptsFile() {
+        for (String value : Arrays.asList("cast(null as file)",
+                "cast(named_struct('uri', 'urn:x', 'offset', null, 'size', null, "
+                        + "'content_type', null, 'checksum', null, 'inline', null) as file)")) {
+            Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze("select to_json(" + value + ")").getPlan();
+            Assertions.assertEquals(JsonType.INSTANCE, plan.getOutput().get(0).getDataType());
+        }
+    }
+
+    @Test
     public void testFileCastUsesOrdinaryTypeChecksAndNullLiteralCoercion() {
         Assertions.assertFalse(Cast.castNullable(false, FileType.INSTANCE.publicStructType(), FileType.INSTANCE));
         Assertions.assertTrue(Cast.castNullable(true, FileType.INSTANCE.publicStructType(), FileType.INSTANCE));
         Assertions.assertTrue(Cast.castNullable(false, JsonType.INSTANCE, FileType.INSTANCE));
-        Assertions.assertDoesNotThrow(() -> new Cast(new SlotReference("j", JsonType.INSTANCE),
-                FileType.INSTANCE).checkLegalityBeforeTypeCoercion());
+        Assertions.assertFalse(CheckCast.check(JsonType.INSTANCE, FileType.INSTANCE, true));
         Expression converted = TypeCoercionUtils.castIfNotSameType(new NullLiteral(FileType.INSTANCE),
                 JsonType.INSTANCE);
         Assertions.assertTrue(converted instanceof NullLiteral);
@@ -248,7 +272,7 @@ public class FileTypeExpressionTest {
         String metadata = "uri:STRING,offset:BIGINT,size:BIGINT,content_type:STRING,checksum:STRING";
         String fields = metadata + ",inline:VARBINARY";
         for (boolean strict : Arrays.asList(true, false)) {
-            for (String source : Arrays.asList("STRUCT<" + fields + ">", "JSON", "VARIANT",
+            for (String source : Arrays.asList("STRUCT<" + fields + ">",
                     "STRUCT<inline:VARBINARY,checksum:VARCHAR(10),size:BIGINT,uri:CHAR(10),"
                             + "content_type:STRING,offset:BIGINT>")) {
                 DataType value = type(source);
@@ -257,7 +281,7 @@ public class FileTypeExpressionTest {
                 Assertions.assertTrue(TypeCoercionUtils.implicitCast(value, FileType.INSTANCE).isPresent());
                 Assertions.assertTrue(TypeCoercionUtils.implicitCast(FileType.INSTANCE, value).isPresent());
             }
-            for (String source : Arrays.asList("STRING", "INT", "STRUCT<uri:STRING>",
+            for (String source : Arrays.asList("STRING", "JSON", "VARIANT", "INT", "STRUCT<uri:STRING>",
                     "STRUCT<" + metadata + ">",
                     "STRUCT<" + metadata + ",inline:STRING>",
                     "STRUCT<" + fields + ",extra:STRING>",
@@ -311,9 +335,9 @@ public class FileTypeExpressionTest {
                     Assertions.assertFalse(CheckCast.check(type(String.format(wrapper, leaf)),
                             type(String.format(wrapper, "ARRAY<FILE>")), strict), wrapper + leaf);
                 }
-                Assertions.assertTrue(CheckCast.check(type(String.format(wrapper, "VARIANT")),
+                Assertions.assertFalse(CheckCast.check(type(String.format(wrapper, "VARIANT")),
                         type(String.format(wrapper, "FILE")), strict), wrapper);
-                Assertions.assertTrue(CheckCast.check(type(String.format(wrapper, "FILE")),
+                Assertions.assertFalse(CheckCast.check(type(String.format(wrapper, "FILE")),
                         type(String.format(wrapper, "VARIANT")), strict), wrapper);
             }
             Assertions.assertTrue(CheckCast.check(VariantType.INSTANCE, type("ARRAY<INT>"), strict));
@@ -576,7 +600,8 @@ public class FileTypeExpressionTest {
                 "select cast(named_struct('uri', 'urn:x', 'offset', cast(0 as bigint), 'size', cast(0 as "
                         + "bigint), 'content_type', '', 'checksum', '', "
                         + "'inline', null) as file) union all "
-                        + "select cast(cast('{\"uri\":\"urn:y\"}' as json) as file) "
+                        + "select cast(named_struct('uri', 'urn:y', 'offset', null, 'size', null, "
+                        + "'content_type', null, 'checksum', null, 'inline', null) as file) "
                         + "union all select cast(null as file)",
                 "select cast(null as array<file>) union all "
                         + "select cast(array(named_struct('uri', 'urn:x', 'offset', cast(0 as bigint), 'size', "
@@ -621,11 +646,10 @@ public class FileTypeExpressionTest {
                 "select cast(named_struct('uri', 'urn:x', 'offset', cast(0 as bigint), 'size', cast(0 as "
                         + "bigint), 'content_type', '', 'checksum', '', "
                         + "'inline', null) as file) "
-                        + "union all select cast(cast('{}' as json) as file) union all select cast(null as file)",
+                        + "union all select cast(null as file)",
                 "select cast(null as file) union all select cast(named_struct('uri', 'urn:x', 'offset', cast(0 "
                         + "as bigint), 'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
                         + "'inline', null) as file) "
-                        + "union all select cast(cast('{}' as json) as file) "
                         + "union all select cast(named_struct('uri', 'urn:z', 'offset', cast(0 as bigint), "
                         + "'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
                         + "'inline', null) as file)")) {

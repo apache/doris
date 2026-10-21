@@ -402,7 +402,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (originalType.isFileType() || targetType.isFileType()) {
             return checkFileCast(originalType, targetType);
         }
-        if ((originalType.isStringLikeType() || originalType.isVariantType() || targetType.isVariantType())
+        if ((originalType.isJsonType() || targetType.isJsonType() || originalType.isStringLikeType()
+                || originalType.isVariantType() || targetType.isVariantType())
                 && (originalType.typeContainsFile() || targetType.typeContainsFile())) {
             return false;
         }
@@ -504,9 +505,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return true;
         }
         DataType publicType = source.isFileType() ? target : source;
-        if (publicType.isJsonType() || publicType.isVariantType()) {
-            return true;
-        }
         if (!(publicType instanceof StructType)) {
             return false;
         }
