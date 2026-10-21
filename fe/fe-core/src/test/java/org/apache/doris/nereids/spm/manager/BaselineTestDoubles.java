@@ -141,6 +141,18 @@ public final class BaselineTestDoubles {
             return 0;
         }
 
+        /**
+         * The newest stored update_time OF ONE ID, in epoch SECONDS (0 = none): a status flip is
+         * ordered against ITS OWN id (the production reader is id-keyed), so a store that only
+         * knows the table-wide value answers with it as a conservative superset.
+         *
+         * @param id the baseline id
+         * @return the newest stored second of that id
+         */
+        default long newestStoredUpdateSecond(long id) {
+            return newestStoredUpdateSecond();
+        }
+
         /** The simulated mutation-clock bump (counted by tests asserting clock advances). */
         default void bumpMutationClock() {
         }
@@ -372,7 +384,9 @@ public final class BaselineTestDoubles {
             if (statusProtocolStore != null) {
                 return statusProtocolStore.newestStoredUpdateSecond();
             }
-            return idAllocatorStore == null ? 0 : idAllocatorStore.newestStoredUpdateSecond();
+            // ID-scoped, like the production reader (the table-wide form predates the bounded
+            // mutation clock and made an unrelated future-dated row appear as this id's version)
+            return idAllocatorStore == null ? 0 : idAllocatorStore.newestStoredUpdateSecond(id);
         }
 
         @Override

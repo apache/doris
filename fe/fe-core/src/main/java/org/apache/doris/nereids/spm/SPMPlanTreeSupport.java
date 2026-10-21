@@ -4579,37 +4579,65 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The RELATION aliases and table names one parse tree exposes (see outputLabelOf). The
-     * per-block precision a resolved plan would give is not needed: a leading component that
-     * matches ANY relation of the statement is treated as a qualifier, and a struct field path
-     * whose first component happens to repeat another relation's alias is the only (harmless)
-     * false positive - the two headers then differ by the qualifier alone, exactly like `u.k`.
+     * The RELATION aliases and table names the CURRENT QUERY BLOCK exposes (see outputLabelOf).
      *
-     * @param plan the caller's tree
-     * @return the lower-cased relation names
+     * The descent is block-scoped on purpose (round-78 #3): a statement-wide walk collected the
+     * aliases of every nested block as well, so with
+     * {@code SELECT s.a, k + 1 AS z FROM t WHERE k IN (SELECT k FROM u s)} the INNER alias {@code s}
+     * was treated as visible while resolving the OUTER {@code s.a} - the struct field path was
+     * misclassified as a relation-qualified column and the correctly frozen header was renamed to
+     * {@code a}. A DERIVED table contributes its alias only (its body is another block), and an
+     * expression-owned subquery is not part of the FROM at all.
+     *
+     * @param plan the caller's tree (its output-carrying node)
+     * @return the lower-cased relation names VISIBLE to that block
      */
     private static Set<String> collectRelationQualifiers(Plan plan) {
         Set<String> qualifiers = new HashSet<>();
+        collectBlockQualifiers(plan, qualifiers);
+        return qualifiers;
+    }
+
+    /**
+     * The block-scoped recursion of collectRelationQualifiers: a derived table / CTE body stops the
+     * descent (only its ALIAS is visible outside), while joins, filters and the block's own FROM
+     * are traversed.
+     *
+     * @param plan      the node to inspect
+     * @param qualifiers the collected relation names
+     */
+    private static void collectBlockQualifiers(Plan plan, Set<String> qualifiers) {
         if (plan == null) {
-            return qualifiers;
+            return;
         }
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            if (node instanceof LogicalSubQueryAlias) {
-                String alias = ((LogicalSubQueryAlias<?>) node).getAlias();
+        if (plan instanceof LogicalSubQueryAlias) {
+            String alias = ((LogicalSubQueryAlias<?>) plan).getAlias();
+            if (alias != null && !alias.isEmpty()) {
+                qualifiers.add(alias.toLowerCase(Locale.ROOT));
+            }
+            return; // the body is a DIFFERENT block
+        }
+        if (plan instanceof UnboundRelation) {
+            java.util.List<String> nameParts = ((UnboundRelation) plan).getNameParts();
+            if (nameParts != null && !nameParts.isEmpty()) {
+                qualifiers.add(nameParts.get(nameParts.size() - 1).toLowerCase(Locale.ROOT));
+            }
+            return;
+        }
+        if (plan instanceof LogicalCTE) {
+            // the WITH aliases are visible to the main query; every alias body is its own block
+            for (LogicalSubQueryAlias<Plan> aliasQuery : ((LogicalCTE<?>) plan).getAliasQueries()) {
+                String alias = aliasQuery.getAlias();
                 if (alias != null && !alias.isEmpty()) {
                     qualifiers.add(alias.toLowerCase(Locale.ROOT));
                 }
             }
-            if (node instanceof UnboundRelation) {
-                java.util.List<String> nameParts =
-                        ((UnboundRelation) node).getNameParts();
-                if (nameParts != null && !nameParts.isEmpty()) {
-                    qualifiers.add(nameParts.get(nameParts.size() - 1)
-                            .toLowerCase(Locale.ROOT));
-                }
-            }
-        });
-        return qualifiers;
+            collectBlockQualifiers(((LogicalCTE<?>) plan).child(0), qualifiers);
+            return;
+        }
+        for (Plan child : plan.children()) {
+            collectBlockQualifiers(child, qualifiers);
+        }
     }
 
     /** The derived (nameFromChild) alias text of one expression, or null. */
@@ -6613,8 +6641,14 @@ public final class SPMPlanTreeSupport {
         TreeSet<String> entries = new TreeSet<>();
         if (tableFingerprints != null) {
             entries.addAll(tableFingerprints.values());
+            // The bind-side FUNCTION entries come from the SNAPSHOT the capture took before
+            // analysis, not from a second live read (round-78 #7): the consistency check above can
+            // only compare what it read, and a redefinition landing between that read and this one
+            // would still certify the frozen body. Recording the definitions the expansion
+            // actually used also makes a later redefinition invalidate the baseline immediately -
+            // the replay recomputes this entry from the registry it finds then.
             collectBindSideFingerprintEntries(ctx, bindPlan, Map.of(), tableFingerprints,
-                    entries, false);
+                    entries, false, bindFunctionSnapshot);
         }
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
@@ -6807,6 +6841,21 @@ public final class SPMPlanTreeSupport {
     private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
             Map<String, TableIf> lockedTables, Map<String, String> lockedEntries,
             TreeSet<String> entries, boolean allowLiveResolve) {
+        collectBindSideFingerprintEntries(ctx, plan, lockedTables, lockedEntries, entries,
+                allowLiveResolve, null);
+    }
+
+    /**
+     * collectBindSideFingerprintEntries with the bind-side FUNCTION entries possibly taken from a
+     * capture-time snapshot.
+     *
+     * @param functionEntriesOverride the function entries to record instead of re-reading the live
+     *                                registry (null = read it, the replay path)
+     */
+    private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
+            Map<String, TableIf> lockedTables, Map<String, String> lockedEntries,
+            TreeSet<String> entries, boolean allowLiveResolve,
+            java.util.Set<String> functionEntriesOverride) {
         walkPlansScoped(plan, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
             if (node instanceof UnboundRelation) {
                 UnboundRelation relation = (UnboundRelation) node;
@@ -6874,6 +6923,14 @@ public final class SPMPlanTreeSupport {
         // changed definition fails the same check as a changed table schema. key(...)
         // is a volatile secret (folded at optimize time): marker only, such baselines
         // are rejected at CREATE (rejectVolatileFunctionDependencies).
+        //
+        // CREATE passes the CAPTURE-TIME snapshot instead of walking the tree against the live
+        // registry (see schemaFingerprintForCreateFromLockedEntries): a redefinition between the
+        // expansion and this call must not be recorded as if the frozen body had used it.
+        if (functionEntriesOverride != null) {
+            entries.addAll(functionEntriesOverride);
+            return;
+        }
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             for (Expression expr : node.getExpressions()) {
                 collectFunctionDependencies(ctx, expr, entries);

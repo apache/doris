@@ -362,58 +362,81 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     // ==================== literal -> scalar placeholder ====================
 
     /**
-     * Whether the expression is a CONDITIONAL whose every RESULT is a NULL literal, i.e. a
-     * node whose type is NullType.
+     * Whether the expression's TYPE is NullType.
      *
      * The type is derived structurally because this builder walks the UNBOUND plan, where
-     * {@code getDataType()} throws: a CASE with only NULL results, an IF with NULL in both
-     * value positions, and a COALESCE of nothing but NULLs all have NullType, and any of them
-     * collected as a Boolean operand (directly, or through a projected slot) is REPLACED by the
-     * analyzer with a typed constant NULL - which deletes the placeholders inside it.
+     * {@code getDataType()} throws. A node produces NullType when EVERY value it can yield is
+     * NULL - a NULL literal, a CASE whose every result does, an IF whose two value arguments do,
+     * a COALESCE / IFNULL / NVL / NULLIF / GREATEST / LEAST all of whose arguments do. Collected as
+     * a Boolean operand (directly, or through a projected slot) such an expression is REPLACED by
+     * the analyzer with a typed constant NULL, which deletes the placeholders inside it.
+     *
+     * The test is RECURSIVE on purpose (round-78 #5): a conditional nested in the RESULT of
+     * another conditional (`k &gt; 0 OR (CASE WHEN k = 0 THEN ifnull(NULL, NULL) ELSE NULL END)`)
+     * yields NullType although its result is not a NULL LITERAL, so a literal-only test left its
+     * inner markers NullType and the consumer erased them - a TRUE variant then replayed as NULL.
+     * The same recursion covers the custom-signature producers: {@code GreatestLeast#customSignature}
+     * returns the arguments' common type, i.e. NullType for {@code greatest(NULL, NULL)} (round-78
+     * #1, LEAST shares the path).
      *
      * @param expr the expression to classify
-     * @return whether every result of the conditional is a NULL literal
+     * @return whether every value the expression can yield is NULL
      */
-    private static boolean allResultsAreNullConditional(Expression expr) {
+    private static boolean producesNullType(Expression expr) {
+        if (expr == null) {
+            return false;
+        }
+        if (expr.isNullLiteral()) {
+            return true;
+        }
         List<Expression> children = expr.children();
         if (expr instanceof CaseWhen) {
             CaseWhen caseWhen = (CaseWhen) expr;
             for (WhenClause clause : caseWhen.getWhenClauses()) {
-                if (!clause.getResult().isNullLiteral()) {
+                if (!producesNullType(clause.getResult())) {
                     return false;
                 }
             }
             return !caseWhen.getDefaultValue().isPresent()
-                    || caseWhen.getDefaultValue().get().isNullLiteral();
+                    || producesNullType(caseWhen.getDefaultValue().get());
         }
         if (isIfConditional(expr)) {
-            return children.size() == 3 && children.get(1).isNullLiteral()
-                    && children.get(2).isNullLiteral();
+            return children.size() == 3 && producesNullType(children.get(1))
+                    && producesNullType(children.get(2));
         }
-        if (isIfNullConditional(expr) || isNullIfConditional(expr)) {
-            // IFNULL / NVL / NULLIF: every argument contributes to the RESULT vs NULL choice
+        if (isIfNullConditional(expr) || isNullIfConditional(expr)
+                || isGreatestLeastConditional(expr) || isCoalesceConditional(expr)) {
+            // every argument contributes a value the result may equal: all-NULL arguments make
+            // the whole call NullType (IFNULL / NVL / NULLIF / GREATEST / LEAST / COALESCE)
             if (children.isEmpty()) {
                 return false;
             }
             for (Expression child : children) {
-                if (!child.isNullLiteral()) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        if (isCoalesceConditional(expr)) {
-            if (children.isEmpty()) {
-                return false;
-            }
-            for (Expression child : children) {
-                if (!child.isNullLiteral()) {
+                if (!producesNullType(child)) {
                     return false;
                 }
             }
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether the expression is a {@code GREATEST} / {@code LEAST} call (see producesNullType).
+     *
+     * {@code GreatestLeast.customSignature} returns the arguments' common type, so an all-NULL
+     * call is NullType and a Boolean consumer replaces it outright (round-78 #1). LEAST shares the
+     * class, so both names are accepted.
+     *
+     * @param expr the expression to classify
+     * @return whether it is a GREATEST / LEAST call
+     */
+    private static boolean isGreatestLeastConditional(Expression expr) {
+        if (!(expr instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expr).getName();
+        return "greatest".equalsIgnoreCase(name) || "least".equalsIgnoreCase(name);
     }
 
     /**
@@ -481,7 +504,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Whether the literal at the CURRENT position is a RESULT of its conditional parent (see
-     * allResultsAreNullConditional) - a CASE's THEN / ELSE, an IF's two value arguments, or any
+     * producesNullType) - a CASE's THEN / ELSE, an IF's two value arguments, or any
      * COALESCE argument.
      *
      * Only RESULTS may be typed BOOLEAN: the WHEN / condition operands compare against real
@@ -513,8 +536,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return caseWhen.getDefaultValue().isPresent()
                     && childIndex == caseWhen.children().size() - 1;
         }
-        if (isIfNullConditional(parent) || isNullIfConditional(parent)) {
-            return true; // every IFNULL / NVL / NULLIF argument is a value, there is no condition
+        if (isIfNullConditional(parent) || isNullIfConditional(parent)
+                || isGreatestLeastConditional(parent)) {
+            // every IFNULL / NVL / NULLIF / GREATEST / LEAST argument is a value
+            return true;
         }
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;
@@ -751,14 +776,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         //
         // The CASE-only repair left the SAME defect for every other all-NULL conditional: a
         // projected `IF(k = 0, NULL, NULL)` consumed by OR is replaced the same way, so the
-        // family is recognised structurally (see allResultsAreNullConditional) instead of by
+        // family is recognised structurally (see producesNullType) instead of by
         // node class.
-        boolean projectedConditional = allResultsAreNullConditional(expr)
+        boolean projectedConditional = producesNullType(expr)
                 && currentProjectItem() >= 0
                 && (parent == null
                         || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
                         || parent instanceof org.apache.doris.nereids.analyzer.UnboundAlias);
-        boolean booleanConditionalOperand = allResultsAreNullConditional(expr)
+        boolean booleanConditionalOperand = producesNullType(expr)
                 && (parent instanceof And || parent instanceof Or || parent instanceof Not
                         || projectedConditional);
 

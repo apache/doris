@@ -168,6 +168,12 @@ public class SPMRound77ManagerTest {
         }
 
         @Override
+        public long readHwmRecord() {
+            // the DROP key cleanup bounds its retirement by the id high-water mark
+            return tableWatermark();
+        }
+
+        @Override
         public long tableWatermark() {
             long max = 0;
             for (BaselinePlan row : rows.values()) {
@@ -227,8 +233,10 @@ public class SPMRound77ManagerTest {
     }
 
     /**
-     * A baseline CREATED after the DROP is still kept: only rows that existed when the DROP
-     * removed its identity are twins of that DROP.
+     * A baseline ALLOCATED after the DROP is still kept: the resumed cleanup is bounded by the id
+     * watermark the DROP recorded, so only rows that already existed then are twins of that DROP.
+     * (A timestamp bound could not separate a CREATE landing in the same stored second as the
+     * retention - see round-78 #6.)
      */
     @Test
     public void testResumedKeyCleanupKeepsABaselineCreatedAfterwards() {
@@ -236,18 +244,21 @@ public class SPMRound77ManagerTest {
         BaselineManager manager = manager(store);
         store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
         store.rows.put(42L, row(42L, "digest_a", BaselineStatus.ENABLED));
+        // the twin at 42 exists BEFORE the DROP and its retirement fails -> the DROP is retryable
         store.failDeletesForId = 42L;
 
         Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(41L));
         Assertions.assertTrue(BaselineManagerTestAccess.retainsDropKeyCleanup(41L),
                 "precondition: the failed attempt kept the cleanup");
         store.failDeletesForId = -1L;
-        // the twin was re-created AFTER the retention instant (a fresh incarnation)
-        store.rows.get(42L).setUpdateTime(System.currentTimeMillis() + 5_000L);
+        // a baseline ALLOCATED after the DROP (a fresh incarnation above the retained watermark)
+        store.rows.put(43L, row(43L, "digest_a", BaselineStatus.ENABLED));
 
         Assertions.assertFalse(manager.dropBaseline(41L));
-        Assertions.assertNotNull(store.rows.get(42L),
-                "a baseline created after the DROP must survive its retried key cleanup");
+        Assertions.assertNull(store.rows.get(42L),
+                "the twin that existed BEFORE the drop is retired by the resumed cleanup");
+        Assertions.assertNotNull(store.rows.get(43L),
+                "a baseline allocated after the DROP must survive its retried key cleanup");
     }
 
     // ==================== #8: the stored second may only lead wall time by a bound ====
