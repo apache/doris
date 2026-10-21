@@ -40,6 +40,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * Pins the begin→finalize guarded window of {@link RowLevelDmlCommand}: {@code beginTransaction} registers
  * the transaction with the transaction manager and the global external-transaction registry, and the
@@ -111,14 +113,15 @@ public class RowLevelDmlCommandTest {
     }
 
     @Test
-    public void deleteCapturesThePreRewriteAnalyzedPlan() {
-        // NereidsPlanner leaves analyzedPlan null for a plain DELETE, so without this hook the whole-file fast
-        // path silently never fires. The hook must record the plan captured right after analysis.
+    public void deleteCapturesThePreRewriteAnalyzedPlanLocally() {
+        // NereidsPlanner leaves analyzedPlan null for a plain DELETE. Capture the plan for the metadata-delete
+        // attempt only; publishing it through setAnalyzedPlan would also change row-level fallback semantics.
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        AtomicReference<Plan> captured = new AtomicReference<>();
 
-        RowLevelDmlCommand.captureAnalyzedPlan(ctx);
+        RowLevelDmlCommand.captureAnalyzedPlan(ctx, captured);
 
         ArgumentCaptor<PlannerHook> captor = ArgumentCaptor.forClass(PlannerHook.class);
         Mockito.verify(statementContext).addPlannerHook(captor.capture());
@@ -130,7 +133,8 @@ public class RowLevelDmlCommandTest {
 
         captor.getValue().afterAnalyze(planner);
 
-        Mockito.verify(planner).setAnalyzedPlan(analyzed);
+        Assertions.assertSame(analyzed, captured.get());
+        Mockito.verify(planner, Mockito.never()).setAnalyzedPlan(Mockito.any());
     }
 
     @Test

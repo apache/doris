@@ -73,17 +73,17 @@ public interface ConnectorWriteOps {
      * <p><b>Contract on {@code predicate}.</b> The engine only calls this method when it could extract the
      * statement's predicate <i>exactly</i> (every conjunct, target table only, no partition-clause scope), so an
      * implementation may treat it as complete. That matters because a wider predicate would drop files that still
-     * hold live rows. {@code Optional.empty()} means the statement has no {@code WHERE} clause at all, i.e. every
-     * row of the table is deleted. An implementation MUST itself verify that the predicate only ever removes whole
-     * files (e.g. by checking file statistics / partition projections) and fall back — return empty, never a
-     * partial delete — when any candidate file is only partially matched.</p>
+     * hold live rows. The current engine represents an unfiltered DELETE as a present true literal; implementations
+     * may also accept {@code Optional.empty()} as always true. An implementation MUST itself verify that the
+     * predicate only ever removes whole files (e.g. by checking file statistics / partition projections) and fall
+     * back — return empty, never a partial delete — when any candidate file is only partially matched.</p>
      *
      * <p>The default returns empty, so connectors without a whole-file delete path are unaffected.</p>
      *
      * @param session   the current session
      * @param handle    the target table handle
-     * @param predicate the statement's complete delete predicate over the target's own columns, or empty for an
-     *                  unfiltered delete (always true)
+     * @param predicate the statement's complete delete predicate over the target's own columns; the engine sends a
+     *                  true literal for an unfiltered delete
      * @param boundWriteMetadataIdentity the write-metadata generation the statement was planned against, or
      *                  {@code null} when the engine has none; a connector whose writes are fenced by a table
      *                  generation MUST reject a mismatch before committing

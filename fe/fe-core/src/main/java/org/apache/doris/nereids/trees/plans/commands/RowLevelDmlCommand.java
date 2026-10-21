@@ -43,6 +43,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.OptionalLong;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Generic shell for row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against external tables.
@@ -89,8 +90,11 @@ public class RowLevelDmlCommand {
             Callable<Void> execute = () -> {
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-                if (op == RowLevelDmlOp.DELETE) {
-                    captureAnalyzedPlan(ctx);
+                boolean tryMetadataDelete =
+                        op == RowLevelDmlOp.DELETE && args.getPartitions().isEmpty() && !args.isTempPart();
+                AtomicReference<Plan> metadataDeletePlan = new AtomicReference<>();
+                if (tryMetadataDelete) {
+                    captureAnalyzedPlan(ctx, metadataDeletePlan);
                 }
                 planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
                 stmtExecutor.setPlanner(planner);
@@ -100,13 +104,13 @@ public class RowLevelDmlCommand {
                 // by dropping whole data files, it commits that remote metadata operation here and the
                 // row-level scan/sink never runs. Skipped for a PARTITION(...) scope, whose row restriction is
                 // carried by the scan rather than by the statement predicate the connector receives.
-                if (op == RowLevelDmlOp.DELETE && args.getPartitions().isEmpty() && !args.isTempPart()) {
+                if (tryMetadataDelete) {
                     // The ordinary row-level path replays this retained cancellation when the executor publishes
                     // its coordinator; this branch has no coordinator, so do it explicitly before touching the
                     // remote table.
                     throwIfCancelled(stmtExecutor);
                     OptionalLong metadataDeletedRows =
-                            transform.deleteUsingMetadata(ctx, args, planner.getAnalyzedPlan(),
+                            transform.deleteUsingMetadata(ctx, args, metadataDeletePlan.get(),
                                     () -> stmtExecutor.getPendingCancelReason() != null);
                     if (metadataDeletedRows.isPresent()) {
                         reportMetadataDelete(ctx, table, metadataDeletedRows.getAsLong());
@@ -228,18 +232,18 @@ public class RowLevelDmlCommand {
      *
      * <p>{@link NereidsPlanner} only retains {@code analyzedPlan} for {@code EXPLAIN ANALYZED}/{@code ALL} or when
      * a {@link PlannerHook} records it; a plain DELETE leaves {@code getAnalyzedPlan()} null, which would make
-     * {@code extractCompletePredicate} return empty and silently disable the optimization. The hook runs right
-     * after analysis and before rewrite, so the captured plan still carries the bound statement predicate rather
-     * than a rewrite-pruned one — the same capture the lineage extractor installs.</p>
+     * {@code extractCompletePredicate} return empty and silently disable the optimization. Keep the capture local
+     * to the metadata-delete attempt: publishing it through {@link NereidsPlanner#setAnalyzedPlan} would also
+     * activate the ordinary row-level conflict-filter consumer when this fast path falls back.</p>
      */
     @VisibleForTesting
-    static void captureAnalyzedPlan(ConnectContext ctx) {
+    static void captureAnalyzedPlan(ConnectContext ctx, AtomicReference<Plan> analyzedPlan) {
         ctx.getStatementContext().addPlannerHook(new PlannerHook() {
             @Override
             public void afterAnalyze(NereidsPlanner planner) {
                 if (planner.getCascadesContext() != null
                         && planner.getCascadesContext().getRewritePlan() != null) {
-                    planner.setAnalyzedPlan(planner.getCascadesContext().getRewritePlan());
+                    analyzedPlan.set(planner.getCascadesContext().getRewritePlan());
                 }
             }
         });

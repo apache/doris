@@ -101,7 +101,7 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
         }
     }
 
-    def assertDeleteFilesForVersion = { tableName, formatVersion, format, scenario ->
+    def assertDeleteFilesForVersion = { tableName, formatVersion, format, partitioned, scenario ->
         def deleteFiles = sql("""
             select file_path, lower(file_format), record_count
             from ${tableName}\$delete_files
@@ -114,14 +114,21 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
         }
         if (scenario.mode == "merge-on-read" && formatVersion == 3) {
             if (scenario.operation == "delete") {
-                // The fixture writes one row per data file, so `delete ... where id = 2` covers a whole file.
-                // Doris commits that as a metadata delete now: the file is dropped and no DV is written.
+                // Partitioned fixtures write one row per data file, so deleting id=2 drops a whole file and
+                // writes no DV. The unpartitioned fixture has one three-row data file, so it must fall back.
                 long dataFileCount =
-                        sql("""select count(*) from ${tableName}\$files""")[0][0].toString().toLong()
-                assertTrue(deleteFiles.size() > 0 || dataFileCount == 2,
-                        "MOR scenario ${scenario.name} should create delete files or drop the wholly deleted "
-                                + "data file for ${tableName}, deleteFiles=${deleteFiles}, "
-                                + "dataFiles=${dataFileCount}")
+                        sql("""select count(*) from ${tableName}\$data_files""")[0][0].toString().toLong()
+                if (partitioned) {
+                    assertEquals(0, deleteFiles.size(),
+                            "partitioned MOR delete should not create delete files for ${tableName}")
+                    assertEquals(2L, dataFileCount,
+                            "partitioned MOR delete should drop one whole data file for ${tableName}")
+                } else {
+                    assertEquals(1, deleteFiles.size(),
+                            "unpartitioned partial-file delete should create one DV for ${tableName}")
+                    assertEquals(1L, dataFileCount,
+                            "unpartitioned partial-file delete should retain its data file for ${tableName}")
+                }
             } else {
                 assertTrue(deleteFiles.size() > 0,
                         "MOR scenario ${scenario.name} should create delete files for ${tableName}")
@@ -275,7 +282,7 @@ suite("test_iceberg_v3_row_lineage_dml_mode_matrix", "p0,external,iceberg,extern
                                 }
                             }
 
-                            assertDeleteFilesForVersion(tableName, formatVersion, format, scenario)
+                            assertDeleteFilesForVersion(tableName, formatVersion, format, partitioned, scenario)
                         } finally {
                             sql """drop table if exists ${tableName}"""
                         }

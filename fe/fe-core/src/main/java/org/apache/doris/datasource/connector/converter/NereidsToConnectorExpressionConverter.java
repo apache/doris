@@ -57,8 +57,9 @@ import java.util.List;
  * IcebergNereidsUtils.convertNereidsToIcebergExpression}): {@code And}/{@code Or}/{@code Not}, the five
  * comparisons ({@code EqualTo}/{@code GreaterThan}/{@code GreaterThanEqual}/{@code LessThan}/{@code
  * LessThanEqual}), {@code InPredicate}, {@code IsNull}, {@code Between}. Comparisons require a bare
- * {@link SlotReference} on one side and a {@link Literal} on the other (operands are normalised to
- * column-on-left, the operator unchanged — mirroring legacy {@code convertNereidsBinaryPredicate}).</p>
+ * {@link SlotReference} on one side and a {@link Literal} on the other. Loose conversion preserves the
+ * legacy operator behavior; strict conversion mirrors the operator when it normalises operands to
+ * column-on-left.</p>
  *
  * <p><b>Anything else yields {@code null}</b> — {@code NullSafeEqual}, {@code Cast}-wrapped columns,
  * column-to-column comparisons, bare literals, etc. The legacy conflict path drops exactly these. Dropping a
@@ -117,15 +118,15 @@ public final class NereidsToConnectorExpressionConverter {
             ConnectorExpression child = convert(((Not) expr).child(), strict);
             return child == null ? null : new ConnectorNot(child);
         } else if (expr instanceof EqualTo) {
-            return convertComparison(expr, ConnectorComparison.Operator.EQ);
+            return convertComparison(expr, ConnectorComparison.Operator.EQ, strict);
         } else if (expr instanceof GreaterThan) {
-            return convertComparison(expr, ConnectorComparison.Operator.GT);
+            return convertComparison(expr, ConnectorComparison.Operator.GT, strict);
         } else if (expr instanceof GreaterThanEqual) {
-            return convertComparison(expr, ConnectorComparison.Operator.GE);
+            return convertComparison(expr, ConnectorComparison.Operator.GE, strict);
         } else if (expr instanceof LessThan) {
-            return convertComparison(expr, ConnectorComparison.Operator.LT);
+            return convertComparison(expr, ConnectorComparison.Operator.LT, strict);
         } else if (expr instanceof LessThanEqual) {
-            return convertComparison(expr, ConnectorComparison.Operator.LE);
+            return convertComparison(expr, ConnectorComparison.Operator.LE, strict);
         } else if (expr instanceof InPredicate) {
             return convertIn((InPredicate) expr);
         } else if (expr instanceof IsNull) {
@@ -193,7 +194,8 @@ public final class NereidsToConnectorExpressionConverter {
         return true;
     }
 
-    private static ConnectorExpression convertComparison(Expression cmp, ConnectorComparison.Operator op) {
+    private static ConnectorExpression convertComparison(
+            Expression cmp, ConnectorComparison.Operator op, boolean strict) {
         Expression left = cmp.child(0);
         Expression right = cmp.child(1);
         SlotReference slot;
@@ -204,10 +206,11 @@ public final class NereidsToConnectorExpressionConverter {
         } else if (left instanceof Literal && right instanceof SlotReference) {
             slot = (SlotReference) right;
             literal = (Literal) left;
-            // The operand order is flipped, so the operator must be flipped with it: `1 < id` must become
-            // `id > 1`, never `id < 1`. Keeping the operator (as the loose converter used to) narrows a
-            // conflict-detection filter and makes it miss matching concurrent files.
-            op = commute(op);
+            if (strict) {
+                // Exact destructive predicates must commute the operator with the operands: `1 < id` is
+                // `id > 1`. Loose conflict-filter behavior is deliberately unchanged by this feature.
+                op = commute(op);
+            }
         } else {
             return null;
         }
