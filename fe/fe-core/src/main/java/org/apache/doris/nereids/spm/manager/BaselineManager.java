@@ -985,20 +985,24 @@ public class BaselineManager {
     private static final class PendingDropKeyCleanup {
         private final BaselinePlan identity;
         /**
-         * The epoch MILLIS the DROP removed its own rows at: a resumed retirement only removes
-         * twins that already existed then. A CREATE of the same SQL that lands after this point
-         * carries a LATER update time and is left alone (round-76 #2).
+         * The ID high-water mark at the instant the DROP removed its own rows: a resumed
+         * retirement only removes twins allocated AT OR BELOW it. A CREATE of the same SQL that
+         * lands afterwards carries a LARGER id (ids are allocated monotonically) and is left
+         * alone (round-76 #2).
          *
-         * MILLIS, not seconds: {@link BaselinePlan#getUpdateTime()} is the stored epoch
-         * millisecond (see nextStoredUpdateMillis), so a seconds bound compared against it was
-         * ALWAYS smaller and the retirement skipped every twin - including the ones the failed
-         * attempt still owed (round-77).
+         * The bound is the ID, not a timestamp (round-78 #6). A timestamp bound compared against
+         * the twin's stored update time is unreliable in both directions: the status flip pushes
+         * a row's stored second past wall time, so a PREEXISTING twin carrying a future-dated
+         * update time was skipped (and left durable), while a CREATE landing in the SAME second
+         * as the retention carried an update time at or below it (DATETIME has second
+         * precision) and was deleted. Allocation order is exactly what "existed at DROP time"
+         * means, and it is monotonic cluster-wide.
          */
-        private final long retainedAtMillis;
+        private final long retainedMaxId;
 
-        PendingDropKeyCleanup(BaselinePlan identity, long retainedAtMillis) {
+        PendingDropKeyCleanup(BaselinePlan identity, long retainedMaxId) {
             this.identity = identity;
-            this.retainedAtMillis = retainedAtMillis;
+            this.retainedMaxId = retainedMaxId;
         }
     }
 
@@ -1617,11 +1621,20 @@ public class BaselineManager {
          * are adopted - see mergeEntry). When {@code warmAll} (the in-memory store), every
          * snapshot hash gets an entry, mirroring the former full map.
          *
-         * @return the number of rows that were added / changed / removed in cached
-         *         entries (0 when nothing cached was affected)
+         * The DURABLE content signature of every snapshot hash is compared here as well, so the
+         * caller receives ONE changed-hash set covering hashes with no cached bucket too (see
+         * ApplyResult). The caller MUST hold {@code stateLock.writeLock()}: the signature table is
+         * read and replaced in this critical section, and it has to stay consistent with the
+         * {@code knownHashes} the same caller publishes.
+         *
+         * @param byHash  the snapshot's rows per hash
+         * @param warmAll whether hashes without an entry are warmed (the in-memory store)
+         * @return the changed hashes, the cache-internal changes and the cached row count
          */
-        synchronized int applySnapshot(Map<Long, List<BaselinePlan>> byHash, boolean warmAll) {
-            int changed = 0;
+        synchronized ApplyResult applySnapshot(Map<Long, List<BaselinePlan>> byHash,
+                boolean warmAll) {
+            int cacheRowsChanged = 0;
+            Set<Long> cacheChangedHashes = new HashSet<>();
             // collect the vanished hashes FIRST: merging below may add / remove inner rows,
             // and mutating while an entries()-iterator is live is not allowed
             List<Long> vanished = null;
@@ -1636,19 +1649,51 @@ public class BaselineManager {
             if (vanished != null) {
                 for (Long hash : vanished) {
                     removeEntry(hash);
-                    changed++;
+                    cacheRowsChanged++;
+                    cacheChangedHashes.add(hash);
                 }
             }
             for (Map.Entry<Long, List<BaselinePlan>> e : byHash.entrySet()) {
                 if (entries.containsKey(e.getKey())) {
-                    changed += mergeEntry(e.getKey(), e.getValue());
+                    int merged = mergeEntry(e.getKey(), e.getValue());
+                    if (merged > 0) {
+                        cacheRowsChanged += merged;
+                        cacheChangedHashes.add(e.getKey());
+                    }
                 } else if (warmAll) {
                     putCompleteLocked(e.getKey(), e.getValue());
-                    changed += e.getValue().size();
+                    cacheRowsChanged += e.getValue().size();
+                    cacheChangedHashes.add(e.getKey());
                 }
             }
             evictIfNeeded();
-            return changed;
+
+            // The DURABLE signature comparison: it covers every snapshot hash, so a hash whose
+            // rows changed without any cached bucket still advances (a miss that read the OLD set
+            // must not become a warm hit).
+            Set<Long> changedHashes = new HashSet<>();
+            Map<Long, Long> nextSignatures = new HashMap<>();
+            for (Map.Entry<Long, List<BaselinePlan>> entry : byHash.entrySet()) {
+                long signature = hashContentSignature(entry.getValue());
+                nextSignatures.put(entry.getKey(), signature);
+                Long previous = knownHashSignatures.get(entry.getKey());
+                if (previous == null || previous != signature) {
+                    changedHashes.add(entry.getKey());
+                }
+            }
+            knownHashSignatures = nextSignatures;
+
+            // Development-time assertion: a cache entry that changed must be explained by a
+            // signature change. A violation means hashContentSignature misses a persisted field -
+            // exactly the omission the removed blanket bump used to hide.
+            for (Long hash : cacheChangedHashes) {
+                if (byHash.containsKey(hash) && !changedHashes.contains(hash)) {
+                    LOG.warn("SPM cache entry of hash {} changed but its content signature did"
+                            + " not; hashContentSignature is likely missing a persisted field",
+                            hash);
+                }
+            }
+            return new ApplyResult(changedHashes, cacheChangedHashes, cacheRowsChanged);
         }
 
         private void putCompleteLocked(long hash, List<BaselinePlan> rows) {
@@ -1789,8 +1834,14 @@ public class BaselineManager {
     }
 
     /**
-     * The CONTENT signature of one hash's row set (see knownHashSignatures): the fields
-     * every reader observes (identity, status, stored second, frozen text identity).
+     * The CONTENT signature of one hash's row set (see knownHashSignatures).
+     *
+     * It MUST cover every field {@code fromRow} parses: a persisted change that can change how a
+     * row matches or replays has to move the signature, or the refresh publishes the new rows
+     * without advancing the hash's epoch - and an in-flight by-hash read then republishes the old
+     * set as a warm hit. The field list is therefore the SINGLE maintenance point (the refresh no
+     * longer has a second, row-count-driven blanket bump to hide an omission; see ApplyResult's
+     * development-time assertion).
      *
      * @param rows the rows behind one bindSqlHash
      * @return a deterministic signature
@@ -1799,36 +1850,45 @@ public class BaselineManager {
         long signature = 1L;
         for (BaselinePlan row : rows) {
             long rowSignature = java.util.Objects.hash(row.getId(), row.getStatus(),
-                    row.getUpdateTime(), row.getQueryId(), row.getPlanSql(),
-                    row.getPlanFrozen(), row.getSchemaFingerprint(), row.getCost(),
-                    row.getQueryTimeMs());
+                    row.getUpdateTime(), row.getCreateTime(), row.getBindSql(),
+                    row.getBindSqlDigest(), row.getBindSqlHash(), row.getPlanSql(),
+                    row.getPlanSqlDigest(), row.getPlanSqlMode(), row.getPlanFrozen(),
+                    row.getSchemaFingerprint(), row.getCreatorSqlMode(), row.getSource(),
+                    row.getQueryId(), row.getCost(), row.getQueryTimeMs());
             signature = signature * 31L + rowSignature;
         }
         return signature;
     }
 
     /**
-     * Advances the epoch of every hash whose DURABLE rows changed since the last publish,
-     * including hashes with no cached bucket (see knownHashSignatures). The caller holds
-     * stateLock.
+     * The outcome of one {@link BaselineRowCache#applySnapshot}: which hashes the caller must treat
+     * as CHANGED, plus the cache-internal accounting used for logging and for the development-time
+     * assertion below.
      *
-     * @param byHash          the rows being published, per hash
-     * @param nextHashes      the epoch map being built (mutated in place)
+     * Replacing the former pair of mechanisms (a row-count-driven blanket epoch bump plus a
+     * precise per-hash bump) with ONE set keeps a single maintenance point, avoids killing the
+     * epochs of hashes that did not change, and gives the log / {@code stateVersion} a meaning that
+     * can be stated in terms of hashes.
      */
-    private void bumpChangedHashEpochsLocked(Map<Long, List<BaselinePlan>> byHash,
-            Map<Long, Long> nextHashes) {
-        Map<Long, Long> nextSignatures = new HashMap<>();
-        for (Map.Entry<Long, List<BaselinePlan>> entry : byHash.entrySet()) {
-            long signature = hashContentSignature(entry.getValue());
-            nextSignatures.put(entry.getKey(), signature);
-            Long previous = knownHashSignatures.get(entry.getKey());
-            if (previous == null || previous != signature) {
-                // the rows behind this hash changed: a miss that read the OLD set must not
-                // become a warm hit, whether or not a bucket was cached locally
-                nextHashes.put(entry.getKey(), hashMutationSeq.incrementAndGet());
-            }
+    static final class ApplyResult {
+        /** Hashes whose DURABLE content signature changed (cold hashes included). */
+        final Set<Long> changedHashes;
+        /**
+         * Hashes whose CACHE entry changed, vanished hashes included. Used only for the
+         * development-time assertion: it must be a subset of
+         * {@code changedHashes ∪ vanishedHashes}, otherwise {@link #hashContentSignature} misses a
+         * persisted field.
+         */
+        final Set<Long> cacheChangedHashes;
+        /** Rows added / changed / removed inside cached entries (logging only). */
+        final int cacheRowsChanged;
+
+        ApplyResult(Set<Long> changedHashes, Set<Long> cacheChangedHashes,
+                int cacheRowsChanged) {
+            this.changedHashes = changedHashes;
+            this.cacheChangedHashes = cacheChangedHashes;
+            this.cacheRowsChanged = cacheRowsChanged;
         }
-        knownHashSignatures = nextSignatures;
     }
 
     /** The LRU capacity (spm_baseline_cache_size, test-scriptable via the seam). */
@@ -2940,8 +3000,21 @@ public class BaselineManager {
         if (identity == null || identity.getId() <= 0 || !persistence.isDurable()) {
             return;
         }
+        // The bound is the ALLOCATION high-water mark at this instant (round-78 #6): every row
+        // that already existed carries an id at or below it, and every CREATE landing later gets
+        // a LARGER id, so a resumed retirement can never touch a baseline the user created after
+        // the DROP. An unreadable mark fails the DROP retryably - guessing it would either skip a
+        // preexisting twin or delete a fresh one.
+        long retainedMaxId;
+        try {
+            retainedMaxId = Math.max(identity.getId(), readCompactIdWatermark());
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("SPM cannot drop baseline " + identity.getId()
+                    + ": the id watermark that bounds its key cleanup cannot be read; retry the"
+                    + " statement", e);
+        }
         pendingDropKeyCleanups.put(identity.getId(), new PendingDropKeyCleanup(
-                identity.copyPersistedScalars(), System.currentTimeMillis()));
+                identity.copyPersistedScalars(), retainedMaxId));
     }
 
     /**
@@ -2967,7 +3040,7 @@ public class BaselineManager {
             // The retirement is bounded to the rows that already existed when the DROP removed
             // its identity: a CREATE of the SAME SQL that landed afterwards is a NEW baseline
             // the retry must not retire (round-76 #2).
-            retireSupersededKeyTwins(cleanup.identity, retired, cleanup.retainedAtMillis);
+            retireSupersededKeyTwins(cleanup.identity, retired, cleanup.retainedMaxId);
         } catch (RuntimeException e) {
             // the twins retired by THIS attempt are gone durably: they must leave the warm
             // cache and keep their markers, and the retention makes the next retry resume
@@ -3035,27 +3108,27 @@ public class BaselineManager {
     }
 
     /**
-     * Retires the superseded same-key twins of a DROP (see the two-argument overload), bounded
-     * to the rows whose stored instant is not LATER than {@code maxUpdateTimeMillis}.
+     * Retires the superseded same-key twins of a DROP (see the two-argument overload), bounded to
+     * the rows whose ID is not LARGER than {@code maxRetainedId}.
      *
      * A RESUMED cleanup runs long after the DROP removed its identity, and by then the key can
      * name a NEWER baseline: the user re-CREATEd the very same SQL, the durable row carries the
      * same (digest, planSql, fingerprint) and a fresh id - the key check alone cannot tell it
      * from a handoff twin, and retiring it deleted the baseline the user had just created
-     * (round-76 #2). The bound is the instant the DROP removed its own rows, so every real twin
-     * (which existed BEFORE that instant) is still retired and every later CREATE is kept.
+     * (round-76 #2). The bound is the ALLOCATION high-water mark the DROP recorded, so every twin
+     * that existed then is still retired and every later CREATE is kept.
      *
-     * The bound and {@link BaselinePlan#getUpdateTime()} are BOTH epoch millis (round-77: the
-     * seconds bound this started with was always smaller than the stored millis value, so the
-     * retirement skipped every twin and the failed attempt's leftovers stayed durable).
+     * The bound is an ID, not a timestamp (round-78 #6): the status flip pushes a row's stored
+     * second past wall time, so a timestamp bound skipped a PREEXISTING twin that carried a
+     * future-dated update time and deleted a CREATE that landed in the same stored second.
      *
-     * @param alreadyDeleted       the row the DROP removed
-     * @param retiredOut           collects the durably retired rows
-     * @param maxUpdateTimeMillis  the inclusive upper bound of a twin's update time
-     *                             ({@code Long.MAX_VALUE} = unbounded, the DROP's own path)
+     * @param alreadyDeleted  the row the DROP removed
+     * @param retiredOut      collects the durably retired rows
+     * @param maxRetainedId   the inclusive upper bound of a twin's id ({@code Long.MAX_VALUE} =
+     *                        unbounded, the DROP's own path)
      */
     private void retireSupersededKeyTwins(BaselinePlan alreadyDeleted,
-            List<BaselinePlan> retiredOut, long maxUpdateTimeMillis) {
+            List<BaselinePlan> retiredOut, long maxRetainedId) {
         if (!persistence.isDurable()) {
             return;
         }
@@ -3084,7 +3157,7 @@ public class BaselineManager {
                             alreadyDeleted.getSchemaFingerprint())) {
                 continue;
             }
-            if (twin.getUpdateTime() > maxUpdateTimeMillis) {
+            if (twin.getId() > maxRetainedId) {
                 // A baseline CREATED after the DROP removed its rows: same SQL, new
                 // incarnation the user owns - never a handoff twin of this DROP.
                 LOG.info("SPM kept baseline {} while retiring the same-key twins of dropped"
@@ -3342,7 +3415,6 @@ public class BaselineManager {
             // delete-then-insert gap, where the next refresh / restart silently dropped the
             // baseline). Deleting by the PREVIOUS status can never touch the freshly inserted
             // row (the statuses differ).
-            long newUpdateTime = System.currentTimeMillis();
             // DATETIME stores only SECONDS: two committed flips inside one second keep
             // EQUAL durable timestamps, and pickDurableWinner prefers DISABLED on such a
             // tie - a later ENABLE would then be reversed by the next refresh / restart
@@ -3351,17 +3423,24 @@ public class BaselineManager {
             // wins") exact at the stored precision among the id's own rows, so the row
             // this statement writes is always the durable winner once it is written.
             //
-            // The read is BOUNDED to this id's key prefix: the former table-wide read
-            // existed to make every flip move the old MAX(update_time)-based snapshot
-            // fence, which the bounded mutation clock (see beginRowMutation) now
-            // replaces. A same-key twin under ANOTHER id (the handoff window the write
-            // checks cannot close completely) is collapsed deterministically at load (see
-            // collapseDuplicateKeyRows), and a further flip / create of either id
-            // re-resolves it durably.
+            // The bump uses the SAME producer as the no-op intent (see
+            // nextStoredUpdateMillis), INCLUDING its lead bound (round-78 #2): advancing the
+            // stored second past wall time is what makes rapid alternating real flips order
+            // correctly, but an UNBOUNDED advance left visible rows whose stored second was
+            // more than a window bound ahead of wall time - and every shared fence that
+            // masks an unreadable committed write is wall-clock bounded. After a handoff the
+            // old ENABLED row could then stay visible while its DISABLE (U+1) was unreadable,
+            // and a no-op ENABLE wrote ENABLED at that very U+1: with both rows publishing in
+            // version order the presence-only confirmation accepted ENABLE, pruning strictly
+            // older timestamps preserved DISABLED U+1, and pickDurableWinner chose DISABLED
+            // on the tie - reversing the successful ENABLE. A statement whose stored second
+            // would exceed the bound therefore fails retryably BEFORE it is dispatched, so
+            // no row it writes can outlive the fences that cover its publication.
+            // ONE bounded keyed read feeds both the stored second this statement writes and the
+            // CAS bound of the conditional INSERT / the old-row delete below.
             long newestSecond = readNewestStoredUpdateSecond(id);
-            if (newUpdateTime / 1000L <= newestSecond) {
-                newUpdateTime = (newestSecond + 1) * 1000L;
-            }
+            long newUpdateTime = nextStoredUpdateMillis(id, newestSecond,
+                    System.currentTimeMillis());
             // Persist a DETACHED snapshot carrying the new status: the live object keeps
             // the old status until the durable write (or the confirmed reconciliation)
             // succeeded - matching readers do not take the writer lock, so publishing
@@ -3738,7 +3817,6 @@ public class BaselineManager {
      * @return the update time to store
      */
     private long nextStoredUpdateMillis(long id) {
-        long now = System.currentTimeMillis();
         long newestSecond;
         try {
             newestSecond = readNewestStoredUpdateSecond(id);
@@ -3752,6 +3830,23 @@ public class BaselineManager {
             throw new IllegalStateException("SPM cannot read the newest stored second of"
                     + " baseline " + id + "; retry the ALTER", e);
         }
+        return nextStoredUpdateMillis(id, newestSecond, System.currentTimeMillis());
+    }
+
+    /**
+     * The next stored second of one id, from a newest second the caller already read.
+     *
+     * Every producer of a status row goes through HERE - the no-op intent and the real flip alike
+     * (round-78 #2): the REAL flip used to advance the stored second by itself, without the lead
+     * bound, so rapid alternating ALTERs could leave a visible row whose stored second was far
+     * ahead of wall time while every fence covering its publication was wall-clock bounded.
+     *
+     * @param id           the baseline id
+     * @param newestSecond the id's newest stored second (epoch seconds, 0 = none)
+     * @param now          wall time (epoch millis)
+     * @return the update time to store
+     */
+    private long nextStoredUpdateMillis(long id, long newestSecond, long now) {
         if (now / 1000L <= newestSecond) {
             // The new stored second this statement would carry.
             long bumped = (newestSecond + 1) * 1000L;
@@ -4696,11 +4791,10 @@ public class BaselineManager {
         for (Long hash : byHash.keySet()) {
             next.put(hash, hashMutationSeq.incrementAndGet());
         }
-        Map<Long, Long> signatures = new HashMap<>();
-        for (Map.Entry<Long, List<BaselinePlan>> entry : byHash.entrySet()) {
-            signatures.put(entry.getKey(), hashContentSignature(entry.getValue()));
-        }
-        knownHashSignatures = signatures;
+        // A load is an AUTHORITATIVE replacement: every hash gets a fresh epoch above, so the
+        // signature table applySnapshot stores is the new baseline for the next diff and its
+        // changed-hash set is not needed here.
+        baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
         knownHashes = next;
         baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
         // the snapshot read every row: no row above this id can exist undiscovered
@@ -5356,11 +5450,24 @@ public class BaselineManager {
             return persisted;
         }
         Map<Long, BaselinePlan> cached = baselineCache.cachedRowRefs(persisted.keySet());
+        boolean warmAll = !durableHashReadAvailable();
         Map<Long, BaselinePlan> deepenedRows = null;
         for (Map.Entry<Long, BaselinePlan> entry : persisted.entrySet()) {
             BaselinePlan current = cached.get(entry.getKey());
             if (current != null && !persistedTreesChanged(current, entry.getValue())) {
                 continue; // the merge adopts the scalars into the cached object
+            }
+            if (current == null && !warmAll
+                    && !baselineCache.hasHash(entry.getValue().getBindSqlHash())) {
+                // The hash has NO cache entry: outside the in-memory store the snapshot merge
+                // never inserts one (applySnapshot's warmAll=false path only reconciles EXISTING
+                // entries), so a rebuilt tree would be discarded right here - while the reparse
+                // itself runs on every refresh, for every cold baseline, holding the refresh's
+                // writer lock and delaying GLOBAL DDL, with Java parsing outside the internal
+                // SELECT timeouts (round-78 #4). A production snapshot carries thousands of cold
+                // rows, so keep them SHALLOW: the scalars are all matching needs, and the row is
+                // deepened when a warm path actually admits it.
+                continue;
             }
             BaselinePlan deepened = deepenPersistedRow(entry.getValue());
             if (deepened != null && deepened != entry.getValue()) {
@@ -5510,31 +5617,26 @@ public class BaselineManager {
                 removed++;
             }
         }
-        int updated = baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
-        if (updated > 0) {
-            // Rows behind these hashes CHANGED in place (a status flip / replaced row):
-            // advance their epochs so a matching-path cache-miss read that started
-            // before this apply cannot publish its pre-refresh rows over the completed
-            // state (the refresh used to PRESERVE an existing hash's sequence, so the
-            // miss's equality check still passed and putComplete replaced the completed
-            // state with the old snapshot).
-            for (Long hash : byHash.keySet()) {
+        // ONE changed-hash set decides which epochs advance (see ApplyResult): it covers the rows
+        // that changed inside cached entries AND the cold hashes applySnapshot never warms, and it
+        // is derived from the DURABLE content signature instead of the cached row count. The former
+        // row-count-driven blanket bump killed the epochs of unchanged hashes (degrading in-flight
+        // by-hash reads for no reason) and hid a signature omission rather than exposing it.
+        ApplyResult applied = baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
+        for (Long hash : applied.changedHashes) {
+            if (next.containsKey(hash)) {
                 next.put(hash, hashMutationSeq.incrementAndGet());
             }
         }
-        // A refresh can rewrite the rows of a hash that has NO cached bucket: applySnapshot
-        // reports nothing for it, so the epoch above would stay untouched and a miss that
-        // read the OLD rows would publish them as a warm hit. The snapshot's own content
-        // signature advances the epoch whenever the DURABLE rows changed, cached or not.
-        bumpChangedHashEpochsLocked(byHash, next);
         knownHashes = next;
         if (maxId >= idGenerator.get()) {
             idGenerator.set(maxId + 1);
         }
-        if (added > 0 || removed > 0 || updated > 0) {
+        if (added > 0 || removed > 0 || !applied.changedHashes.isEmpty()) {
             stateVersion++;
-            LOG.info("SPM baseline refresh applied: added={}, removed={}, updated={},"
-                    + " knownHashes={}", added, removed, updated, knownHashes.size());
+            LOG.info("SPM baseline refresh applied: added={}, removed={}, changedHashes={},"
+                    + " cacheRowsChanged={}, knownHashes={}", added, removed,
+                    applied.changedHashes.size(), applied.cacheRowsChanged, knownHashes.size());
         }
     }
 

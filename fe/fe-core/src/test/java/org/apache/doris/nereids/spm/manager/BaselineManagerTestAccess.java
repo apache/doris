@@ -296,6 +296,19 @@ public final class BaselineManagerTestAccess {
     }
 
     /**
+     * The published epoch of one hash in the match index (see round-78: the refresh advances it
+     * from ONE changed-hash set derived from the durable content signature).
+     *
+     * @param manager the manager
+     * @param hash    the bindSqlHash
+     * @return the current epoch, or -1 when the hash is not published
+     */
+    public static long knownHashEpoch(BaselineManager manager, long hash) {
+        Object epoch = ((Map<?, ?>) get(manager, "knownHashes")).get(hash);
+        return epoch == null ? -1L : ((Number) epoch).longValue();
+    }
+
+    /**
      * Runs the create's ownership proof (round-74: the store-assembled reservation view).
      *
      * @param manager       the manager

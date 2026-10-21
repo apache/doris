@@ -221,6 +221,12 @@ public class SPMRound73ManagerTest {
         }
 
         @Override
+        public long readHwmRecord() {
+            // the DROP key cleanup bounds its retirement by the id high-water mark
+            return tableWatermark();
+        }
+
+        @Override
         public long tableWatermark() {
             long max = 0;
             for (BaselinePlan row : rows.values()) {

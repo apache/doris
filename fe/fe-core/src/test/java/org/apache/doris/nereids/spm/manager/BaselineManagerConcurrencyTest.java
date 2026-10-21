@@ -258,6 +258,20 @@ public class BaselineManagerConcurrencyTest {
             return max;
         }
 
+        /** The newest stored update_time OF ONE ID (what a status flip is ordered against). */
+        @Override
+        public long newestStoredUpdateSecond(long id) {
+            List<BaselinePlan> idRows = rows.get(id);
+            if (idRows == null) {
+                return 0;
+            }
+            long max = 0;
+            for (BaselinePlan row : idRows) {
+                max = Math.max(max, row.getUpdateTime() / 1000L);
+            }
+            return max;
+        }
+
         @Override
         public long watermark() {
             long max = 0;
@@ -4230,33 +4244,33 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * After rapid flips gave ANOTHER baseline a FUTURE stored update_time,
-     * flipping this one used to keep update_time = now - dwarfed by the future row - so
-     * neither MAX(id), COUNT(*) nor MAX(update_time) (the paginated snapshot fence)
-     * changed and a refresh could merge two states while the fence accepted the mix. The
-     * flip must advance past the TABLE-wide newest stored second, so every flip moves
-     * MAX(update_time).
+     * After rapid flips gave this ID a FUTURE stored update_time, flipping it again must still
+     * advance past that second - otherwise `pickDurableWinner` could pick the stale version and a
+     * refresh would merge two states. The bump is ordered against the ID's newest stored second
+     * (the table-wide form predates the bounded mutation clock), and it stays inside the lead bound
+     * every shared fence relies on (see MAX_STORED_UPDATE_LEAD_MILLIS).
      */
     @Test
-    public void testStatusFlipAdvancesPastTheTableWideNewestStoredSecond() {
+    public void testStatusFlipAdvancesPastTheIdNewestStoredSecond() {
         manager = newManager();
         BaselineManagerTestAccess.clear(manager);
         SimulatedStore store = new SimulatedStore();
         try {
             doubles.idAllocatorStore = store;
             long id = manager.createBaseline(baseline("d-bump", "p-bump"));
-            long future = System.currentTimeMillis() + 60_000L;
-            BaselinePlan other = baseline("d-future", "p-future");
-            other.setId(999L);
-            other.setUpdateTime(future);
-            store.replaceRows(999L, List.of(other));
+            // one second ahead of wall time: inside the lead bound, still AHEAD of `now`
+            long future = (System.currentTimeMillis() / 1000L + 1L) * 1000L;
+            BaselinePlan futureVersion = baseline("d-bump", "p-bump");
+            futureVersion.setId(id);
+            futureVersion.setUpdateTime(future);
+            store.replaceRows(id, List.of(futureVersion));
 
             Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED));
             long flippedUpdateTime = store.rowsOf(id).stream()
                     .filter(row -> row.getStatus() == BaselineStatus.DISABLED)
                     .findFirst().orElseThrow().getUpdateTime();
-            Assertions.assertTrue(flippedUpdateTime / 1000L > future / 1000L,
-                    "the new-status row must exceed the TABLE-wide newest stored second ("
+            Assertions.assertTrue(flippedUpdateTime > future,
+                    "the new-status row must exceed this id's newest stored second ("
                             + flippedUpdateTime + " vs " + future + ")");
         } finally {
             doubles.idAllocatorStore = null;
