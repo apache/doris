@@ -101,23 +101,36 @@ TEST(ObjClientCacheTest, EvictionKeepsClientsInUseAlive) {
     EXPECT_EQ(in_use.use_count(), 1);
 }
 
-TEST(ObjClientCacheTest, ShrinkAppliesANewCapacityAtOnce) {
+TEST(ObjClientCacheTest, SetCapacityAppliesAtOnce) {
     ObjClientCache cache;
     cache.publish(cache_test_sas_config("expired"), cache_test_client(), 100, 0, 4);
     cache.publish(cache_test_sas_config("old"), cache_test_client(), std::nullopt, 0, 4);
     cache.publish(cache_test_sas_config("recent"), cache_test_client(), std::nullopt, 0, 4);
 
     // Without any new publish, the expired entry goes first, then the least recently used.
-    cache.shrink(500, 1);
+    cache.set_capacity(500, 1);
 
     EXPECT_EQ(cache.size(), 1U);
     EXPECT_NE(cache.find(cache_test_sas_config("recent")), nullptr);
     EXPECT_EQ(cache.find(cache_test_sas_config("old")), nullptr);
     EXPECT_EQ(cache.find(cache_test_sas_config("expired")), nullptr);
 
-    // Growing needs nothing from the cache: shrinking to a larger capacity is a no-op.
-    cache.shrink(500, 8);
+    // A larger capacity evicts nothing and lets the cache grow again.
+    cache.set_capacity(500, 2);
+    cache.publish(cache_test_sas_config("next"), cache_test_client(), std::nullopt, 500, 1);
+    EXPECT_EQ(cache.size(), 2U);
+}
+
+TEST(ObjClientCacheTest, StaleCapacityOfAPublishCannotUndoSetCapacity) {
+    ObjClientCache cache;
+    cache.publish(cache_test_sas_config("a"), cache_test_client(), std::nullopt, 0, 256);
+    // The order a race produces: a publish read capacity 256 from the config, then the config
+    // was lowered to 1 and applied, then that publish runs with its stale 256.
+    cache.set_capacity(0, 1);
+    cache.publish(cache_test_sas_config("b"), cache_test_client(), std::nullopt, 0, 256);
+
     EXPECT_EQ(cache.size(), 1U);
+    EXPECT_NE(cache.find(cache_test_sas_config("b")), nullptr);
 }
 
 TEST(ObjClientCacheTest, FirstPublishWins) {

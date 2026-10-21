@@ -35,8 +35,8 @@ public:
 
     Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config);
 
-    // Called when azure_client_cache_capacity changes; see AzureClientProvider::shrink_cache.
-    void shrink_azure_client_cache(size_t capacity) { _azure.shrink_cache(capacity); }
+    // Called when azure_client_cache_capacity changes; see AzureClientProvider::set_cache_capacity.
+    void set_azure_client_cache_capacity(size_t capacity) { _azure.set_cache_capacity(capacity); }
 
 private:
     ObjClientFactory();

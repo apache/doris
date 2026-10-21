@@ -42,21 +42,25 @@ std::shared_ptr<ObjStorageClient> ObjClientCache::publish(
 
 std::shared_ptr<ObjStorageClient> ObjClientCache::publish(
         const ObjClientConfig& config, const std::shared_ptr<ObjStorageClient>& candidate,
-        std::optional<int64_t> expires_at_ms, int64_t now_ms, size_t capacity) {
-    DORIS_CHECK(capacity > 0);
+        std::optional<int64_t> expires_at_ms, int64_t now_ms, size_t initial_capacity) {
+    DORIS_CHECK(initial_capacity > 0);
     // Declared before the lock so that evicted clients, possibly holding the last reference
     // to an SDK client, are destroyed after it is released.
     std::vector<std::shared_ptr<ObjStorageClient>> evicted;
     std::lock_guard lock(_lock);
+    if (!_capacity.has_value()) {
+        _capacity = initial_capacity;
+    }
     auto client = _publish_locked(config, candidate, expires_at_ms);
-    _evict_locked(now_ms, capacity, true, &evicted);
+    _evict_locked(now_ms, *_capacity, true, &evicted);
     return client;
 }
 
-void ObjClientCache::shrink(int64_t now_ms, size_t capacity) {
+void ObjClientCache::set_capacity(int64_t now_ms, size_t capacity) {
     DORIS_CHECK(capacity > 0);
     std::vector<std::shared_ptr<ObjStorageClient>> evicted;
     std::lock_guard lock(_lock);
+    _capacity = capacity;
     _evict_locked(now_ms, capacity, false, &evicted);
 }
 

@@ -292,7 +292,7 @@ TEST_F(ObjClientFactoryTest, AzureProviderCacheIsBounded) {
     EXPECT_FALSE(config::set_config("azure_client_cache_capacity", "0").ok());
     EXPECT_EQ(config::azure_client_cache_capacity, 1);
 
-    // first was evicted by the shrink, so it is built again (and evicts second in turn).
+    // first was evicted when the capacity was lowered, so it is built again (and evicts second).
     auto rebuilt = factory.get_or_create(make_sas("sig=first"));
     ASSERT_TRUE(config::set_config("azure_client_cache_capacity", saved_capacity).ok());
     ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();

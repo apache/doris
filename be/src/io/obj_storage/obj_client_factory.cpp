@@ -100,11 +100,12 @@ std::shared_ptr<ObjStorageClient> apply_rate_limit_policy(std::shared_ptr<ObjSto
 
 namespace doris::config {
 
-// A lowered capacity takes effect at once instead of on the next client publish, so a cache that
-// only serves hits still shrinks. The callback runs after the new value passed its validator, so
-// it is always positive.
+// The cache takes the new capacity at once, so a lowered one evicts immediately even if only
+// hits follow, and a publish that read the old value from the config cannot exceed it. The
+// callback runs after the new value passed its validator, so it is always positive.
 DEFINE_ON_UPDATE(azure_client_cache_capacity, [](int32_t /*old_value*/, int32_t new_value) {
-    io::ObjClientFactory::instance().shrink_azure_client_cache(static_cast<size_t>(new_value));
+    io::ObjClientFactory::instance().set_azure_client_cache_capacity(
+            static_cast<size_t>(new_value));
 });
 
 } // namespace doris::config

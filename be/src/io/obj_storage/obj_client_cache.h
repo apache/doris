@@ -54,16 +54,22 @@ public:
     std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
                                               const std::shared_ptr<ObjStorageClient>& candidate);
 
-    // Bounded publish. expires_at_ms is when the candidate's credential expires, if known;
-    // capacity must be positive.
+    // Bounded publish. expires_at_ms is when the candidate's credential expires, if known.
+    // The cache keeps its own capacity, set by set_capacity(); initial_capacity (positive) only
+    // applies while it has none yet, i.e. before the first set_capacity() or bounded publish.
+    //
+    // The capacity is read and applied under _lock so that a capacity change cannot be undone
+    // by a publish that read the old value. Example: a publish reads 256 from the config, the
+    // config is lowered to 1 and set_capacity(1) shrinks the cache, then the publish runs; it
+    // uses the cache's capacity 1, not the stale 256 it was given.
     std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
                                               const std::shared_ptr<ObjStorageClient>& candidate,
                                               std::optional<int64_t> expires_at_ms, int64_t now_ms,
-                                              size_t capacity);
+                                              size_t initial_capacity);
 
-    // Applies a new capacity at once: evicts expired entries, then the least recently used
-    // ones, until at most `capacity` remain. capacity must be positive.
-    void shrink(int64_t now_ms, size_t capacity);
+    // Sets the capacity and applies it at once: evicts expired entries, then the least
+    // recently used ones, until at most `capacity` remain. capacity must be positive.
+    void set_capacity(int64_t now_ms, size_t capacity);
 
     size_t size();
 
@@ -88,6 +94,9 @@ private:
                        std::vector<std::shared_ptr<ObjStorageClient>>* evicted);
 
     std::mutex _lock;
+    // Unset until the first set_capacity() or bounded publish; the unbounded publish never
+    // evicts.
+    std::optional<size_t> _capacity;
     // Most recently used first.
     EntryList _entries;
     std::unordered_map<ObjClientConfig, EntryList::iterator, ObjClientConfigHash> _index;
