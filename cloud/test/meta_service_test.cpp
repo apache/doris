@@ -2938,7 +2938,7 @@ TEST(MetaServiceTest, TsoFenceIsMonotonicAndRejectsStaleCommit) {
                              nullptr);
     ASSERT_EQ(server_check_disabled_response.status().code(), MetaServiceCode::OK);
 
-    // Transactions without a commit TSO do not participate in binlog fencing.
+    // Transactions without a commit TSO do not participate in changelog fencing.
     int64_t non_tso_txn_id = -1;
     begin_txn(meta_service.get(), 666, "tso_fence_non_tso_commit", 1234, non_tso_txn_id);
     CommitTxnRequest non_tso_commit_request;
@@ -5617,7 +5617,7 @@ TEST(MetaServiceTest, UpdateTablet) {
         binlog_config->set_ttl_seconds(3600);
         binlog_config->set_max_bytes(4096);
         binlog_config->set_max_history_nums(7);
-        binlog_config->set_binlog_format(BinlogFormatPB::ROW);
+        binlog_config->set_binlog_format(BinlogFormatPB::CHANGELOG);
         binlog_config->set_need_historical_value(true);
         meta_service->update_tablet(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
@@ -5636,7 +5636,7 @@ TEST(MetaServiceTest, UpdateTablet) {
         EXPECT_EQ(binlog_config.ttl_seconds(), 3600);
         EXPECT_EQ(binlog_config.max_bytes(), 4096);
         EXPECT_EQ(binlog_config.max_history_nums(), 7);
-        EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::ROW);
+        EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::CHANGELOG);
         EXPECT_TRUE(binlog_config.need_historical_value());
     }
     get_and_check_tablet_meta(tablet_id1, 300, true, true);

@@ -131,6 +131,20 @@ class IvmUtilTest {
     }
 
     @Test
+    void testChangelogColumnsAreNotCommonHiddenSlots() {
+        // A before column ends with its user column's name, so a user column ending in "_COL" yields a
+        // "__DORIS_..._COL__" name that the generic prefix/suffix rule alone would take for a hidden slot.
+        String beforeColName = Column.generateBeforeColName("v_COL");
+        Assertions.assertTrue(beforeColName.startsWith(Column.HIDDEN_COLUMN_PREFIX));
+        Assertions.assertTrue(beforeColName.endsWith("_COL__"));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(beforeColName));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(Column.generateBeforeColName("v1")));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(Column.CHANGELOG_TSO_COL));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(Column.CHANGELOG_LSN_COL));
+        Assertions.assertFalse(IvmUtil.isCommonHiddenSlot(Column.CHANGELOG_OP_COL));
+    }
+
+    @Test
     void testBaseScanStorageColumnToMask() {
         Assertions.assertTrue(IvmUtil.isBaseScanStorageColumnToMask(Column.SEQUENCE_COL));
         Assertions.assertTrue(IvmUtil.isBaseScanStorageColumnToMask(Column.SEQUENCE_COL.toLowerCase()));

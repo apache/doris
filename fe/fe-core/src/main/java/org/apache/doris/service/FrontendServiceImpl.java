@@ -4939,9 +4939,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             }
                             bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
-                    } else if (tabletSnapshot.isRowBinlog()) {
-                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
-                                tabletSnapshot.rowBinlogBaseTablet, tablet);
+                    } else if (tabletSnapshot.isChangelog()) {
+                        bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -5273,9 +5273,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             bePathsMap = cloudTablet
                                     .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
-                    } else if (tabletSnapshot.isRowBinlog()) {
-                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
-                                tabletSnapshot.rowBinlogBaseTablet, tablet);
+                    } else if (tabletSnapshot.isChangelog()) {
+                        bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -5375,21 +5375,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private static final class TabletLocationSnapshot {
         private final Tablet tablet;
-        private final Tablet rowBinlogBaseTablet;
+        private final Tablet changelogBaseTablet;
 
-        private TabletLocationSnapshot(Tablet tablet, Tablet rowBinlogBaseTablet) {
+        private TabletLocationSnapshot(Tablet tablet, Tablet changelogBaseTablet) {
             this.tablet = tablet;
-            this.rowBinlogBaseTablet = rowBinlogBaseTablet;
+            this.changelogBaseTablet = changelogBaseTablet;
         }
 
-        private boolean isRowBinlog() {
-            return rowBinlogBaseTablet != null;
+        private boolean isChangelog() {
+            return changelogBaseTablet != null;
         }
 
         private TTabletLocation createLocation(List<Long> nodeIds) {
             TTabletLocation location = new TTabletLocation(tablet.getId(), nodeIds);
-            if (isRowBinlog()) {
-                location.setBaseTabletId(rowBinlogBaseTablet.getId());
+            if (isChangelog()) {
+                location.setBaseTabletId(changelogBaseTablet.getId());
             }
             return location;
         }
@@ -5450,12 +5450,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TabletLocationSnapshot> partitionTabletSnapshot = new ArrayList<>();
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
             List<Tablet> indexTablets = new ArrayList<>(index.getTablets());
-            if (index.isRowBinlog()) {
+            if (index.isChangelog()) {
                 for (Tablet tablet : indexTablets) {
-                    long baseTabletId = tablet.getRowBinlogBaseTabletId();
+                    long baseTabletId = tablet.getChangelogBaseTabletId();
                     Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
                     Preconditions.checkNotNull(baseTablet,
-                            "row binlog tablet %s's base tablet %s can not be found in partition %s",
+                            "changelog tablet %s's base tablet %s can not be found in partition %s",
                             tablet.getId(), baseTabletId, partitionId);
                     partitionTabletSnapshot.add(new TabletLocationSnapshot(tablet, baseTablet));
                 }

@@ -172,7 +172,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     private LogicalOlapScan buildMowScan(long tableId, String tableName, boolean delta) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0, KeysType.UNIQUE_KEYS);
         table.setEnableUniqueKeyMergeOnWrite(true);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         if (delta) {
             registerTestStreams(table);

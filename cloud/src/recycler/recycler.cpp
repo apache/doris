@@ -4883,11 +4883,11 @@ int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partitio
                      << ", tablet_id=" << tablet_id;
         return -1;
     }
-    // The row-binlog companion of a MoW data tablet stores versioned delete bitmaps copied from
+    // The changelog companion of a MoW data tablet stores versioned delete bitmaps copied from
     // that tablet, but its own MoW flag is deliberately false. Clean its DBMs without caching that
     // false value as the MoW state of the whole partition.
-    // Rule: boolean enableUniqueKeyMergeOnWrite = !isRowBinlogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
-    if (tablet_meta.tablet_role() == TabletRolePB::TABLET_ROLE_ROW_BINLOG) {
+    // Rule: boolean enableUniqueKeyMergeOnWrite = !isChangelogIndex && tbl.getEnableUniqueKeyMergeOnWrite();
+    if (tablet_meta.tablet_role() == TabletRolePB::TABLET_ROLE_CHANGELOG) {
         return 1;
     }
     bool tablet_is_mow = tablet_meta.enable_unique_key_merge_on_write();

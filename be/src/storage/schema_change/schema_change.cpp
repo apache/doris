@@ -990,7 +990,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(std::move(read_columns));
     RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
                                                          /*merge_by_sequence_mapping=*/false,
-                                                         /*map_row_binlog_columns=*/false));
+                                                         /*map_changelog_columns=*/false));
     std::vector<uint32_t> cluster_key_idxes;
 
     DBUG_EXECUTE_IF("SchemaChangeJob::_do_process_alter_tablet.block", DBUG_BLOCK);

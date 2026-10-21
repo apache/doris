@@ -40,8 +40,8 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "runtime/runtime_state.h"
-#include "storage/binlog.h"
-#include "storage/iterator/binlog_block_reader_utils.h"
+#include "storage/changelog.h"
+#include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -76,11 +76,11 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-int64_t BlockReader::_read_binlog_op(const IColumn& col, size_t row) const {
+int64_t BlockReader::_read_changelog_op(const IColumn& col, size_t row) const {
     const IColumn* cur = &col;
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
         if (nullable->is_null_at(row)) {
-            return binlog::ROW_BINLOG_UNKNOWN;
+            return changelog::CHANGELOG_OP_UNKNOWN;
         }
         cur = &nullable->get_nested_column();
     }
@@ -89,10 +89,10 @@ int64_t BlockReader::_read_binlog_op(const IColumn& col, size_t row) const {
         return int64_col->get_element(row);
     }
 
-    return binlog::ROW_BINLOG_UNKNOWN;
+    return changelog::CHANGELOG_OP_UNKNOWN;
 }
 
-Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
+Status BlockReader::_write_changelog_op(IColumn& col, int64_t op) const {
     IColumn* cur = &col;
     ColumnNullable* nullable = nullptr;
     if (auto* n = typeid_cast<ColumnNullable*>(cur)) {
@@ -112,16 +112,16 @@ Status BlockReader::_write_binlog_op(IColumn& col, int64_t op) const {
     return Status::OK();
 }
 
-// Resolves which source-block column to read from for a given binlog row position.
-// When use_before is true, return the ordinal of its __BEFORE__ mirror.
-// Binlog meta columns map to themselves.
+// Resolves which source-block column to read from for a given changelog row position.
+// When use_before is true, return the ordinal of its before-image mirror.
+// Changelog meta columns map to themselves.
 uint32_t BlockReader::_resolve_source_column_ordinal(uint32_t ordinal, bool use_before) const {
     return use_before ? _read_schema->before_column_ordinal(ordinal) : ordinal;
 }
 
 bool BlockReader::_min_delta_values_equal(size_t last_row) {
-    const auto& value_column_pairs = _read_schema->row_binlog_value_column_pairs();
-    if (!_read_schema->row_binlog_value_pairs_complete() || value_column_pairs.empty() ||
+    const auto& value_column_pairs = _read_schema->changelog_value_column_pairs();
+    if (!_read_schema->changelog_value_pairs_complete() || value_column_pairs.empty() ||
         _min_delta_value_compare_unsupported) {
         return false;
     }
@@ -185,7 +185,7 @@ Status BlockReader::_append_change_row(MutableColumns& target_columns, const Blo
     const int32_t op_ordinal = _read_schema->op_ordinal();
     for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
         if (static_cast<int32_t>(ordinal) == op_ordinal) {
-            RETURN_IF_ERROR(_write_binlog_op(*target_columns[ordinal], output_op));
+            RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal], output_op));
             continue;
         }
         auto source_ordinal =
@@ -216,7 +216,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
     const int32_t tso_ordinal = _read_schema->tso_ordinal();
     const int32_t lsn_ordinal = _read_schema->lsn_ordinal();
     const int32_t op_ordinal = _read_schema->op_ordinal();
-    // A group is a run of consecutive rows sharing the same user key. Row-binlog reads are
+    // A group is a run of consecutive rows sharing the same user key. Changelog reads are
     // globally key-ordered (ReaderParams::force_key_ordered_read), and the key columns are the
     // leading num_key_columns() columns of every read block, so a group boundary is exactly
     // where the user key changes. _stored_data_columns keeps the group's first row at index 0.
@@ -266,17 +266,17 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
         }
         size_t group_size = _stored_data_columns[0]->size();
-        auto first_op = _read_binlog_op(*_stored_data_columns[op_ordinal], 0);
-        auto last_op = _read_binlog_op(*_stored_data_columns[op_ordinal], group_size - 1);
-        auto result = binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
+        auto first_op = _read_changelog_op(*_stored_data_columns[op_ordinal], 0);
+        auto last_op = _read_changelog_op(*_stored_data_columns[op_ordinal], group_size - 1);
+        auto result = changelog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
         switch (result) {
-        case binlog::AggregateFunctionMinDelta::ResultType::SKIP:
+        case changelog::AggregateFunctionMinDelta::ResultType::SKIP:
             break;
-        case binlog::AggregateFunctionMinDelta::ResultType::INSERT:
+        case changelog::AggregateFunctionMinDelta::ResultType::INSERT:
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                    RETURN_IF_ERROR(_write_binlog_op(*target_columns[ordinal],
-                                                     binlog::STREAM_CHANGE_INSERT));
+                    RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
+                                                        changelog::STREAM_CHANGE_INSERT));
                 } else {
                     // insert should use most recent value
                     target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
@@ -285,12 +285,12 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
             output_row_count++;
             break;
-        case binlog::AggregateFunctionMinDelta::ResultType::DELETE:
+        case changelog::AggregateFunctionMinDelta::ResultType::DELETE:
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 const auto read_ordinal = static_cast<int32_t>(ordinal);
                 if (read_ordinal == op_ordinal) {
-                    RETURN_IF_ERROR(_write_binlog_op(*target_columns[ordinal],
-                                                     binlog::STREAM_CHANGE_DELETE));
+                    RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
+                                                        changelog::STREAM_CHANGE_DELETE));
                 } else if (read_ordinal == lsn_ordinal || read_ordinal == tso_ordinal) {
                     target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                          group_size - 1);
@@ -303,16 +303,16 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             }
             output_row_count++;
             break;
-        case binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
-            if (binlog::is_valid_row_binlog_op(first_op) &&
-                binlog::is_valid_row_binlog_op(last_op) &&
+        case changelog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER:
+            if (changelog::is_valid_changelog_op(first_op) &&
+                changelog::is_valid_changelog_op(last_op) &&
                 _min_delta_values_equal(group_size - 1)) {
                 break;
             }
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                    RETURN_IF_ERROR(_write_binlog_op(*target_columns[ordinal],
-                                                     binlog::STREAM_CHANGE_UPDATE_BEFORE));
+                    RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
+                                                        changelog::STREAM_CHANGE_UPDATE_BEFORE));
                 } else {
                     auto source_ordinal =
                             _resolve_source_column_ordinal(static_cast<uint32_t>(ordinal), true);
@@ -323,8 +323,8 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             if (output_row_count >= batch_max_rows()) {
                 for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                     if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                        RETURN_IF_ERROR(_write_binlog_op(*_pending_row_columns[ordinal],
-                                                         binlog::STREAM_CHANGE_UPDATE_AFTER));
+                        RETURN_IF_ERROR(_write_changelog_op(*_pending_row_columns[ordinal],
+                                                            changelog::STREAM_CHANGE_UPDATE_AFTER));
                     } else {
                         _pending_row_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                                    group_size - 1);
@@ -334,8 +334,8 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             } else {
                 for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                     if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                        RETURN_IF_ERROR(_write_binlog_op(*target_columns[ordinal],
-                                                         binlog::STREAM_CHANGE_UPDATE_AFTER));
+                        RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
+                                                            changelog::STREAM_CHANGE_UPDATE_AFTER));
                     } else {
                         target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                              group_size - 1);
@@ -354,7 +354,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-// DETAIL reader: emits every recorded binlog change verbatim. APPEND -> single INSERT row,
+// DETAIL reader: emits every recorded changelog change verbatim. APPEND -> single INSERT row,
 // DELETE -> single DELETE row, UPDATE -> a BEFORE+AFTER pair. When the AFTER row would
 // overflow batch_max_rows(), it is parked in _pending_row_columns and flushed next call.
 Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
@@ -379,27 +379,27 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
         }
         const Block& source_block = *_next_row.block;
         const size_t row = _next_row.row_pos;
-        int64_t op = _read_binlog_op(*source_block.get_by_position(op_ordinal).column, row);
-        if (op == ROW_BINLOG_UPDATE) {
+        int64_t op = _read_changelog_op(*source_block.get_by_position(op_ordinal).column, row);
+        if (op == CHANGELOG_OP_UPDATE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               binlog::STREAM_CHANGE_UPDATE_BEFORE, true));
+                                               changelog::STREAM_CHANGE_UPDATE_BEFORE, true));
             output_row_count++;
             if (output_row_count >= batch_max_rows()) {
                 RETURN_IF_ERROR(_append_change_row(_pending_row_columns, source_block, row,
-                                                   binlog::STREAM_CHANGE_UPDATE_AFTER, false));
+                                                   changelog::STREAM_CHANGE_UPDATE_AFTER, false));
                 _has_pending_row = true;
             } else {
                 RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                                   binlog::STREAM_CHANGE_UPDATE_AFTER, false));
+                                                   changelog::STREAM_CHANGE_UPDATE_AFTER, false));
                 output_row_count++;
             }
-        } else if (op == ROW_BINLOG_APPEND) {
+        } else if (op == CHANGELOG_OP_APPEND) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               binlog::STREAM_CHANGE_INSERT, false));
+                                               changelog::STREAM_CHANGE_INSERT, false));
             output_row_count++;
-        } else if (op == ROW_BINLOG_DELETE) {
+        } else if (op == CHANGELOG_OP_DELETE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               binlog::STREAM_CHANGE_DELETE, true));
+                                               changelog::STREAM_CHANGE_DELETE, true));
             output_row_count++;
         }
 
@@ -458,7 +458,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
         _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
-        const bool is_min_delta_stream = read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA;
+        const bool is_min_delta_stream =
+                read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
         const bool force_merge = read_params.read_orderby_key || is_min_delta_stream;
         const bool is_reverse = !is_min_delta_stream && read_params.read_orderby_key_reverse;
         _vcollect_iter.init(this, _is_rowsets_overlapping, force_merge, is_reverse);
@@ -552,19 +553,19 @@ Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    // A Row Binlog scan maps the before-image columns; every other read of this reader, which is
+    // A changelog scan maps the before-image columns; every other read of this reader, which is
     // the one that merges rows across rowsets, builds the sequence mapping instead.
-    const bool map_row_binlog_columns =
-            read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
-            read_params.binlog_scan_type == TBinlogScanType::DETAIL;
+    const bool map_changelog_columns =
+            read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
+            read_params.changelog_scan_type == TChangelogScanType::DETAIL;
     const bool merge_by_sequence_mapping =
-            !map_row_binlog_columns && _tablet_schema->has_seq_map() &&
+            !map_changelog_columns && _tablet_schema->has_seq_map() &&
             _tablet_schema->keys_type() == UNIQUE_KEYS && !_direct_mode &&
             !(read_params.reader_type == ReaderType::READER_QUERY &&
               _tablet->enable_unique_key_merge_on_write());
     RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(
-            *_tablet_schema, merge_by_sequence_mapping, map_row_binlog_columns));
-    if (map_row_binlog_columns) {
+            *_tablet_schema, merge_by_sequence_mapping, map_changelog_columns));
+    if (map_changelog_columns) {
         _min_delta_value_compare_unsupported = false;
     }
 
@@ -588,13 +589,13 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     // MIN_DELTA: collapse consecutive same-key changes to the minimum equivalent change set
     // (e.g. INSERT+DELETE -> SKIP, INSERT+UPDATE -> INSERT). Reduces downstream traffic.
-    if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA) {
+    if (read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA) {
         _next_block_func = &BlockReader::_min_delta_next_block;
         return Status::OK();
     }
     // DETAIL: emit every recorded change as-is, with BEFORE+AFTER rows for UPDATE.
     // Used when the consumer needs full change history rather than the net delta.
-    if (read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
+    if (read_params.changelog_scan_type == TChangelogScanType::DETAIL) {
         _next_block_func = &BlockReader::_detail_change_next_block;
         return Status::OK();
     }

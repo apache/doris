@@ -80,9 +80,10 @@
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/compaction/base_compaction.h"
 #include "storage/compaction/cumulative_compaction.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction/full_compaction.h"
@@ -1009,7 +1010,7 @@ Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_ve
 }
 
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
-    if (is_row_binlog_tablet() && compaction_type != CompactionType::CUMU_BINLOG_COMPACTION) {
+    if (is_changelog_tablet() && compaction_type != CompactionType::CHANGELOG_COMPACTION) {
         return false;
     }
 
@@ -1019,7 +1020,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION && !is_row_binlog_tablet()) {
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION && !is_changelog_tablet()) {
         return false;
     }
 
@@ -1033,7 +1034,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
 }
 
 uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) {
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         std::shared_lock rdlock(_meta_lock);
         return _calc_cumulative_compaction_score(_cumulative_compaction_policy);
     }
@@ -1067,7 +1068,7 @@ bool Tablet::suitable_for_compaction(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
     if ((compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-         compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) &&
+         compaction_type == CompactionType::CHANGELOG_COMPACTION) &&
         cumulative_compaction_policy != nullptr) {
         std::lock_guard wrlock(_meta_lock);
         if (_cumulative_compaction_policy == nullptr ||
@@ -1081,7 +1082,7 @@ bool Tablet::suitable_for_compaction(
     std::shared_lock rdlock(_meta_lock);
     int32_t score = -1;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-        compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+        compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
@@ -1256,16 +1257,16 @@ Status Tablet::_contains_version(const Version& version) {
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction(
-        std::optional<int64_t> row_binlog_ttl_cutoff_tso) {
-    if (is_row_binlog_tablet()) {
-        return pick_candidate_rowsets_to_binlog_compaction(row_binlog_ttl_cutoff_tso);
+        std::optional<int64_t> changelog_ttl_cutoff_tso) {
+    if (is_changelog_tablet()) {
+        return pick_candidate_rowsets_to_changelog_compaction(changelog_ttl_cutoff_tso);
     }
     std::shared_lock rlock(_meta_lock);
     return pick_candidate_rowsets_to_cumulative_compaction_unlocked();
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction_unlocked() {
-    DORIS_CHECK(!is_row_binlog_tablet());
+    DORIS_CHECK(!is_changelog_tablet());
 
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
@@ -1331,8 +1332,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction(
-        std::optional<int64_t> row_binlog_ttl_cutoff_tso) {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_changelog_compaction(
+        std::optional<int64_t> changelog_ttl_cutoff_tso) {
     auto [visible_version, _] = get_visible_version_and_time();
     int64_t now = UnixSeconds();
     std::vector<RowsetSharedPtr> candidate_rowsets;
@@ -1341,15 +1342,14 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction
     {
         std::shared_lock rlock(_meta_lock);
         bool filter_new_rowset =
-                _rs_version_map.size() <= config::binlog_compaction_file_count_threshold;
+                _rs_version_map.size() <= config::changelog_compaction_file_count_threshold;
         for (const auto& [version, rs] : _rs_version_map) {
             max_version = std::max(max_version, version.second);
-            bool expired =
-                    row_binlog_ttl_cutoff_tso.has_value() &&
-                    row_binlog_rowset_expired(*rs->rowset_meta(), *row_binlog_ttl_cutoff_tso);
+            bool expired = changelog_ttl_cutoff_tso.has_value() &&
+                           changelog_rowset_expired(*rs->rowset_meta(), *changelog_ttl_cutoff_tso);
             if (!expired && filter_new_rowset && rs->rowset_meta()->is_singleton_delta() &&
                 rs->rowset_meta()->newest_write_timestamp() +
-                                config::binlog_compaction_wait_timesec_after_visible >
+                                config::changelog_compaction_wait_timesec_after_visible >
                         now) {
                 continue;
             }
@@ -1885,7 +1885,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
-    } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+    } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         compaction = std::make_shared<CumulativeCompaction>(tablet->_engine, tablet);
         Status res = compaction->prepare_compact();
 
@@ -1893,7 +1893,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             permits = 0;
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-                return Status::InternalError("prepare binlog compaction with err: {}",
+                return Status::InternalError("prepare changelog compaction with err: {}",
                                              res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
@@ -2034,8 +2034,8 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
-    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
-        context.write_binlog_opt().enable = true;
+    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_changelog()) {
+        context.write_changelog_opt().enable = true;
     }
     return create_transient_rowset_writer(context, rowset.rowset_id())
             .transform([&](auto&& writer) {
@@ -2080,8 +2080,8 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 
-    if (context.write_binlog_opt().enable) {
-        context.write_binlog_opt().set_need_before(
+    if (context.write_changelog_opt().enable) {
+        context.write_changelog_opt().set_need_before(
                 tablet_meta()->binlog_config().need_historical_value());
     }
 }
@@ -2636,17 +2636,17 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 
-    // For binlog<Row> publish, sync current rowset delete bitmap deltas to binlog tablet.
-    // so row binlog reads can skip rows deleted by MOW conflict resolution.
-    const bool build_row_binlog = txn_info->attach_row_binlog.rowset != nullptr;
+    // For changelog publish, sync current rowset delete bitmap deltas to changelog tablet.
+    // so changelog reads can skip rows deleted by MOW conflict resolution.
+    const bool build_changelog = txn_info->attach_changelog.rowset != nullptr;
     const RowsetId cur_build_rid = txn_info->rowset->rowset_id();
-    const RowsetId binlog_rid =
-            build_row_binlog ? txn_info->attach_row_binlog.rowset->rowset_id() : cur_build_rid;
-    auto* row_binlog_delete_bitmap = txn_info->attach_row_binlog.delete_bitmap.get();
-    if (build_row_binlog) {
-        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta() != nullptr);
-        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta()->is_row_binlog());
-        DCHECK(row_binlog_delete_bitmap != nullptr);
+    const RowsetId changelog_rid =
+            build_changelog ? txn_info->attach_changelog.rowset->rowset_id() : cur_build_rid;
+    auto* changelog_delete_bitmap = txn_info->attach_changelog.delete_bitmap.get();
+    if (build_changelog) {
+        DCHECK(txn_info->attach_changelog.rowset->rowset_meta() != nullptr);
+        DCHECK(txn_info->attach_changelog.rowset->rowset_meta()->is_changelog());
+        DCHECK(changelog_delete_bitmap != nullptr);
     }
 
     // update version without write lock, compaction and publish_txn
@@ -2658,12 +2658,12 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
             _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
                                                 bitmap);
 
-            if (build_row_binlog && std::get<0>(key) == cur_build_rid) {
+            if (build_changelog && std::get<0>(key) == cur_build_rid) {
                 const DeleteBitmap::SegmentId& sid = std::get<1>(key);
-                // Merge current delete bitmap deltas to binlog tablet because publish-phase
-                // partial-update and seq replace will influence the binlog rowset.
-                row_binlog_delete_bitmap->merge({binlog_rid, sid, cast_set<uint64_t>(cur_version)},
-                                                bitmap);
+                // Merge current delete bitmap deltas to changelog tablet because publish-phase
+                // partial-update and seq replace will influence the changelog rowset.
+                changelog_delete_bitmap->merge(
+                        {changelog_rid, sid, cast_set<uint64_t>(cur_version)}, bitmap);
             }
         }
     }
@@ -2691,7 +2691,7 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
     if (!skip) {
         _skip_cumu_compaction = false;
         _skip_base_compaction = false;
-        _skip_binlog_compaction = false;
+        _skip_changelog_compaction = false;
         return;
     }
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -2701,9 +2701,9 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
         _skip_base_compaction = true;
         _skip_base_compaction_ts = start;
     } else {
-        DCHECK(compaction_type == CompactionType::CUMU_BINLOG_COMPACTION);
-        _skip_binlog_compaction = true;
-        _skip_binlog_compaction_ts = start;
+        DCHECK(compaction_type == CompactionType::CHANGELOG_COMPACTION);
+        _skip_changelog_compaction = true;
+        _skip_changelog_compaction_ts = start;
     }
 }
 
@@ -2714,9 +2714,9 @@ bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now)
     } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
                now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
-    } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION &&
-               _skip_binlog_compaction &&
-               now < _skip_binlog_compaction_ts + config::skip_tablet_compaction_second) {
+    } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION &&
+               _skip_changelog_compaction &&
+               now < _skip_changelog_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     }
     return false;

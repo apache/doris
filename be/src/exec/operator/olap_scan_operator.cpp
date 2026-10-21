@@ -544,9 +544,9 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
 
 bool OlapScanLocalState::can_push_down_column_predicate(const SlotDescriptor* slot) {
     // The Operator-level method handles static column capabilities. The LocalState-level
-    // condition additionally handles the current scan range's binlog merge mode.
+    // condition additionally handles the current scan range's changelog merge mode.
     return Base::can_push_down_column_predicate(slot) &&
-           (!_is_binlog_merge_scan() || _is_key_column(slot->col_name()));
+           (!_is_changelog_merge_scan() || _is_key_column(slot->col_name()));
 }
 
 Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* fn_call,
@@ -626,12 +626,13 @@ bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
 
 bool OlapScanLocalState::_storage_no_merge() {
     auto& p = _parent->cast<OlapScanOperatorX>();
-    // MIN_DELTA / DETAIL binlog scans read through BlockReader, which aggregates and splits one
-    // stored UPDATE into BEFORE/AFTER rows, synthesizing __DORIS_BINLOG_OP__ and the before-image
-    // values above the storage layer. That is a merge, so predicates must not be pushed to the
-    // SegmentIterator (they would see meaningless pre-merge values); they are kept as residual
-    // conjuncts evaluated above the reader. APPEND_ONLY / NONE do not split rows and keep pushdown.
-    if (_is_binlog_merge_scan()) {
+    // MIN_DELTA / DETAIL changelog scans read through BlockReader, which aggregates and splits one
+    // stored UPDATE into BEFORE/AFTER rows, synthesizing __DORIS_CHANGELOG_OP__ and the
+    // before-image values above the storage layer. That is a merge, so predicates must not be
+    // pushed to the SegmentIterator (they would see meaningless pre-merge values); they are kept
+    // as residual conjuncts evaluated above the reader. APPEND_ONLY / NONE do not split rows and
+    // keep pushdown.
+    if (_is_changelog_merge_scan()) {
         return false;
     }
     return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
@@ -646,14 +647,14 @@ bool OlapScanLocalState::_read_mor_as_dup() {
     return p._olap_scan_node.__isset.read_mor_as_dup && p._olap_scan_node.read_mor_as_dup;
 }
 
-bool OlapScanLocalState::_is_binlog_merge_scan() const {
-    // All ranges of one scan node share the same binlog scan type. Only MIN_DELTA / DETAIL go
+bool OlapScanLocalState::_is_changelog_merge_scan() const {
+    // All ranges of one scan node share the same changelog scan type. Only MIN_DELTA / DETAIL go
     // through BlockReader's merge (op synthesis + BEFORE/AFTER split).
-    if (_scan_ranges.empty() || !_scan_ranges[0]->__isset.binlog_scan_type) {
+    if (_scan_ranges.empty() || !_scan_ranges[0]->__isset.changelog_scan_type) {
         return false;
     }
-    auto scan_type = _scan_ranges[0]->binlog_scan_type;
-    return scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
+    auto scan_type = _scan_ranges[0]->changelog_scan_type;
+    return scan_type == TChangelogScanType::MIN_DELTA || scan_type == TChangelogScanType::DETAIL;
 }
 
 void OlapScanLocalState::_prune_rowsets_by_tso(const TPaloScanRange& scan_range,
@@ -785,14 +786,14 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
-    auto resolve_binlog_scan_type = [](const TPaloScanRange& scan_range) {
-        if (scan_range.__isset.binlog_scan_type) {
-            return scan_range.binlog_scan_type;
+    auto resolve_changelog_scan_type = [](const TPaloScanRange& scan_range) {
+        if (scan_range.__isset.changelog_scan_type) {
+            return scan_range.changelog_scan_type;
         }
-        return TBinlogScanType::NONE;
+        return TChangelogScanType::NONE;
     };
-    bool read_row_binlog =
-            p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
+    bool read_changelog =
+            p._olap_scan_node.__isset.read_changelog && p._olap_scan_node.read_changelog;
     bool has_tso_predicate = _scan_ranges[0]->__isset.start_tso || _scan_ranges[0]->__isset.end_tso;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
@@ -813,8 +814,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
-        // binlog<row> need to be read in order
-        && !read_row_binlog && !has_tso_predicate) {
+        // changelog need to be read in order
+        && !read_changelog && !has_tso_predicate) {
         ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scan_ranges,
                                                _scanner_profile, tablet_key_ranges, state(),
                                                p._limit, true, p._olap_scan_node.is_preaggregation);
@@ -866,7 +867,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             continue;
         }
         const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
-        if (read_row_binlog &&
+        if (read_changelog &&
             (palo_scan_range.__isset.start_tso || palo_scan_range.__isset.end_tso)) {
             auto& read_source = _read_sources[scan_range_idx];
             // The version-consistent read source and delete predicates have already been
@@ -923,8 +924,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   {},
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
-                                  read_row_binlog,
-                                  resolve_binlog_scan_type(palo_scan_range),
+                                  read_changelog,
+                                  resolve_changelog_scan_type(palo_scan_range),
                                   palo_scan_range.bucket_seq,
                                   palo_scan_range.bucket_num,
                                   palo_scan_range.__isset.start_tso

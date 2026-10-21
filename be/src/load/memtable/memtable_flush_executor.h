@@ -28,7 +28,7 @@
 #include "common/status.h"
 #include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -74,7 +74,7 @@ struct SharedMemtable {
     bool has_allocated_lsns = false;
 
     std::atomic<int> finished_sub_task_count {0};
-    // data + binlog
+    // data + changelog
     std::atomic<int> total_sub_task_count {2};
 
     int add_finished_sub_task() { return finished_sub_task_count.fetch_add(1); }

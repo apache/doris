@@ -1373,7 +1373,7 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
     if (row_lsns != nullptr && row_lsns->size() != num_rows) {
-        return Status::InvalidArgument("row binlog LSN count {} does not match row count {}",
+        return Status::InvalidArgument("changelog LSN count {} does not match row count {}",
                                        row_lsns->size(), num_rows);
     }
     std::vector<IOlapColumnDataAccessor*> key_columns {};

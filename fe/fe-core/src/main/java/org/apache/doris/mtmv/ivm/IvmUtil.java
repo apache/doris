@@ -129,14 +129,16 @@ public class IvmUtil {
     }
 
     public static boolean isCommonHiddenSlot(String columnName) {
+        // A changelog before column ends with its user column's name, which may itself end with "_COL".
         return columnName != null && (columnName.equals(Column.DELETE_SIGN)
                 || (columnName.startsWith(Column.HIDDEN_COLUMN_PREFIX)
-                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)));
+                && columnName.endsWith("_COL__") && !isIvmHiddenColumn(columnName)
+                && !Column.isChangelogBeforeColumn(columnName)));
     }
 
     /**
      * The default a hidden slot takes when the plan writing an append-only detail MV does not produce it.
-     * That model keeps no row identity in the row lsn column: the column is the MV's own binlog
+     * That model keeps no row identity in the row lsn column: the column is the MV's own changelog
      * bookkeeping, which the storage layer fills in as it writes the row, so a refresh appending a value
      * for it is not what makes the MV correct. The unique-key model is the opposite, which is why its
      * default is refused outright.
@@ -371,20 +373,20 @@ public class IvmUtil {
     }
 
     /**
-     * Checks that this base table can produce the changes a refresh reads: it must have row binlog
+     * Checks that this base table can produce the changes a refresh reads: it must have changelog
      * enabled, and it must not be a base table whose own refresh is a partition overwrite. An
      * excluded trigger table produces no delta at all, so it is exempt from the first.
      */
-    public static void validateBinlogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
+    public static void validateChangelogEnabled(Set<TableNameInfo> excludedTriggerTables, LogicalOlapScan scan) {
         if (isExcludedTriggerTable(excludedTriggerTables, scan)) {
             return;
         }
         OlapTable table = scan.getTable();
-        if (!table.getBinlogConfig().isEnableForStreaming()) {
-            throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
-                    "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
+        if (!table.hasChangelog()) {
+            throw new IvmException(IvmFailureReason.CHANGELOG_NOT_ENABLED,
+                    "SQL can be incrementally refreshed, but changelog is not enabled for table: "
                             + table.getName()
-                            + ". Please set 'binlog.enable' = 'true' and 'binlog.format' = 'ROW'.");
+                            + ". Please set 'changelog.enable' = 'true'.");
         }
         if (table instanceof MTMV && !((MTMV) table).isIvm()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,

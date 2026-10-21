@@ -483,7 +483,7 @@ public class BindSink implements AnalysisRuleFactory {
                 } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
                     // Which default applies follows from the table model: the unique-key model's row lsn
                     // is the row identity its deletes reply on, while an append-only detail MV's is its own
-                    // binlog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
+                    // changelog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
                     Expression hiddenDefault = ((MTMV) table).isIvmAppendOnlyDupTable()
                             ? IvmUtil.getAppendOnlyDupHiddenSlotDefault(column.getName(),
                                     DataType.fromCatalogType(column.getType()))

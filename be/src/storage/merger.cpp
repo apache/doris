@@ -139,13 +139,13 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
-    reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    reader_params.read_changelog = tablet->is_changelog_tablet();
     reader_params.runtime_state = runtime_state;
     if (key_range.has_value()) {
         RETURN_IF_ERROR(set_key_range(&reader_params, cur_tablet_schema, *key_range));
     }
-    if (reader_params.read_row_binlog) {
-        // Row-binlog horizontal (non-vertical) compaction must produce a globally
+    if (reader_params.read_changelog) {
+        // Changelog horizontal (non-vertical) compaction must produce a globally
         // (key, TSO)-ordered output.
         reader_params.read_orderby_key = true;
         reader_params.force_key_ordered_read = true;
@@ -171,7 +171,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
-    if (reader_params.read_row_binlog) {
+    if (reader_params.read_changelog) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
@@ -354,7 +354,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
-    reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    reader_params.read_changelog = tablet->is_changelog_tablet();
     reader_params.runtime_state = runtime_state;
     reader_params.enable_sparse_optimization = enable_sparse_optimization;
     if (key_range.has_value()) {
@@ -383,7 +383,7 @@ Status Merger::vertical_compact_one_group(
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
         has_cluster_key = true;
     }
-    if (reader_params.read_row_binlog) {
+    if (reader_params.read_changelog) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 

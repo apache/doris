@@ -34,7 +34,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
@@ -206,11 +206,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
-    _read_options.read_row_binlog = _read_context->read_row_binlog;
-    // Binlog TSO drives the merge tie-break and is therefore part of the exact
+    _read_options.read_changelog = _read_context->read_changelog;
+    // Changelog TSO drives the merge tie-break and is therefore part of the exact
     // read schema shared by the rowset merge.
     if (int32_t tso_ordinal = read_schema->tso_ordinal(); tso_ordinal >= 0) {
-        _read_options.binlog_tso_idx = tso_ordinal;
+        _read_options.changelog_tso_idx = tso_ordinal;
     }
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
@@ -342,13 +342,13 @@ Status BetaRowsetReader::_init_iterator() {
         int32_t sequence_loc = _read_context->use_sequence_column_for_merge_order
                                        ? _read_context->read_schema->sequence_ordinal()
                                        : -1;
-        if (_read_options.binlog_tso_idx != -1) {
-            sequence_loc = _read_options.binlog_tso_idx;
+        if (_read_options.changelog_tso_idx != -1) {
+            sequence_loc = _read_options.changelog_tso_idx;
         }
         _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
                                        _read_context->read_orderby_key_reverse,
                                        _read_context->merged_rows, _read_context->read_schema,
-                                       _read_options.binlog_tso_idx != -1);
+                                       _read_options.changelog_tso_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

@@ -171,7 +171,7 @@ private:
     bool _use_insert_order_when_same = false;
     // Tie-break direction on the sequence column when keys are equal:
     // false = larger value sorts first (UNIQUE_KEYS sequence column);
-    // true  = smaller value sorts first (row binlog TSO column).
+    // true  = smaller value sorts first (changelog TSO column).
     bool _small_seq_first = false;
     bool _valid = false;
     mutable bool _skip = false;

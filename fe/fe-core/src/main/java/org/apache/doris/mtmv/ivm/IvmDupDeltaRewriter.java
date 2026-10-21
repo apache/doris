@@ -73,7 +73,7 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
      *
      * <p>What comes back is already the shape the sink writes: the plan is the query, so its output is the
      * query's output, which is the MV's own columns -- and the adapt projects a bound sink leaves around
-     * the query keep the hidden columns such an MV has (its binlog's, when it carries one) in the shape
+     * the query keep the hidden columns such an MV has (its changelog's, when it carries one) in the shape
      * the sink expects. Nothing has to be projected on top of it, which is the same reason nothing has to
      * be detached from it first: the unique-key model needs both because its layout puts hidden columns
      * there that a delta has to add or take away.

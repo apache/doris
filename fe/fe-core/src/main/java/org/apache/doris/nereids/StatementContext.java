@@ -146,8 +146,8 @@ public class StatementContext implements Closeable {
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
-    private boolean rowBinlogReferenceTsoRequired;
-    private Long rowBinlogReferenceTso;
+    private boolean changelogReferenceTsoRequired;
+    private Long changelogReferenceTso;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -819,27 +819,27 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
-    public synchronized void requireRowBinlogReferenceTso() {
-        rowBinlogReferenceTsoRequired = true;
+    public synchronized void requireChangelogReferenceTso() {
+        changelogReferenceTsoRequired = true;
         getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
     }
 
-    public synchronized boolean isRowBinlogReferenceTsoRequired() {
-        return rowBinlogReferenceTsoRequired;
+    public synchronized boolean isChangelogReferenceTsoRequired() {
+        return changelogReferenceTsoRequired;
     }
 
-    public synchronized long getOrRegisterRowBinlogReferenceTso(Supplier<Long> tsoSupplier) {
-        if (rowBinlogReferenceTso == null) {
-            rowBinlogReferenceTso = tsoSupplier.get();
+    public synchronized long getOrRegisterChangelogReferenceTso(Supplier<Long> tsoSupplier) {
+        if (changelogReferenceTso == null) {
+            changelogReferenceTso = tsoSupplier.get();
         }
-        return rowBinlogReferenceTso;
+        return changelogReferenceTso;
     }
 
-    public synchronized long getRowBinlogReferenceTso() {
-        if (rowBinlogReferenceTso == null) {
-            throw new AnalysisException("Row binlog reference TSO was not initialized");
+    public synchronized long getChangelogReferenceTso() {
+        if (changelogReferenceTso == null) {
+            throw new AnalysisException("Changelog reference TSO was not initialized");
         }
-        return rowBinlogReferenceTso;
+        return changelogReferenceTso;
     }
 
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
@@ -890,8 +890,8 @@ public class StatementContext implements Closeable {
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
-        rowBinlogReferenceTsoRequired = false;
-        rowBinlogReferenceTso = null;
+        changelogReferenceTsoRequired = false;
+        changelogReferenceTso = null;
     }
 
     /**

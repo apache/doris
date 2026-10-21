@@ -263,7 +263,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                                         set_tablet_access_time_ms(tablet_ptr);
                                                         _cache->release(insert_handle);
                                                     });
-            _engine.register_row_binlog_tablet(tablet);
+            _engine.register_changelog_tablet(tablet);
             _tablet_map->put(std::move(tablet));
             return ret;
         };
@@ -486,21 +486,21 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         std::vector<std::shared_ptr<CloudTablet>>* tablets, CompactionScoreStats* score_stats) {
     DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
            compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-           compaction_type == CompactionType::CUMU_BINLOG_COMPACTION);
+           compaction_type == CompactionType::CHANGELOG_COMPACTION);
     *score_stats = {};
     score_stats->scanned = true;
     int64_t max_score_tablet_id = 0;
     // clang-format off
     auto score = [compaction_type](CloudTablet* t) {
-        if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION && !t->is_row_binlog_tablet()) {
+        if (compaction_type == CompactionType::CHANGELOG_COMPACTION && !t->is_changelog_tablet()) {
             return int64_t {0};
         }
-        if (compaction_type != CompactionType::CUMU_BINLOG_COMPACTION && t->is_row_binlog_tablet()) {
+        if (compaction_type != CompactionType::CHANGELOG_COMPACTION && t->is_changelog_tablet()) {
             return int64_t {0};
         }
         return compaction_type == CompactionType::BASE_COMPACTION ? t->get_cloud_base_compaction_score()
                : (compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-                  compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) ? t->get_cloud_cumu_compaction_score()
+                  compaction_type == CompactionType::CHANGELOG_COMPACTION) ? t->get_cloud_cumu_compaction_score()
                : 0;
     };
 

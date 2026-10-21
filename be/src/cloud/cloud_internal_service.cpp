@@ -125,12 +125,12 @@ void submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_po
         int64_t failed = 0;
         g_cloud_sync_tablet_meta_requests_total << 1;
         for (const auto tablet_id : request->tablet_ids()) {
-            if (request->discover_row_binlog_ttl()) {
-                if (config::disable_auto_compaction || !config::enable_feature_binlog) {
+            if (request->discover_changelog_ttl()) {
+                if (config::disable_auto_compaction || !config::enable_feature_changelog) {
                     ++skipped;
                     continue;
                 }
-                auto st = engine->submit_row_binlog_ttl(tablet_id, true);
+                auto st = engine->submit_changelog_ttl(tablet_id, true);
                 if (st.ok()) {
                     ++synced;
                 } else {

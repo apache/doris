@@ -53,7 +53,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/common/inverted_index_profile.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
@@ -81,7 +81,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
                                  .reader_type = ReaderType::READER_QUERY,
-                                 .read_row_binlog = params.read_row_binlog,
+                                 .read_changelog = params.read_changelog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -103,7 +103,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
-                                 .binlog_scan_type = params.binlog_scan_type}),
+                                 .changelog_scan_type = params.changelog_scan_type}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
           _bucket_seq(params.bucket_seq),
@@ -322,10 +322,10 @@ Status OlapScanner::_init_tso_predicates() {
     }
 
     const auto& read_schema = _tablet_reader_params.read_schema;
-    int32_t tso_ordinal = _tablet_reader_params.read_row_binlog ? read_schema->tso_ordinal()
-                                                                : read_schema->commit_tso_ordinal();
+    int32_t tso_ordinal = _tablet_reader_params.read_changelog ? read_schema->tso_ordinal()
+                                                               : read_schema->commit_tso_ordinal();
     const std::string& column_name =
-            _tablet_reader_params.read_row_binlog ? BINLOG_TSO_COL : COMMIT_TSO_COL;
+            _tablet_reader_params.read_changelog ? CHANGELOG_TSO_COL : COMMIT_TSO_COL;
     if (tso_ordinal < 0) {
         return Status::InvalidArgument(
                 "Column {} must be present in the FE scan schema for incremental read",
@@ -351,7 +351,7 @@ Status OlapScanner::_init_tso_predicates() {
     // segment row counts without applying any column predicate. The commit-tso
     // predicate injected above is row-level, so the fast path would both miscount
     // (ignoring commit_tso <= snapshot_tso). Disable it here, matching the
-    // binlog DETAIL/MIN_DELTA handling.
+    // changelog DETAIL/MIN_DELTA handling.
     _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
     // The scan-node digest does not contain the per-range TSO bounds.
     _tablet_reader_params.condition_cache_digest = 0;
@@ -384,16 +384,16 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
-    // Binlog DETAIL/MIN_DELTA scan schemas contain key/tso/op/before columns
+    // Changelog DETAIL/MIN_DELTA scan schemas contain key/tso/op/before columns
     // needed by the row-level merge in BlockReader. The storage-layer
     // statistics fast path (VStatisticsIterator, picked when push_down_agg_type
     // is COUNT/MINMAX) bypasses SegmentIterator entirely, returning raw segment
-    // row counts without binlog op filtering and with a schema that does not
+    // row counts without changelog op filtering and with a schema that does not
     // match the widened read schema. The result is both wrong (raw segment
-    // count != binlog row count) and unsafe (column-count DCHECK fires inside
+    // count != changelog row count) and unsafe (column-count DCHECK fires inside
     // VStatisticsIterator::next_batch). Disable the fast path for these scans.
-    if (_tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL ||
-        _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA) {
+    if (_tablet_reader_params.changelog_scan_type == TChangelogScanType::DETAIL ||
+        _tablet_reader_params.changelog_scan_type == TChangelogScanType::MIN_DELTA) {
         _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
     }
 
@@ -428,13 +428,13 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
 
-    const bool is_binlog_merge_scan =
-            _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
-            _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
+    const bool is_changelog_merge_scan =
+            _tablet_reader_params.changelog_scan_type == TChangelogScanType::MIN_DELTA ||
+            _tablet_reader_params.changelog_scan_type == TChangelogScanType::DETAIL;
     RETURN_IF_ERROR(_init_tso_predicates());
 
-    // Row-binlog scans must not be re-ordered or truncated by ORDER BY / TopN pushdowns,
-    // so reset every reorder-related param for all binlog scan types.
+    // Changelog scans must not be re-ordered or truncated by ORDER BY / TopN pushdowns,
+    // so reset every reorder-related param for all changelog scan types.
     //
     // Only MIN_DELTA / DETAIL additionally force the storage layer to deliver rows strictly
     // in primary-key order, so the BlockReader can group consecutive same-key changes
@@ -445,9 +445,9 @@ Status OlapScanner::_init_tablet_reader_params(
     // some or even all key columns. Forcing a key-ordered merge would make the fallback
     // comparator read key positions that do not exist in the projected blocks and crash
     // the BE (issue #66390), so it reads unordered like a plain scan.
-    if (_tablet_reader_params.binlog_scan_type != TBinlogScanType::NONE) {
-        _tablet_reader_params.read_orderby_key = is_binlog_merge_scan;
-        _tablet_reader_params.force_key_ordered_read = is_binlog_merge_scan;
+    if (_tablet_reader_params.changelog_scan_type != TChangelogScanType::NONE) {
+        _tablet_reader_params.read_orderby_key = is_changelog_merge_scan;
+        _tablet_reader_params.force_key_ordered_read = is_changelog_merge_scan;
         _tablet_reader_params.read_orderby_key_reverse = false;
         _tablet_reader_params.read_orderby_key_num_prefix_columns = 0;
         _tablet_reader_params.read_orderby_key_limit = 0;
@@ -645,7 +645,7 @@ Status OlapScanner::_init_read_schema() {
     }
 
     // The FE physical scan tuple is the read-path schema. It already includes
-    // every storage key, sequence, TSO and binlog column required below.
+    // every storage key, sequence, TSO and changelog column required below.
     _tablet_reader_params.read_schema =
             std::make_shared<ReadSchema>(std::move(read_columns), std::move(expected_types));
 

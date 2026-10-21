@@ -355,8 +355,8 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
     context.compaction_level = org_rowset_meta->compaction_level();
-    if (org_rowset_meta->is_row_binlog()) {
-        context.write_binlog_opt().enable = true;
+    if (org_rowset_meta->is_changelog()) {
+        context.write_changelog_opt().enable = true;
     }
     // propagate MOW flag so that non-MOW key-bounds aggregation is not applied
     // when restoring a MOW tablet's rowset
