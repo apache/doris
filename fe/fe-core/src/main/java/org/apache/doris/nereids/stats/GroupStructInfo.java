@@ -475,6 +475,7 @@ public class GroupStructInfo {
                 break;
             case JOIN:
                 out.text(node.flattenable ? "inner" : String.valueOf(node.joinType));
+                out.flag(node.markJoin);
                 out.text(distinctIdentityConditions(node.conditions));
                 break;
             case TOPN: {
@@ -1209,6 +1210,12 @@ public class GroupStructInfo {
         private List<Expression> conditions;
         /** JOIN: a flattened inner / cross join chain is rendered as `inner`, like a cross join. */
         private boolean flattenable;
+        /**
+         * JOIN: a mark join preserves every row of its left side and produces a marker column, while the
+         * same join type without the marker filters the unmatched rows: the two plans keep a different
+         * number of rows with the same conditions, so the flag is part of the identity.
+         */
+        private boolean markJoin;
         /** JOIN: the type of a join which is not flattened. */
         private JoinType joinType;
         /** TOPN / LIMIT: the bound. */
@@ -1493,6 +1500,7 @@ public class GroupStructInfo {
         if (!isFlattenableJoinType(join.getJoinType())) {
             Node node = new Node(Kind.JOIN);
             node.joinType = join.getJoinType();
+            node.markJoin = join.isMarkJoin();
             node.conditions = joinConditions(join);
             node.children = children(ge, ctx, 0);
             if (node.children == null) {
@@ -1777,6 +1785,7 @@ public class GroupStructInfo {
                 return;
             case JOIN:
                 out.append("J{").append(node.flattenable ? "inner" : String.valueOf(node.joinType))
+                        .append(node.markJoin ? ",mark" : "")
                         .append(",c:[").append(distinctIdentityConditions(node.conditions)).append("]}(");
                 appendChildren(out, node, mode, shape);
                 out.append(')');
