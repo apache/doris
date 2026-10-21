@@ -95,10 +95,10 @@ public:
 
     bool need_read_delete_bitmap() const {
         return _tablet_meta->enable_unique_key_merge_on_write() ||
-               _tablet_meta->is_row_binlog_tablet();
+               _tablet_meta->is_changelog_tablet();
     }
 
-    bool is_row_binlog_tablet() const { return _tablet_meta->is_row_binlog_tablet(); }
+    bool is_changelog_tablet() const { return _tablet_meta->is_changelog_tablet(); }
 
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
@@ -164,6 +164,8 @@ public:
     void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool cloud_get_rowset_meta) const;
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
                                             bool cloud_get_rowset_meta) const;
+
+    bool scan_expired_changelog_rowsets();
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
@@ -236,10 +238,10 @@ public:
     static const signed char* get_delete_sign_column_data(const Block& block,
                                                           size_t rows_at_least = 0);
 
-    static Status generate_default_value_block(const TabletSchema& schema,
-                                               const std::vector<uint32_t>& cids,
-                                               const std::vector<std::string>& default_values,
-                                               const Block& ref_block, Block& default_value_block);
+    static Status generate_default_value_block(
+            const TabletSchema& schema, const std::vector<uint32_t>& cids,
+            const PartialUpdateInfo& partial_update_info, const Block& row_block,
+            Block& default_value_block, const std::map<uint32_t, uint32_t>* row_indices = nullptr);
 
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
@@ -369,6 +371,9 @@ public:
                                                                const CaptureRowsetOps& options);
 
 protected:
+    // Protected by the tablet header lock; discovery resumes after this version.
+    Version _changelog_ttl_scan_cursor {-1, -1};
+
     // Find the missed versions until the spec_version.
     //
     // for example:

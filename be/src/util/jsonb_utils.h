@@ -107,8 +107,11 @@ private:
             break;
         }
         case JsonbType::T_String: {
+            // getBlobLen() is the stored payload length. length() would drop a
+            // trailing NUL that belongs to the value, so it cannot be used here;
+            // the writer stores strings by their exact length and never pads.
             string_to_json(val->unpack<JsonbStringVal>()->getBlob(),
-                           val->unpack<JsonbStringVal>()->length());
+                           val->unpack<JsonbStringVal>()->getBlobLen());
             break;
         }
         case JsonbType::T_Binary: {
@@ -162,7 +165,9 @@ private:
             return;
         }
         char char_buffer[16];
-        for (const char* ptr = str; ptr != str + len && *ptr; ++ptr) {
+        // A JSON string may legally contain U+0000, so the loop must be bounded by
+        // the length only; the NUL itself is escaped as \u0000 by the default branch.
+        for (const char* ptr = str; ptr != str + len; ++ptr) {
             if ((unsigned char)*ptr > 31 && *ptr != '\"' && *ptr != '\\') {
                 os_.put(*ptr);
             } else {

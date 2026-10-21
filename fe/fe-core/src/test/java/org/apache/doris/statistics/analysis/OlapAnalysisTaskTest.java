@@ -162,13 +162,8 @@ public class OlapAnalysisTaskTest {
                     + "ROUND(SUM(CASE WHEN `null` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
                     + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                     + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                    + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1), "
-                    + "cte3 AS (SELECT IFNULL(GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t.`column_key`, "
-                    + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` / ${rowCount2}, 2)), "
-                    + "\" ;\"), '') as `hot_value` FROM (SELECT ${subStringColName} as `hash_value`, "
-                    + "MAX(`null`) as `column_key`, COUNT(1) AS `count` FROM cte1 "
-                    + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
-                    + "SELECT * FROM cte2 CROSS JOIN cte3", sql);
+                    + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() AS `update_time`, "
+                    + "null as `hot_value` FROM cte1) SELECT * FROM cte2", sql);
             return null;
         }).when(olapAnalysisTask).runQuery(ArgumentMatchers.anyString());
 
@@ -322,8 +317,9 @@ public class OlapAnalysisTaskTest {
                 new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null));
         Assertions.assertEquals("1", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
-        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)",
-                params.get("rowCount2"));
+        // The linear estimator does not collect hot values, so it fills no hot value param.
+        Assertions.assertNull(params.get("rowCount2"));
+        Assertions.assertNull(params.get("subStringColName"));
         Assertions.assertEquals("ROUND(NDV(${colName}) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
         Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
@@ -334,8 +330,8 @@ public class OlapAnalysisTaskTest {
                 new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
                         Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
-        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)",
-                params.get("rowCount2"));
+        Assertions.assertNull(params.get("rowCount2"));
+        Assertions.assertNull(params.get("subStringColName"));
         Assertions.assertEquals("ROUND(NDV(${colName}) * ${scaleFactor})", params.get("ndvFunction"));
         params.clear();
 
@@ -348,6 +344,7 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)",
                 params.get("rowCount2"));
+        Assertions.assertEquals("${colName}", params.get("subStringColName"));
         Assertions.assertTrue(params.get("ndvFunction").contains("`t1`.`col_value`"),
                 "DUJ1 ndvFunction must reference cte1 output, got: " + params.get("ndvFunction"));
         params.clear();
@@ -983,7 +980,7 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testDoSampleAlwaysCollectsHotValue() throws Exception {
+    public void testDoSampleHotValueByAlgorithm() throws Exception {
         CatalogIf catalogIf = Mockito.mock(CatalogIf.class);
         DatabaseIf databaseIf = Mockito.mock(DatabaseIf.class);
         OlapTable tableIf = Mockito.mock(OlapTable.class);
@@ -999,16 +996,6 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(new ResultRow(Lists.newArrayList("1", "2"))).when(task).collectMinMax();
         Mockito.doNothing().when(task).getSampleParams(ArgumentMatchers.any(), ArgumentMatchers.anyLong(),
                 ArgumentMatchers.any());
-        Mockito.doAnswer(invocation -> {
-            String sql = invocation.getArgument(0);
-            Assertions.assertTrue(sql.contains("as `hot_value`"), sql);
-            Assertions.assertTrue(sql.contains("cte3"), sql);
-            Assertions.assertTrue(sql.contains("CROSS JOIN cte3"), sql);
-            Assertions.assertTrue(sql.contains("LIMIT 10"), sql);
-            Assertions.assertFalse(sql.contains("null as `hot_value`"), sql);
-            return null;
-        }).when(task).runQuery(Mockito.anyString());
-
         task.col = new Column("testCol", Type.fromPrimitiveType(PrimitiveType.INT),
                 true, null, null, null);
         task.tbl = tableIf;
@@ -1021,10 +1008,36 @@ public class OlapAnalysisTaskTest {
         task.db = databaseIf;
         task.tableSample = new TableSample(false, 100L);
 
+        // The linear estimator does not collect hot values: the extra GROUP BY over the sampled
+        // column is the dominant cost of LINEAR_ANALYZE_TEMPLATE.
+        Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            Assertions.assertTrue(sql.contains("null as `hot_value`"), sql);
+            Assertions.assertFalse(sql.contains("cte3"), sql);
+            Assertions.assertFalse(sql.contains("CROSS JOIN cte3"), sql);
+            Assertions.assertFalse(sql.contains("GROUP BY `hash_value`"), sql);
+            // The linear template carries no hot value placeholder at all. Which params each
+            // algorithm fills is pinned by testGetSampleParams.
+            Assertions.assertFalse(sql.contains("${hotValueCollectCount}"), sql);
+            Assertions.assertFalse(sql.contains("${subStringColName}"), sql);
+            Assertions.assertFalse(sql.contains("${rowCount2}"), sql);
+            return null;
+        }).when(task).runQuery(Mockito.anyString());
         Mockito.doReturn(new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
                 Pair.of(Lists.newArrayList(1L, 2L), 100L)))
                 .when(task).getSampleCollectInfo(Mockito.anyLong());
         task.doSample();
+
+        // DUJ1 still collects hot values: it derives them from the grouped sample it already
+        // builds for the NDV estimate.
+        Mockito.doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            Assertions.assertTrue(sql.contains("as `hot_value`"), sql);
+            Assertions.assertTrue(sql.contains("CROSS JOIN cte3"), sql);
+            Assertions.assertTrue(sql.contains("LIMIT 10"), sql);
+            Assertions.assertFalse(sql.contains("null as `hot_value`"), sql);
+            return null;
+        }).when(task).runQuery(Mockito.anyString());
         Mockito.doReturn(new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
                 Pair.of(Lists.newArrayList(1L, 2L), 100L)))
                 .when(task).getSampleCollectInfo(Mockito.anyLong());

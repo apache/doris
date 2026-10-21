@@ -124,6 +124,16 @@ public interface GlobalTransactionMgrIface extends Writable {
                 txnCommitAttachment);
     }
 
+    // FE-driven inserts own the cloud delete bitmap retries. BE-driven loads retry at the caller
+    // and must continue to use the single-attempt overloads that accept an attachment.
+    default boolean commitAndPublishTransactionWithRetry(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
+        return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                txnCommitAttachment, streamUpdateInfos);
+    }
+
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException;
 

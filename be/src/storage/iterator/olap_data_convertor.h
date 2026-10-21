@@ -320,7 +320,7 @@ private:
 
             assert(column_data);
             _values = column_data->get_data().data() + _row_pos;
-            // DATA and ROW_BINLOG flush tasks may convert the same source Block concurrently,
+            // DATA and CHANGELOG flush tasks may convert the same source Block concurrently,
             // so this converter must never mutate the source column or its nullable nested column.
             // Most simple types can expose the requested source slice directly with zero copy.
             // FLOAT/DOUBLE are special because storage requires a canonical NaN representation:

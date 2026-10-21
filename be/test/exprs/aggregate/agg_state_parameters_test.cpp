@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <limits>
 
 #include "common/exception.h"
@@ -88,12 +89,6 @@ public:
         });
     }
 
-    void check_direct_mismatch(const Arguments& first, const Arguments& second) {
-        auto* destination = create(first);
-        auto* source = create(second);
-        expect_incompatible([&] { _function->merge(destination, source, _arena); });
-    }
-
     void check_merge_result(const Arguments& initial, const Arguments& incoming, bool serialized) {
         auto* destination = create();
         auto* source = create();
@@ -145,21 +140,6 @@ public:
         EXPECT_NO_THROW(_function->merge(destination, create(populated), _arena));
         add(expected, populated);
         EXPECT_TRUE(ColumnHelper::column_equal(result(destination), result(expected)));
-    }
-
-    void check_configured_empty_payload(const Arguments& arguments) {
-        // TopN with zero capacity keeps counters in memory but serializes no counters.
-        // A decoded empty state must not change compatible counters.
-        auto serialized = serialize(create(arguments));
-        auto* configured_empty = create();
-        _function->deserialize_and_merge_from_column(configured_empty, *serialized, _arena);
-        auto* populated = create(arguments);
-        EXPECT_NO_THROW(
-                _function->deserialize_and_merge_from_column(populated, *serialized, _arena));
-        EXPECT_TRUE(ColumnHelper::column_equal(result(populated), result(create(arguments))));
-        EXPECT_NO_THROW(_function->merge(configured_empty, create(arguments), _arena));
-        EXPECT_TRUE(
-                ColumnHelper::column_equal(result(configured_empty), result(create(arguments))));
     }
 
     void check_compatible(const Arguments& arguments) {
@@ -394,33 +374,24 @@ TEST(AggregateStateParametersTest, Histogram) {
                      {value, argument<DataTypeInt32>(3)});
 }
 
-TEST(AggregateStateParametersTest, TopNZeroCapacityParameters) {
+TEST(AggregateStateParametersTest, TopNUnlimitedParameters) {
     for (const auto& name : {"topn", "topn_array", "topn_weighted"}) {
-        SCOPED_TRACE(name);
-        Arguments zero_capacity {argument<DataTypeString>("a")};
-        if (std::string(name) == "topn_weighted") {
-            zero_capacity.push_back(argument<DataTypeInt64>(1));
+        for (int rate : {0, -1, INT32_MIN}) {
+            SCOPED_TRACE(rate);
+            Arguments unlimited {argument<DataTypeString>("a")};
+            if (std::string(name) == "topn_weighted") {
+                unlimited.push_back(argument<DataTypeInt64>(1));
+            }
+            unlimited.push_back(argument<DataTypeInt32>(1));
+            unlimited.push_back(argument<DataTypeInt32>(rate));
+            auto finite = unlimited;
+            finite.back() = argument<DataTypeInt32>(2);
+            check_parameters(name, unlimited, finite);
+
+            auto zero_rate = unlimited;
+            zero_rate.back() = argument<DataTypeInt32>(0);
+            check_compatible_states(name, unlimited, zero_rate);
         }
-        zero_capacity.push_back(argument<DataTypeInt32>(1));
-        zero_capacity.push_back(argument<DataTypeInt32>(0));
-        auto positive_capacity = zero_capacity;
-        positive_capacity.back() = argument<DataTypeInt32>(2);
-        DataTypes types;
-        for (const auto& arg : zero_capacity) {
-            types.push_back(arg.type);
-        }
-        auto function = AggregateFunctionSimpleFactory::instance().get(
-                name, types, nullptr, false, BeExecVersionManager::get_newest_version());
-        ASSERT_NE(function, nullptr);
-        StateParameterChecks checks(function);
-        // Only the serialized zero-capacity state is empty; in-memory counters contribute.
-        checks.check_direct_mismatch(zero_capacity, positive_capacity);
-        checks.check_direct_mismatch(positive_capacity, zero_capacity);
-        check_ignored_parameters(name, zero_capacity, positive_capacity, true);
-        checks.check_merge_result({}, zero_capacity, false);
-        checks.check_merge_result(zero_capacity, {}, false);
-        checks.check_merge_result(zero_capacity, {}, true);
-        checks.check_configured_empty_payload(zero_capacity);
     }
 }
 

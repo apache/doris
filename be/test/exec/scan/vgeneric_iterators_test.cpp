@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -92,7 +93,8 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     auto schema = create_schema();
     auto iter = new_auto_increment_iterator(schema, 10);
 
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -168,11 +170,9 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     std::vector<ColumnId> column_ids {0, 1};
     ReadSchema schema(project_columns_by_ordinal(tablet_schema->columns(), column_ids));
     VStatisticsIterator iterator(segment, schema);
-    StorageReadOptions read_options;
     OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
-    read_options.stats = &stats;
-    read_options.tablet_schema = tablet_schema;
     ASSERT_TRUE(iterator.init(read_options).ok());
 
     Block block;
@@ -274,10 +274,8 @@ protected:
         // VStatisticsIterator keeps a reference to the schema, so it has to outlive the iterator.
         auto schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), column_ids));
-        StorageReadOptions read_options;
+        StorageReadOptions read_options(_stats);
         read_options.push_down_agg_type_opt = agg;
-        read_options.stats = &_stats;
-        read_options.tablet_schema = tablet_schema;
 
         if (with_delete) {
             auto del_pred = NullPredicate::create_shared(0, "c1", true, PrimitiveType::TYPE_INT);
@@ -396,7 +394,8 @@ TEST(VGenericIteratorsTest, Union) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_union_iterator(std::move(inputs), output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -441,7 +440,8 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -491,7 +491,8 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, true, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -569,6 +570,10 @@ public:
                     *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(double);
                     break;
+                case FieldType::OLAP_FIELD_TYPE_STRING:
+                    std::memcpy(data, &_seq_col_rows_returned, sizeof(_seq_col_rows_returned));
+                    data_len = sizeof(_seq_col_rows_returned);
+                    break;
                 default:
                     break;
                 }
@@ -597,6 +602,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    schema.append_compaction_rowid_column();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
@@ -615,7 +621,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
 
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr,
                                    output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -636,6 +643,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
+
+    const auto rowid = block.get_by_position(schema.rowid_ordinal()).column->get_data_at(0);
+    ASSERT_EQ(sizeof(int), rowid.size);
+    int rowid_value = 0;
+    std::memcpy(&rowid_value, rowid.data, sizeof(rowid_value));
+    EXPECT_EQ(seg_iter_num - 1, rowid_value);
 }
 
 // Mirror of MergeWithSeqColumn but with small_seq_first=true.
@@ -660,7 +673,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/true,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -681,20 +695,20 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     EXPECT_EQ(0, actual_value);
 }
 
-// Models the row-binlog quick-merge read path: the merge output rowset holds the
-// same user key across multiple segments, each carrying a distinct binlog event
-// (distinct TSO). A row-binlog scan reads it with is_unique=false and the TSO as
+// Models the changelog quick-merge read path: the merge output rowset holds the
+// same user key across multiple segments, each carrying a distinct changelog event
+// (distinct TSO). A changelog scan reads it with is_unique=false and the TSO as
 // the sequence column with small_seq_first=true. Unlike the is_unique=true cases
 // above (which collapse same-key rows to one), the merge iterator must keep EVERY
 // event and emit them ordered by ascending TSO, so a table-stream query over a
 // quick-merge rowset returns the complete, ordered change chain without dropping
 // any event.
-TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
+TEST(VGenericIteratorsTest, MergeKeepsAllChangelogEventsOrderedByTso) {
     auto schema = create_schema();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
-    int seq_column_id = 2; // BIGINT column stands in for __DORIS_BINLOG_TSO__.
+    int seq_column_id = 2; // BIGINT column stands in for __DORIS_CHANGELOG_TSO__.
     int num_rows = 1;
     int rows_begin = 0;
     // Same key in every segment, each carrying a distinct TSO. The children are fed in a
@@ -710,11 +724,12 @@ TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
     }
 
     // is_unique=false keeps every same-key event; small_seq_first=true orders by
-    // ascending TSO. This mirrors beta_rowset_reader's row-binlog merge setup.
+    // ascending TSO. This mirrors beta_rowset_reader's changelog merge setup.
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/false,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -797,7 +812,7 @@ private:
 // explicit compare columns are given. The read schema must therefore place its key columns as
 // the leading prefix; if a non-key column precedes a key column, init() must reject the merge
 // with a "compare contract violated" error instead of silently comparing a value column as a key
-// (issue #66390: a ROW-binlog APPEND_ONLY scan projected value columns ahead of a key).
+// (issue #66390: a changelog APPEND_ONLY scan projected value columns ahead of a key).
 TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     // Full tablet schema: k0(smallint), k1(int), v2(bigint). Project {v2, k0}: the schema has
     // one key column (k0) but it is not the leading column, so ordinal 0 is a non-key column.
@@ -810,7 +825,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
@@ -831,7 +847,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)

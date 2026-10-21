@@ -154,9 +154,17 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void exec() throws Exception {
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
         enqueue(coordinatorContext.connectContext);
 
         processTopSink(coordinatorContext, coordinatorContext.topDistributedPlan);
+        status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
 
         QeProcessorImpl.INSTANCE.registerInstances(coordinatorContext.queryId, coordinatorContext.instanceNum.get());
 
@@ -173,31 +181,47 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void cancel(Status cancelReason) {
-        coordinatorContext.getQueueToken().ifPresent(QueueToken::cancel);
-
-        for (ScanNode scanNode : coordinatorContext.scanNodes) {
-            scanNode.stop();
-        }
-
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is " + cancelReason);
         }
 
         TUniqueId queryId = coordinatorContext.queryId;
-        Status originQueryStatus = coordinatorContext.updateStatusIfOk(cancelReason);
-        if (!originQueryStatus.ok()) {
-            if (LOG.isDebugEnabled()) {
-                // Print an error stack here to know why send cancel again.
-                LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
-                                + "so that send cancel to BE again",
-                        DebugUtil.printId(queryId), originQueryStatus.toString(),
-                        new Exception("cancel failed"));
+        try {
+            Status originQueryStatus = coordinatorContext.updateStatusIfOk(cancelReason);
+            if (!originQueryStatus.ok()) {
+                if (LOG.isDebugEnabled()) {
+                    // Print an error stack here to know why send cancel again.
+                    LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
+                                    + "so that send cancel to BE again",
+                            DebugUtil.printId(queryId), originQueryStatus.toString(),
+                            new Exception("cancel failed"));
+                }
+            } else {
+                LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
+                        DebugUtil.printId(queryId), cancelReason);
             }
-        } else {
-            LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason);
+        } finally {
+            // Publishing the status above can itself cancel a partially initialized processor. Start the
+            // non-throwing cleanup scope before that publication so the queue token, the scan nodes, and
+            // the final internal cancel are never skipped, even if the publication was only half wired.
+            try {
+                coordinatorContext.getQueueToken().ifPresent(QueueToken::cancel);
+                // Scan cleanup is best-effort and must never escape: a throwing scan would otherwise skip
+                // the remaining scans (and the caller's coordinator close), masking the retained reason. A
+                // scan whose first stop() threw still removes its own sources on the close-time retry
+                // because SplitAssignment.stop() is idempotent.
+                for (ScanNode scanNode : coordinatorContext.scanNodes) {
+                    try {
+                        scanNode.stop();
+                    } catch (Throwable t) {
+                        LOG.error("error happens when scannode stop during cancel, query id: {}",
+                                DebugUtil.printId(queryId), t);
+                    }
+                }
+            } finally {
+                cancelInternal(cancelReason);
+            }
         }
-        cancelInternal(cancelReason);
     }
 
     public QueryProcessor asQueryProcessor() {
@@ -225,6 +249,11 @@ public class NereidsCoordinator extends Coordinator {
     @Override
     public boolean isQueryCancelled() {
         return coordinatorContext.readCloneStatus().isCancelled();
+    }
+
+    @Override
+    protected Status getQueryStatus() {
+        return coordinatorContext.readCloneStatus();
     }
 
     @Override
@@ -576,7 +605,11 @@ public class NereidsCoordinator extends Coordinator {
                     QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
-                    queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
+                    try {
+                        queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
+                    } catch (UserException e) {
+                        throw preferTerminalReason(e);
+                    }
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {

@@ -48,6 +48,7 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -157,14 +158,14 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     _reader_context.reader_type = read_params.reader_type;
-    _reader_context.read_row_binlog = read_params.read_row_binlog;
+    _reader_context.read_changelog = read_params.read_changelog;
     _reader_context.version = read_params.version;
-    _reader_context.tablet_schema = _tablet_schema;
+    _reader_context.variant_compaction_paths = read_params.variant_compaction_paths;
     _reader_context.need_ordered_result = need_ordered_result || read_params.force_key_ordered_read;
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.use_insert_order_when_same =
-            read_params.use_insert_order_when_same || read_params.read_row_binlog;
+            read_params.use_insert_order_when_same || read_params.read_changelog;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.read_schema = _read_schema;
     _reader_context.read_orderby_key_columns =
@@ -184,7 +185,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.enable_mor_value_predicate_pushdown =
             read_params.enable_mor_value_predicate_pushdown;
-    _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
@@ -225,6 +225,16 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
     _read_schema = read_params.read_schema;
+    // A changelog read finds the TSO column by name: a singleton rowset stores a NULL placeholder
+    // there, and only a column named CHANGELOG_TSO_COL is given the rowset's commit TSO instead.
+    // Example: a changelog tablet whose hidden columns were named by another build. Its reads
+    // would return NULL TSOs and lose the TSO merge order, and a compaction would write those
+    // NULLs into its output for good, so both fail here.
+    if ((_tablet->is_changelog_tablet() || read_params.read_changelog) &&
+        _tablet_schema->changelog_tso_col_idx() < 0) {
+        return Status::InternalError<false>("changelog tablet {} has no {} column in its schema",
+                                            _tablet->tablet_id(), CHANGELOG_TSO_COL);
+    }
     _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
@@ -377,6 +387,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
                     "_orderby_key_columns.size()={}",
                     read_params.read_orderby_key_num_prefix_columns, _orderby_key_columns.size());
         }
+    }
+
+    // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
+    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
+                "enable_unique_key_merge_on_write={}, read_orderby_key_num_prefix_columns={}",
+                _tablet_schema->keys_type(), _tablet->enable_unique_key_merge_on_write(),
+                read_params.read_orderby_key_num_prefix_columns);
     }
 
     return Status::OK();

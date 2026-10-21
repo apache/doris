@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.Optional;
 
 /**
  * Func type in Nereids.
@@ -40,5 +43,10 @@ public class LambdaType extends DataType {
     @Override
     public int width() {
         return 0;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

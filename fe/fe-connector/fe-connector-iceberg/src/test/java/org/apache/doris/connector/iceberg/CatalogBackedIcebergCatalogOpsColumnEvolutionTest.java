@@ -38,7 +38,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -333,6 +335,80 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         Assertions.assertTrue(ex.getMessage().contains("does not exist"));
     }
 
+    // ---------- VARIANT ----------
+
+    /** Creates {@code db1.<name>} with an id and, when {@code withVariant}, a required VARIANT payload. */
+    private void createTable(String name, String formatVersion, String fileFormat, boolean withVariant) {
+        Map<String, String> props = new HashMap<>(IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        props.put("format-version", formatVersion);
+        props.put("write.format.default", fileFormat);
+        Schema schema = withVariant
+                ? new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()),
+                        Types.NestedField.required(2, "payload", Types.VariantType.get(), "old"))
+                : new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()));
+        ops.createTable("db1", name, schema, PartitionSpec.unpartitioned(), null, props);
+    }
+
+    @Test
+    public void testAddVariantColumnNeedsFormatThreeParquetTable() {
+        // Doris writes VARIANT values only to format-version 3 Parquet data files, so a VARIANT column is added
+        // only to such a table, alone or with other columns.
+        createTable("v2_parquet", "2", "parquet", false);
+        createTable("v3_orc", "3", "orc", false);
+        createTable("v3_parquet", "3", "parquet", false);
+        IcebergColumnChange payload = change("payload", Types.VariantType.get(), "c", true);
+        DorisConnectorException v2 = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumn("db1", "v2_parquet", payload, null));
+        Assertions.assertEquals("Iceberg VARIANT column payload requires table format-version 3", v2.getMessage());
+        DorisConnectorException orc = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumns("db1", "v3_orc", Arrays.asList(
+                        change("a", Types.IntegerType.get(), "c", true), payload)));
+        Assertions.assertEquals("Iceberg VARIANT column payload requires Parquet data files", orc.getMessage());
+        Assertions.assertNull(ops.loadTable("db1", "v3_orc").schema().findField("a"));
+
+        ops.addColumn("db1", "v3_parquet", payload, null);
+        ops.addColumns("db1", "v3_parquet", Arrays.asList(
+                change("a", Types.IntegerType.get(), "c", true),
+                change("other_payload", Types.VariantType.get(), "c", true)));
+        Schema schema = ops.loadTable("db1", "v3_parquet").schema();
+        Assertions.assertEquals(Types.VariantType.get(), schema.findField("payload").type());
+        Assertions.assertEquals(Types.VariantType.get(), schema.findField("other_payload").type());
+    }
+
+    @Test
+    public void testModifyVariantColumnChangesOnlyItsMetadata() {
+        // A VARIANT modify only changes metadata, so it skips the file format check: a v3 ORC table can hold a
+        // VARIANT column that another engine wrote. The comment changes, the column becomes nullable and moves,
+        // and its type stays VARIANT.
+        createTable("orc_variant", "3", "orc", true);
+        ops.modifyColumn("db1", "orc_variant", change("payload", Types.VariantType.get(), "new doc", true), true,
+                ConnectorColumnPosition.FIRST);
+        Schema schema = ops.loadTable("db1", "orc_variant").schema();
+        Types.NestedField payload = schema.findField("payload");
+        Assertions.assertEquals(Types.VariantType.get(), payload.type());
+        Assertions.assertEquals("new doc", payload.doc());
+        Assertions.assertTrue(payload.isOptional());
+        Assertions.assertEquals("payload", schema.columns().get(0).name());
+    }
+
+    @Test
+    public void testModifyColumnTypeInvolvingVariantFailsLoud() {
+        createTable("parquet_variant", "3", "parquet", true);
+        DorisConnectorException toString = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.modifyColumn("db1", "parquet_variant",
+                        change("payload", Types.StringType.get(), null, true), true, null));
+        Assertions.assertEquals("Cannot change column type involving Iceberg VARIANT: payload: variant -> string",
+                toString.getMessage());
+        DorisConnectorException toVariant = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.modifyColumn("db1", "parquet_variant",
+                        change("id", Types.VariantType.get(), null, true), true, null));
+        Assertions.assertEquals("Cannot change column type involving Iceberg VARIANT: id: long -> variant",
+                toVariant.getMessage());
+        Schema schema = ops.loadTable("db1", "parquet_variant").schema();
+        Assertions.assertEquals(Types.VariantType.get(), schema.findField("payload").type());
+        Assertions.assertEquals(Types.LongType.get(), schema.findField("id").type());
+    }
+
     // ---------- reorderColumns ----------
 
     @Test
@@ -606,17 +682,18 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     }
 
     @Test
-    public void testModifyNestedDecimalPrecisionFailsLoud() {
-        // Legacy parity: a nested primitive change is restricted to int->long / float->double / exact; a
-        // DECIMAL precision change inside a struct is rejected (checkSupportSchemaChangeForNestedPrimitive).
+    public void testModifyNestedDecimalPrecisionWidens() {
+        // Iceberg permits a nested DECIMAL precision increase when the scale stays fixed.
         createTable("s_dec", new ConnectorColumn("st",
                 structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 10, 2)),
                         Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> modifyComplex("s_dec", "st",
-                        structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 20, 2)),
-                                Arrays.asList(true), Arrays.asList((String) null)), true));
-        Assertions.assertTrue(ex.getMessage().contains("nested"));
+        modifyComplex("s_dec", "st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 20, 2)),
+                        Arrays.asList(true), Arrays.asList((String) null)), true);
+        Types.DecimalType amount = (Types.DecimalType) reload("s_dec").findField("st")
+                .type().asStructType().field("a").type();
+        Assertions.assertEquals(20, amount.precision());
+        Assertions.assertEquals(2, amount.scale());
     }
 
     @Test

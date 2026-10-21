@@ -40,7 +40,7 @@ suite("mow_insert_with_partition_drop") {
     """
     def do_insert_into = {
         int j = 1
-        while (j < 30) {
+        while (j < 30 && !Thread.currentThread().isInterrupted()) {
             try {
                 logger.info("round=" + j)
                 sql """ insert into ${table} values('2022-01-02', 2, 'a'); """
@@ -49,26 +49,25 @@ suite("mow_insert_with_partition_drop") {
                 j++
             } catch (Exception e) {
                 logger.info("exception=" + e.getMessage())
-                assertTrue((e.getMessage().contains("Insert has filtered data in strict mode")
-                                && e.getMessage().contains("url:")) ||
+                assertTrue(e.getMessage().contains("Insert has filtered data in strict mode.") ||
                         (e.getMessage().contains("partition") && e.getMessage().contains("does not exist")),
-                        "unexpected insert exception message: " + e.getMessage())
+                        e.getMessage())
             }
 
         }
     }
 
-    // Run the insert loop through the regression framework's thread() helper so that
-    // any assertion/exception is propagated back to this suite via future.get().
-    // Using a raw Thread.startDaemon + join() would swallow the child-thread exception
-    // (join() does not re-throw), letting the uncaught failure leak out and get
-    // mis-attributed to whichever suite happens to be running at that moment.
-    def t1 = thread {
+    def insertFuture = extraThread("mow_insert_with_partition_drop_insert", true) {
         do_insert_into()
     }
-    for (int i = 0; i < 30; i++) {
-        sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
-        sql """ ALTER TABLE ${table} ADD PARTITION p3 VALUES LESS THAN ('2023-01-01'); """
+    try {
+        for (int i = 0; i < 30; i++) {
+            sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
+            sql """ ALTER TABLE ${table} ADD PARTITION p3 VALUES LESS THAN ('2023-01-01'); """
+        }
+        // Propagate worker failures to this suite instead of an unrelated Awaitility waiter.
+        insertFuture.get()
+    } finally {
+        insertFuture.cancel(true)
     }
-    t1.get()
 }

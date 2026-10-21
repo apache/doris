@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * Null data type in Nereids.
@@ -32,6 +35,17 @@ public class NullType extends PrimitiveType {
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof DecimalV2Type) {
+            // DECIMALV2 is deprecated, so every cast involving it is conservatively non-injective.
+            return false;
+        }
+        // NULL is the only value in this domain. CheckCast permits it to cast to every target type,
+        // and nullable propagation keeps the result NULL, so no two distinct values can collapse.
+        return true;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return Type.NULL;
     }
@@ -39,5 +53,10 @@ public class NullType extends PrimitiveType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

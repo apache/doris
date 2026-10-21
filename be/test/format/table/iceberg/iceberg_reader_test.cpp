@@ -72,6 +72,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -1753,10 +1754,8 @@ TEST_F(IcebergReaderTest, v1_position_delete_consumes_delete_file_size) {
 
 // An inflated size must break the read, proving the v1 equality-delete path consumes the FE file_size.
 TEST_F(IcebergReaderTest, v1_equality_delete_consumes_delete_file_size) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_v1_eq_delete_size_test";
-    std::filesystem::remove_all(test_dir);
-    std::filesystem::create_directories(test_dir);
-    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    const doris::test::ScopedTempDirectory test_dir("doris_v1_eq_delete_size_test");
+    const auto delete_file_path = (test_dir.path() / "equality-delete.parquet").string();
     write_iceberg_int_equality_delete_parquet_file(delete_file_path, "id", 0, 2);
 
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
@@ -2929,7 +2928,7 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
 
     Block block;
     for (const auto* slot : tuple_descriptor->slots()) {
-        const auto& type = slot->get_data_type_ptr();
+        const auto& type = slot->type();
         block.insert({type->create_column(), type, slot->col_name()});
     }
     size_t read_rows = 0;
@@ -2937,11 +2936,9 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
     const auto status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(read_rows, 1);
-    EXPECT_EQ(tuple_descriptor->slots()[0]->get_data_type_ptr()->to_string(
-                      *block.get_by_position(0).column, 0),
+    EXPECT_EQ(tuple_descriptor->slots()[0]->type()->to_string(*block.get_by_position(0).column, 0),
               "[{\"a\":7}]");
-    EXPECT_EQ(tuple_descriptor->slots()[1]->get_data_type_ptr()->to_string(
-                      *block.get_by_position(1).column, 0),
+    EXPECT_EQ(tuple_descriptor->slots()[1]->type()->to_string(*block.get_by_position(1).column, 0),
               "{1:{\"a\":8}}");
 
     std::filesystem::remove_all(test_dir);

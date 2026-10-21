@@ -20,7 +20,10 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -85,21 +88,30 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
-        Assertions.assertEquals("9.0", version.getProperty("api.version"));
+        // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean) - the nullability the
+        // source declares, kept separate from the nullability the engine reads the column with.
+        Assertions.assertEquals("19.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
+            DiagnosticException.class,
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
+            ConnectorColumn.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
+            ConnectorScanRequest.class,
             ConnectorWriteHandle.class,
+            ConnectorChangelogMode.class,
+            ConnectorRowLevelDmlRequest.class,
+            org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
@@ -107,7 +119,10 @@ public class ConnectorPluginSurfaceTest {
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class);
+            Arrays.asList(ConnectorCapability.class,
+                    org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.Mode.class,
+                    org.apache.doris.connector.spi.write.ConnectorWriteDistribution.WriterAssignment.class);
 
     @Test
     public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException, IllegalAccessException {

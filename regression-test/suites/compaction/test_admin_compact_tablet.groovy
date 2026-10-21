@@ -35,18 +35,31 @@ suite("test_admin_compact_tablet", "p0") {
     """
 
     def tablets = sql_return_maparray "SHOW TABLETS FROM ${tableName}"
-    assertEquals(1, tablets.size())
-    def tabletId = tablets[0].TabletId
-    def backendId = tablets[0].BackendId
+    // SHOW TABLETS returns one row per replica. BUCKETS 1 still has only one
+    // logical tablet when force_olap_table_replication_num creates more replicas.
+    def tabletIds = tablets.collect { it.TabletId }.unique()
+    assertEquals(1, tabletIds.size())
+    def tabletId = tabletIds[0]
+    def replicas = tablets.findAll { it.TabletId == tabletId }
+    assertTrue(replicas.size() >= 1)
 
     def backendIdToBackendIp = [:]
     def backendIdToBackendHttpPort = [:]
     getBackendIpHttpPort(backendIdToBackendIp, backendIdToBackendHttpPort)
-    def beHost = backendIdToBackendIp["${backendId}"]
-    def bePort = backendIdToBackendHttpPort["${backendId}"]
+    def targets = replicas.collect { replica ->
+        def backendId = replica.BackendId
+        def target = [
+                backendId: backendId,
+                host: backendIdToBackendIp["${backendId}"],
+                port: backendIdToBackendHttpPort["${backendId}"]
+        ]
+        assertNotNull(target.host, "backend ${backendId} has no host")
+        assertNotNull(target.port, "backend ${backendId} has no HTTP port")
+        return target
+    }
 
-    def showTabletCompaction = {
-        def (code, stdout, stderr) = be_show_tablet_status(beHost, bePort, tabletId)
+    def showTabletCompaction = { target ->
+        def (code, stdout, stderr) = be_show_tablet_status(target.host, target.port, tabletId)
         assertEquals(0, code)
         return parseJson(stdout.trim())
     }
@@ -60,29 +73,54 @@ suite("test_admin_compact_tablet", "p0") {
         sql "INSERT INTO ${tableName} VALUES (${i}, ${i})"
     }
 
-    def before = showTabletCompaction()
-    def rowsetsBefore = countDataRowsets(before)
-    assertTrue(rowsetsBefore >= 8,
-            "expected >= 8 data rowsets before tablet compaction, got ${rowsetsBefore}")
-    assertEquals(epochTime, before["last cumulative success time"])
-
-    sql "ADMIN COMPACT TABLET ${tabletId} WHERE TYPE = 'CUMULATIVE'"
-    def after = null
-    def deadline = System.currentTimeMillis() + 60 * 1000L
-    while (System.currentTimeMillis() < deadline) {
-        after = showTabletCompaction()
-        if (after["last cumulative success time"] != epochTime
-                && countDataRowsets(after) < rowsetsBefore) {
-            break
-        }
-        sleep(500)
+    def beforeByBackendId = [:]
+    targets.each { target ->
+        def before = showTabletCompaction(target)
+        def rowsetsBefore = countDataRowsets(before)
+        assertTrue(rowsetsBefore >= 8,
+                "backend ${target.backendId}: expected >= 8 data rowsets before tablet compaction, "
+                        + "got ${rowsetsBefore}")
+        assertEquals(epochTime, before["last cumulative success time"])
+        beforeByBackendId["${target.backendId}"] = [
+                successTime: before["last cumulative success time"],
+                rowsetCount: rowsetsBefore
+        ]
     }
 
-    assertNotNull(after)
-    assertNotEquals(epochTime, after["last cumulative success time"])
-    assertEquals("[OK]", after["last cumulative status"])
-    assertTrue(countDataRowsets(after) < rowsetsBefore,
-            "tablet cumulative did not reduce rowset count: ${after.rowsets}")
+    sql "ADMIN COMPACT TABLET ${tabletId} WHERE TYPE = 'CUMULATIVE'"
+    def afterByBackendId = [:]
+    def pendingBackendIds = targets.collect { "${it.backendId}" } as Set
+    def deadline = System.currentTimeMillis() + 90 * 1000L
+    while (System.currentTimeMillis() < deadline && !pendingBackendIds.isEmpty()) {
+        targets.findAll { pendingBackendIds.contains("${it.backendId}") }.each { target ->
+            def backendId = "${target.backendId}"
+            def before = beforeByBackendId[backendId]
+            def after = showTabletCompaction(target)
+            afterByBackendId[backendId] = after
+            if (after["last cumulative success time"] != before.successTime
+                    && after["last cumulative status"] == "[OK]"
+                    && countDataRowsets(after) < before.rowsetCount) {
+                pendingBackendIds.remove(backendId)
+            }
+        }
+        if (!pendingBackendIds.isEmpty()) {
+            sleep(500)
+        }
+    }
+
+    assertTrue(pendingBackendIds.isEmpty(),
+            "tablet cumulative compaction did not finish on backends ${pendingBackendIds}; "
+                    + "last statuses: ${afterByBackendId}")
+    targets.each { target ->
+        def backendId = "${target.backendId}"
+        def before = beforeByBackendId[backendId]
+        def after = afterByBackendId[backendId]
+        assertNotNull(after)
+        assertNotEquals(before.successTime, after["last cumulative success time"])
+        assertEquals("[OK]", after["last cumulative status"])
+        assertTrue(countDataRowsets(after) < before.rowsetCount,
+                "backend ${backendId}: tablet cumulative did not reduce rowset count: ${after.rowsets}")
+    }
 
     test {
         sql "ADMIN COMPACT TABLET ${tabletId} WHERE TYPE = 'UNKNOWN'"

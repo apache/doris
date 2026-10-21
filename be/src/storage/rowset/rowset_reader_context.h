@@ -33,6 +33,7 @@
 #include "storage/row_cursor.h"
 #include "storage/rowid_conversion.h"
 #include "storage/schema.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 
 namespace doris {
 
@@ -42,9 +43,10 @@ class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
-    bool read_row_binlog = false;
+    bool read_changelog = false;
     Version version {-1, -1};
-    TabletSchemaSPtr tablet_schema = nullptr;
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
     std::vector<int> topn_filter_source_node_ids;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
@@ -85,7 +87,6 @@ struct RowsetReaderContext {
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
     DeleteBitmapPtr delete_bitmap = nullptr;
-    bool record_rowids = false;
     RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
     // column unique ids referenced by output/orderby exprs (NOT ordinals)

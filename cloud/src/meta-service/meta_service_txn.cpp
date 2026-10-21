@@ -337,7 +337,10 @@ private:
         txn_->put(table_stream_offset_key(key_info), value);
         if (metadata_reader_.writes_versioned_metadata()) {
             DCHECK(offset_gc != nullptr);
-            versioned_put(txn_, versioned::table_stream_offset_key(key_info), value);
+            versioned_put(txn_,
+                          versioned::table_stream_offset_key(
+                                  versioned::TableStreamOffsetKeyInfo(key_info)),
+                          value);
             offset_gc->add_partition_ids(update.partition_id());
         }
         return true;
@@ -796,12 +799,14 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         code = MetaServiceCode::TXN_ALREADY_VISIBLE;
         ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        return;
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_PRECOMMITTED) {
         code = MetaServiceCode::TXN_ALREADY_PRECOMMITED;
         ss << "transaction is already precommited: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
+        return;
     }
 
     LOG(INFO) << "before update txn_info=" << txn_info.ShortDebugString();
@@ -4695,9 +4700,12 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
                 return;
             }
             const auto& coordinate = info_pb.coordinator();
+            // Backend IDs survive address changes; use the address only for legacy unknown IDs.
+            const bool same_coordinator = (coordinate.id() != 0 && request->id() != 0)
+                                                  ? coordinate.id() == request->id()
+                                                  : coordinate.ip() == request->ip();
             if (info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
-                coordinate.sourcetype() == TXN_SOURCE_TYPE_BE && coordinate.id() == request->id() &&
-                coordinate.ip() == request->ip() &&
+                coordinate.sourcetype() == TXN_SOURCE_TYPE_BE && same_coordinator &&
                 coordinate.start_time() < request->start_time()) {
                 need_commit = true;
                 TxnInfoPB return_txn_info;
@@ -4799,10 +4807,12 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
             return TxnErrorCode::TXN_INVALID_DATA;
         }
         const auto& coordinate = info_pb.coordinator();
+        // Backend IDs survive address changes; use the address only for legacy unknown IDs.
+        const bool same_coordinator = (coordinate.id() != 0 && request->id() != 0)
+                                              ? coordinate.id() == request->id()
+                                              : coordinate.ip() == request->ip();
         bool matches = info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
-                       coordinate.sourcetype() == TXN_SOURCE_TYPE_BE &&
-                       coordinate.ip() == request->ip() &&
-                       (coordinate.id() == 0 || coordinate.id() == request->id());
+                       coordinate.sourcetype() == TXN_SOURCE_TYPE_BE && same_coordinator;
         if (matches && has_start_time_filter) {
             matches = coordinate.start_time() < request->start_time();
         }

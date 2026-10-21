@@ -36,10 +36,11 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/historical_row_retriever.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -73,6 +74,8 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
     // Immutable inverted-index file format inherited from the owner tablet.
     std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
     // Whether the owner tablet persists the format in its top-level metadata.
@@ -88,6 +91,7 @@ struct RowsetWriterContext {
     int64_t txn_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
+    std::shared_ptr<AtomicStatus> load_cancel_status;
     TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
@@ -192,7 +196,7 @@ struct RowsetWriterContext {
     std::string job_id;
 
     // Per-segment LSNs allocated before memtable flush. The same storage feeds
-    // both the base row LSN column and row-binlog LSN column.
+    // both the base row LSN column and changelog LSN column.
     std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map = nullptr;
     bool _need_allocate_lsn = false;
 
@@ -319,31 +323,31 @@ struct RowsetWriterContext {
         return opts;
     }
 
-    struct BinlogOptions {
+    struct ChangelogOptions {
     public:
         bool enable = false;
 
         void set_need_before(bool need_before) {
             this->_need_before = need_before;
-            _segment_write_binlog_opt.write_before = need_before;
+            _segment_write_changelog_opt.write_before = need_before;
         }
 
-        segment_v2::SegmentWriteBinlogOptions& write_binlog_config() {
-            return _segment_write_binlog_opt;
+        segment_v2::SegmentWriteChangelogOptions& write_changelog_config() {
+            return _segment_write_changelog_opt;
         }
 
-        const segment_v2::SegmentWriteBinlogOptions& write_binlog_config() const {
-            return _segment_write_binlog_opt;
+        const segment_v2::SegmentWriteChangelogOptions& write_changelog_config() const {
+            return _segment_write_changelog_opt;
         }
 
     private:
         bool _need_before = false;
-        segment_v2::SegmentWriteBinlogOptions _segment_write_binlog_opt;
-    } _write_binlog_opt;
+        segment_v2::SegmentWriteChangelogOptions _segment_write_changelog_opt;
+    } _write_changelog_opt;
 
-    BinlogOptions& write_binlog_opt() { return _write_binlog_opt; }
+    ChangelogOptions& write_changelog_opt() { return _write_changelog_opt; }
 
-    const BinlogOptions& write_binlog_opt() const { return _write_binlog_opt; }
+    const ChangelogOptions& write_changelog_opt() const { return _write_changelog_opt; }
 };
 
 inline segment_v2::HistoricalRowRetrieverContext

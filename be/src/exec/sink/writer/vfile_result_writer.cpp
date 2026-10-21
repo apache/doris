@@ -44,7 +44,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
@@ -137,7 +137,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->with_bom, _file_opts->compression_type));
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _vfile_writer.reset(new VParquetTransformer(
+        _vfile_writer.reset(new VParquetWriter(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _output_object_data,
                 {_file_opts->parquet_commpression_type, _file_opts->parquet_version,
@@ -162,10 +162,11 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
 Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
     std::string suffix =
             _file_opts->file_suffix.empty() ? _file_format_to_name() : _file_opts->file_suffix;
-    std::stringstream ss;
-    ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
-       << suffix;
-    *file_name = ss.str();
+    // Padding is a minimum width: larger indices must retain every digit.
+    const int padding = _file_opts->file_name_padding;
+    *file_name =
+            fmt::format("{}{}_{:0{}}.{}", _file_opts->file_path, print_id(_fragment_instance_id),
+                        _file_idx++, padding < 0 ? 0 : padding, suffix);
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
         // Here we do a simple security verification by checking whether the file exists.

@@ -194,7 +194,7 @@ public class HyperGraphComparator {
         if (foreign == null || primary == null) {
             return false;
         }
-        return JoinUtils.canEliminateByFk(joinEdge.getJoin(), primary, foreign);
+        return JoinUtils.canEliminateByFk(joinEdge.getJoin(), primary, foreign) != null;
     }
 
     private boolean canEliminateViewByLeft(JoinEdge joinEdge, Plan rightPlan) {

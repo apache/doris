@@ -31,6 +31,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "storage/id_manager.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
@@ -81,6 +82,14 @@ public:
 
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
+    // Runs read_by_rowids() for the multiget_data_v2 RPC and serializes the outcome into the
+    // response status. The remote scan scheduler runs the RPC callback on a plain ThreadPool
+    // worker, which has no exception boundary of its own, so a doris::Exception thrown while
+    // reading (for example by a slot of the request whose PTypeNode this BE does not know) is
+    // converted into an error status here instead of terminating the process.
+    static void read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                       PMultiGetResponseV2* response);
+
 private:
     static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
                                            const TFileScanRangeParams& scan_params,
@@ -90,7 +99,7 @@ private:
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_id,
-            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            std::vector<SlotDescriptor>& slots, const std::vector<TabletColumn>& fetch_columns,
             RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,

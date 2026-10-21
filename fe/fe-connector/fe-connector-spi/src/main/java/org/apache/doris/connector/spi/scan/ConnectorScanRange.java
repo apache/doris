@@ -46,6 +46,14 @@ public interface ConnectorScanRange extends Serializable {
         return Optional.empty();
     }
 
+    /**
+     * Returns a stable identity used to assign connector ranges to external-scan backends. Connectors whose JNI
+     * ranges do not have a path should override this with their serialized split identity.
+     */
+    default String getSplitIdentity() {
+        return getPath().orElse("");
+    }
+
     /** Returns the byte offset to start reading from. */
     default long getStart() {
         return 0;
@@ -176,6 +184,21 @@ public interface ConnectorScanRange extends Serializable {
      * connectors without a native read path are unaffected.</p>
      */
     default boolean isNativeReadRange() {
+        return false;
+    }
+
+    /**
+     * Whether reading this range consumes what it points at, so that it can be read only once.
+     *
+     * <p>The engine may read a planned range a second time: a query whose attempt failed on an RPC error
+     * is retried by dispatching the same plan again, ranges included. That is right for a range the source
+     * serves afresh on every read (a file, a statement run when it is read), and wrong for a handle to a
+     * result the source produced once -- a partition of a remote query that already ran, whose stream the
+     * first read drains: read again, it yields what the first read left, or nothing, and the query
+     * succeeds with rows missing. A range answering {@code true} keeps the engine from dispatching its plan
+     * again, so such a query fails instead. The default {@code false} keeps the retry.</p>
+     */
+    default boolean isSingleUse() {
         return false;
     }
 

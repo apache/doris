@@ -26,6 +26,8 @@
 #include <cstdint>
 #include <future>
 #include <mutex>
+#include <shared_mutex>
+#include <tuple>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -35,7 +37,9 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/unique_rowset_id_generator.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -70,6 +74,26 @@ public:
     }
 
 protected:
+    // Existing state-transition tests complete the current attempt. Tests for late
+    // callbacks pass the saved generation directly to the production interface.
+    uint64_t warmup_generation(const RowsetId& id) const {
+        std::shared_lock lock(_tablet->get_header_lock());
+        auto it = _tablet->_rowset_warm_up_states.find(id);
+        // The nonexistent-rowset test intentionally has no generation to complete.
+        return it == _tablet->_rowset_warm_up_states.end() ? 0 : it->second.generation;
+    }
+
+    WarmUpState complete_warmup(WarmUpTriggerSource source, RowsetId id, Status status,
+                                int64_t segments, int64_t indexes) {
+        return _tablet->complete_rowset_segment_warmup(source, id, status, segments, indexes,
+                                                       warmup_generation(id));
+    }
+
+    bool update_warmup_index_count(WarmUpTriggerSource source, RowsetId id, int64_t delta) {
+        return _tablet->update_rowset_warmup_state_inverted_idx_num(source, id, delta,
+                                                                    warmup_generation(id));
+    }
+
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
     std::shared_ptr<CloudTablet> _tablet;
@@ -77,6 +101,171 @@ protected:
 };
 
 class CloudTabletDeleteBitmapTest : public CloudTabletWarmUpStateTest {};
+
+TEST_F(CloudTabletWarmUpStateTest, GcOnlyOldCompletedOrphans) {
+    const auto now = steady_clock::now();
+    const auto old = now - hours(2);
+    auto visible = create_rowset(Version(1, 1), 0);
+    auto stale = create_rowset(Version(2, 2), 0);
+    // A different RowsetId for the same version is not a live rowset.
+    auto orphan = create_rowset(Version(1, 1), 1);
+    auto recent = create_rowset(Version(3, 3), 0);
+    auto doing = create_rowset(Version(4, 4), 1);
+    auto pending_index = create_rowset(Version(5, 5), 1);
+    auto empty = create_rowset(Version(6, 6), 0);
+    ASSERT_TRUE(visible && stale && orphan && recent && doing && pending_index && empty);
+
+    _tablet->_rs_version_map.emplace(visible->version(), visible);
+    _tablet->_stale_rs_version_map.emplace(stale->version(), stale);
+    for (const auto& rs : {visible, stale, orphan, doing, pending_index, empty}) {
+        ASSERT_TRUE(_tablet->add_rowset_warmup_state(*rs->rowset_meta(),
+                                                     WarmUpTriggerSource::EVENT_DRIVEN, old));
+    }
+    ASSERT_TRUE(_tablet->add_rowset_warmup_state(
+            *recent->rowset_meta(), WarmUpTriggerSource::EVENT_DRIVEN, now - minutes(30)));
+    complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, orphan->rowset_id(), Status::OK(), 1, 0);
+    complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, pending_index->rowset_id(), Status::OK(), 1,
+                    0);
+    // The segment can complete before its index is registered. DONE alone is insufficient.
+    ASSERT_TRUE(update_warmup_index_count(WarmUpTriggerSource::EVENT_DRIVEN,
+                                          pending_index->rowset_id(), 1));
+    ASSERT_EQ(_tablet->get_rowset_warmup_state(pending_index->rowset_id()).progress,
+              WarmUpProgress::DONE);
+
+    EXPECT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now), 2);
+    EXPECT_EQ(_tablet->_rowset_warm_up_states.size(), 5);
+    EXPECT_FALSE(_tablet->_rowset_warm_up_states.contains(orphan->rowset_id()));
+    EXPECT_FALSE(_tablet->_rowset_warm_up_states.contains(empty->rowset_id()));
+    for (const auto& rs : {visible, stale, recent, doing, pending_index}) {
+        EXPECT_TRUE(_tablet->_rowset_warm_up_states.contains(rs->rowset_id()));
+    }
+    EXPECT_FALSE(_tablet->is_rowset_warmed_up(doing->rowset_id()));
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(orphan->rowset_id()));
+}
+
+TEST_F(CloudTabletWarmUpStateTest, GcHonorsGracePeriodBoundary) {
+    const auto now = steady_clock::now();
+    auto expired = create_rowset(Version(1, 1), 0);
+    auto retained = create_rowset(Version(2, 2), 0);
+    ASSERT_TRUE(expired && retained);
+    ASSERT_TRUE(_tablet->add_rowset_warmup_state(
+            *expired->rowset_meta(), WarmUpTriggerSource::EVENT_DRIVEN, now - hours(1)));
+    ASSERT_TRUE(_tablet->add_rowset_warmup_state(*retained->rowset_meta(),
+                                                 WarmUpTriggerSource::EVENT_DRIVEN,
+                                                 now - hours(1) + seconds(1)));
+    EXPECT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now), 1);
+    EXPECT_TRUE(_tablet->_rowset_warm_up_states.contains(retained->rowset_id()));
+    EXPECT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now + seconds(1)), 1);
+}
+
+TEST_F(CloudTabletWarmUpStateTest, IgnoreSupersededCallbacksAfterOrphanGc) {
+    const auto now = steady_clock::now();
+    auto rowset = create_rowset(Version(1, 1), 2);
+    ASSERT_NE(rowset, nullptr);
+    const auto id = rowset->rowset_id();
+    const auto event_generation = _tablet->add_rowset_warmup_state(
+            *rowset->rowset_meta(), WarmUpTriggerSource::EVENT_DRIVEN, now - hours(2));
+    ASSERT_TRUE(event_generation);
+    // JOB can replace an EVENT_DRIVEN attempt whose callbacks are still outstanding.
+    const auto job_generation = _tablet->add_rowset_warmup_state(
+            *rowset->rowset_meta(), WarmUpTriggerSource::JOB, now - hours(2));
+    ASSERT_TRUE(job_generation);
+    _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB, id, Status::OK(), 2, 0,
+                                            *job_generation);
+    ASSERT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now), 1);
+    const auto new_generation = _tablet->add_rowset_warmup_state(
+            *rowset->rowset_meta(), WarmUpTriggerSource::EVENT_DRIVEN, now);
+    ASSERT_TRUE(new_generation);
+    ASSERT_NE(*event_generation, *new_generation);
+
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, id,
+                                                      Status::OK(), 1, 0, *event_generation)
+                      .progress,
+              WarmUpProgress::NONE);
+    EXPECT_FALSE(_tablet->update_rowset_warmup_state_inverted_idx_num(
+            WarmUpTriggerSource::EVENT_DRIVEN, id, 1, *event_generation));
+    EXPECT_EQ(_tablet->_rowset_warm_up_states.at(id).num_segments_warmed_up, 0);
+    EXPECT_EQ(_tablet->_rowset_warm_up_states.at(id).num_inverted_idx, 0);
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, id,
+                                                      Status::OK(), 1, 0, *new_generation)
+                      .progress,
+              WarmUpProgress::DOING);
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, id,
+                                                      Status::OK(), 1, 0, *new_generation)
+                      .progress,
+              WarmUpProgress::DONE);
+}
+
+TEST_F(CloudTabletWarmUpStateTest, GcReleasesBucketsWithAndWithoutLiveStates) {
+    const auto now = steady_clock::now();
+    const auto empty_bucket_count = _tablet->_rowset_warm_up_states.bucket_count();
+    auto visible = create_rowset(Version(1, 1), 0);
+    ASSERT_NE(visible, nullptr);
+    _tablet->_rs_version_map.emplace(visible->version(), visible);
+    ASSERT_TRUE(_tablet->add_rowset_warmup_state(
+            *visible->rowset_meta(), WarmUpTriggerSource::EVENT_DRIVEN, now - hours(2)));
+    _tablet->_rowset_warm_up_states.reserve(4096);
+    const auto large_bucket_count = _tablet->_rowset_warm_up_states.bucket_count();
+    for (int i = 0; i < 128; ++i) {
+        auto rs = create_rowset(Version(i + 2, i + 2), 0);
+        ASSERT_NE(rs, nullptr);
+        ASSERT_TRUE(_tablet->add_rowset_warmup_state(
+                *rs->rowset_meta(), WarmUpTriggerSource::EVENT_DRIVEN, now - hours(2)));
+    }
+    EXPECT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now), 128);
+    EXPECT_LT(_tablet->_rowset_warm_up_states.bucket_count(), large_bucket_count);
+    EXPECT_TRUE(_tablet->_rowset_warm_up_states.contains(visible->rowset_id()));
+
+    _tablet->_rs_version_map.clear();
+    EXPECT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now), 1);
+    EXPECT_EQ(_tablet->_rowset_warm_up_states.bucket_count(), empty_bucket_count);
+    // The old unused-Rowset GC can erase all nodes before this maintenance step runs.
+    _tablet->_rowset_warm_up_states.reserve(4096);
+    EXPECT_EQ(_tablet->gc_rowset_warmup_states(hours(1), now), 0);
+    EXPECT_EQ(_tablet->_rowset_warm_up_states.bucket_count(), empty_bucket_count);
+}
+
+TEST_F(CloudTabletWarmUpStateTest, ConcurrentCallbacksReadsAndOrphanGc) {
+    const auto now = steady_clock::now();
+    std::promise<void> ready;
+    auto start = ready.get_future().share();
+    auto rowset = create_rowset(Version(1, 1), 2);
+    ASSERT_NE(rowset, nullptr);
+    const auto id = rowset->rowset_id();
+    auto writer = std::async(std::launch::async, [&] {
+        start.wait();
+        for (int i = 0; i < 200; ++i) {
+            auto generation = _tablet->add_rowset_warmup_state(
+                    *rowset->rowset_meta(), WarmUpTriggerSource::JOB, now - hours(2));
+            ASSERT_TRUE(generation);
+            _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB, id, Status::OK(), 1,
+                                                    0, *generation);
+            _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB, id, Status::OK(), 1,
+                                                    0, *generation);
+        }
+    });
+    auto reader = std::async(std::launch::async, [&] {
+        start.wait();
+        for (int i = 0; i < 400; ++i) {
+            auto state = _tablet->get_rowset_warmup_state(id);
+            EXPECT_TRUE(state.progress == WarmUpProgress::NONE ||
+                        state.progress == WarmUpProgress::DOING ||
+                        state.progress == WarmUpProgress::DONE);
+        }
+    });
+    auto gc = std::async(std::launch::async, [&] {
+        start.wait();
+        for (int i = 0; i < 400; ++i) {
+            _tablet->gc_rowset_warmup_states(hours(1), now);
+        }
+    });
+    ready.set_value();
+    writer.get();
+    reader.get();
+    gc.get();
+    _tablet->gc_rowset_warmup_states(hours(1), now);
+    EXPECT_TRUE(_tablet->_rowset_warm_up_states.empty());
+}
 
 TEST_F(CloudTabletDeleteBitmapTest, AggDeleteBitmapForCompactionReturnsPreRowsetStats) {
     auto rowset1 = create_rowset(Version(1, 1), 2);
@@ -149,6 +338,81 @@ TEST_F(CloudTabletDeleteBitmapTest, AggDeleteBitmapForCompactionReturnsPreRowset
     EXPECT_EQ(rowset_versions_without_stats, pre_rowset_to_versions);
 }
 
+class CloudTabletDeleteBitmapPrefillTest
+        : public CloudTabletWarmUpStateTest,
+          public testing::WithParamInterface<std::tuple<bool, bool>> {
+public:
+    void SetUp() override {
+        CloudTabletWarmUpStateTest::SetUp();
+        // The aggregate cache is global, so rowset IDs must be unique across test instances.
+        _engine._rowset_id_generator =
+                std::make_unique<UniqueRowsetIdGenerator>(UniqueId::gen_uid());
+    }
+};
+
+TEST_P(CloudTabletDeleteBitmapPrefillTest, WaitForSchemaChangeDeleteBitmap) {
+    const auto old_prefill_output = config::enable_prefill_output_dbm_agg_cache_after_compaction;
+    const auto old_prefill_all = config::enable_prefill_all_dbm_agg_cache_after_compaction;
+    Defer restore_config {[&] {
+        config::enable_prefill_output_dbm_agg_cache_after_compaction = old_prefill_output;
+        config::enable_prefill_all_dbm_agg_cache_after_compaction = old_prefill_all;
+    }};
+    const auto [prefill_output, prefill_all] = GetParam();
+    config::enable_prefill_output_dbm_agg_cache_after_compaction = prefill_output;
+    config::enable_prefill_all_dbm_agg_cache_after_compaction = prefill_all;
+
+    _tablet->tablet_meta()->set_enable_unique_key_merge_on_write(true);
+    _tablet->tablet_meta()->mutable_tablet_schema()->_keys_type = UNIQUE_KEYS;
+    auto output_rowset = create_rowset(Version(2, 3), 2);
+    auto other_rowset = create_rowset(Version(4, 4), 2);
+    ASSERT_NE(output_rowset, nullptr);
+    ASSERT_NE(other_rowset, nullptr);
+    output_rowset->rowset_meta()->set_segment_ids({3, 7});
+    other_rowset->rowset_meta()->set_segment_ids({5, 9});
+    const std::vector<RowsetSharedPtr> rowsets {output_rowset, other_rowset};
+    {
+        std::unique_lock lock(_tablet->get_header_lock());
+        ASSERT_TRUE(_tablet->set_tablet_state(TABLET_NOTREADY).ok());
+        _tablet->add_rowsets(rowsets, false, lock, false);
+    }
+
+    // Compaction finishes before schema change installs the complete delete bitmap.
+    _tablet->prefill_dbm_agg_cache_after_compaction(output_rowset);
+    auto cache_before = DeleteBitmapAggCache::instance()->snapshot(_tablet->tablet_id());
+    DeleteBitmap complete_delete_bitmap(_tablet->tablet_id());
+    for (const auto& rowset : rowsets) {
+        for (auto segment : rowset->segments()) {
+            auto key = segment.delete_bitmap_key(4);
+            EXPECT_EQ(cache_before.get(key), nullptr);
+            complete_delete_bitmap.add(key, 1);
+        }
+    }
+    {
+        std::unique_lock lock(_tablet->get_header_lock());
+        _tablet->tablet_meta()->delete_bitmap() = complete_delete_bitmap;
+        ASSERT_TRUE(_tablet->set_tablet_state(TABLET_RUNNING).ok());
+    }
+
+    // Prefill must still work for RUNNING tablets, honoring both configuration switches.
+    _tablet->prefill_dbm_agg_cache_after_compaction(output_rowset);
+    auto cache_after = DeleteBitmapAggCache::instance()->snapshot(_tablet->tablet_id());
+    for (const auto& rowset : rowsets) {
+        const bool should_prefill = prefill_all || (prefill_output && rowset == output_rowset);
+        for (auto segment : rowset->segments()) {
+            auto key = segment.delete_bitmap_key(4);
+            EXPECT_EQ(cache_after.get(key) != nullptr, should_prefill);
+            // The read version and rowset IDs are unchanged after schema change. A premature
+            // prefill would return the old empty bitmap and expose overwritten rows here.
+            auto bitmap = _tablet->tablet_meta()->delete_bitmap().get_agg(key);
+            EXPECT_EQ(bitmap->cardinality(), 1);
+            EXPECT_TRUE(bitmap->contains(1));
+        }
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(PrefillModes, CloudTabletDeleteBitmapPrefillTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
+
 // Test get_rowset_warmup_state for non-existent rowset
 TEST_F(CloudTabletWarmUpStateTest, TestGetRowsetWarmupStateNonExistent) {
     auto rowset = create_rowset(Version(1, 1));
@@ -166,7 +430,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddRowsetWarmupStateTriggeredByJob) {
     auto rowset = create_rowset(Version(1, 1), 5);
     ASSERT_NE(rowset, nullptr);
 
-    bool result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                    WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(result);
 
@@ -182,7 +446,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddRowsetWarmupStateTriggeredBySyncRowset
     auto rowset = create_rowset(Version(2, 2), 3);
     ASSERT_NE(rowset, nullptr);
 
-    bool result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                    WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_TRUE(result);
 
@@ -199,12 +463,12 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddDuplicateRowsetWarmupState) {
     ASSERT_NE(rowset, nullptr);
 
     // First addition should succeed
-    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(result1);
 
     // Second addition should fail
-    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_FALSE(result2);
 
@@ -219,8 +483,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddDuplicateRowsetWarmupState) {
 TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupNonExistent) {
     auto non_existent_id = _engine.next_rowset_id();
 
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::SYNC_ROWSET, non_existent_id, Status::OK(), 1, 0);
+    WarmUpState result =
+            complete_warmup(WarmUpTriggerSource::SYNC_ROWSET, non_existent_id, Status::OK(), 1, 0);
     WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::NONE, WarmUpProgress::NONE};
     EXPECT_EQ(result, expected_state);
 }
@@ -231,20 +495,20 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupPartial) {
     ASSERT_NE(rowset, nullptr);
 
     // Add rowset warmup state
-    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
     // Complete one segment, should still be in TRIGGERED_BY_EVENT_DRIVEN state
-    WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result1 = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                          Status::OK(), 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete second segment, should still be in TRIGGERED_BY_EVENT_DRIVEN state
-    WarmUpState result2 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result2 = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                          Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result2, expected_state);
 
@@ -260,20 +524,20 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupFull) {
     ASSERT_NE(rowset, nullptr);
 
     // Add rowset warmup state
-    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                        WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_TRUE(add_result);
 
     // Complete first segment
-    WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result1 = complete_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(),
+                                          Status::OK(), 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete second segment, should transition to DONE state
-    WarmUpState result2 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result2 = complete_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(),
+                                          Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DONE};
     EXPECT_EQ(result2, expected_state);
 
@@ -289,25 +553,25 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIn
     ASSERT_NE(rowset, nullptr);
 
     // Add rowset warmup state
-    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
-    EXPECT_TRUE(_tablet->update_rowset_warmup_state_inverted_idx_num(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
-    EXPECT_TRUE(_tablet->update_rowset_warmup_state_inverted_idx_num(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
+    EXPECT_TRUE(
+            update_warmup_index_count(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
+    EXPECT_TRUE(
+            update_warmup_index_count(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
 
     // Complete one segment file
-    WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result1 = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                          Status::OK(), 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete inverted index file, should still be in TRIGGERED_BY_EVENT_DRIVEN state
-    WarmUpState result2 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 0, 1);
+    WarmUpState result2 = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                          Status::OK(), 0, 1);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result2, expected_state);
 
@@ -323,23 +587,23 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIn
     ASSERT_NE(rowset, nullptr);
 
     // Add rowset warmup state
-    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
-    EXPECT_TRUE(_tablet->update_rowset_warmup_state_inverted_idx_num(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
+    EXPECT_TRUE(
+            update_warmup_index_count(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
 
     // Complete segment file
-    WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result1 = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                          Status::OK(), 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete inverted index file
-    WarmUpState result2 = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 0, 1);
+    WarmUpState result2 = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                          Status::OK(), 0, 1);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result2, expected_state);
 
@@ -355,14 +619,14 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithError) {
     ASSERT_NE(rowset, nullptr);
 
     // Add rowset warmup state
-    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
     // Complete with error status, should still transition to DONE when all segments complete
     Status error_status = Status::InternalError("Test error");
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), error_status, 1, 0);
+    WarmUpState result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                         error_status, 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
@@ -400,18 +664,18 @@ TEST_F(CloudTabletWarmUpStateTest, TestMultipleRowsetsWarmupState) {
     EXPECT_EQ(_tablet->get_rowset_warmup_state(rowset3->rowset_id()), expected_state);
 
     // Complete rowset1 (2 segments)
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(),
+                                         Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
-    result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                     rowset1->rowset_id(), Status::OK(), 1, 0);
+    result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(), Status::OK(),
+                             1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
     // Complete rowset3 (1 segment)
-    result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                     rowset3->rowset_id(), Status::OK(), 1, 0);
+    result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset3->rowset_id(), Status::OK(),
+                             1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
@@ -430,7 +694,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestWarmupStateWithZeroSegments) {
     ASSERT_NE(rowset, nullptr);
 
     // Add rowset with zero segments
-    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
@@ -455,17 +719,17 @@ TEST_F(CloudTabletWarmUpStateTest, TestConcurrentWarmupStateAccess) {
                                                  WarmUpTriggerSource::SYNC_ROWSET));
 
     // Interleaved completion operations
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(),
+                                         Status::OK(), 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
-    result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET,
-                                                     rowset2->rowset_id(), Status::OK(), 1, 0);
+    result = complete_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset2->rowset_id(), Status::OK(),
+                             1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
-    result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                     rowset1->rowset_id(), Status::OK(), 1, 0);
+    result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(), Status::OK(),
+                             1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
 
@@ -481,31 +745,30 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupTriggerSource)
     auto rowset = create_rowset(Version(13, 13), 1);
     ASSERT_NE(rowset, nullptr);
     // Add rowset warmup state
-    bool add_result =
+    auto add_result =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(add_result);
 
     // Attempt to update inverted index num with a different trigger source, should fail
-    bool update_result = _tablet->update_rowset_warmup_state_inverted_idx_num(
-            WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), 1);
+    bool update_result =
+            update_warmup_index_count(WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), 1);
     EXPECT_FALSE(update_result);
-    update_result = _tablet->update_rowset_warmup_state_inverted_idx_num(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1);
+    update_result =
+            update_warmup_index_count(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1);
     EXPECT_FALSE(update_result);
 
     // Attempt to complete with a different trigger source, should not update state
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result = complete_warmup(WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(),
+                                         Status::OK(), 1, 0);
     WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
-    result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                     rowset->rowset_id(), Status::OK(), 1, 0);
+    result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(),
+                             1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
 
     // Now complete with the correct trigger source
-    result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB, rowset->rowset_id(),
-                                                     Status::OK(), 1, 0);
+    result = complete_warmup(WarmUpTriggerSource::JOB, rowset->rowset_id(), Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 }
@@ -516,7 +779,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerOverridesNonJobStates) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add EVENT_DRIVEN warmup state
-    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(result1);
 
@@ -527,7 +790,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerOverridesNonJobStates) {
     EXPECT_EQ(state, expected_state);
 
     // Now add JOB warmup state, should override EVENT_DRIVEN
-    bool result2 =
+    auto result2 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result2);
 
@@ -543,7 +806,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerOverridesSyncRowsetState) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add SYNC_ROWSET warmup state
-    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_TRUE(result1);
 
@@ -554,7 +817,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerOverridesSyncRowsetState) {
     EXPECT_EQ(state, expected_state);
 
     // Now add JOB warmup state, should override SYNC_ROWSET
-    bool result2 =
+    auto result2 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result2);
 
@@ -570,7 +833,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerCannotOverrideAnotherJob) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add JOB warmup state
-    bool result1 =
+    auto result1 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result1);
 
@@ -580,7 +843,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerCannotOverrideAnotherJob) {
     EXPECT_EQ(state, expected_state);
 
     // Try to add another JOB warmup state, should fail
-    bool result2 =
+    auto result2 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_FALSE(result2);
 
@@ -596,7 +859,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestEventDrivenCannotOverrideJobState) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add JOB warmup state
-    bool result1 =
+    auto result1 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result1);
 
@@ -606,7 +869,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestEventDrivenCannotOverrideJobState) {
     EXPECT_EQ(state, expected_state);
 
     // Try to add EVENT_DRIVEN warmup state, should fail
-    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_FALSE(result2);
 
@@ -622,7 +885,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestSyncRowsetCannotOverrideJobState) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add JOB warmup state
-    bool result1 =
+    auto result1 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result1);
 
@@ -632,7 +895,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestSyncRowsetCannotOverrideJobState) {
     EXPECT_EQ(state, expected_state);
 
     // Try to add SYNC_ROWSET warmup state, should fail
-    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_FALSE(result2);
 
@@ -648,7 +911,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestEventDrivenCannotOverrideSyncRowsetState)
     ASSERT_NE(rowset, nullptr);
 
     // First, add SYNC_ROWSET warmup state
-    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_TRUE(result1);
 
@@ -659,7 +922,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestEventDrivenCannotOverrideSyncRowsetState)
     EXPECT_EQ(state, expected_state);
 
     // Try to add EVENT_DRIVEN warmup state, should fail
-    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_FALSE(result2);
 
@@ -675,7 +938,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestSyncRowsetCannotOverrideEventDrivenState)
     ASSERT_NE(rowset, nullptr);
 
     // First, add EVENT_DRIVEN warmup state
-    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(result1);
 
@@ -686,7 +949,7 @@ TEST_F(CloudTabletWarmUpStateTest, TestSyncRowsetCannotOverrideEventDrivenState)
     EXPECT_EQ(state, expected_state);
 
     // Try to add SYNC_ROWSET warmup state, should fail
-    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::SYNC_ROWSET);
     EXPECT_FALSE(result2);
 
@@ -702,19 +965,19 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobCanOverrideDoneStateFromNonJob) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add EVENT_DRIVEN warmup state
-    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+    auto result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
                                                     WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(result1);
 
     // Complete the warmup to DONE state
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result = complete_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(),
+                                         Status::OK(), 1, 0);
     WarmUpState expected_state =
             WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
     // Now add JOB warmup state, should override the DONE state
-    bool result2 =
+    auto result2 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result2);
 
@@ -730,18 +993,18 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobCanOverrideDoneStateFromJob) {
     ASSERT_NE(rowset, nullptr);
 
     // First, add EVENT_DRIVEN warmup state
-    bool result1 =
+    auto result1 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result1);
 
     // Complete the warmup to DONE state
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(
-            WarmUpTriggerSource::JOB, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result =
+            complete_warmup(WarmUpTriggerSource::JOB, rowset->rowset_id(), Status::OK(), 1, 0);
     WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
     // Now add JOB warmup state, should override the DONE state
-    bool result2 =
+    auto result2 =
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(result2);
 
@@ -793,10 +1056,11 @@ public:
 protected:
     // Helper to create a unique TabletMeta for mock responses
     TabletMetaSharedPtr createMockTabletMeta(bool disable_auto_compaction,
-                                             const std::string& compaction_policy = "size_based") {
+                                             const std::string& compaction_policy = "size_based",
+                                             bool is_in_memory = false) {
         TTabletSchema new_schema;
         new_schema.__set_disable_auto_compaction(disable_auto_compaction);
-        new_schema.__set_is_in_memory(false);
+        new_schema.__set_is_in_memory(is_in_memory);
         TColumn col;
         col.__set_column_name("test_col_" + std::to_string(_current_tablet_id));
         col.__set_column_type(TColumnType());
@@ -825,7 +1089,7 @@ protected:
 // Test sync_meta syncs disable_auto_compaction from false to true
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
     // Verify initial state: disable_auto_compaction = false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -848,7 +1112,10 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
     EXPECT_TRUE(st.ok());
 
     // Verify disable_auto_compaction has been synced to true
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
+    // The original metadata shares the old cached schema with the refreshed tablet.
+    EXPECT_FALSE(_tablet_meta->disable_auto_compaction());
+    EXPECT_FALSE(createMockTabletMeta(false)->disable_auto_compaction());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -878,7 +1145,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
             std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*tablet_meta_true));
 
     // Verify initial state: disable_auto_compaction = true
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -916,7 +1183,8 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
     EXPECT_TRUE(st.ok());
 
     // Verify disable_auto_compaction has been synced to false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
+    EXPECT_TRUE(tablet_meta_true->disable_auto_compaction());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -925,7 +1193,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
 // Test sync_meta when disable_auto_compaction is unchanged
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     // Verify initial state: disable_auto_compaction = false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -948,7 +1216,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     EXPECT_TRUE(st.ok());
 
     // Verify disable_auto_compaction remains false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -960,7 +1228,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
     config::enable_file_cache = false;
 
     // Set initial state: disable_auto_compaction = false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -980,7 +1248,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(callback_called);
 
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
     sp->disable_processing();
@@ -990,7 +1258,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
 // Test sync_meta syncs compaction_policy together with disable_auto_compaction
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     // Verify initial states
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->tablet_meta()->disable_auto_compaction());
     // Default compaction_policy is "size_based"
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "size_based");
 
@@ -1007,7 +1275,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     mock_tablet_meta->set_time_series_compaction_level_threshold(7);
     mock_tablet_meta->set_vertical_compaction_num_columns_per_group(13);
     mock_tablet_meta->set_binlog_config(
-            BinlogConfig(true, 3600, 4096, 7, BinlogFormatPB::ROW, true));
+            BinlogConfig(true, 3600, 4096, 7, BinlogFormatPB::CHANGELOG, true));
 
     // Mock get_tablet_meta to return tablet_meta with updated properties
     sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
@@ -1023,7 +1291,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     EXPECT_TRUE(st.ok());
 
     // Verify both properties are synced
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
     EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_goal_size_mbytes(), 1234);
     EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_file_count_threshold(), 17);
@@ -1036,7 +1304,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     EXPECT_EQ(binlog_config.ttl_seconds(), 3600);
     EXPECT_EQ(binlog_config.max_bytes(), 4096);
     EXPECT_EQ(binlog_config.max_history_nums(), 7);
-    EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::ROW);
+    EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::CHANGELOG);
     EXPECT_TRUE(binlog_config.need_historical_value());
 
     sp->disable_processing();
@@ -1070,9 +1338,11 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
     sp->clear_all_call_backs();
     sp->enable_processing();
 
-    auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
+    // Build the remote schema before cache insertion, without mutating a schema shared
+    // with the local tablet while preparing the mock response.
+    auto mock_tablet_meta = createMockTabletMeta(true, "time_series", true);
     mock_tablet_meta->set_ttl_seconds(3600);
-    mock_tablet_meta->mutable_tablet_schema()->set_is_in_memory(true);
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
 
     sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
         auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
@@ -1085,7 +1355,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
 
     EXPECT_EQ(3600, _tablet->tablet_meta()->ttl_seconds());
     EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->tablet_meta()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
     sp->disable_processing();

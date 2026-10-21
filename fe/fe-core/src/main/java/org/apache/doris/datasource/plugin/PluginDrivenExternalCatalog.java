@@ -69,7 +69,9 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.ConnectorPartitionFieldConverter;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -230,6 +232,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage());
         }
+        validateStorageProperties(catalogProperty, catalogProperty.getProperties());
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
@@ -253,9 +256,33 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        validateStorageProperties(candidateProperty, updatedProperties);
         checkDriverUrlsAgainstOperatorGate(candidate, updatedProperties);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
+    }
+
+    /**
+     * Bind Hive catalog storage properties during DDL validation so HDFS configuration errors are
+     * reported by CREATE/ALTER instead of being deferred until the first table access.
+     */
+    private void validateStorageProperties(CatalogProperty property, Map<String, String> submittedProperties)
+            throws DdlException {
+        if (!"hms".equalsIgnoreCase(getType())) {
+            return;
+        }
+        // Reject newly submitted empty values without blocking unrelated ALTERs of legacy catalogs.
+        String nameservices = submittedProperties.get("dfs.nameservices");
+        if (nameservices != null
+                && Arrays.stream(nameservices.split(","))
+                .map(String::trim).noneMatch(value -> !value.isEmpty())) {
+            throw new DdlException("Property dfs.nameservices must contain a nameservice");
+        }
+        try {
+            FileSystemFactory.bindAllStorageProperties(property.getProperties());
+        } catch (IllegalArgumentException | StoragePropertiesException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     /**
@@ -799,6 +826,18 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 return;
             }
             throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
+        // External catalogs have no temporary-table namespace: CREATE TEMPORARY TABLE is rejected for
+        // every non-internal catalog, so DROP TEMPORARY TABLE can never name a live temporary table
+        // here. getTableNullable above falls back to the permanent table of the same name, which must
+        // NOT be dropped. Mirror InternalCatalog: IF EXISTS turns the missing temporary table into a
+        // no-op, otherwise report the unknown table instead of silently destroying the permanent one.
+        if (mustTemporary) {
+            if (ifExists) {
+                LOG.info("drop temporary table[{}.{}.{}] which does not exist", getName(), dbName, tableName);
+                return;
+            }
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
         }
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
@@ -1345,6 +1384,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         long updateTime = System.currentTimeMillis();
         try {
             metadata.replacePartitionField(session, handle, ConnectorPartitionFieldConverter.toReplaceChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... SET ("key" = "value", ...)} with connector-native properties through the
+     * SPI's {@code ConnectorTableOps#setTableProperties}. The whole map goes to the connector in one call, which
+     * commits all of it or none of it, and {@link #afterExternalDdl} runs only after that call returns, so a
+     * rejected update neither writes the refresh editlog nor refreshes the cached table.
+     */
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.setTableProperties(session, handle, properties);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }

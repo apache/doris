@@ -18,6 +18,8 @@
 package org.apache.doris.filesystem.spi;
 
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Parsed object-storage URI (bucket + key). Has no fe-core dependency.
@@ -41,6 +43,8 @@ import java.util.Set;
  * inside a bucket or key must be percent-encoded, otherwise it is mistaken for a separator.
  */
 public final class ObjectStorageUri {
+    private static final Pattern LEGACY_OSS_AUTHORITY = Pattern.compile(
+            "([a-z0-9][a-z0-9-]{1,61}[a-z0-9])\\.oss-[a-z0-9-]+\\.aliyuncs\\.com");
 
     private final String bucket;
     private final String key;
@@ -143,13 +147,25 @@ public final class ObjectStorageUri {
 
         int slashIdx = withoutScheme.indexOf('/');
         if (slashIdx < 0) {
-            return new ObjectStorageUri(withoutScheme, "");
+            return new ObjectStorageUri(bucketFromAuthority(scheme, withoutScheme), "");
         }
         String rawKey = withoutScheme.substring(slashIdx + 1);
         while (rawKey.startsWith("/")) {
             rawKey = rawKey.substring(1);
         }
-        return new ObjectStorageUri(withoutScheme.substring(0, slashIdx), rawKey);
+        return new ObjectStorageUri(bucketFromAuthority(scheme, withoutScheme.substring(0, slashIdx)), rawKey);
+    }
+
+    private static String bucketFromAuthority(String scheme, String authority) {
+        // Legacy Hive OSS locations include the service endpoint in the authority. Strip only
+        // that known OSS form; the SDK must still use its configured endpoint and the raw key.
+        if ("oss".equalsIgnoreCase(scheme)) {
+            Matcher legacy = LEGACY_OSS_AUTHORITY.matcher(authority);
+            if (legacy.matches()) {
+                return legacy.group(1);
+            }
+        }
+        return authority;
     }
 
     public String bucket() {

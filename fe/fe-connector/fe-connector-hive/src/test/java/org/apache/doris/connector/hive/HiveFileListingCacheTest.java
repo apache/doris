@@ -164,6 +164,29 @@ public class HiveFileListingCacheTest {
     }
 
     @Test
+    public void refreshTableWithSharedPartitionLocationIsScopedPerTable() {
+        CountingLister lister = new CountingLister();
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
+        String location = "/warehouse/shared/p=p1";
+        List<String> values = Collections.singletonList("p1");
+
+        // Two tables whose partitions point at the same directory with the same values (branch-4.x #68577).
+        // WHY: b must list the shared directory itself instead of serving a's listing, and refreshing b must
+        // not touch a. MUTATION: dropping (db, table) from the key -> b reuses a's list -> red.
+        List<HiveFileStatus> filesA = cache.listDataFiles("db", "a", location, values, FS);
+        List<HiveFileStatus> filesB = cache.listDataFiles("db", "b", location, values, FS);
+        Assertions.assertEquals(2, lister.totalCalls);
+        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        Assertions.assertSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
+
+        cache.invalidateTable("db", "b");
+
+        Assertions.assertNotSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
+        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        Assertions.assertEquals(3, lister.totalCalls);
+    }
+
+    @Test
     public void invalidateAllDropsEverything() {
         CountingLister lister = new CountingLister();
         HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);

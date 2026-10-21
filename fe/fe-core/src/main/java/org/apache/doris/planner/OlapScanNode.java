@@ -43,6 +43,7 @@ import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
@@ -53,7 +54,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -81,7 +81,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -578,8 +578,8 @@ public class OlapScanNode extends ScanNode {
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
             if (olapTable instanceof OlapTableWrapper) {
-                TBinlogScanType binlogScanType =
-                        parseBinlogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
+                TChangelogScanType changelogScanType =
+                        parseChangelogScanType(scanParams, ((OlapTableWrapper) olapTable).getOriginTable());
                 Pair<Long, Long> update = getPartitionOffset(partition.getId());
                 if (update != null) {
                     // push down tso range as half-open [startTso, endTso) bounds
@@ -595,8 +595,8 @@ public class OlapScanNode extends ScanNode {
                         paloRange.setEndTso(endTso);
                     }
                 }
-                if (binlogScanType != TBinlogScanType.NONE) {
-                    paloRange.setBinlogScanType(binlogScanType);
+                if (changelogScanType != TChangelogScanType.NONE) {
+                    paloRange.setChangelogScanType(changelogScanType);
                 }
             }
 
@@ -1154,9 +1154,8 @@ public class OlapScanNode extends ScanNode {
         return scanRangeLocations;
     }
 
-    @VisibleForTesting
-    static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
-            ComputeGroup computeGroup, String beTagName) {
+    public static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup,
+            boolean isNotCloudComputeGroup, ComputeGroup computeGroup, String beTagName) {
         return isInvalidComputeGroup
                 || (Config.enable_resource_tag_location_check
                         && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
@@ -1431,8 +1430,8 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
-        if (olapTable instanceof RowBinlogTableWrapper) {
-            msg.olap_scan_node.setReadRowBinlog(true);
+        if (olapTable instanceof OlapChangelogTableWrapper) {
+            msg.olap_scan_node.setReadChangelog(true);
         }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
@@ -1512,9 +1511,9 @@ public class OlapScanNode extends ScanNode {
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
-        if (parseBinlogScanType(scanParams, olapTable) != TBinlogScanType.NONE
-                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex())) {
-            msg.olap_scan_node.setReadRowBinlog(true);
+        if (parseChangelogScanType(scanParams, olapTable) != TChangelogScanType.NONE
+                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isChangelogIndex())) {
+            msg.olap_scan_node.setReadChangelog(true);
         }
 
         // Populate partition boundaries for BE-side runtime filter partition pruning.
@@ -1528,6 +1527,7 @@ public class OlapScanNode extends ScanNode {
         if (hasRfDrivingBucketPruning()) {
             setRuntimeFilterBucketPruneParameters();
         }
+        setScanKeyBucketPruneParameters(msg.olap_scan_node);
         super.toThrift(msg);
     }
 
@@ -1585,6 +1585,35 @@ public class OlapScanNode extends ScanNode {
             }
         }
         return false;
+    }
+
+    @VisibleForTesting
+    synchronized void setScanKeyBucketPruneParameters(TOlapScanNode node) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || !context.getSessionVariable().enableScanKeyBucketPrune
+                || isPointQuery() || tableSample != null || scanParams != null
+                || olapTable instanceof OlapTableWrapper
+                || selectedIndexId != olapTable.getBaseIndexId()
+                || olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                || !(olapTable.getDefaultDistributionInfo() instanceof HashDistributionInfo)
+                || olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            return;
+        }
+        List<Column> keys = olapTable.getKeyColumnsByIndexId(selectedIndexId);
+        List<Column> distributionColumns =
+                ((HashDistributionInfo) olapTable.getDefaultDistributionInfo()).getDistributionColumns();
+        if (keys.size() != 1 || distributionColumns.size() != 1
+                || !keys.get(0).equals(distributionColumns.get(0))
+                || !keys.get(0).getType().isVarchar() || keys.get(0).isAllowNull()) {
+            return;
+        }
+        setRuntimeFilterBucketPruneParameters();
+        // Missing metadata can deliberately disable attachment (e.g. the debug point).
+        // Do not attest eligibility unless every range has its full bucket ordinal/count.
+        if (scanRangeLocations.stream().allMatch(locations ->
+                locations.getScanRange().getPaloScanRange().isSetBucketNum())) {
+            node.setEnableScanKeyBucketPrune(true);
+        }
     }
 
     @VisibleForTesting
@@ -1988,23 +2017,23 @@ public class OlapScanNode extends ScanNode {
         throw new ParseException("Invalid timestamp:" + ts);
     }
 
-    public static TBinlogScanType parseBinlogScanType(TableScanParams scanParams, OlapTable olapTable)
+    public static TChangelogScanType parseChangelogScanType(TableScanParams scanParams, OlapTable olapTable)
             throws ParseException {
         if (scanParams == null) {
-            return TBinlogScanType.NONE;
+            return TChangelogScanType.NONE;
         }
-        TBinlogScanType scanType = TBinlogScanType.MIN_DELTA;
+        TChangelogScanType scanType = TChangelogScanType.MIN_DELTA;
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            scanType = TBinlogScanType.APPEND_ONLY;
+            scanType = TChangelogScanType.APPEND_ONLY;
         }
         if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_INCREMENT_TYPE)) {
             String info = scanParams.getMapParams().get(OlapScanNode.OLAP_INCREMENT_TYPE).toUpperCase();
             if ("APPEND_ONLY".equals(info) || olapTable.getKeysType() == KeysType.DUP_KEYS) {
-                scanType = TBinlogScanType.APPEND_ONLY;
+                scanType = TChangelogScanType.APPEND_ONLY;
             } else if ("MIN_DELTA".equals(info)) {
-                scanType = TBinlogScanType.MIN_DELTA;
+                scanType = TChangelogScanType.MIN_DELTA;
             } else if ("DETAIL".equals(info)) {
-                scanType = TBinlogScanType.DETAIL;
+                scanType = TChangelogScanType.DETAIL;
             } else {
                 throw new ParseException("Unsupported increment type in incr query: " + info);
             }

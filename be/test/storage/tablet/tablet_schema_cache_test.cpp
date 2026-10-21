@@ -122,4 +122,23 @@ TEST(TabletSchemaCacheTest, InsertAndLookupLoadSchema) {
     TabletSchemaCache::instance()->release(cached.first);
 }
 
+TEST(TabletSchemaCacheTest, TabletColumnDebugString) {
+    TabletColumn column = create_test_column(42, "payload.user.id", true);
+    column.set_parent_unique_id(7);
+    column.set_path_info(PathInData("payload.user.id"));
+    column.set_default_value("sensitive-default");
+    column.set_variant_max_subcolumns_count(128);
+    column.set_variant_enable_doc_mode(true);
+
+    const auto debug = column.debug_string();
+    EXPECT_NE(debug.find("uid=42"), std::string::npos);
+    EXPECT_NE(debug.find("name=payload.user.id"), std::string::npos);
+    EXPECT_NE(debug.find("type=INT"), std::string::npos);
+    EXPECT_NE(debug.find("parent_uid=7"), std::string::npos);
+    EXPECT_NE(debug.find("path=payload.user.id"), std::string::npos);
+    EXPECT_NE(debug.find("has_default_value=true"), std::string::npos);
+    EXPECT_NE(debug.find("max_subcolumns_count=128"), std::string::npos);
+    EXPECT_EQ(debug.find("sensitive-default"), std::string::npos);
+}
+
 } // namespace doris
