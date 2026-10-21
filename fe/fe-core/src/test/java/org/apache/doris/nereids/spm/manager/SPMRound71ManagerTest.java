@@ -53,7 +53,7 @@ public class SPMRound71ManagerTest {
     private static final class TestStore implements BaselinePersistence {
         final Map<Long, BaselinePlan> rows = new ConcurrentHashMap<>();
         final List<BaselinePlan> inserted = new CopyOnWriteArrayList<>();
-        /** (id, keepFromSecond) of every prune request. */
+        /** (id, keepFromMicros) of every prune request. */
         final List<long[]> pruned = new CopyOnWriteArrayList<>();
         /** Append-only high-water-mark log: {tick, pending}. */
         final List<long[]> hwm = new CopyOnWriteArrayList<>();
@@ -110,7 +110,7 @@ public class SPMRound71ManagerTest {
         }
 
         @Override
-        public long newestStoredUpdateSecond(long id) {
+        public long newestStoredUpdateMicros(long id) {
             return 0;
         }
 
@@ -129,15 +129,15 @@ public class SPMRound71ManagerTest {
         }
 
         @Override
-        public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
-            pruned.add(new long[] {identity.getId(), keepFromSecond});
+        public void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
+            pruned.add(new long[] {identity.getId(), keepFromMicros});
             if (pruneThrows) {
                 throw new RuntimeException("delete reported an error (statement timed out)");
             }
         }
 
         @Override
-        public long countVersionsBefore(BaselinePlan identity, long keepFromSecond) {
+        public long countVersionsBefore(BaselinePlan identity, long keepFromMicros) {
             return readableReclaimedVersions;
         }
 

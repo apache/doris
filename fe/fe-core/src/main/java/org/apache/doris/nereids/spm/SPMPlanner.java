@@ -1035,7 +1035,8 @@ public class SPMPlanner {
         baseline.setSchemaFingerprint(
                 SPMPlanTreeSupport.schemaFingerprintForCreateFromLockedEntries(
                         ctx, bindPlan, frozen.sql, optimizeResult.getTableFingerprints(),
-                        optimizeResult.getBindFunctionDependencies()));
+                        optimizeResult.getBindFunctionDependencies(),
+                        optimizeResult.getFunctionRegistryVersion()));
         return baseline;
     }
 

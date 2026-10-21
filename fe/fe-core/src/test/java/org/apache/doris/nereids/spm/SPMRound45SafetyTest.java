@@ -245,7 +245,7 @@ public class SPMRound45SafetyTest {
 
     /**
      * reserve_time has only SECOND precision: the pending-create lookup must select the
-     * NEWEST identity (highest last_id) FIRST, with the tombstone / marker priority applied
+     * NEWEST identity (highest baseline_id) FIRST, with the tombstone / marker priority applied
      * within that identity - N's same-second tombstone used to sort before N+1's
      * reservation, so a retry read the key as resolved and skipped N+1's pending fence.
      */
@@ -254,7 +254,7 @@ public class SPMRound45SafetyTest {
         String sql = BaselineManagerTestAccess.pendingSeqLookupSql();
         String orderBy = sql.substring(sql.lastIndexOf("ORDER BY"));
         Assertions.assertTrue(orderBy.startsWith(
-                        "ORDER BY `last_id` DESC, `reserve_time` DESC,"),
+                        "ORDER BY `baseline_id` DESC, `reserve_time` DESC,"),
                 "the NEWEST identity must win first: " + orderBy);
         Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` DESC"),
                 "within one identity the tombstone / marker priority stays: " + orderBy);

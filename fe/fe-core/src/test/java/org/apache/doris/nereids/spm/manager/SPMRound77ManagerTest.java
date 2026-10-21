@@ -59,7 +59,7 @@ public class SPMRound77ManagerTest {
         /** How many rows the window probe reports (2 = the identity is shared). */
         long windowHolders = 1L;
         long failDeletesForId = -1L;
-        long newestStoredSecond;
+        long newestStoredMicros;
         final AtomicLong clockJumpMillis = new AtomicLong();
 
         @Override
@@ -132,8 +132,8 @@ public class SPMRound77ManagerTest {
         }
 
         @Override
-        public long newestStoredUpdateSecond(long id) {
-            return newestStoredSecond;
+        public long newestStoredUpdateMicros(long id) {
+            return newestStoredMicros;
         }
 
         // ==================== mutation clock ====================
@@ -267,21 +267,21 @@ public class SPMRound77ManagerTest {
      * Every shared fence is wall-clock bounded, so a stored second that leads wall time by MORE
      * than the shortest bound breaks "the fence expired, therefore the write is lost": the already
      * committed intent would outlive the fence and reverse a successor's successful ALTER. A
-     * statement whose stored second would exceed the bound fails retryably instead.
+     * statement whose stored instant would exceed the bound fails retryably instead.
      */
     @Test
-    public void testUnboundedStoredSecondLeadIsRefused() {
+    public void testUnboundedStoredInstantLeadIsRefused() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
         manager.applyRefreshedBaselines(Map.of(41L, store.rows.get(41L)));
 
-        // the id's newest stored second is far ahead of wall time (a burst of flips)
-        store.newestStoredSecond = System.currentTimeMillis() / 1000L + 3_600L;
+        // the id's newest stored instant is far ahead of wall time (a burst of flips)
+        store.newestStoredMicros = System.currentTimeMillis() * 1000L + 3_600_000_000L;
 
         IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
                 () -> manager.updateStatus(41L, BaselineStatus.ENABLED),
-                "a no-op statement whose stored second would lead wall time beyond every"
+                "a no-op statement whose stored instant would lead wall time beyond every"
                         + " fence must fail retryably");
         Assertions.assertTrue(error.getMessage().contains("lead"),
                 "the failure names the unbounded lead: " + error.getMessage());
@@ -289,14 +289,14 @@ public class SPMRound77ManagerTest {
 
     /** A lead inside the bound keeps working (the ordinary flip path). */
     @Test
-    public void testBoundedStoredSecondLeadIsAccepted() {
+    public void testBoundedStoredInstantLeadIsAccepted() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
         manager.applyRefreshedBaselines(Map.of(41L, store.rows.get(41L)));
 
         // one second ahead: well inside the bound
-        store.newestStoredSecond = System.currentTimeMillis() / 1000L + 1L;
+        store.newestStoredMicros = System.currentTimeMillis() * 1000L + 1_000_000L;
 
         Assertions.assertTrue(manager.updateStatus(41L, BaselineStatus.ENABLED),
                 "a lead inside the fence bound is the ordinary bump");

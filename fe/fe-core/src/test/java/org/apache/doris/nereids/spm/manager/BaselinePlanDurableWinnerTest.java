@@ -81,7 +81,7 @@ public class BaselinePlanDurableWinnerTest {
     }
 
     /**
-     * The persisted create_time / update_time are zone-free DATETIME, so they
+     * The persisted create_time / update_time are zone-free TIMESTAMPTZ(6), so they
      * must be written and read as ABSOLUTE (UTC) instants. Rendering them in the host zone
      * made the stored value depend on the WRITER: an ENABLED row written at 12:00 UTC on a
      * UTC FE and the newer DISABLED row at 12:01 UTC on a UTC-8 successor stored "12:00"
@@ -93,28 +93,37 @@ public class BaselinePlanDurableWinnerTest {
     public void testUpdateTimeIsAbsoluteAcrossHostZones() {
         java.util.TimeZone original = java.util.TimeZone.getDefault();
         try {
-            // 2026-11-01 12:00 UTC, i.e. inside the Americas fall-back day
-            long instant = java.time.LocalDateTime.of(2026, 11, 1, 12, 0)
-                    .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            // 2026-11-01 12:00 UTC, i.e. inside the Americas fall-back day. The stored
+            // instant of every SPM internal table is epoch MICROSECONDS
+            // (InternalSchema#SPM_TIMESTAMP_SCALE), so the case builds microseconds - no
+            // scaling happens anywhere on the write / read path.
+            long instant = java.time.temporal.ChronoUnit.MICROS.between(
+                    java.time.Instant.EPOCH,
+                    java.time.LocalDateTime.of(2026, 11, 1, 12, 0)
+                            .toInstant(java.time.ZoneOffset.UTC));
             java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
-            Assertions.assertEquals("2026-11-01 12:00:00+00:00",
+            Assertions.assertEquals("2026-11-01 12:00:00.000000+00:00",
                     BaselineManagerTestAccess.toTs(instant),
                     "the literal pins the instant with an explicit UTC offset at the"
-                            + " column's SECOND precision");
+                            + " column's MICROSECOND precision");
 
             java.util.TimeZone.setDefault(
                     java.util.TimeZone.getTimeZone("America/Los_Angeles"));
-            Assertions.assertEquals("2026-11-01 12:00:00+00:00",
+            Assertions.assertEquals("2026-11-01 12:00:00.000000+00:00",
                     BaselineManagerTestAccess.toTs(instant),
                     "the SAME instant must render identically on a host in another zone");
 
             // the recovery rule over two rows written across the fall-back: the later
             // INSTANT (09:10Z, 01:10 PST) must beat the earlier one (08:30Z, 01:30 PDT),
             // which a host-local rendering would have ordered the other way round
-            long beforeFallBack = java.time.LocalDateTime.of(2026, 11, 1, 8, 30)
-                    .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
-            long afterFallBack = java.time.LocalDateTime.of(2026, 11, 1, 9, 10)
-                    .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            long beforeFallBack = java.time.temporal.ChronoUnit.MICROS.between(
+                    java.time.Instant.EPOCH,
+                    java.time.LocalDateTime.of(2026, 11, 1, 8, 30)
+                            .toInstant(java.time.ZoneOffset.UTC));
+            long afterFallBack = java.time.temporal.ChronoUnit.MICROS.between(
+                    java.time.Instant.EPOCH,
+                    java.time.LocalDateTime.of(2026, 11, 1, 9, 10)
+                            .toInstant(java.time.ZoneOffset.UTC));
             BaselinePlan enabled = row(11, beforeFallBack, BaselineStatus.ENABLED);
             BaselinePlan disabled = row(11, afterFallBack, BaselineStatus.DISABLED);
             Assertions.assertSame(disabled,

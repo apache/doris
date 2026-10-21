@@ -62,7 +62,7 @@ public final class BaselineTestDoubles {
          * update_time is the version the flip completes. The default delegates to the
          * two-argument form, so simulators that model no versions keep their semantics.
          */
-        default void deleteByIdAndStatus(long id, BaselineStatus status, long oldUpdateTimeMs) {
+        default void deleteByIdAndStatus(long id, BaselineStatus status, long oldUpdateTimeMicros) {
             deleteByIdAndStatus(id, status);
         }
 
@@ -81,10 +81,10 @@ public final class BaselineTestDoubles {
         }
 
         /**
-         * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
+         * The newest stored update_time of the WHOLE simulated table, in epoch MICROSECONDS
          * (0 = none): the updateStatus bump reads this.
          */
-        default long newestStoredUpdateSecond() {
+        default long newestStoredUpdateMicros() {
             return 0;
         }
     }
@@ -106,7 +106,7 @@ public final class BaselineTestDoubles {
 
         /** The identity-carrying reservation (see the manager's allocation protocol). */
         default void reserveId(long id, String bindSqlDigest, long planSqlHash,
-                long reserveTimeMs) {
+                long reserveTimeMicros) {
             reserveId(id);
         }
 
@@ -136,21 +136,21 @@ public final class BaselineTestDoubles {
             return List.of();
         }
 
-        /** The newest stored update_time of the WHOLE simulated table, in epoch SECONDS. */
-        default long newestStoredUpdateSecond() {
+        /** The newest stored update_time of the WHOLE simulated table, in epoch MICROSECONDS. */
+        default long newestStoredUpdateMicros() {
             return 0;
         }
 
         /**
-         * The newest stored update_time OF ONE ID, in epoch SECONDS (0 = none): a status flip is
-         * ordered against ITS OWN id (the production reader is id-keyed), so a store that only
-         * knows the table-wide value answers with it as a conservative superset.
+         * The newest stored update_time OF ONE ID, in epoch MICROSECONDS (0 = none): a status
+         * flip is ordered against ITS OWN id (the production reader is id-keyed), so a store
+         * that only knows the table-wide value answers with it as a conservative superset.
          *
          * @param id the baseline id
-         * @return the newest stored second of that id
+         * @return the newest stored instant of that id
          */
-        default long newestStoredUpdateSecond(long id) {
-            return newestStoredUpdateSecond();
+        default long newestStoredUpdateMicros(long id) {
+            return newestStoredUpdateMicros();
         }
 
         /** The simulated mutation-clock bump (counted by tests asserting clock advances). */
@@ -170,7 +170,7 @@ public final class BaselineTestDoubles {
      * clock protocol without an internal table.
      */
     public interface MutationClockStore {
-        /** SELECT_SLOT_STATE_SQL: the slot's (MAX(last_id), MAX(tick)). */
+        /** SELECT_SLOT_STATE_SQL: the slot's (MAX(watermark), MAX(tick)). */
         long[] slotState();
 
         /** SELECT_CLOCK_SQL: (MAX(tick), COUNT(*), SUM(tick), MAX(pending)). */
@@ -327,7 +327,7 @@ public final class BaselineTestDoubles {
 
         @Override
         public DurablePresence probeRow(long id, String bindSqlDigest, String planSql,
-                BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMs) {
+                BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMicros) {
             if (idAllocatorStore == null) {
                 // mirrors the real-read outcome of a store that models no by-id rows
                 return DurablePresence.UNKNOWN;
@@ -335,7 +335,7 @@ public final class BaselineTestDoubles {
             try {
                 for (BaselinePlan row : idAllocatorStore.readById(id)) {
                     if (rowMatches(row, id, bindSqlDigest, planSql, status, schemaFingerprint,
-                            requiredUpdateTimeMs)) {
+                            requiredUpdateTimeMicros)) {
                         return DurablePresence.PRESENT;
                     }
                 }
@@ -358,7 +358,7 @@ public final class BaselineTestDoubles {
                         plan.getUpdateTime());
             }
             if (idAllocatorStore != null) {
-                // the identity-scoped readable check (the stored second is NOT part of it:
+                // the identity-scoped readable check (the stored instant is NOT part of it:
                 // the attempted-row proof of an AMBIGUOUS write asks for it separately,
                 // see observedInsertRowIsOurs)
                 return probeRow(plan.getId(), plan.getBindSqlDigest(), plan.getPlanSql(),
@@ -380,13 +380,13 @@ public final class BaselineTestDoubles {
         }
 
         @Override
-        public long newestStoredUpdateSecond(long id) {
+        public long newestStoredUpdateMicros(long id) {
             if (statusProtocolStore != null) {
-                return statusProtocolStore.newestStoredUpdateSecond();
+                return statusProtocolStore.newestStoredUpdateMicros();
             }
             // ID-scoped, like the production reader (the table-wide form predates the bounded
             // mutation clock and made an unrelated future-dated row appear as this id's version)
-            return idAllocatorStore == null ? 0 : idAllocatorStore.newestStoredUpdateSecond(id);
+            return idAllocatorStore == null ? 0 : idAllocatorStore.newestStoredUpdateMicros(id);
         }
 
         @Override
@@ -421,9 +421,9 @@ public final class BaselineTestDoubles {
 
         @Override
         public void deleteByIdAndStatus(BaselinePlan plan, BaselineStatus status,
-                long oldUpdateTimeMs) {
+                long oldUpdateTimeMicros) {
             if (statusProtocolStore != null) {
-                statusProtocolStore.deleteByIdAndStatus(plan.getId(), status, oldUpdateTimeMs);
+                statusProtocolStore.deleteByIdAndStatus(plan.getId(), status, oldUpdateTimeMicros);
                 forgetStatusRow(plan.getId(), status);
             }
         }
@@ -449,9 +449,9 @@ public final class BaselineTestDoubles {
         }
 
         @Override
-        public void reserveId(long id, String bindSqlDigest, long planSqlHash, long reserveTimeMs) {
+        public void reserveId(long id, String bindSqlDigest, long planSqlHash, long reserveTimeMicros) {
             if (idAllocatorStore != null) {
-                idAllocatorStore.reserveId(id, bindSqlDigest, planSqlHash, reserveTimeMs);
+                idAllocatorStore.reserveId(id, bindSqlDigest, planSqlHash, reserveTimeMicros);
             }
         }
 
@@ -550,15 +550,15 @@ public final class BaselineTestDoubles {
 
         private static boolean rowMatches(BaselinePlan row, long id, String bindSqlDigest,
                 String planSql, BaselineStatus status, String schemaFingerprint,
-                Long requiredUpdateTimeMs) {
+                Long requiredUpdateTimeMicros) {
             return row.getId() == id
                     && Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
                     && Objects.equals(row.getPlanSql(), planSql)
                     && (status == null || row.getStatus() == status)
                     && (schemaFingerprint == null
                             || Objects.equals(row.getSchemaFingerprint(), schemaFingerprint))
-                    && (requiredUpdateTimeMs == null
-                            || row.getUpdateTime() / 1000L == requiredUpdateTimeMs / 1000L);
+                    && (requiredUpdateTimeMicros == null
+                            || row.getUpdateTime() == requiredUpdateTimeMicros);
         }
     }
 

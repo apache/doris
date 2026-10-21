@@ -208,9 +208,11 @@ public class SPMRound68ManagerTest {
         Assertions.assertTrue(bounded.contains("NOT EXISTS"),
                 "the flip must require that no NEWER row of the id exists: " + bounded);
         Assertions.assertTrue(bounded.contains("UNIX_TIMESTAMP(`update_time`)"),
-                "the comparison is on the stored second (the table's ordering key): " + bounded);
-        Assertions.assertTrue(bounded.contains("> ${previousUpdateSecond}"),
-                "the statement is bound to the state it flips from: " + bounded);
+                "the comparison is on the stored instant (the table's ordering key): " + bounded);
+        Assertions.assertTrue(bounded.contains("> ${previousUpdateMicros}"),
+                "the statement is bound to the INSTANT it flips from, in epoch MICROSECONDS"
+                        + " (the columns are TIMESTAMPTZ(6), so any coarser bound treats the"
+                        + " id's own sub-second row as newer and voids itself): " + bounded);
         Assertions.assertTrue(bounded.trim().endsWith("LIMIT 1"),
                 "the ordering term must precede the LIMIT: " + bounded);
     }

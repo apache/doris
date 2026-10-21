@@ -60,7 +60,7 @@ public class SPMRound47SafetyTest {
                 "the identity read must seek the compact key prefix: " + sql);
         String orderBy = sql.substring(sql.lastIndexOf("ORDER BY"));
         Assertions.assertTrue(orderBy.startsWith(
-                        "ORDER BY `last_id` DESC, `reserve_time` DESC,"),
+                        "ORDER BY `baseline_id` DESC, `reserve_time` DESC,"),
                 "the NEWEST identity must still win first: " + orderBy);
         Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` DESC"),
                 "the tombstone / marker priority stays within one identity: " + orderBy);

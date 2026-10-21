@@ -126,7 +126,7 @@ public class BaselineManagerConcurrencyTest {
         private Runnable onInsert;
         /**
          * The LATEST identity record of each key, in the shape production reads it
-         * ((last_id, reserve_time, unconfirmed, dropped)): the plain pre-INSERT
+         * ((baseline_id, reserve_time, unconfirmed, dropped)): the plain pre-INSERT
          * reservation every create appends ( - while its row is unreadable
          * and the record young it FENCES, exactly like the explicit marker), replaced by
          * the UNCONFIRMED marker of an ambiguous write or by a DROP TOMBSTONE.
@@ -177,11 +177,11 @@ public class BaselineManagerConcurrencyTest {
          */
         @Override
         public void reserveId(long id, String bindSqlDigest, long planSqlHash,
-                long reserveTimeMs) {
+                long reserveTimeMicros) {
             reserveId(id);
             keyedReservations.compute(seqKey(bindSqlDigest, planSqlHash), (key, current) ->
-                    current != null && current[1] > reserveTimeMs
-                            ? current : new long[] {id, reserveTimeMs, 0, 0});
+                    current != null && current[1] > reserveTimeMicros
+                            ? current : new long[] {id, reserveTimeMicros, 0, 0});
         }
 
         @Override
@@ -239,20 +239,20 @@ public class BaselineManagerConcurrencyTest {
          * RECENT unresolved write - a create that happened long ago must not defer a
          * legitimate re-create of its key).
          */
-        void ageReservations(long millis) {
+        void ageReservations(long micros) {
             for (String key : keyedReservations.keySet()) {
                 keyedReservations.compute(key, (k, current) ->
-                        new long[] {current[0], current[1] - millis, current[2], current[3]});
+                        new long[] {current[0], current[1] - micros, current[2], current[3]});
             }
         }
 
         /** The table-wide newest stored update_time. */
         @Override
-        public long newestStoredUpdateSecond() {
+        public long newestStoredUpdateMicros() {
             long max = 0;
             for (List<BaselinePlan> idRows : rows.values()) {
                 for (BaselinePlan row : idRows) {
-                    max = Math.max(max, row.getUpdateTime() / 1000L);
+                    max = Math.max(max, row.getUpdateTime());
                 }
             }
             return max;
@@ -260,14 +260,14 @@ public class BaselineManagerConcurrencyTest {
 
         /** The newest stored update_time OF ONE ID (what a status flip is ordered against). */
         @Override
-        public long newestStoredUpdateSecond(long id) {
+        public long newestStoredUpdateMicros(long id) {
             List<BaselinePlan> idRows = rows.get(id);
             if (idRows == null) {
                 return 0;
             }
             long max = 0;
             for (BaselinePlan row : idRows) {
-                max = Math.max(max, row.getUpdateTime() / 1000L);
+                max = Math.max(max, row.getUpdateTime());
             }
             return max;
         }
@@ -1756,10 +1756,21 @@ public class BaselineManagerConcurrencyTest {
                 Long.toString(plan.getBindSqlHash()), plan.getPlanSql(), "NaN",
                 Double.toString(plan.getCost()), Long.toString(plan.getQueryTimeMs()),
                 plan.getSource().toString(), plan.getStatus().toString(),
-                // the TIMESTAMPTZ columns are read as epoch millis (see storedMillis)
-                Long.toString(plan.getCreateTime()),
-                Long.toString(plan.getUpdateTime()),
+                // the TIMESTAMPTZ columns are read through UNIX_TIMESTAMP (see
+                // BaselineManager#storedMicros), i.e. as a decimal SECOND value
+                storedInstantText(plan.getCreateTime()),
+                storedInstantText(plan.getUpdateTime()),
                 "0", "0", "false", ""));
+    }
+
+    /**
+     * The internal-table rendering of one stored instant: the SELECT lists read a
+     * TIMESTAMPTZ column through UNIX_TIMESTAMP (see BaselineManager#storedMicros), so a
+     * row carries the instant as a decimal SECOND value with the column's six
+     * fractional digits, NOT as the epoch-microsecond long the model keeps.
+     */
+    private static String storedInstantText(long epochMicros) {
+        return java.math.BigDecimal.valueOf(epochMicros, 6).toPlainString();
     }
 
     /**
@@ -2524,7 +2535,7 @@ public class BaselineManagerConcurrencyTest {
     private static ResultRow row(String bindSql, String planSql) {
         return new ResultRow(List.of(
                 "77", bindSql, "d-temp", "7", planSql, "NaN", "0", "0",
-                "USER", "ENABLED", "1767225600000", "1767225600000",
+                "USER", "ENABLED", "1767225600.000000", "1767225600.000000",
                 "0", "0", "false", ""));
     }
 
@@ -3318,7 +3329,7 @@ public class BaselineManagerConcurrencyTest {
             store.replaceRows(originalId, List.of(reused));
             // the reuse happened long AFTER the original create: the fence
             // bounds a RECENT unresolved write, so the legit re-create must not defer
-            store.ageReservations(6 * 60 * 1000L);
+            store.ageReservations(6 * 60 * 1_000_000L);
 
             // the cached duplicate still holds the ORIGINAL identity
             long id = manager.createBaseline(baseline("d-reuse", "p-reuse"));
@@ -3834,9 +3845,9 @@ public class BaselineManagerConcurrencyTest {
             long id = manager.createBaseline(baseline("d-second", "p-second"));
             Assertions.assertEquals(1, probedSeconds.size(),
                     "the create's insert must be confirmed exactly once");
-            Assertions.assertEquals(manager.getBaseline(id).getUpdateTime() / 1000L,
-                    probedSeconds.get(0) / 1000L,
-                    "the confirmation must ask for the ATTEMPTED row's stored second");
+            Assertions.assertEquals(manager.getBaseline(id).getUpdateTime(),
+                    probedSeconds.get(0),
+                    "the confirmation must ask for the ATTEMPTED row's stored INSTANT");
         } finally {
             doubles.visibilityProbe = null;
             doubles.idAllocatorStore = null;
@@ -4248,7 +4259,7 @@ public class BaselineManagerConcurrencyTest {
      * advance past that second - otherwise `pickDurableWinner` could pick the stale version and a
      * refresh would merge two states. The bump is ordered against the ID's newest stored second
      * (the table-wide form predates the bounded mutation clock), and it stays inside the lead bound
-     * every shared fence relies on (see MAX_STORED_UPDATE_LEAD_MILLIS).
+     * every shared fence relies on (see MAX_STORED_UPDATE_LEAD_MICROS).
      */
     @Test
     public void testStatusFlipAdvancesPastTheIdNewestStoredSecond() {
@@ -4259,7 +4270,7 @@ public class BaselineManagerConcurrencyTest {
             doubles.idAllocatorStore = store;
             long id = manager.createBaseline(baseline("d-bump", "p-bump"));
             // one second ahead of wall time: inside the lead bound, still AHEAD of `now`
-            long future = (System.currentTimeMillis() / 1000L + 1L) * 1000L;
+            long future = System.currentTimeMillis() * 1000L + 1_000_000L;
             BaselinePlan futureVersion = baseline("d-bump", "p-bump");
             futureVersion.setId(id);
             futureVersion.setUpdateTime(future);
@@ -4270,7 +4281,7 @@ public class BaselineManagerConcurrencyTest {
                     .filter(row -> row.getStatus() == BaselineStatus.DISABLED)
                     .findFirst().orElseThrow().getUpdateTime();
             Assertions.assertTrue(flippedUpdateTime > future,
-                    "the new-status row must exceed this id's newest stored second ("
+                    "the new-status row must exceed this id's newest stored instant ("
                             + flippedUpdateTime + " vs " + future + ")");
         } finally {
             doubles.idAllocatorStore = null;
@@ -4532,7 +4543,7 @@ public class BaselineManagerConcurrencyTest {
 
             // after the fence the abandoned identity is CONDEMNED (a durable tombstone) and
             // a FRESH id publishes - the reserved-but-unreadable id is never handed out again
-            store.ageReservations(6 * 60 * 1000L);
+            store.ageReservations(6 * 60 * 1_000_000L);
             long retriedId = manager.createBaseline(baseline("rb-b", "rb-b-1"));
             Assertions.assertTrue(retriedId > reservedId,
                     "the reserved-but-unreadable id must not be reused: " + retriedId
@@ -4608,11 +4619,11 @@ public class BaselineManagerConcurrencyTest {
         }
 
         @Override
-        public long newestStoredUpdateSecond() {
+        public long newestStoredUpdateMicros() {
             long max = 0;
             for (List<BaselinePlan> idRows : rows.values()) {
                 for (BaselinePlan row : idRows) {
-                    max = Math.max(max, row.getUpdateTime() / 1000L);
+                    max = Math.max(max, row.getUpdateTime());
                 }
             }
             return max;

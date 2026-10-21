@@ -132,7 +132,7 @@ public class BaselineManager {
     private static final String SNAPSHOT_COLUMNS =
             "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, " + storedMillis("create_time") + ", " + storedMillis("update_time")
+            + " `status`, " + storedMicros("`create_time`") + ", " + storedMicros("`update_time`")
             + ", `sql_mode`, `plan_sql_mode`,"
             + " `plan_frozen`, `schema_fingerprint`, `plan_sql_digest` FROM ";
 
@@ -141,7 +141,7 @@ public class BaselineManager {
      * with SELECT_PAGE_SQL from the last row read. The order must be a TOTAL
      * order over the rows of ONE id - (update_time, status) break the id ties
      * and the CONTENT columns break the remaining ties: two
-     * masters can leave two DIFFERENT rows of one id with the same stored second and the
+     * masters can leave two DIFFERENT rows of one id with the same stored instant and the
      * same status (a delayed INSERT committing after a handoff collision), and with
      * ORDER BY `id` alone the engine may return such rows in ANY order in EVERY
      * execution, so an OFFSET continuation landing inside the group could re-read one row
@@ -191,12 +191,12 @@ public class BaselineManager {
      * The compact id high-water mark: a tiny append-only table whose rows carry the
      * newest allocated id AND the newest MUTATION CLOCK tick (see SELECT_CLOCK_SQL). The
      * append-only HISTORY table (InternalSchema#SPM_BASELINES_SEQ_TBL_NAME) grows by one
-     * row per create forever, so its MAX(last_id) - the only unbounded read on the create
+     * row per create forever, so its MAX(baseline_id) - the only unbounded read on the create
      * path - was replaced: every allocation also records itself here (pruning the
      * superseded rows), and a pre-upgrade cluster only pays the legacy full read ONCE
      * (see readPersistedWatermark).
      */
-    private static final String SELECT_HWM_SQL = "SELECT MAX(`last_id`) FROM "
+    private static final String SELECT_HWM_SQL = "SELECT MAX(`watermark`) FROM "
             + SPM_BASELINES_HWM_TABLE;
 
     /**
@@ -232,21 +232,21 @@ public class BaselineManager {
     private static final long MUTATION_WINDOW_MAX_AGE_SECONDS = 120L;
 
     /**
-     * How far a row's stored update time may lead WALL time (epoch millis).
+     * How far a row's stored update time may lead WALL time (epoch microseconds).
      *
      * Every SHARED fence of the durable protocol is bounded by wall clock: a mutation window is
      * ignored after MUTATION_WINDOW_MAX_AGE_SECONDS and an unconfirmed fence expires after
-     * PENDING_MUTATION_FENCE_MILLIS. The stored second is deliberately pushed past wall time so
+     * PENDING_MUTATION_FENCE_MILLIS. The stored instant is deliberately pushed past wall time so
      * a status statement's row becomes the durable winner (see nextStoredUpdateMillis), but an
      * UNBOUNDED lead breaks the very inference those fences rely on: when the fence ages out
-     * the write is presumed LOST, yet a committed row whose stored second is still in the
+     * the write is presumed LOST, yet a committed row whose stored instant is still in the
      * future keeps winning the durable pick and reverses the successor's successful ALTER
      * (round-77 #8), and a prune publication hidden behind the same fence lets an inclusive
      * `id >= lastId LIMIT n OFFSET m` reader keep the old status and skip the surviving newer
      * version (round-77 #9). The bound therefore has to be shorter than the SHORTEST fence, so
-     * that "the fence expired" always implies "the stored second is already behind wall time".
+     * that "the fence expired" always implies "the stored instant is already behind wall time".
      */
-    private static final long MAX_STORED_UPDATE_LEAD_MILLIS = 60_000L;
+    private static final long MAX_STORED_UPDATE_LEAD_MICROS = 60_000_000L;
 
     /**
      * How many low bits of a mutation tick carry the window's FE identity (see
@@ -303,7 +303,7 @@ public class BaselineManager {
      * window (and the completion append) reads it to keep the recorded watermark untouched
      * while advancing the clock (see beginRowMutation). One bounded keyed read.
      */
-    private static final String SELECT_SLOT_STATE_SQL = "SELECT MAX(`last_id`),"
+    private static final String SELECT_SLOT_STATE_SQL = "SELECT MAX(`watermark`),"
             + " MAX(`tick`) FROM " + SPM_BASELINES_HWM_TABLE;
 
     /**
@@ -322,7 +322,7 @@ public class BaselineManager {
 
     /** Append one high-water-mark / clock row (see SELECT_HWM_SQL, SELECT_CLOCK_SQL). */
     private static final String INSERT_HWM_SQL = "INSERT INTO " + SPM_BASELINES_HWM_TABLE
-            + " (`last_id`, `update_time`, `tick`, `pending`)"
+            + " (`watermark`, `update_time`, `tick`, `pending`)"
             + " VALUES (${lastId}, NOW(), ${tick}, ${pending})";
 
     /**
@@ -358,13 +358,13 @@ public class BaselineManager {
      * predicate works on the duplicate-key table.
      */
     private static final String PRUNE_HWM_SQL = "DELETE FROM " + SPM_BASELINES_HWM_TABLE
-            + " WHERE `last_id` < ${lastId}"
+            + " WHERE `watermark` < ${lastId}"
             + " AND `pending` = 0";
 
     /** The same-watermark half of PRUNE_HWM_SQL (rows superseded by the newer tick). */
     private static final String PRUNE_HWM_SAME_WATERMARK_SQL = "DELETE FROM "
             + SPM_BASELINES_HWM_TABLE
-            + " WHERE `last_id` = ${lastId} AND `tick` < ${tick}"
+            + " WHERE `watermark` = ${lastId} AND `tick` < ${tick}"
             + " AND `pending` = 0";
 
     /**
@@ -388,16 +388,16 @@ public class BaselineManager {
     /**
      * The scoped CONFIRMATION of SELECT_HWM_SQL (see readCompactIdWatermark): the
      * highest reservation VISIBLE beyond the recorded mark. The sequence table's key
-     * starts with (id, last_id), so the read scans only the rows past the mark - a
+     * starts with (id, baseline_id), so the read scans only the rows past the mark - a
      * healthy cluster has none, and a stale record never hides a reservation whose
      * HWM write was lost or is still unreadable.
      */
-    private static final String SELECT_SEQ_TAIL_SQL = "SELECT MAX(`last_id`) FROM "
-            + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = 1 AND `last_id` > ${floor}";
+    private static final String SELECT_SEQ_TAIL_SQL = "SELECT MAX(`baseline_id`) FROM "
+            + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = 1 AND `baseline_id` > ${floor}";
 
     /**
      * The id high-water mark that OUTLIVES the rows (see
-     * InternalSchema#SPM_BASELINES_SEQ_TBL_NAME): MAX(last_id) over the append-only
+     * InternalSchema#SPM_BASELINES_SEQ_TBL_NAME): MAX(baseline_id) over the append-only
      * reservation rows. Kept as the ONE-TIME legacy fallback of
      * readPersistedWatermark (a cluster created before the compact high-water
      * mark table exists); the per-create path reads the bounded
@@ -406,12 +406,12 @@ public class BaselineManager {
      * baseline would let a delayed DROP BASELINE PLAN IF EXISTS N retry delete the
      * new baseline.
      */
-    private static final String SELECT_SEQ_ID_SQL = "SELECT MAX(`last_id`) FROM "
+    private static final String SELECT_SEQ_ID_SQL = "SELECT MAX(`baseline_id`) FROM "
             + SPM_BASELINES_SEQ_TABLE;
 
     /** Appends one reservation row (the id just allocated). Append-only: MAX never falls. */
     private static final String INSERT_SEQ_ID_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
-            + " (`id`, `last_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
+            + " (`id`, `baseline_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
             + " `unconfirmed`, `dropped`)"
             + " VALUES (1, ${lastId}, '${bindSqlDigest}', ${planSqlHash}, '${reserveTime}',"
             + " ${unconfirmed}, 0)";
@@ -428,7 +428,7 @@ public class BaselineManager {
      * tombstone always describes this very incarnation.
      */
     private static final String INSERT_SEQ_DROPPED_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
-            + " (`id`, `last_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
+            + " (`id`, `baseline_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
             + " `unconfirmed`, `dropped`)"
             + " VALUES (${tombstoneId}, ${lastId}, '${bindSqlDigest}', ${planSqlHash},"
             + " '${reserveTime}', 0, 1)";
@@ -442,7 +442,7 @@ public class BaselineManager {
      * Keying the tombstones by the BASELINE id is what BOUNDS the tombstone read: the
      * duplicate key is `id`, so `id IN (...)` seeks exactly the requested identities
      * instead of scanning the whole append-only history once per id chunk. The previous
-     * `dropped = 1 AND last_id IN (...)` form constrained neither key column, so with a
+     * `dropped = 1 AND baseline_id IN (...)` form constrained neither key column, so with a
      * large CREATE / DROP history every chunk re-read the entire table and eventually
      * exhausted the fixed query timeout - and BOTH the refresh and the confirmed reads go
      * through it, so GLOBAL SHOW / management failed with them (the reviewer's C2
@@ -462,9 +462,9 @@ public class BaselineManager {
      * `id IN (...)` seek is what keeps each chunk's cost independent of the history's
      * length.
      */
-    private static final String SELECT_SEQ_DROPPED_SQL = "SELECT `last_id`, `bind_sql_digest`,"
+    private static final String SELECT_SEQ_DROPPED_SQL = "SELECT `baseline_id`, `bind_sql_digest`,"
             + " `plan_sql_hash` FROM " + SPM_BASELINES_SEQ_TABLE
-            + " WHERE `id` IN (${tombstoneIds}) AND `last_id` IN (${ids})"
+            + " WHERE `id` IN (${tombstoneIds}) AND `baseline_id` IN (${ids})"
             + " AND `dropped` = 1";
 
     /** How many ids one scoped tombstone read carries (see SELECT_SEQ_DROPPED_SQL). */
@@ -486,9 +486,9 @@ public class BaselineManager {
      *       inside the fence bound.
      *   dropped = 1: a tombstone (a completed DROP or a condemned abandoned
      *       write) RESOLVED the identity - no fence, the key may be created again.
-     * The NEWEST IDENTITY wins (highest last_id): ids name the successive
+     * The NEWEST IDENTITY wins (highest baseline_id): ids name the successive
      * incarnations of one key, and reserve_time has only SECOND precision - a DROP of
-     * id N followed by a re-create as N+1 within the same stored second used to sort
+     * id N followed by a re-create as N+1 within the same stored instant used to sort
      * N's dropped = 1 tombstone BEFORE N+1's reservation, so resolveDurablePendingCreate
      * read the key as resolved, skipped the pending fence of N+1's committed-but-
      * unreadable INSERT, and allocated N+2 (both ENABLED rows could then publish).
@@ -496,11 +496,11 @@ public class BaselineManager {
      * reservation) means resolved; the same-second order is tombstone, then marker,
      * then the plain row.
      */
-    private static final String SELECT_PENDING_SEQ_SQL = "SELECT `last_id`, "
-            + storedMillis("reserve_time") + ", `unconfirmed`, `dropped` FROM "
+    private static final String SELECT_PENDING_SEQ_SQL = "SELECT `baseline_id`, "
+            + storedMicros("`reserve_time`") + ", `unconfirmed`, `dropped` FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash}"
-            + " ORDER BY `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
+            + " ORDER BY `baseline_id` DESC, `reserve_time` DESC, `dropped` DESC,"
             + " `unconfirmed` DESC LIMIT 1";
 
     /**
@@ -518,7 +518,7 @@ public class BaselineManager {
 
     /** Appends the compact copy of one identity state (see COMPACT_SEQ_ID_BASE). */
     private static final String INSERT_COMPACT_SEQ_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
-            + " (`id`, `last_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
+            + " (`id`, `baseline_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
             + " `unconfirmed`, `dropped`)"
             + " VALUES (${compactId}, ${lastId}, '${bindSqlDigest}', ${planSqlHash},"
             + " '${reserveTime}', ${unconfirmed}, ${dropped})";
@@ -533,7 +533,7 @@ public class BaselineManager {
      * another identity's.
      */
     private static final String PRUNE_COMPACT_SEQ_SQL = "DELETE FROM "
-            + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = ${compactId} AND `last_id` < ${lastId}";
+            + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = ${compactId} AND `baseline_id` < ${lastId}";
 
     /**
      * The BOUNDED identity read (see COMPACT_SEQ_ID_BASE): the same answer as
@@ -541,12 +541,12 @@ public class BaselineManager {
      * predicates kept because a compact id is a hash. SELECT_PENDING_SEQ_SQL remains the
      * fallback for a slot without a readable row.
      */
-    private static final String SELECT_COMPACT_SEQ_SQL = "SELECT `last_id`, "
-            + storedMillis("reserve_time") + ", `unconfirmed`, `dropped` FROM "
+    private static final String SELECT_COMPACT_SEQ_SQL = "SELECT `baseline_id`, "
+            + storedMicros("`reserve_time`") + ", `unconfirmed`, `dropped` FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `id` = ${compactId}"
             + " AND `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash}"
-            + " ORDER BY `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
+            + " ORDER BY `baseline_id` DESC, `reserve_time` DESC, `dropped` DESC,"
             + " `unconfirmed` DESC LIMIT 1";
 
     /**
@@ -555,10 +555,10 @@ public class BaselineManager {
      * requested slot in ONE read. The rows are ordered so the caller can keep the FIRST row of
      * each slot - the same newest-first order the single read takes.
      */
-    private static final String SELECT_COMPACT_SEQ_BATCH_SQL = "SELECT `id`, `last_id`, "
-            + storedMillis("reserve_time") + ", `unconfirmed`, `dropped` FROM "
+    private static final String SELECT_COMPACT_SEQ_BATCH_SQL = "SELECT `id`, `baseline_id`, "
+            + storedMicros("`reserve_time`") + ", `unconfirmed`, `dropped` FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `id` IN (${compactIds})"
-            + " ORDER BY `id` ASC, `last_id` DESC, `reserve_time` DESC, `dropped` DESC,"
+            + " ORDER BY `id` ASC, `baseline_id` DESC, `reserve_time` DESC, `dropped` DESC,"
             + " `unconfirmed` DESC";
 
     /**
@@ -572,14 +572,14 @@ public class BaselineManager {
     /**
      * Retires the UNCONFIRMED marker(s) of ONE resolved ambiguous write:
      * flipped by retireSeqPendingMarker. The DELETE touches only
-     * unconfirmed = 1 rows of that last_id - the plain reservation row appended
-     * before every create (and every other id ever reserved) stays, so MAX(last_id) and
+     * unconfirmed = 1 rows of that baseline_id - the plain reservation row appended
+     * before every create (and every other id ever reserved) stays, so MAX(baseline_id) and
      * with it the id watermark never fall.
      */
     private static final String DELETE_PENDING_SEQ_MARKER_SQL = "DELETE FROM "
             + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash} AND `unconfirmed` = 1"
-            + " AND `last_id` = ${lastId}";
+            + " AND `baseline_id` = ${lastId}";
 
     // The consistency fence of the paginated snapshot read USED to live here as the
     // table-wide "SELECT MAX(id), COUNT(*), MAX(update_time)" aggregate: an internal
@@ -602,7 +602,7 @@ public class BaselineManager {
      */
     private static final String SELECT_BY_ID_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, " + storedMillis("create_time") + ", " + storedMillis("update_time")
+            + " `status`, " + storedMicros("`create_time`") + ", " + storedMicros("`update_time`")
             + ", `sql_mode`, `plan_sql_mode`,"
             + " `plan_frozen`, `schema_fingerprint`, `plan_sql_digest` FROM " + SPM_BASELINES_TABLE
             + " WHERE `id` = ${id}";
@@ -624,7 +624,7 @@ public class BaselineManager {
      */
     private static final String SELECT_BY_KEY_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, " + storedMillis("create_time") + ", " + storedMillis("update_time")
+            + " `status`, " + storedMicros("`create_time`") + ", " + storedMicros("`update_time`")
             + ", `sql_mode`, `plan_sql_mode`,"
             + " `plan_frozen`, `schema_fingerprint`, `plan_sql_digest` FROM " + SPM_BASELINES_TABLE
             + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
@@ -767,7 +767,7 @@ public class BaselineManager {
 
     /**
      * Visibility probe of a version PRUNE (see BaselineManager#confirmPruneVisible): how many
-     * of the identity's versions are still readable below the retained stored second. The
+     * of the identity's versions are still readable below the retained stored instant. The
      * prune's DELETE removing them is `update_time` < the same bound.
      */
     private static final String COUNT_VERSIONS_BEFORE_SQL = "SELECT COUNT(*) FROM "
@@ -794,22 +794,25 @@ public class BaselineManager {
      * The newest stored update_time of THIS id's rows: the status-flip bump advances the
      * new row past this value (see updateStatus), which keeps the flipped row the durable
      * winner among the id's lingering rows (pickDurableWinner prefers the later stored
-     * second). A former table-wide read served the OLD snapshot fence (which compared
+     * instant). A former table-wide read served the OLD snapshot fence (which compared
      * MAX(update_time) around its page loop); the fence is now the bounded mutation clock
      * (see SELECT_CLOCK_SQL), so the bump read only needs this id's key prefix.
+     *
+     * The value is read at the column's OWN precision (see storedMicros): UNIX_TIMESTAMP of a
+     * TIMESTAMPTZ(6) yields epoch SECONDS with MICROSECOND digits, i.e. exactly the stored
+     * instant - scaling it to a coarser unit here is what used to throw that precision away.
      */
-    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT UNIX_TIMESTAMP(MAX(`update_time`))"
-            + " * 1000 FROM "
+    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT "
+            + storedMicros("MAX(`update_time`)") + " FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id}";
 
     /**
-     * DATETIME column format of the internal table: TIMESTAMPTZ literals are written with
-     * an explicit UTC offset at the column's SECOND precision (see toTs); reads never
-     * parse the rendering - every SELECT list reads the stored instant through
-     * storedMillis instead.
+     * DateTimeFormatter of the internal TIMESTAMPTZ columns: literals are written with an
+     * explicit UTC offset at the column's MICROSECOND scale (see toTs); reads never parse the
+     * rendering - every SELECT list reads the stored instant through storedMicros instead.
      */
     private static final DateTimeFormatter TS_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssxxx");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSSxxx");
 
     /** Message of the leadership fence (see assertLeaderForWrite). */
     private static final String NO_LONGER_MASTER = "SPM baseline write refused: this FE is no"
@@ -882,7 +885,7 @@ public class BaselineManager {
      * every baseline write; when it elapses with the row still unreadable,
      * the identity is condemned with a tombstone before a fresh id is allocated
      */
-    private static final long DURABLE_PENDING_CREATE_FENCE_MILLIS = 5 * 60 * 1000L;
+    private static final long DURABLE_PENDING_CREATE_FENCE_MICROS = 300_000_000L;
 
     /**
      * How long an unconfirmed create fences a retry of the same baseline (see
@@ -992,7 +995,7 @@ public class BaselineManager {
          *
          * The bound is the ID, not a timestamp (round-78 #6). A timestamp bound compared against
          * the twin's stored update time is unreliable in both directions: the status flip pushes
-         * a row's stored second past wall time, so a PREEXISTING twin carrying a future-dated
+         * a row's stored instant past wall time, so a PREEXISTING twin carrying a future-dated
          * update time was skipped (and left durable), while a CREATE landing in the SAME second
          * as the retention carried an update time at or below it (DATETIME has second
          * precision) and was deleted. Allocation order is exactly what "existed at DROP time"
@@ -1016,7 +1019,7 @@ public class BaselineManager {
     private static final class UnresolvedMutationWindow {
         final long id;
         final BaselineStatus expectedStatus; // null = the row must become absent
-        final long attemptedUpdateTimeMillis;
+        final long attemptedUpdateTimeMicros;
         final long sinceMillis;
         /**
          * When non-null, the window ALSO fences the version PRUNE the statement ran
@@ -1028,16 +1031,16 @@ public class BaselineManager {
         final long pruneKeepFromSecond;
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
-                long attemptedUpdateTimeMillis, long sinceMillis) {
-            this(id, expectedStatus, attemptedUpdateTimeMillis, sinceMillis, null, 0L);
+                long attemptedUpdateTimeMicros, long sinceMillis) {
+            this(id, expectedStatus, attemptedUpdateTimeMicros, sinceMillis, null, 0L);
         }
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
-                long attemptedUpdateTimeMillis, long sinceMillis, BaselinePlan pruneIdentity,
+                long attemptedUpdateTimeMicros, long sinceMillis, BaselinePlan pruneIdentity,
                 long pruneKeepFromSecond) {
             this.id = id;
             this.expectedStatus = expectedStatus;
-            this.attemptedUpdateTimeMillis = attemptedUpdateTimeMillis;
+            this.attemptedUpdateTimeMicros = attemptedUpdateTimeMicros;
             this.sinceMillis = sinceMillis;
             this.pruneIdentity = pruneIdentity;
             this.pruneKeepFromSecond = pruneKeepFromSecond;
@@ -1051,13 +1054,13 @@ public class BaselineManager {
             if (row == null) {
                 return false;
             }
-            if (attemptedUpdateTimeMillis > 0) {
+            if (attemptedUpdateTimeMicros > 0) {
                 // The STATUS alone is not the outcome: a successful NO-OP intent carries the
                 // SAME status as the row it supersedes, and a snapshot still showing the OLDER
                 // same-status row closed the window while the newer intent was unreadable - the
                 // successor it was fencing could then qualify an opposite-status write.
                 return row.getStatus() == expectedStatus
-                        && row.getUpdateTime() >= attemptedUpdateTimeMillis;
+                        && row.getUpdateTime() >= attemptedUpdateTimeMicros;
             }
             return row.getStatus() == expectedStatus;
         }
@@ -1297,7 +1300,7 @@ public class BaselineManager {
     private static final class PendingMutationFence {
         private final BaselineStatus expectedStatus; // null = the row must be absent
         private final long sinceMillis;
-        private final long attemptedUpdateTimeMillis; // 0 = unknown (delete / forwarded DDL)
+        private final long attemptedUpdateTimeMicros; // 0 = unknown (delete / forwarded DDL)
         private final BaselinePlan droppedIdentity; // non-null = defer the tombstone
         /**
          * Whether the fence describes a write this FE PROVED committed (the conditional
@@ -1312,21 +1315,21 @@ public class BaselineManager {
         private final boolean confirmed;
 
         PendingMutationFence(BaselineStatus expectedStatus, long sinceMillis,
-                long attemptedUpdateTimeMillis) {
-            this(expectedStatus, sinceMillis, attemptedUpdateTimeMillis, null, false);
+                long attemptedUpdateTimeMicros) {
+            this(expectedStatus, sinceMillis, attemptedUpdateTimeMicros, null, false);
         }
 
         PendingMutationFence(BaselineStatus expectedStatus, long sinceMillis,
-                long attemptedUpdateTimeMillis, BaselinePlan droppedIdentity) {
-            this(expectedStatus, sinceMillis, attemptedUpdateTimeMillis, droppedIdentity, false);
+                long attemptedUpdateTimeMicros, BaselinePlan droppedIdentity) {
+            this(expectedStatus, sinceMillis, attemptedUpdateTimeMicros, droppedIdentity, false);
         }
 
         PendingMutationFence(BaselineStatus expectedStatus, long sinceMillis,
-                long attemptedUpdateTimeMillis, BaselinePlan droppedIdentity,
+                long attemptedUpdateTimeMicros, BaselinePlan droppedIdentity,
                 boolean confirmed) {
             this.expectedStatus = expectedStatus;
             this.sinceMillis = sinceMillis;
-            this.attemptedUpdateTimeMillis = attemptedUpdateTimeMillis;
+            this.attemptedUpdateTimeMicros = attemptedUpdateTimeMicros;
             this.droppedIdentity = droppedIdentity;
             this.confirmed = confirmed;
         }
@@ -1356,8 +1359,8 @@ public class BaselineManager {
             if (row.getStatus() == expectedStatus) {
                 return true;
             }
-            return attemptedUpdateTimeMillis > 0
-                    && row.getUpdateTime() >= attemptedUpdateTimeMillis;
+            return attemptedUpdateTimeMicros > 0
+                    && row.getUpdateTime() >= attemptedUpdateTimeMicros;
         }
     }
 
@@ -1396,7 +1399,7 @@ public class BaselineManager {
      * updated - therefore kept the old epoch, and a by-hash miss that had read the OLD
      * rows still passed its epoch check and published them: the stale read became a WARM
      * hit that served the pre-flip status until the next refresh. Comparing the snapshot's
-     * own signature (id / status / stored second / plan text identity) keeps the epoch tied
+     * own signature (id / status / stored instant / plan text identity) keeps the epoch tied
      * to the DURABLE content, cached or not.
      */
     private volatile Map<Long, Long> knownHashSignatures = new ConcurrentHashMap<>();
@@ -2143,7 +2146,7 @@ public class BaselineManager {
                 assertLeaderForWrite();
                 long id = idGenerator.getAndIncrement();
                 plan.setId(id);
-                long now = System.currentTimeMillis();
+                long now = SPMUtils.nowMicros();
                 plan.setCreateTime(now);
                 plan.setUpdateTime(now);
                 // reserve the id durably BEFORE the row: an id that was handed out must
@@ -3120,7 +3123,7 @@ public class BaselineManager {
      *
      * The bound is an ID, not a timestamp (round-78 #6): the status flip pushes a row's stored
      * second past wall time, so a timestamp bound skipped a PREEXISTING twin that carried a
-     * future-dated update time and deleted a CREATE that landed in the same stored second.
+     * future-dated update time and deleted a CREATE that landed in the same stored instant.
      *
      * @param alreadyDeleted  the row the DROP removed
      * @param retiredOut      collects the durably retired rows
@@ -3384,7 +3387,7 @@ public class BaselineManager {
                     // A SUCCESSFUL no-op must still MOVE the durable intent (see
                     // persistNoOpStatusIntent): an opposite-status write dispatched earlier
                     // - stalled past its shared window, possibly across a handoff - carries a
-                    // stored second derived from the row it saw and would otherwise win the
+                    // stored instant derived from the row it saw and would otherwise win the
                     // durable pick when it finally lands, reversing this successful ALTER.
                     long intentTime = persistNoOpStatusIntent(plan, status);
                     // the durable row already carries the requested status (the cache
@@ -3408,6 +3411,19 @@ public class BaselineManager {
                 // the status is already the requested one
                 return true;
             }
+            // A REAL flip must pass the same gate as the no-op path (round-79 #1). The durable
+            // read that produced DIFFERS saw the OLD row because a NEWER write of this id - a
+            // committed no-op DISABLE at T+1, say - is still UNPUBLISHED; its own shared window
+            // and confirmed local fence are the cluster-visible evidence of that. Dispatching
+            // without the gate let the flip read the old second, write ENABLED at the same T+1,
+            // and qualify its conditional INSERT against the very stale row the hidden write
+            // will replace: once both publish, the presence-only confirmation accepts ENABLE
+            // while the cleanup deletes only DISABLED T, leaving DISABLED T+1 to win the
+            // timestamp tie on the next refresh - both ALTERs reported success and ENABLE is
+            // reversed. Failing retryably here is the same rule the MATCHES branch already
+            // applies; a flip that orders itself ABOVE the unresolved instant passes instead
+            // (see requireNoContradictingStatusFence), which keeps the ordinary sequences
+            // working.
             // The internal table is a DUPLICATE-key table on which UPDATE is not supported, so a
             // status change is persisted as INSERT (new status) + DELETE (old status). The INSERT
             // runs FIRST so the durable new row exists before any delete: a failure can never
@@ -3419,28 +3435,29 @@ public class BaselineManager {
             // EQUAL durable timestamps, and pickDurableWinner prefers DISABLED on such a
             // tie - a later ENABLE would then be reversed by the next refresh / restart
             // while this FE temporarily served ENABLED. Advancing the new row past the
-            // newest stored second OF THIS ID keeps the durable order ("the later intent
+            // newest stored instant OF THIS ID keeps the durable order ("the later intent
             // wins") exact at the stored precision among the id's own rows, so the row
             // this statement writes is always the durable winner once it is written.
             //
             // The bump uses the SAME producer as the no-op intent (see
             // nextStoredUpdateMillis), INCLUDING its lead bound (round-78 #2): advancing the
-            // stored second past wall time is what makes rapid alternating real flips order
-            // correctly, but an UNBOUNDED advance left visible rows whose stored second was
+            // stored instant past wall time is what makes rapid alternating real flips order
+            // correctly, but an UNBOUNDED advance left visible rows whose stored instant was
             // more than a window bound ahead of wall time - and every shared fence that
             // masks an unreadable committed write is wall-clock bounded. After a handoff the
             // old ENABLED row could then stay visible while its DISABLE (U+1) was unreadable,
             // and a no-op ENABLE wrote ENABLED at that very U+1: with both rows publishing in
             // version order the presence-only confirmation accepted ENABLE, pruning strictly
             // older timestamps preserved DISABLED U+1, and pickDurableWinner chose DISABLED
-            // on the tie - reversing the successful ENABLE. A statement whose stored second
+            // on the tie - reversing the successful ENABLE. A statement whose stored instant
             // would exceed the bound therefore fails retryably BEFORE it is dispatched, so
             // no row it writes can outlive the fences that cover its publication.
-            // ONE bounded keyed read feeds both the stored second this statement writes and the
+            // ONE bounded keyed read feeds both the stored instant this statement writes and the
             // CAS bound of the conditional INSERT / the old-row delete below.
-            long newestSecond = readNewestStoredUpdateSecond(id);
-            long newUpdateTime = nextStoredUpdateMillis(id, newestSecond,
-                    System.currentTimeMillis());
+            long newestStoredMicros = readNewestStoredUpdateMicros(id);
+            long newUpdateTime = nextStoredUpdateMicros(id, newestStoredMicros,
+                    SPMUtils.nowMicros());
+            requireNoContradictingStatusFence(id, status, newUpdateTime);
             // Persist a DETACHED snapshot carrying the new status: the live object keeps
             // the old status until the durable write (or the confirmed reconciliation)
             // succeeded - matching readers do not take the writer lock, so publishing
@@ -3470,7 +3487,8 @@ public class BaselineManager {
                 dispatchFence = new PendingMutationFence(status,
                         System.currentTimeMillis(), newUpdateTime);
                 pendingMutationFences.put(id, dispatchFence);
-                insertWritten = persistTransitionInsert(durablePlan, previousStatus, newestSecond);
+                insertWritten = persistTransitionInsert(durablePlan, previousStatus,
+                        newestStoredMicros);
             } catch (MutationWindowUnavailableException e) {
                 // The window of this flip could not be made VISIBLE, so its INSERT was never
                 // dispatched (see beginRowMutation): nothing changed, there is no ambiguous
@@ -3483,7 +3501,7 @@ public class BaselineManager {
             } catch (UnconfirmedVisibleException e) {
                 // The conditional INSERT WROTE the new-status row (the affected-row count /
                 // the committed-write probe is the evidence) - only its PUBLICATION lags
-                // past every probe. The row is durable, and its stored second is strictly
+                // past every probe. The row is durable, and its stored instant is strictly
                 // later than every row the write met (see the bump above), so it IS the
                 // durable winner (pickDurableWinner). Keeping the OLD cached status here
                 // let ordinary queries keep replaying a baseline whose durable winner is
@@ -3533,14 +3551,17 @@ public class BaselineManager {
             }
             try {
                 // The cleanup is bound to the OLD row's stored VERSION (see
-                // deleteByIdAndStatusSql): newestSecond is the stored second of the row this
-                // flip completes (the durable winner of the id, which the INSERT above was
-                // conditional on), so a row a LATER flip wrote cannot be matched by it.
+                // deleteByIdAndStatusSql): newestStoredMicros is the stored INSTANT of the
+                // row this flip completes (the durable winner of the id, which the INSERT
+                // above was conditional on), so a row a LATER flip wrote cannot be matched
+                // by it. MICROSECOND storage makes the instant exact - a second-truncated
+                // binding matched no row at all once the stored value carried a
+                // sub-second part.
                 persistDeleteByIdAndStatus(durablePlan, previousStatus,
-                        newestSecond > 0 ? newestSecond * 1000L : 0L);
+                        Math.max(0L, newestStoredMicros));
             } catch (RuntimeException e) {
                 // The INSERT half is CONFIRMED (its row is READABLE) and carries a strictly
-                // later stored second than every row it met, so the new-status row IS the
+                // later stored instant than every row it met, so the new-status row IS the
                 // durable winner whether the old-row delete committed, failed, or merely
                 // lags its publication. The cache MUST follow that winner: leaving the OLD
                 // status let this FE keep replaying a baseline the durable table has
@@ -3637,7 +3658,7 @@ public class BaselineManager {
      *
      * @param plan       the cached row the flip started on
      * @param status     the confirmed status
-     * @param updateTime the stored second the confirmed row carries
+     * @param updateTime the stored instant the confirmed row carries
      */
     private void publishStatusAndFence(BaselinePlan plan, BaselineStatus status,
             long updateTime) {
@@ -3650,9 +3671,9 @@ public class BaselineManager {
      *
      * The no-op used to write nothing at all, so an OPPOSITE-status statement dispatched
      * earlier - stalled past its shared mutation window, possibly across a leader handoff -
-     * still found its previous-status precondition intact and landed with a stored second
+     * still found its previous-status precondition intact and landed with a stored instant
      * derived from the row it saw, reversing this successful ALTER. Appending a row that
-     * carries the requested status and a STRICTLY LATER stored second makes the durable order
+     * carries the requested status and a STRICTLY LATER stored instant makes the durable order
      * say "the intent is now": the earlier statement's conditional INSERT requires that no
      * newer row exists (see conditionalStatusInsertSql), so it writes nothing and reports a
      * retryable conflict instead of flipping the baseline back.
@@ -3662,10 +3683,10 @@ public class BaselineManager {
      *
      * @param plan   the cached row
      * @param status the requested (already durable) status
-     * @return the stored second (epoch millis) the intent row carries
+     * @return the stored instant (epoch microseconds) the intent row carries
      */
     private long persistNoOpStatusIntent(BaselinePlan plan, BaselineStatus status) {
-        long intentTime = nextStoredUpdateMillis(plan.getId());
+        long intentTime = nextStoredUpdateMicros(plan.getId());
         if (!persistence.isDurable()) {
             return intentTime;
         }
@@ -3690,7 +3711,7 @@ public class BaselineManager {
                 throwAmbiguousStatusInsertUnlessDurable(intent, e);
             }
             confirmInsertVisible(intent);
-            long keepFromSecond = Math.max(0L, intentTime / 1000L);
+            long keepFromMicros = Math.max(0L, intentTime);
             // The intent's read-back confirmation can consume most of the window's
             // successor-facing age bound (BASELINE_VISIBILITY_ATTEMPTS probes). A window past
             // that bound is IGNORED by every other FE's fence read, so the DELETE below would
@@ -3700,7 +3721,7 @@ public class BaselineManager {
                 assertMutationWindowDispatchable(mutation);
             } catch (MutationWindowUnavailableException agedWindow) {
                 // The intent is CONFIRMED READABLE, so the ordering it proves is durable (its
-                // stored second is the newest one) and its window may close now. The prune gets
+                // stored instant is the newest one) and its window may close now. The prune gets
                 // a FRESH window: a renewed lease, not a reused one.
                 endRowMutation(mutation);
                 mutation = 0;
@@ -3719,14 +3740,14 @@ public class BaselineManager {
                 }
             }
             try {
-                persistence.pruneSupersededVersions(intent, keepFromSecond);
+                persistence.pruneSupersededVersions(intent, keepFromMicros);
                 // SQL OK is not PUBLICATION: the DELETE may have committed while readers still
                 // see the pruned rows, and a paginated reader positioned on one of them steps
                 // past the intent row behind it (id >= X OFFSET 1). Prove the versions gone; a
                 // prune no read can prove leaves the shared window OPEN (the age bound heals
                 // it) instead of closing it and letting the stale page be accepted.
-                if (!confirmPruneVisible(intent, keepFromSecond)) {
-                    windowHeld = holdUnresolvedPruneWindow(mutation, intent, keepFromSecond);
+                if (!confirmPruneVisible(intent, keepFromMicros)) {
+                    windowHeld = holdUnresolvedPruneWindow(mutation, intent, keepFromMicros);
                     if (!windowHeld) {
                         LOG.warn("SPM cannot fence the reclaimed versions of baseline {}: no"
                                 + " shared window exists", plan.getId());
@@ -3741,7 +3762,7 @@ public class BaselineManager {
                 // window stays OPEN until a read proves the reclaim (or its age bound
                 // heals it); a prune that never dispatched is released by the same
                 // settlement probe.
-                windowHeld = holdUnresolvedPruneWindow(mutation, intent, keepFromSecond);
+                windowHeld = holdUnresolvedPruneWindow(mutation, intent, keepFromMicros);
                 LOG.warn("SPM could not reclaim the superseded versions of baseline {}"
                         + " ({}); the next statement prunes them", plan.getId(), e.getMessage());
             }
@@ -3750,7 +3771,7 @@ public class BaselineManager {
             // publication lags. persistInsert used to CLOSE the window right here, leaving
             // only this FE's local fence: a successor sees the previous same-status row with
             // a quiet clock and qualifies its opposite-status INSERT against it, while the
-            // unreadable intent carries a LATER stored second - both rows publish, the intent
+            // unreadable intent carries a LATER stored instant - both rows publish, the intent
             // wins the durable pick and the successful ALTER is reversed. Keep the SHARED
             // window open until a read shows the row (or its age bound), like a lagging flip.
             windowHeld = holdUnresolvedMutationWindow(mutation, intent);
@@ -3767,7 +3788,7 @@ public class BaselineManager {
         } catch (RuntimeException e) {
             // The intent was NOT written. Reporting success here let an opposite-status
             // statement - dispatched before this one, its shared mutation window long expired
-            // - land later with a stored second derived from the row it saw, win the durable
+            // - land later with a stored instant derived from the row it saw, win the durable
             // pick and REVERSE this ALTER although it reported success. The ordering
             // guarantee the no-op needs is missing, so fail retryably instead.
             throw new IllegalStateException("SPM cannot record the ordering intent of the"
@@ -3788,15 +3809,15 @@ public class BaselineManager {
      * reports 0 (nothing to prune) and the caller's window stays as it is.
      *
      * @param identity      the identity whose older versions were pruned
-     * @param keepFromSecond the stored second the prune keeps from
-     * @return whether no version older than keepFromSecond remains readable
+     * @param keepFromMicros the stored instant the prune keeps from
+     * @return whether no version older than keepFromMicros remains readable
      */
-    private boolean confirmPruneVisible(BaselinePlan identity, long keepFromSecond) {
-        if (keepFromSecond <= 0) {
+    private boolean confirmPruneVisible(BaselinePlan identity, long keepFromMicros) {
+        if (keepFromMicros <= 0) {
             return true;
         }
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            long older = persistence.countVersionsBefore(identity, keepFromSecond);
+            long older = persistence.countVersionsBefore(identity, keepFromMicros);
             if (older == 0) {
                 return true;
             }
@@ -3809,66 +3830,68 @@ public class BaselineManager {
     }
 
     /**
-     * The next stored second (epoch millis) a row of this id may carry: strictly later than
-     * every stored second of the id, so the row this statement writes is the durable winner
-     * among the id's own rows (see the DATETIME-second bump in updateStatus).
+     * The next stored instant (epoch microseconds) a row of this id may carry: strictly later
+     * than every stored instant of the id, so the row this statement writes is the durable
+     * winner among the id's own rows (see the bump in updateStatus).
      *
      * @param id the baseline id
      * @return the update time to store
      */
-    private long nextStoredUpdateMillis(long id) {
-        long newestSecond;
+    private long nextStoredUpdateMicros(long id) {
+        long newestMicros;
         try {
-            newestSecond = readNewestStoredUpdateSecond(id);
+            newestMicros = readNewestStoredUpdateMicros(id);
         } catch (RuntimeException e) {
-            // Rapid ALTERs advance the stored second BEYOND wall time, so an unreadable
-            // newest second makes this statement unable to prove its intent is the newest
-            // one: an older delayed opposite-status row (stored second T+1, far in the
+            // Rapid ALTERs advance the stored instant BEYOND wall time, so an unreadable
+            // newest instant makes this statement unable to prove its intent is the newest
+            // one: an older delayed opposite-status row (stored instant T+1 us, far in the
             // future) would stay eligible and could win after the window expired and a
             // handoff happened. The wall-clock fallback silently accepted that reversal;
             // fail closed and let the caller retry.
-            throw new IllegalStateException("SPM cannot read the newest stored second of"
+            throw new IllegalStateException("SPM cannot read the newest stored instant of"
                     + " baseline " + id + "; retry the ALTER", e);
         }
-        return nextStoredUpdateMillis(id, newestSecond, System.currentTimeMillis());
+        return nextStoredUpdateMicros(id, newestMicros, SPMUtils.nowMicros());
     }
 
     /**
-     * The next stored second of one id, from a newest second the caller already read.
+     * The next stored instant of one id, from a newest second the caller already read.
      *
      * Every producer of a status row goes through HERE - the no-op intent and the real flip alike
-     * (round-78 #2): the REAL flip used to advance the stored second by itself, without the lead
-     * bound, so rapid alternating ALTERs could leave a visible row whose stored second was far
+     * (round-78 #2): the REAL flip used to advance the stored instant by itself, without the lead
+     * bound, so rapid alternating ALTERs could leave a visible row whose stored instant was far
      * ahead of wall time while every fence covering its publication was wall-clock bounded.
      *
      * @param id           the baseline id
-     * @param newestSecond the id's newest stored second (epoch seconds, 0 = none)
-     * @param now          wall time (epoch millis)
+     * @param newestMicros the id's newest stored instant (epoch microseconds, 0 = none)
+     * @param now          wall time (epoch microseconds)
      * @return the update time to store
      */
-    private long nextStoredUpdateMillis(long id, long newestSecond, long now) {
-        if (now / 1000L <= newestSecond) {
-            // The new stored second this statement would carry.
-            long bumped = (newestSecond + 1) * 1000L;
-            long leadMillis = bumped - now;
-            if (leadMillis > MAX_STORED_UPDATE_LEAD_MILLIS) {
-                // (round-77 #8/#9) The stored second may only lead wall time by a BOUNDED
+    private long nextStoredUpdateMicros(long id, long newestMicros, long now) {
+        if (now <= newestMicros) {
+            // ONE MICROSECOND past the id's newest stored instant: the column keeps six
+            // fractional digits, so a single step already makes this row the durable winner
+            // without pushing it anywhere near the wall-clock-bounded fences.
+            long bumped = newestMicros + 1;
+            long leadMicros = bumped - now;
+            if (leadMicros > MAX_STORED_UPDATE_LEAD_MICROS) {
+                // (round-77 #8/#9) The stored instant may only lead wall time by a BOUNDED
                 // amount, because the SHARED fences that mask an unreadable committed write are
                 // time-bounded by wall clock: a mutation window is ignored after
                 // MUTATION_WINDOW_MAX_AGE_SECONDS, and an unconfirmed fence expires after
-                // PENDING_MUTATION_FENCE_MILLIS. A stored second that leads wall time by MORE
+                // PENDING_MUTATION_FENCE_MILLIS. A stored instant that leads wall time by MORE
                 // than the shortest of those bounds silently breaks the inference "the fence
                 // expired, so the write is lost": the fenced row - an ALREADY COMMITTED no-op
                 // status intent, or the surviving version a prune publication still hides -
                 // would outlive the fence, still win the durable pick and reverse a successor's
                 // successful ALTER (a paginated reader then keeps the old status and skips the
                 // surviving newer version). The bound must hold for the LIFETIME of the row,
-                // not merely at the moment it is written, so a statement whose stored second
+                // not merely at the moment it is written, so a statement whose stored instant
                 // would exceed it fails retryably instead of writing a row no fence can cover.
                 throw new IllegalStateException("SPM cannot make the status statement of"
-                        + " baseline " + id + " the durable winner: its stored second would lead"
-                        + " wall time by " + leadMillis + " ms, beyond the "
-                        + MAX_STORED_UPDATE_LEAD_MILLIS + " ms every shared fence is bounded by;"
+                        + " baseline " + id + " the durable winner: its stored instant would lead"
+                        + " wall time by " + leadMicros + " us, beyond the "
+                        + MAX_STORED_UPDATE_LEAD_MICROS + " us every shared fence is bounded by;"
                         + " nothing was changed - retry the ALTER");
             }
             return bumped;
@@ -5276,7 +5299,7 @@ public class BaselineManager {
                 if (expected == null || expected.isSatisfiedBy(snapshot)) {
                     // The outcome the caller CONFIRMED supersedes any earlier mutation
                     // fence of the same id: an older fenced write carries a strictly
-                    // earlier stored second, so pickDurableWinner keeps this outcome - and
+                    // earlier stored instant, so pickDurableWinner keeps this outcome - and
                     // leaving the id masked would hold the local cache at the pre-DDL
                     // state until the fence's own bound expired.
                     if (expected != null) {
@@ -5647,13 +5670,13 @@ public class BaselineManager {
      * @param id                          the baseline id
      * @param expectedStatus              the durable status the write must reach (null =
      *                                    the row must become absent)
-     * @param attemptedUpdateTimeMillis   the stored second the write attempted (0 when
+     * @param attemptedUpdateTimeMicros   the stored instant the write attempted (0 when
      *                                    unknown, e.g. a delete or a forwarded DDL)
      */
     private void recordPendingMutationFence(long id, BaselineStatus expectedStatus,
-            long attemptedUpdateTimeMillis) {
+            long attemptedUpdateTimeMicros) {
         pendingMutationFences.put(id, new PendingMutationFence(expectedStatus,
-                System.currentTimeMillis(), attemptedUpdateTimeMillis));
+                System.currentTimeMillis(), attemptedUpdateTimeMicros));
     }
 
     /**
@@ -5663,18 +5686,18 @@ public class BaselineManager {
      *
      * @param id                        the baseline id
      * @param expectedStatus            the durable status the committed write carries
-     * @param attemptedUpdateTimeMillis the stored second the write carries
+     * @param attemptedUpdateTimeMicros the stored instant the write carries
      */
     private void recordConfirmedMutationFence(long id, BaselineStatus expectedStatus,
-            long attemptedUpdateTimeMillis) {
+            long attemptedUpdateTimeMicros) {
         pendingMutationFences.put(id, new PendingMutationFence(expectedStatus,
-                System.currentTimeMillis(), attemptedUpdateTimeMillis, null, true));
+                System.currentTimeMillis(), attemptedUpdateTimeMicros, null, true));
     }
 
     /**
      * Removes the mutation fence of one id once a LATER statement's outcome was confirmed
      * (see refreshAfterForwardedDdl): the fence described a write whose publication was
-     * still unresolved, but the confirmed statement ran AFTER it and its stored second is
+     * still unresolved, but the confirmed statement ran AFTER it and its stored instant is
      * strictly later, so the fence can no longer win the durable pick - keeping it would
      * only mask the id (and hold the published cache at the pre-DDL state) until the
      * fence's own bound expired.
@@ -5710,7 +5733,7 @@ public class BaselineManager {
      * Fails the caller retryably when an ACTIVE mutation fence of the id was recorded for
      * a DIFFERENT outcome than the requested status. Such a fence carries a write that may
      * still PUBLISH (a committed-but-unreadable flip, or a DROP whose delete is unproven),
-     * and its stored second is strictly later than everything the read below can see - so
+     * and its stored instant is strictly later than everything the read below can see - so
      * a durable read that happens to MATCH the requested status is NOT the final state:
      * accepting it would publish a status the fenced write (or the next refresh) reverts.
      * The ALTER must instead fail retryably until the fence resolves.
@@ -5730,11 +5753,50 @@ public class BaselineManager {
      * @param requested the status this ALTER wants to be durable
      */
     private void requireNoContradictingStatusFence(long id, BaselineStatus requested) {
+        requireNoContradictingStatusFence(id, requested, 0L);
+    }
+
+    /**
+     * As {@link #requireNoContradictingStatusFence(long, BaselineStatus)}, also accepting a flip
+     * that ORDERS ITSELF ABOVE the unresolved intent.
+     *
+     * Failing the ALTER is the safe answer only when the pending write could still WIN the
+     * durable pick. A flip whose own stored instant is STRICTLY LATER than the instant the
+     * fenced write carries does win it - {@code pickDurableWinner} keeps the later row - so its
+     * caller's status is the durable outcome once both publish, and refusing it would only make
+     * every ordinary CREATE / ENABLE / DISABLE / ENABLE sequence fail once for no reason
+     * (round-79 #1's "order them above those intents"). Only an instant that is EARLIER OR EQUAL
+     * (a full tie resolves DISABLED-first) stays refusable.
+     *
+     * @param id                    the baseline id
+     * @param requested             the status this ALTER wants to be durable
+     * @param plannedUpdateTimeMillis the stored instant this statement is about to write
+     *                              (0 = unknown, never ordered above the intent)
+     */
+    private void requireNoContradictingStatusFence(long id, BaselineStatus requested,
+            long plannedUpdateTimeMillis) {
         PendingMutationFence fence = pendingMutationFences.get(id);
-        if (fence != null && fence.expectedStatus != requested) {
+        if (fence != null && fence.expectedStatus != requested
+                && plannedUpdateTimeMillis <= fence.attemptedUpdateTimeMicros) {
             throw new IllegalStateException("SPM cannot confirm the durable status of"
                     + " baseline " + id + "; an earlier write of this id is still"
                     + " unresolved - retry the ALTER");
+        }
+        if (fence != null && fence.expectedStatus != requested) {
+            // this statement's row is strictly later than the unresolved write, so it is the
+            // durable winner whatever that write finally publishes
+            return;
+        }
+        if (plannedUpdateTimeMillis > 0) {
+            // A REAL flip stops here: the durable read that selected this branch proved the
+            // stored status is the OPPOSITE of the requested one, so a write that is still in
+            // FLIGHT elsewhere cannot make this statement a silent no-op - and blocking on the
+            // shared clock would make two FEs' independent mutations refuse each other, which
+            // round-56 #1 explicitly fixed (two windows opened in the SAME millisecond must both
+            // work). Its own window plus the fence recorded from dispatch cover the write, and
+            // the planned instant is the newest VISIBLE instant + 1 ms, so any row that is
+            // already durable stays older than this one.
+            return;
         }
         if (!sharedMutationClockAvailable()) {
             return;
@@ -6447,7 +6509,7 @@ public class BaselineManager {
      * fence still masks the id.
      *
      * @param tick the window tick the statement was dispatched under
-     * @param row  the row the statement wrote (its status / stored second identify the
+     * @param row  the row the statement wrote (its status / stored instant identify the
      *             outcome a snapshot must show)
      * @return whether the window was taken over: the caller must NOT close it
      */
@@ -6474,15 +6536,15 @@ public class BaselineManager {
      *
      * @param tick            the window tick the statement was dispatched under
      * @param row             the intent row the statement wrote
-     * @param keepFromSecond  the stored second the prune keeps from
+     * @param keepFromMicros  the stored instant the prune keeps from
      * @return whether the window was taken over: the caller must NOT close it
      */
-    private boolean holdUnresolvedPruneWindow(long tick, BaselinePlan row, long keepFromSecond) {
+    private boolean holdUnresolvedPruneWindow(long tick, BaselinePlan row, long keepFromMicros) {
         if (tick == 0) {
             return false; // no shared window exists (in-memory / scripted store)
         }
         unresolvedMutationWindows.put(tick, new UnresolvedMutationWindow(row.getId(),
-                row.getStatus(), row.getUpdateTime(), mutationWindowNow(), row, keepFromSecond));
+                row.getStatus(), row.getUpdateTime(), mutationWindowNow(), row, keepFromMicros));
         LOG.warn("SPM keeps mutation window {} OPEN: the versions of baseline {} reclaimed by"
                 + " the no-op ALTER are not provably gone yet, so a paginated reader may still"
                 + " hold one of them; the window closes once a read proves the reclaim (or"
@@ -6621,7 +6683,7 @@ public class BaselineManager {
         }
         String digest = plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest();
         long planSqlHash = identityPlanSqlHash(plan);
-        persistence.reserveId(plan.getId(), digest, planSqlHash, System.currentTimeMillis());
+        persistence.reserveId(plan.getId(), digest, planSqlHash, SPMUtils.nowMicros());
         // Prove the reservation's durable evidence is READABLE by the reads a successor /
         // retry uses BEFORE the baseline row write may dispatch (see
         // confirmReservationReadable).
@@ -6728,7 +6790,7 @@ public class BaselineManager {
             return;
         }
         persistence.notePendingSeqState(plan.getBindSqlDigest(), identityPlanSqlHash(plan),
-                plan.getId(), System.currentTimeMillis());
+                plan.getId(), SPMUtils.nowMicros());
     }
 
     /**
@@ -6738,7 +6800,10 @@ public class BaselineManager {
      */
     private static void notePendingSeqStateIntoTable(String bindSqlDigest, long planSqlHash,
             long id) {
-        long now = System.currentTimeMillis();
+        // The marker's age decides the durable pending-create fence, which compares
+        // SPMUtils.nowMicros() against the STORED instant: a millisecond value here would make a
+        // just-written marker look decades old and the fence would never hold.
+        long now = SPMUtils.nowMicros();
         if (!persistenceEnabled()) {
             return;
         }
@@ -6874,14 +6939,14 @@ public class BaselineManager {
         params.put("lastId", String.valueOf(id));
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
         params.put("planSqlHash", String.valueOf(planSqlHash));
-        params.put("reserveTime", toTs(System.currentTimeMillis()));
+        params.put("reserveTime", toTs(SPMUtils.nowMicros()));
         try {
             inInternalIoMode(() -> StatisticsUtil.execUpdate(INSERT_SEQ_DROPPED_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
         } catch (Exception e) {
             return false;
         }
-        appendCompactSeqState(id, bindSqlDigest, planSqlHash, System.currentTimeMillis(),
+        appendCompactSeqState(id, bindSqlDigest, planSqlHash, SPMUtils.nowMicros(),
                 false, true);
         return true;
     }
@@ -7362,9 +7427,9 @@ public class BaselineManager {
      * #7): once the reserved row became readable (or was retired as stale), the identity
      * no longer fences - without this the marker outlived its resolution and rejected a
      * legitimate DROP + immediate re-CREATE of the same bind/plan for up to
-     * DURABLE_PENDING_CREATE_FENCE_MILLIS, since the probe saw the old marker
+     * DURABLE_PENDING_CREATE_FENCE_MICROS, since the probe saw the old marker
      * and the now-absent row. The DELETE removes only unconfirmed = 1 markers of
-     * THAT last_id; the plain reservation row appended before every create (and every
+     * THAT baseline_id; the plain reservation row appended before every create (and every
      * other id ever reserved) stays, so the sequence WATERMARK never falls. Best effort:
      * a failed delete leaves the fence in place, which only delays a re-create.
      *
@@ -7408,7 +7473,7 @@ public class BaselineManager {
         // The retired marker must also disappear from the compact slot: appending the
         // resolved (plain) state keeps the slot's newest row the authoritative one.
         appendCompactSeqState(markerId, bindSqlDigest, planSqlHash,
-                System.currentTimeMillis(), false, false);
+                SPMUtils.nowMicros(), false, false);
     }
 
     /** The compact `id` of one identity (see COMPACT_SEQ_ID_BASE). */
@@ -7491,7 +7556,7 @@ public class BaselineManager {
      * (the reviewer's scenario: "the sequence reservation may already be visible"): a
      * fresh marker whose baseline row is still unreadable DEFERS the retry; once the row
      * publishes it is ADOPTED, and an expired marker is treated as a lost write (see
-     * DURABLE_PENDING_CREATE_FENCE_MILLIS).
+     * DURABLE_PENDING_CREATE_FENCE_MICROS).
      *
      * The PLAIN reservation row fences exactly like the marker: it is
      * appended BEFORE the baseline write, so while it is young and its id is unreadable
@@ -7527,7 +7592,7 @@ public class BaselineManager {
         // compact slot's tombstone append is BEST EFFORT (appendCompactSeqState), so a
         // FRESH plain reservation can hide a completed DROP / condemned write of the same
         // incarnation, and acting on the stale reservation would defer the immediate
-        // same-key CREATE for up to DURABLE_PENDING_CREATE_FENCE_MILLIS - or condemn an
+        // same-key CREATE for up to DURABLE_PENDING_CREATE_FENCE_MICROS - or condemn an
         // identity that is already resolved. The tombstones are DURABLE and read BY THE
         // RESERVATION'S OWN ID (a scoped, id-keyed lookup), so the CREATE no longer filters
         // and sorts the append-only sequence history by digest / plan hash on EVERY create:
@@ -7604,7 +7669,7 @@ public class BaselineManager {
             publishBaseline(readable);
             // The resolution RETIRES the durable marker. Leaving it behind
             // made a DROP + immediate re-CREATE of the same bind/plan defer for up to
-            // DURABLE_PENDING_CREATE_FENCE_MILLIS: the probe saw the old marker and the
+            // DURABLE_PENDING_CREATE_FENCE_MICROS: the probe saw the old marker and the
             // (dropped) row's absence. The marker's DELETE keeps the plain reservation
             // row, so the id watermark never falls.
             retireSeqPendingMarker(plan, reservation.id);
@@ -7612,14 +7677,14 @@ public class BaselineManager {
                     + " table", readable.getId());
             return readable.getId();
         }
-        if (System.currentTimeMillis() - reservation.reserveTimeMs
-                <= DURABLE_PENDING_CREATE_FENCE_MILLIS) {
+        if (SPMUtils.nowMicros() - reservation.reserveTimeMicros
+                <= DURABLE_PENDING_CREATE_FENCE_MICROS) {
             throw new IllegalStateException("SPM cannot create baseline: a previously COMMITTED"
                     + " write of the same baseline (id " + reservation.id + ") is still awaiting"
                     + " publication (its id is consumed); retry the statement");
         }
-        if (reservation.reserveTimeMs <= 0) {
-            // UNKNOWN age (the stored second could not be read): condemning on an unknown
+        if (reservation.reserveTimeMicros <= 0) {
+            // UNKNOWN age (the stored instant could not be read): condemning on an unknown
             // age tombstoned a possibly FRESH identity whose write is still awaiting
             // publication, and the fresh id allocated next to it published a duplicate.
             // Defer retryably instead - the reservation becomes readable with its time.
@@ -7643,10 +7708,10 @@ public class BaselineManager {
         // condensation (idempotent append) until it is readable.
         confirmDroppedMarkerDurable(reservation.id, plan.getBindSqlDigest(), planSqlHash);
         LOG.warn("SPM durable pending create of baseline {}: its identity record is older"
-                        + " than {} ms and the row never became readable; condemning the"
+                        + " than {} us and the row never became readable; condemning the"
                         + " identity (any late publication is repaired away) and allocating a"
                         + " fresh id",
-                reservation.id, DURABLE_PENDING_CREATE_FENCE_MILLIS);
+                reservation.id, DURABLE_PENDING_CREATE_FENCE_MICROS);
         return null;
     }
 
@@ -7913,14 +7978,14 @@ public class BaselineManager {
      */
     private static boolean isNewerReservation(BaselinePersistence.SeqReservation candidate,
             BaselinePersistence.SeqReservation current) {
-        if (candidate.reserveTimeMs != current.reserveTimeMs) {
-            return candidate.reserveTimeMs > current.reserveTimeMs;
+        if (candidate.reserveTimeMicros != current.reserveTimeMicros) {
+            return candidate.reserveTimeMicros > current.reserveTimeMicros;
         }
         return candidate.id > current.id;
     }
 
     /** One identity row's state, from either read (compact and history share the
-     * column tuple last_id / reserve_time / unconfirmed / dropped). */
+     * column tuple baseline_id / reserve_time / unconfirmed / dropped). */
     private static BaselinePersistence.SeqReservation parseSeqReservation(ResultRow row) {
         return parseSeqReservation(row, 0);
     }
@@ -7930,7 +7995,7 @@ public class BaselineManager {
      * readLatestReservationsFromTable, whose read prefixes the compact slot id).
      *
      * @param row    the result row
-     * @param offset the index of the last_id column
+     * @param offset the index of the baseline_id column
      * @return the parsed state, or null when the row carries no id
      */
     private static BaselinePersistence.SeqReservation parseSeqReservation(ResultRow row,
@@ -7941,7 +8006,7 @@ public class BaselineManager {
         }
         String timeText = row.getValues().size() > offset + 1
                 ? row.getWithDefault(offset + 1, "") : "";
-        long reserveTime = parseStoredMillis(timeText);
+        long reserveTime = parseStoredMicros(timeText);
         return new BaselinePersistence.SeqReservation(Long.parseLong(idText.trim()), reserveTime,
                 isFlagSet(row, offset + 2), isFlagSet(row, offset + 3));
     }
@@ -8702,9 +8767,9 @@ public class BaselineManager {
         if (firstDisabled != secondDisabled) {
             return firstDisabled ? first : second;
         }
-        // Fully tied (same stored second, same status): the winner must be DETERMINISTIC
+        // Fully tied (same stored instant, same status): the winner must be DETERMINISTIC
         // - two masters can leave two DIFFERENT rows of one id with the
-        // same stored second (a delayed INSERT committing after a handoff collision),
+        // same stored instant (a delayed INSERT committing after a handoff collision),
         // and an arbitrary pick made refresh / restart / SHOW / the paginated read
         // disagree on which row is authoritative. The CONTENT is a total,
         // order-independent tie-breaker; fully identical rows stay interchangeable.
@@ -8831,11 +8896,11 @@ public class BaselineManager {
      */
     private static boolean copyPersistedTimestamps(BaselinePlan memory, BaselinePlan row) {
         boolean copied = false;
-        if (!sameStoredSecond(memory.getUpdateTime(), row.getUpdateTime())) {
+        if (!sameStoredInstant(memory.getUpdateTime(), row.getUpdateTime())) {
             memory.setUpdateTime(row.getUpdateTime());
             copied = true;
         }
-        if (!sameStoredSecond(memory.getCreateTime(), row.getCreateTime())) {
+        if (!sameStoredInstant(memory.getCreateTime(), row.getCreateTime())) {
             memory.setCreateTime(row.getCreateTime());
             copied = true;
         }
@@ -8893,8 +8958,8 @@ public class BaselineManager {
      * Whether two epoch-millis values are the same at the internal table's DATETIME
      * (SECOND) precision (see copyPersistedTimestamps).
      */
-    private static boolean sameStoredSecond(long memoryMillis, long rowMillis) {
-        return memoryMillis / 1000L == rowMillis / 1000L;
+    private static boolean sameStoredInstant(long memoryMicros, long rowMicros) {
+        return memoryMicros == rowMicros;
     }
 
     /** Rebuilds a BaselinePlan from one internal-table row (column order = schema). */
@@ -8910,8 +8975,8 @@ public class BaselineManager {
         p.setQueryTimeMs(Long.parseLong(row.get(7)));
         p.setSource(BaselineSource.fromString(row.get(8)));
         p.setStatus(BaselineStatus.fromString(row.get(9)));
-        p.setCreateTime(parseStoredMillis(row.get(10)));
-        p.setUpdateTime(parseStoredMillis(row.get(11)));
+        p.setCreateTime(parseStoredMicros(row.get(10)));
+        p.setUpdateTime(parseStoredMicros(row.get(11)));
         // older rows (or a hand-built test row) may not carry the column yet
         p.setCreatorSqlMode(row.getValues().size() > 12 ? parseSqlMode(row.get(12))
                 : SqlModeHelper.MODE_DEFAULT);
@@ -8972,17 +9037,19 @@ public class BaselineManager {
      * persistNoOpStatusIntent) and this term voids the older statement's precondition, so the
      * late flip writes nothing and reports a retryable conflict instead.
      *
-     * @param previousUpdateSecond the stored second the flip is based on (0 = unknown)
+     * @param previousUpdateMicros the stored INSTANT the flip is based on, in epoch
+     *                             microseconds
+     *                             (0 = unknown)
      * @return the statement text
      */
-    static String conditionalStatusInsertSql(long previousUpdateSecond) {
-        if (previousUpdateSecond <= 0) {
+    static String conditionalStatusInsertSql(long previousUpdateMicros) {
+        if (previousUpdateMicros <= 0) {
             return INSERT_IF_PREVIOUS_STATUS_SQL;
         }
         return INSERT_IF_PREVIOUS_STATUS_SQL.replace(" LIMIT 1",
                 " AND NOT EXISTS (SELECT 1 FROM " + SPM_BASELINES_TABLE
-                        + " WHERE `id` = ${id} AND UNIX_TIMESTAMP(`update_time`)"
-                        + " > ${previousUpdateSecond}) LIMIT 1");
+                        + " WHERE `id` = ${id} AND " + storedMicros("`update_time`")
+                        + " > ${previousUpdateMicros}) LIMIT 1");
     }
 
     /**
@@ -9000,7 +9067,7 @@ public class BaselineManager {
      * retryable failure instead of a silent success.
      */
     private boolean persistTransitionInsert(BaselinePlan p, BaselineStatus previousStatus,
-            long previousUpdateSecond) {
+            long previousUpdateMicros) {
         if (!persistence.isDurable()) {
             return true; // in-memory only (no durable status rows exist)
         }
@@ -9011,7 +9078,7 @@ public class BaselineManager {
         try {
             try {
                 if (!persistence.insertIfPreviousPresent(p, previousStatus,
-                        previousUpdateSecond)) {
+                        previousUpdateMicros)) {
                     return false; // nothing written: the previous-status row was gone
                 }
             } catch (RuntimeException e) {
@@ -9069,16 +9136,16 @@ public class BaselineManager {
      *         previous-status row and wrote nothing
      */
     private boolean writeConditionalStatusInsert(BaselinePlan p,
-            BaselineStatus previousStatus, long previousUpdateSecond) {
+            BaselineStatus previousStatus, long previousUpdateMicros) {
         Map<String, String> params = insertParams(p);
         params.put("previousStatus", previousStatus.name());
-        params.put("previousUpdateSecond", String.valueOf(Math.max(0L, previousUpdateSecond)));
+        params.put("previousUpdateMicros", String.valueOf(Math.max(0L, previousUpdateMicros)));
         // insertParams already bound schemaFingerprint: the WHERE predicate couples the
         // previous-status row to the CACHED row's fingerprint, so a reused id carrying a
         // DIFFERENT incarnation's (digest, planSql, fingerprint) cannot be flipped
         try {
             QueryState state = inInternalIoMode(() -> StatisticsUtil.execUpdate(
-                    conditionalStatusInsertSql(previousUpdateSecond), params,
+                    conditionalStatusInsertSql(previousUpdateMicros), params,
                     BASELINE_WRITE_TIMEOUT_SECONDS));
             long affectedRows = state == null ? -1 : state.getAffectedRows();
             if (!insertWroteRows(affectedRows)) {
@@ -9206,11 +9273,16 @@ public class BaselineManager {
         params.put("createTime", toTs(p.getCreateTime()));
         params.put("updateTime", toTs(p.getUpdateTime()));
         params.put("sqlMode", String.valueOf(p.getCreatorSqlMode()));
-        // NULL (not "MODE_DEFAULT") for a row that predates the provenance columns: the
-        // load path must keep classifying such rows by parsing / by the creator mode.
+        // EVERY column of the internal tables is NOT NULL (this release publishes the
+        // schema for the first time, see InternalSchema): a row whose model field is unset
+        // binds the SAFE value instead of a NULL - MODE_DEFAULT for the plan's parser mode
+        // and FALSE for "the stored planSql is the decompiled frozen rendering" (FALSE means
+        // the text is ordinary user SQL whose parameterized tree is rebuilt, i.e. no
+        // placeholder is ever substituted into a text that may not carry any).
         params.put("planSqlMode",
-                p.getPlanSqlMode() == null ? "NULL" : String.valueOf(p.getPlanSqlMode()));
-        params.put("planFrozen", p.getPlanFrozen() == null ? "NULL" : p.getPlanFrozen().toString());
+                String.valueOf(p.getPlanSqlMode() == null
+                        ? SqlModeHelper.MODE_DEFAULT : p.getPlanSqlMode()));
+        params.put("planFrozen", String.valueOf(Boolean.TRUE.equals(p.getPlanFrozen())));
         params.put("schemaFingerprint",
                 StatisticsUtil.escapeSQL(p.getSchemaFingerprint() == null
                         ? "" : p.getSchemaFingerprint()));
@@ -9237,7 +9309,7 @@ public class BaselineManager {
      * The INSERT reported SUCCESS, but the committed row is not READABLE yet: the
      * write IS durable, only its publication lags. The caller may treat the write as
      * confirmed and publish the row it proves (a status flip publishes the new-status
-     * row, whose stored second is strictly later than every row the write met; a CREATE
+     * row, whose stored instant is strictly later than every row the write met; a CREATE
      * still remembers the identity like the ambiguous form - the id must not be handed
      * out again either way).
      */
@@ -9406,9 +9478,9 @@ public class BaselineManager {
 
     private BaselinePersistence.DurablePresence probeDurableRow(long id, String bindSqlDigest,
             String planSql, BaselineStatus status, String schemaFingerprint,
-            Long requiredUpdateTimeMs) {
+            Long requiredUpdateTimeMicros) {
         return persistence.probeRow(id, bindSqlDigest, planSql, status, schemaFingerprint,
-                requiredUpdateTimeMs);
+                requiredUpdateTimeMicros);
     }
 
     /**
@@ -9423,22 +9495,22 @@ public class BaselineManager {
      */
     private BaselinePersistence.DurablePresence probeRowFromTable(long id,
             String bindSqlDigest, String planSql, BaselineStatus status,
-            String schemaFingerprint, Long requiredUpdateTimeMs) {
+            String schemaFingerprint, Long requiredUpdateTimeMicros) {
         try {
             // The read is keyed BY THE KNOWN ID (the table's duplicate key): the probe
             // used to filter bind_sql_digest / plan_sql, which scans every bucket and row
             // of a table that grows without a cap, and the mandatory readback of every
             // CREATE could exhaust the fixed probe budget on a large table - reporting an
             // unconfirmed CREATE although its row had committed. The attempted identity /
-            // status / stored second are compared HERE, against the id-keyed rows.
+            // status / stored instant are compared HERE, against the id-keyed rows.
             for (BaselinePlan row : readPersistedById(id)) {
                 if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
                         && Objects.equals(row.getPlanSql(), planSql)
                         && (status == null || row.getStatus() == status)
                         && (schemaFingerprint == null || Objects.equals(
                                 row.getSchemaFingerprint(), schemaFingerprint))
-                        && (requiredUpdateTimeMs == null || sameStoredSecond(
-                                row.getUpdateTime(), requiredUpdateTimeMs))) {
+                        && (requiredUpdateTimeMicros == null || sameStoredInstant(
+                                row.getUpdateTime(), requiredUpdateTimeMicros))) {
                     return BaselinePersistence.DurablePresence.PRESENT;
                 }
             }
@@ -9457,7 +9529,7 @@ public class BaselineManager {
      * status beside the winner - the ENABLE of found the leftover ENABLED
      * row of the failed DISABLE and treated its aborted conditional INSERT as written,
      * after which a failed DISABLE delete published a status no durable winner carried.
-     * The flip's stored second is strictly later than every row it met (the bump in
+     * The flip's stored instant is strictly later than every row it met (the bump in
      * updateStatus), so only the row this write would have produced can match it.
      */
     private boolean observedInsertRowIsOurs(BaselinePlan p) {
@@ -9501,19 +9573,25 @@ public class BaselineManager {
     }
 
     /**
-     * The newest stored update_time of the WHOLE durable table, in epoch SECONDS (0 when
-     * the table holds no row / the read is unavailable). The status-flip bump advances a
-     * new row past this value, so EVERY flip moves MAX(update_time) - the snapshot
-     * fence (see SELECT_MAX_UPDATE_TIME_SQL).
+     * The newest stored update_time of one id at the column's FULL precision, in epoch
+     * MICROSECONDS (0 when the id has no row).
      *
-     * @return the newest stored second
+     * MICROSECONDS are the SPM time unit of every stored instant (see InternalSchema
+     * #SPM_TIMESTAMP_SCALE): the columns carry 6 fractional digits, `now` is taken from a
+     * microsecond clock, and every durable-order comparison ("no newer row exists", "this
+     * is the version I complete") is made against the EXACT stored value. A coarser unit
+     * would be strictly EARLIER than the row it was derived from, so those comparisons
+     * would see the id's own row as a newer write and void themselves.
+     *
+     * @param id the baseline id
+     * @return the newest stored instant in epoch microseconds
      */
-    private long readNewestStoredUpdateSecond(long id) {
-        return persistence.newestStoredUpdateSecond(id);
+    private long readNewestStoredUpdateMicros(long id) {
+        return persistence.newestStoredUpdateMicros(id);
     }
 
-    /** The live implementation half of {@link BaselinePersistence#newestStoredUpdateSecond}. */
-    private static long newestStoredUpdateSecondFromTable(long id) {
+    /** The live implementation half of {@link BaselinePersistence#newestStoredUpdateMicros}. */
+    private static long newestStoredUpdateMicrosFromTable(long id) {
         if (!persistenceEnabled()) {
             return 0;
         }
@@ -9527,9 +9605,9 @@ public class BaselineManager {
             }
             String text = rows.get(0).getWithDefault(0, "");
             if (text == null || text.isEmpty()) {
-                return 0; // no row of this id yields one NULL MAX(update_time)
+                return 0;
             }
-            return parseStoredMillis(text) / 1000L;
+            return parseStoredMicros(text);
         } catch (Exception e) {
             throw new RuntimeException("SPM baseline update_time watermark read failed"
                     + " (retry the statement): " + e.getMessage(), e);
@@ -9658,13 +9736,13 @@ public class BaselineManager {
      *   that status had written (the new master's ENABLE after this DISABLE), so the
      *   delayed cleanup erased a row both ALTERs had reported successful.
      *
-     * @param p               the flipped row's snapshot (new status + new stored second)
+     * @param p               the flipped row's snapshot (new status + new stored instant)
      * @param status          the OLD status whose row this cleanup removes
-     * @param oldUpdateTimeMs the stored VERSION of the old row (the stored second this
-     *                        flip completes, in epoch millis; 0 / unknown = not bound)
+     * @param oldUpdateTimeMicros the stored VERSION of the old row (the stored instant this
+     *                        flip completes, in epoch microseconds; 0 / unknown = not bound)
      */
     private void persistDeleteByIdAndStatus(BaselinePlan p, BaselineStatus status,
-            long oldUpdateTimeMs) {
+            long oldUpdateTimeMicros) {
         assertLeaderForWrite();
         // Open the mutation window BEFORE the status DELETE and close it after (see
         // beginRowMutation): an overlapping snapshot read must retry over the flip's
@@ -9683,7 +9761,7 @@ public class BaselineManager {
             }
             long id = p.getId();
             try {
-                persistence.deleteByIdAndStatus(p, status, oldUpdateTimeMs);
+                persistence.deleteByIdAndStatus(p, status, oldUpdateTimeMicros);
             } catch (Exception e) {
                 // Ambiguous commit: only a READABLE zero row count proves the delete landed.
                 // An unconfirmable probe must surface as the original write failure.
@@ -9713,7 +9791,7 @@ public class BaselineManager {
 
     /** The live implementation half of {@link BaselinePersistence#deleteByIdAndStatus}. */
     private static void deleteByIdAndStatusFromTable(BaselinePlan p, BaselineStatus status,
-            long oldUpdateTimeMs) {
+            long oldUpdateTimeMicros) {
         if (!persistenceEnabled()) {
             return;
         }
@@ -9724,7 +9802,7 @@ public class BaselineManager {
         params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
         String fingerprint = p.getSchemaFingerprint() == null ? "" : p.getSchemaFingerprint();
         params.put("schemaFingerprint", StatisticsUtil.escapeSQL(fingerprint));
-        List<String> deleteSqls = deleteByIdAndStatusSql(oldUpdateTimeMs, fingerprint);
+        List<String> deleteSqls = deleteByIdAndStatusSql(oldUpdateTimeMicros, fingerprint);
         inInternalIoMode(() -> {
             for (String deleteSql : deleteSqls) {
                 StatisticsUtil.execUpdate(deleteSql, params, BASELINE_WRITE_TIMEOUT_SECONDS);
@@ -9735,15 +9813,15 @@ public class BaselineManager {
 
     /**
      * The live implementation half of {@link BaselinePersistence#pruneSupersededVersions}
-     * (see the SQL constants): removes the versions of one identity whose stored second is
+     * (see the SQL constants): removes the versions of one identity whose stored instant is
      * strictly earlier than the retained one.
      *
      * @param identity       the identity scoping the delete
-     * @param keepFromSecond the stored second to keep from (0 = nothing to prune)
+     * @param keepFromMicros the stored instant to keep from (0 = nothing to prune)
      */
     private static void pruneSupersededVersionsFromTable(BaselinePlan identity,
-            long keepFromSecond) {
-        if (!persistenceEnabled() || keepFromSecond <= 0) {
+            long keepFromMicros) {
+        if (!persistenceEnabled() || keepFromMicros <= 0) {
             return;
         }
         Map<String, String> params = new HashMap<>();
@@ -9753,7 +9831,7 @@ public class BaselineManager {
         String fingerprint = identity.getSchemaFingerprint() == null
                 ? "" : identity.getSchemaFingerprint();
         params.put("schemaFingerprint", StatisticsUtil.escapeSQL(fingerprint));
-        params.put("keepFrom", toTs(keepFromSecond * 1000L));
+        params.put("keepFrom", toTs(keepFromMicros));
         List<String> deleteSqls = pruneSupersededVersionsSql(fingerprint);
         inInternalIoMode(() -> {
             for (String deleteSql : deleteSqls) {
@@ -9782,11 +9860,11 @@ public class BaselineManager {
      * visibility probe of a prune (see confirmPruneVisible).
      *
      * @param identity       the identity scoping the read
-     * @param keepFromSecond the stored second the prune keeps from
+     * @param keepFromMicros the stored instant the prune keeps from
      * @return the readable count of older versions
      */
     private static long countVersionsBeforeFromTable(BaselinePlan identity,
-            long keepFromSecond) {
+            long keepFromMicros) {
         if (!persistenceEnabled()) {
             return 0;
         }
@@ -9797,7 +9875,7 @@ public class BaselineManager {
         String fingerprint = identity.getSchemaFingerprint() == null
                 ? "" : identity.getSchemaFingerprint();
         params.put("schemaFingerprint", StatisticsUtil.escapeSQL(fingerprint));
-        params.put("keepFrom", toTs(keepFromSecond * 1000L));
+        params.put("keepFrom", toTs(keepFromMicros));
         long older = 0;
         for (String sql : countVersionsBeforeSqlTexts(fingerprint)) {
             older += countVersionsBeforeSql(sql, params);
@@ -9841,7 +9919,7 @@ public class BaselineManager {
     /**
      * The status-cleanup DELETE with the old row's stored VERSION bound (the reviewer's
      * round-58 finding): matching (id, old status, identity) alone also deleted the row a
-     * LATER flip BACK to that status had written, because the stored second is not part of
+     * LATER flip BACK to that status had written, because the stored instant is not part of
      * the predicate - a demoted master's delayed cleanup then erased a row the new master
      * had just created, although both ALTERs reported success. The version is the stored
      * second of the row this flip completes (see updateStatus' bump read); 0 / unknown
@@ -9849,14 +9927,15 @@ public class BaselineManager {
      * changed version then simply matches no row - the fail-safe direction (a lingering row
      * is collapsed by the durable-winner rule, a foreign newer row stays).
      *
-     * @param oldUpdateTimeMs the old row's stored second in epoch millis (0 = not bound)
+     * @param oldUpdateTimeMicros the old row's stored INSTANT in epoch microseconds
+     *                             (0 = not bound)
      * @param fingerprint     the row's schema fingerprint ("" = a TVF-only baseline)
      * @return the DELETE statement texts (ONE normally, TWO for an empty fingerprint -
      *         see the NULL / empty-string constants)
      */
-    private static List<String> deleteByIdAndStatusSql(long oldUpdateTimeMs, String fingerprint) {
-        String version = oldUpdateTimeMs <= 0 ? "" : " AND `update_time` = '"
-                + toTs(oldUpdateTimeMs) + "'";
+    private static List<String> deleteByIdAndStatusSql(long oldUpdateTimeMicros, String fingerprint) {
+        String version = oldUpdateTimeMicros <= 0 ? "" : " AND `update_time` = '"
+                + toTs(oldUpdateTimeMicros) + "'";
         if (fingerprint == null || fingerprint.isEmpty()) {
             // A TVF-only baseline stores an EMPTY fingerprint, and
             // IFNULL(schema_fingerprint,'') = '' needs `IS NULL OR = ''` - rejected by
@@ -9865,7 +9944,7 @@ public class BaselineManager {
             return List.of(DELETE_BY_ID_AND_STATUS_SQL_NULL_FINGERPRINT + version,
                     DELETE_BY_ID_AND_STATUS_SQL_EMPTY_FINGERPRINT + version);
         }
-        if (oldUpdateTimeMs <= 0) {
+        if (oldUpdateTimeMicros <= 0) {
             return List.of(DELETE_BY_ID_AND_STATUS_SQL);
         }
         // The version predicate must keep `update_time` a BARE column on the left: the
@@ -9875,64 +9954,86 @@ public class BaselineManager {
         // cleanup DELETE then failed, the old-status row survived and one baseline id
         // ended up with two / three durable rows (round-59 regression run:
         // test_spm_baseline_ddl failed the "must be persisted" count with 3 rows).
-        // toTs() renders the SAME stored second as an explicit-UTC-offset literal, so
+        // toTs() renders the SAME stored instant as an explicit-UTC-offset literal, so
         // the comparison stays instant-exact and session-zone independent.
         return List.of(DELETE_BY_ID_AND_STATUS_SQL + version);
     }
 
     /**
-     * Epoch MILLIS of one TIMESTAMPTZ column: the SELECT lists read the stored INSTANT with
-     * UNIX_TIMESTAMP instead of the column's rendering, because the rendering of a
-     * TIMESTAMPTZ depends on the READING session's time zone while the stored value does
-     * not - every comparison downstream (status-flip ordering, the duplicate winner, the
-     * pending fence age) would otherwise shift with the zone.
+     * Epoch MICROSECONDS of ONE TIMESTAMPTZ column, read at the column's OWN precision: the
+     * SELECT lists read the stored INSTANT with UNIX_TIMESTAMP instead of the column's
+     * rendering, because the rendering of a TIMESTAMPTZ depends on the READING session's
+     * time zone while the stored value does not - every downstream comparison (status-flip
+     * ordering, the duplicate winner, the pending fence age) would otherwise shift with the
+     * zone.
      *
-     * @param column the column name
+     * UNIX_TIMESTAMP of a TIMESTAMPTZ(6) value IS the instant in seconds with six
+     * fractional digits (e.g. 1792584036.467123), so the expression applies NO scaling:
+     * multiplying it to a coarser unit is exactly what threw the stored microseconds away.
+     * parseStoredMicros turns the decimal into the epoch-microsecond long every reader /
+     * writer uses.
+     *
+     * @param sqlExpression the column as it appears in the SELECT list, already quoted
+     *                      (a bare column or an aggregate such as MAX(`update_time`)) - the
+     *                      helper must not add quoting, or an aggregate would be wrapped
+     *                      into `MAX(`update_time`)` and fail to parse
      * @return the SQL expression
      */
-    private static String storedMillis(String column) {
-        return "UNIX_TIMESTAMP(`" + column + "`) * 1000";
+    private static String storedMicros(String sqlExpression) {
+        return "UNIX_TIMESTAMP(" + sqlExpression + ")";
     }
 
     /**
-     * Epoch millis -> internal-table TIMESTAMPTZ literal WITH an explicit UTC offset, at
-     * the column's SECOND precision ('yyyy-MM-dd HH:mm:ss+00:00').
+     * Epoch MICROSECONDS -> internal-table TIMESTAMPTZ literal WITH an explicit UTC offset,
+     * rendered at the column's MICROSECOND precision
+     * ('yyyy-MM-dd HH:mm:ss.SSSSSS+00:00').
      *
-     * The columns store an ABSOLUTE instant, and the offset is what makes the literal
-     * one: the FEs of one cluster do not share a host zone, and the internal statements
-     * run under whatever `time_zone` their session carries - a bare
-     * 'yyyy-MM-dd HH:mm:ss' would therefore be interpreted in the WRITING session's zone
-     * (and rendered in the READING one), so the duplicate-row recovery (pickDurableWinner,
-     * which keeps the row with the LATER updateTime) compared instants written by
-     * different hosts as if they were one clock - a UTC master's 12:00 ENABLED row
-     * outranked a UTC-8 successor's 12:01 DISABLED row. The offset pins the instant
-     * regardless of any session zone.
+     * The columns store an ABSOLUTE instant, and the offset is what makes the literal one:
+     * the FEs of one cluster do not share a host zone, and the internal statements run under
+     * whatever `time_zone` their session carries - a bare 'yyyy-MM-dd HH:mm:ss' would
+     * therefore be interpreted in the WRITING session's zone (and rendered in the READING
+     * one), so the duplicate-row recovery (pickDurableWinner, which keeps the row with the
+     * LATER updateTime) compared instants written by different hosts as if they were one
+     * clock - a UTC master's 12:00 ENABLED row outranked a UTC-8 successor's 12:01 DISABLED
+     * row. The offset pins the instant regardless of any session zone.
      *
-     * The rendering stays at SECONDS because that is the column's scale: Doris ROUNDS a
-     * fractional TIMESTAMPTZ literal to it, so a '.900+00:00' literal is stored as the
-     * NEXT second - and the readers that compare the stored second with the written
-     * millis (sameStoredSecond: the insert confirmation, the status-flip bump) would then
-     * see two different seconds for the very row the write just produced. Truncating to
-     * the second in THIS formatter keeps the stored value exactly the one being compared.
+     * The value is written EXACTLY as held (see InternalSchema#SPM_TIMESTAMP_SCALE): the
+     * column keeps all six fractional digits, so the instant read back is the instant that
+     * was written, and two flips inside one millisecond still store DIFFERENT values.
+     *
+     * @param epochMicros the instant in epoch microseconds
+     * @return the literal
      */
-    private static String toTs(long epochMillis) {
-        return OffsetDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC)
-                .truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+    private static String toTs(long epochMicros) {
+        return OffsetDateTime.ofInstant(
+                        Instant.EPOCH.plus(epochMicros, java.time.temporal.ChronoUnit.MICROS),
+                        ZoneOffset.UTC)
                 .format(TS_FORMAT);
     }
 
     /**
-     * One TIMESTAMPTZ column read through UNIX_TIMESTAMP * 1000 (see
-     * STORED_MILLIS_SUFFIX): epoch MILLIS, never a rendering. Parsing the
-     * session-zone-dependent rendering instead would make every stored-time comparison
-     * (the status-flip ordering, the duplicate winner, the pending fence age) depend on
-     * the reading session's time zone.
+     * One TIMESTAMPTZ column read through UNIX_TIMESTAMP (see storedMicros): epoch
+     * MICROSECONDS, never a rendering. Parsing the session-zone-dependent rendering instead
+     * would make every stored-time comparison (the status-flip ordering, the duplicate
+     * winner, the pending fence age) depend on the reading session's time zone.
      *
-     * @param stored the column's epoch-millis text (empty / null = no value)
-     * @return the epoch millis, 0 when absent
+     * The read is the column's own second.microsecond decimal, so the conversion to the
+     * epoch-microsecond unit is an exact DECIMAL point shift of the column's declared scale -
+     * no floating-point rounding and no coarser unit in between (a millisecond-scaling read
+     * would silently truncate the digits the ordering relies on).
+     *
+     * @param stored the column's UNIX_TIMESTAMP text (decimal SECONDS with the column's
+     *               fractional digits; empty / null = no value)
+     * @return the epoch microseconds, 0 when absent
      */
-    private static long parseStoredMillis(String stored) {
-        return stored == null || stored.isEmpty() ? 0 : Long.parseLong(stored.trim());
+    private static long parseStoredMicros(String stored) {
+        if (stored == null || stored.isEmpty()) {
+            return 0;
+        }
+        return new java.math.BigDecimal(stored.trim())
+                .movePointRight(InternalSchema.SPM_TIMESTAMP_SCALE)
+                .setScale(0, java.math.RoundingMode.DOWN)
+                .longValue();
     }
 
     // ==================== live implementations ====================
@@ -9989,9 +10090,9 @@ public class BaselineManager {
 
         @Override
         public DurablePresence probeRow(long id, String bindSqlDigest, String planSql,
-                BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMs) {
+                BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMicros) {
             return owner.probeRowFromTable(id, bindSqlDigest, planSql, status, schemaFingerprint,
-                    requiredUpdateTimeMs);
+                    requiredUpdateTimeMicros);
         }
 
         @Override
@@ -10017,8 +10118,8 @@ public class BaselineManager {
         }
 
         @Override
-        public long newestStoredUpdateSecond(long id) {
-            return newestStoredUpdateSecondFromTable(id);
+        public long newestStoredUpdateMicros(long id) {
+            return newestStoredUpdateMicrosFromTable(id);
         }
 
         @Override
@@ -10033,8 +10134,8 @@ public class BaselineManager {
 
         @Override
         public boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus,
-                long previousUpdateSecond) {
-            return owner.writeConditionalStatusInsert(plan, previousStatus, previousUpdateSecond);
+                long previousUpdateMicros) {
+            return owner.writeConditionalStatusInsert(plan, previousStatus, previousUpdateMicros);
         }
 
         @Override
@@ -10044,18 +10145,18 @@ public class BaselineManager {
 
         @Override
         public void deleteByIdAndStatus(BaselinePlan plan, BaselineStatus status,
-                long oldUpdateTimeMs) {
-            deleteByIdAndStatusFromTable(plan, status, oldUpdateTimeMs);
+                long oldUpdateTimeMicros) {
+            deleteByIdAndStatusFromTable(plan, status, oldUpdateTimeMicros);
         }
 
         @Override
-        public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
-            pruneSupersededVersionsFromTable(identity, keepFromSecond);
+        public void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
+            pruneSupersededVersionsFromTable(identity, keepFromMicros);
         }
 
         @Override
-        public long countVersionsBefore(BaselinePlan identity, long keepFromSecond) {
-            return countVersionsBeforeFromTable(identity, keepFromSecond);
+        public long countVersionsBefore(BaselinePlan identity, long keepFromMicros) {
+            return countVersionsBeforeFromTable(identity, keepFromMicros);
         }
 
         @Override
@@ -10069,8 +10170,8 @@ public class BaselineManager {
         }
 
         @Override
-        public void reserveId(long id, String bindSqlDigest, long planSqlHash, long reserveTimeMs) {
-            owner.reserveIdIntoTable(id, bindSqlDigest, planSqlHash, reserveTimeMs);
+        public void reserveId(long id, String bindSqlDigest, long planSqlHash, long reserveTimeMicros) {
+            owner.reserveIdIntoTable(id, bindSqlDigest, planSqlHash, reserveTimeMicros);
         }
 
         @Override

@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -418,7 +420,82 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
             return true;
         }
+        if (isElementAtCall(expr)) {
+            // `element_at(array(NULL), 1)` takes its type from the ARRAY's element type, so an
+            // all-NULL array literal makes the WHOLE call NullType: a Boolean consumer replaced
+            // the two markers of `k > 0 OR element_at(array(NULL), 1)` with a typed constant and
+            // the `element_at(array(NULL), 1)` variant had nothing to substitute (round-79 #3).
+            return !children.isEmpty() && isAllNullArray(children.get(0));
+        }
         return false;
+    }
+
+    /**
+     * Whether the expression is an all-NULL array (see producesNullType).
+     *
+     * An array LITERAL whose every element produces NullType has type ARRAY&lt;NULL_TYPE&gt;, so a
+     * consumer that reads an ELEMENT (`element_at`) is NullType as well. Both spellings are
+     * accepted: the parsed {@link ArrayLiteral} and the unbound `array(...)` call, which is only
+     * a {@link Function} named {@code array} before binding.
+     *
+     * @param expr the expression to classify
+     * @return whether it is an all-NULL array value
+     */
+    private static boolean isAllNullArray(Expression expr) {
+        if (expr == null) {
+            return false;
+        }
+        if (expr.isNullLiteral()) {
+            // a NULL literal is untyped ARRAY<NULL_TYPE> in an array position
+            return true;
+        }
+        if (!isArrayConstructor(expr)) {
+            return false;
+        }
+        List<Expression> elements = expr.children();
+        if (elements.isEmpty()) {
+            return false;
+        }
+        for (Expression element : elements) {
+            if (!producesNullType(element)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the expression builds an ARRAY value (see producesNullType).
+     *
+     * Both spellings are accepted: the parsed {@link ArrayLiteral} and the unbound `array(...)`
+     * call, which is only a {@link Function} named {@code array} before binding.
+     *
+     * @param expr the expression to classify
+     * @return whether it is an array constructor
+     */
+    private static boolean isArrayConstructor(Expression expr) {
+        if (expr instanceof ArrayLiteral) {
+            return true;
+        }
+        return expr instanceof Function
+                && "array".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the expression is an {@code element_at} call (see producesNullType).
+     *
+     * Matched by NAME through {@link Function} for the unbound plan, and by the analyzed
+     * {@link ElementAt} node for a bound one.
+     *
+     * @param expr the expression to classify
+     * @return whether it is an element_at call
+     */
+    private static boolean isElementAtCall(Expression expr) {
+        if (expr instanceof ElementAt) {
+            return true;
+        }
+        return expr instanceof Function
+                && "element_at".equalsIgnoreCase(((Function) expr).getName());
     }
 
     /**
@@ -543,6 +620,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;
+        }
+        if (isArrayConstructor(parent)) {
+            // an ARRAY's elements are the array's VALUES: under an all-NULL element type the
+            // consuming call is NullType and gets replaced as a whole, so every element marker
+            // has to be BOOLEAN already (round-79 #3)
+            return true;
         }
         return isCoalesceConditional(parent);
     }

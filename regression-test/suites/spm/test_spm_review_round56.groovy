@@ -36,8 +36,9 @@ suite("test_spm_review_round56", "spm") {
             DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES("replication_num" = "1")"""
     sql """INSERT INTO spm_r56_wide VALUES (1, 10), (2, 20), (3, 30)"""
 
-    // the unbounded value type of both text columns (a legacy fixed-width column would
-    // have been left at its old width by a name-only upgrade check)
+    // the unbounded value type of both text columns, and their published NOT NULL contract
+    // (this release publishes the schema for the first time: a writer that loses a value must
+    // FAIL at the INSERT instead of storing a NULL the readers would have to interpret)
     order_qt_r56_seq_digest_type """SHOW COLUMNS FROM __internal_schema.spm_baselines_seq LIKE 'bind_sql_digest'"""
     order_qt_r56_baselines_fingerprint_type """SHOW COLUMNS FROM __internal_schema.spm_baselines LIKE 'schema_fingerprint'"""
 
@@ -55,7 +56,7 @@ suite("test_spm_review_round56", "spm") {
     def digestId = sql('CREATE GLOBAL BASELINE PLAN "' + digestBind + '" WITH "'
             + digestBind + '"')[0][0] as Long
     order_qt_r56_seq_long_digest """SELECT length(bind_sql_digest) > 4096
-                FROM __internal_schema.spm_baselines_seq WHERE last_id = ${digestId} LIMIT 1"""
+                FROM __internal_schema.spm_baselines_seq WHERE baseline_id = ${digestId} LIMIT 1"""
     order_qt_r56_row_long_digest """SELECT length(bind_sql) > 4096, length(bind_sql_digest) > 4096, status
                 FROM __internal_schema.spm_baselines WHERE id = ${digestId}"""
 
@@ -76,7 +77,7 @@ suite("test_spm_review_round56", "spm") {
     // the drop tombstone carries the same over-long identity
     order_qt_r56_drop_tombstone """SELECT length(bind_sql_digest) > 4096, dropped
                 FROM __internal_schema.spm_baselines_seq
-                WHERE last_id = ${digestId} AND dropped = 1 ORDER BY id LIMIT 1"""
+                WHERE baseline_id = ${digestId} AND dropped = 1 ORDER BY id LIMIT 1"""
     order_qt_r56_gone """SELECT count(*) FROM __internal_schema.spm_baselines
                 WHERE id IN (${id}, ${digestId})"""
 

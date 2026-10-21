@@ -56,6 +56,22 @@ public class InternalSchema {
      */
     public static final String SPM_BASELINES_HWM_TBL_NAME = "spm_baselines_hwm";
 
+    /**
+     * The scale of every SPM internal-table TIMESTAMPTZ column (microseconds).
+     *
+     * SECONDS (scale 0) were not enough: a status flip orders its row above the id's newest
+     * stored instant, and at second precision two flips inside one second produced EQUAL values -
+     * so the ordering had to be forced by advancing the stored instant by a WHOLE second, which in
+     * turn made rapid alternating ALTERs push visible rows far ahead of wall time (see
+     * BaselineManager#MAX_STORED_UPDATE_LEAD_MICROS).
+     *
+     * The stored instant is epoch MICROSECONDS end to end: the writers render it with
+     * BaselineManager#toTs, the readers take it from the column itself with UNIX_TIMESTAMP (which
+     * returns the SECOND value with six fractional digits), and nothing on the path scales it by
+     * 1000 - so the column keeps every digit that was written instead of a rounded millisecond.
+     */
+    public static final int SPM_TIMESTAMP_SCALE = 6;
+
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> TABLE_STATS_SCHEMA;
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
@@ -294,29 +310,26 @@ public class InternalSchema {
         SPM_BASELINES_SCHEMA.add(new ColumnDef("status",
                 ScalarType.createVarchar(16), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SCHEMA.add(new ColumnDef("create_time",
-                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ScalarType.createTimeStampTzType(SPM_TIMESTAMP_SCALE),
                 ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SCHEMA.add(new ColumnDef("update_time",
-                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ScalarType.createTimeStampTzType(SPM_TIMESTAMP_SCALE),
                 ColumnNullableType.NOT_NULLABLE));
         // parser-relevant sql_mode bits of the CREATING session (PIPES_AS_CONCAT / ...):
         // the stored bindSql is user-authored text and must be re-parsed with the mode it
-        // was created under. NULLABLE so an upgraded cluster can add the column without
-        // a default (a missing / NULL value means MODE_DEFAULT).
+        // was created under.
         SPM_BASELINES_SCHEMA.add(new ColumnDef("sql_mode",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         // parser mode of the STORED planSql: MODE_DEFAULT for the SPM decompiled frozen
         // rendering, the CREATOR's mode for the raw user planSql kept as the fallback when
-        // the physical plan cannot be decompiled. NULLABLE like sql_mode (NULL = default).
+        // the physical plan cannot be decompiled.
         SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql_mode",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         // explicit provenance of the stored planSql: TRUE = SPM decompiled,
         // placeholder-carrying frozen text replayed as text; FALSE = ordinary user text
         // (raw fallback / in-memory engine) whose parameterized tree must be rebuilt.
-        // NULLABLE so a reload of pre-column rows falls back to parsing-based
-        // classification (NULL = unknown).
         SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_frozen",
-                ScalarType.createType(PrimitiveType.BOOLEAN), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BOOLEAN), ColumnNullableType.NOT_NULLABLE));
         // CREATE-time schema identity of the referenced base tables (sorted
         // name|tableId|schemaHash entries): validated before every frozen replay so an
         // ALTER TABLE ... ADD COLUMN / DROP + CREATE cannot keep matching a frozen plan
@@ -324,37 +337,39 @@ public class InternalSchema {
         // the entry list grows with every DISTINCT referenced table and has no length
         // cap (a valid UNION ALL over dozens of long-named tables exceeds 4096 chars),
         // and a persistence failure here fails the whole GLOBAL CREATE ( -
-        // same precedent as the seq table's bind_sql_digest). NULLABLE (NULL / empty =
-        // a pre-column row: no validation possible).
+        // same precedent as the seq table's bind_sql_digest).
         SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         // canonical digest of the SUBMITTED plan SQL text (value-independent): two
         // baselines may share the bind digest while carrying DIFFERENT plan texts, so
         // the persisted plan-side identity is what lets a follower (and the forwarded
         // DELETE / UPDATE tombstone logic) attribute a row to the exact statement that
-        // created it. NULLABLE (NULL / empty = a pre-column row: the plan side of the
-        // identity is not usable and only the bind digest can be compared).
+        // created it.
         SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql_digest",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
 
         // SPM baseline id sequence (append-only, id = 1): every row records one id the
         // create path has reserved. The baseline table itself cannot be the watermark:
         // DROP removes rows, so MAX(id) of the table falls back and an id could be reused
         // for a different baseline - a delayed DROP-by-id retry for the old row would then
-        // delete the new one. MAX(last_id) over these rows never decreases.
+        // delete the new one. MAX(baseline_id) over these rows never decreases.
         //
         // The reservation ALSO carries the baseline's identity (bind_sql_digest +
         // plan_sql_hash, with reserve_time): a create that COMMITTED but is not readable
         // yet is invisible to the durable-key dedup, so a retry running on another FE
         // (leader handoff / restart, where the in-memory pending registry is empty) must
         // find and respect the reservation here instead of allocating a second id for the
-        // same baseline. Rows written before these columns existed carry
-        // NULL and are skipped by the identity lookup; they reach no in-flight create
-        // anyway (they are long published), and reserve_time NULL ages them out.
+        // same baseline.
+        //
+        // EVERY column is NOT NULL: this release publishes the schema for the first time,
+        // so there is no pre-column row to decode - a missing value would be a writer bug,
+        // not a legacy shape, and the NOT NULL declaration makes the engine reject it
+        // instead of the reader guessing what NULL means.
         SPM_BASELINES_SEQ_SCHEMA = new ArrayList<>();
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
-        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("last_id",
+        // the RESERVED baseline id (the column the watermark read takes MAX over)
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("baseline_id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         // STRING, not VARCHAR(4096): the digest is the CANONICAL rendering of the
         // whole bind statement (SPMPlanner stores BaselinePlan#bindSqlDigest from
@@ -364,16 +379,17 @@ public class InternalSchema {
         // INSERT (which runs before the baseline row), so a valid GLOBAL CREATE errored
         // out before writing anything.
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("bind_sql_digest",
-                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("plan_sql_hash",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("reserve_time",
-                ScalarType.createType(PrimitiveType.TIMESTAMPTZ), ColumnNullableType.NULLABLE));
+                ScalarType.createTimeStampTzType(SPM_TIMESTAMP_SCALE),
+                ColumnNullableType.NOT_NULLABLE));
         // 1 = the marker of an AMBIGUOUS create: only these rows drive the
         // durable pending-create fence - a plain reservation exists for every create
         // (successful ones included) and must never block a legitimate re-create.
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("unconfirmed",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         // 1 = a DROP TOMBSTONE: the identity of a baseline this FE deleted.
         // A demoted master's in-flight status INSERT can commit AFTER the DROP removed the
         // row (its conditional precondition ran against the pre-DROP snapshot and Doris
@@ -383,7 +399,7 @@ public class InternalSchema {
         // deleted (ids are never reused, so a matching tombstone refers to this very
         // incarnation) and repairs it away.
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("dropped",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
 
         // The COMPACT id high-water mark (see
         // SPM_BASELINES_HWM_TBL_NAME): append-only rows carrying the newest
@@ -391,24 +407,22 @@ public class InternalSchema {
         // cluster has served. The rows are pruned after every write (best effort); the
         // read takes the MAX, so a delayed superseded row can never regress it.
         SPM_BASELINES_HWM_SCHEMA = new ArrayList<>();
-        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("last_id",
+        // the compact id high-water mark the create path resumes from
+        SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("watermark",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("update_time",
-                ScalarType.createType(PrimitiveType.TIMESTAMPTZ),
+                ScalarType.createTimeStampTzType(SPM_TIMESTAMP_SCALE),
                 ColumnNullableType.NOT_NULLABLE));
         // The bounded mutation clock (see BaselineManager#bumpMutationClock): every
         // baseline mutation advances it BEFORE its row write, and a snapshot read compares
-        // (MAX(tick), COUNT(*), SUM(tick)) around its page loop. NULLABLE: a slot written
-        // before the column existed (an upgraded cluster) carries NULL and simply reads
-        // as 0 - the next mutation re-writes the slot with a real tick.
+        // (MAX(tick), COUNT(*), SUM(tick)) around its page loop.
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("tick",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         // The OPEN mutation window (see BaselineManager#beginRowMutation): the tick of the
-        // mutation whose row statement is in flight; 0 / NULL when none. A snapshot read
-        // overlapping an open window retries. NULLABLE: rows written before the column
-        // existed read as 0 (no window).
+        // mutation whose row statement is in flight; 0 when none. A snapshot read
+        // overlapping an open window retries.
         SPM_BASELINES_HWM_SCHEMA.add(new ColumnDef("pending",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
 
     }
 

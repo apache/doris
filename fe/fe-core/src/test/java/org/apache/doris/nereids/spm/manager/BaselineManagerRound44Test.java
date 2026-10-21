@@ -103,11 +103,11 @@ public class BaselineManagerRound44Test {
         /** The plain pre-INSERT reservation: an identity record. */
         @Override
         public void reserveId(long id, String bindSqlDigest, long planSqlHash,
-                long reserveTimeMs) {
+                long reserveTimeMicros) {
             reserveId(id);
             records.compute(key(bindSqlDigest, planSqlHash), (k, current) ->
-                    current != null && current[1] > reserveTimeMs
-                            ? current : new long[] {id, reserveTimeMs, 0, 0});
+                    current != null && current[1] > reserveTimeMicros
+                            ? current : new long[] {id, reserveTimeMicros, 0, 0});
         }
 
         @Override
@@ -172,9 +172,9 @@ public class BaselineManagerRound44Test {
         }
 
         /** Ages the key's identity record (the durable fence runs on reserve_time). */
-        void ageRecord(String digest, String planSql, long millis) {
+        void ageRecord(String digest, String planSql, long micros) {
             records.compute(key(digest, SPMUtils.hashOf(planSql)), (k, current) ->
-                    current == null ? null : new long[] {current[0], current[1] - millis,
+                    current == null ? null : new long[] {current[0], current[1] - micros,
                             current[2], current[3]});
         }
     }
@@ -307,7 +307,7 @@ public class BaselineManagerRound44Test {
             // registry) must condemn the abandoned identity and only THEN allocate a
             // fresh id
             BaselineManagerTestAccess.clear(manager);
-            store.ageRecord("d-p6", "p-p6", 6 * 60 * 1000L);
+            store.ageRecord("d-p6", "p-p6", 6 * 60 * 1_000_000L);
             Assertions.assertThrows(IllegalStateException.class,
                     () -> manager.createBaseline(baseline("d-p6", "p-p6")));
             long fresh = store.reservedHighWater;

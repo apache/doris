@@ -269,8 +269,9 @@ public class BaselineManagerCacheTest {
         Assertions.assertEquals(BaselineStatus.ENABLED, decoded.getStatus());
         Assertions.assertEquals("select k from db.t1", decoded.getBindSql());
         Assertions.assertEquals("select k from db.t1 where k = 1", decoded.getPlanSql());
-        Assertions.assertEquals(1767225600000L, decoded.getUpdateTime(),
-                "the stored second is decoded for the fence / winner rules");
+        Assertions.assertEquals(1767225600000000L, decoded.getUpdateTime(),
+                "the stored INSTANT is decoded at the column's microsecond precision"
+                        + " for the fence / winner rules");
     }
 
     /**
@@ -366,8 +367,8 @@ public class BaselineManagerCacheTest {
                 "-1",                                          // query_time_ms
                 "USER",                                        // source
                 status.name(),                                 // status
-                "1767225600000",                               // create_time
-                "1767225600000",                               // update_time
+                "1767225600.000000",                               // create_time
+                "1767225600.000000",                               // update_time
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),    // sql_mode
                 String.valueOf(SqlModeHelper.MODE_DEFAULT),    // plan_sql_mode
                 "false",                                       // plan_frozen

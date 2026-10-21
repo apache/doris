@@ -52,7 +52,7 @@ public class SPMRound69ManagerTest {
     private static final class TestStore implements BaselinePersistence {
         final Map<Long, BaselinePlan> rows = new ConcurrentHashMap<>();
         final List<BaselinePlan> inserted = new CopyOnWriteArrayList<>();
-        /** (id, keepFromSecond) of every prune request. */
+        /** (id, keepFromMicros) of every prune request. */
         final List<long[]> pruned = new CopyOnWriteArrayList<>();
         /** When true the intent INSERT fails without committing. */
         boolean failInserts;
@@ -99,8 +99,8 @@ public class SPMRound69ManagerTest {
         }
 
         @Override
-        public void pruneSupersededVersions(BaselinePlan identity, long keepFromSecond) {
-            pruned.add(new long[] {identity.getId(), keepFromSecond});
+        public void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
+            pruned.add(new long[] {identity.getId(), keepFromMicros});
         }
 
         @Override
@@ -193,15 +193,15 @@ public class SPMRound69ManagerTest {
                 "the successful no-op records ONE ordering-intent row");
         BaselinePlan intent = store.inserted.get(0);
         Assertions.assertEquals(BaselineStatus.ENABLED, intent.getStatus());
-        Assertions.assertTrue(intent.getUpdateTime() > 1_000L / 1000L,
-                "the intent carries a strictly later stored second: " + intent.getUpdateTime());
+        Assertions.assertTrue(intent.getUpdateTime() > 1_000L,
+                "the intent carries a strictly later stored instant: " + intent.getUpdateTime());
 
         Assertions.assertEquals(1, store.pruned.size(),
                 "the superseded versions are reclaimed right after the intent is confirmed");
         long[] prune = store.pruned.get(0);
         Assertions.assertEquals(5L, prune[0]);
-        Assertions.assertEquals(intent.getUpdateTime() / 1000L, prune[1],
-                "the prune keeps everything from the intent's own stored second on, so the"
+        Assertions.assertEquals(intent.getUpdateTime(), prune[1],
+                "the prune keeps everything from the intent's own stored instant on, so the"
                         + " intent row and any NEWER concurrent version survive");
     }
 
