@@ -13,24 +13,24 @@ PhysicalResultSink
 -- !2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalIntersect build RFs:RF0 x->cast(b1 as BIGINT) RF1 x->cast(b1 as BIGINT) 
+----PhysicalIntersect build RFs:RF0 b1->(cast(a1 as BIGINT) + 1) RF1 b1->(cast(a1 as BIGINT) + 1) 
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
-----------PhysicalOlapScan[a]
+----------PhysicalOlapScan[b]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
-----------PhysicalOlapScan[b] apply RFs: RF0 RF1
+----------PhysicalOlapScan[a] apply RFs: RF0 RF1
 
 -- !3 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalIntersect build RFs:RF0 x->cast(b1 as BIGINT) RF1 x->cast(b1 as BIGINT) RF2 x->cast(c1 as BIGINT) RF3 x->cast(c1 as BIGINT) 
+----PhysicalIntersect build RFs:RF0 b1->(cast(a1 as BIGINT) + 1) RF1 b1->(cast(a1 as BIGINT) + 1) RF2 b1->cast(c1 as BIGINT) RF3 b1->cast(c1 as BIGINT) 
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
-----------PhysicalOlapScan[a]
+----------PhysicalOlapScan[b]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
-----------PhysicalOlapScan[b] apply RFs: RF0 RF1
+----------PhysicalOlapScan[a] apply RFs: RF0 RF1
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[c] apply RFs: RF2 RF3

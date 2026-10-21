@@ -65,10 +65,12 @@ suite("test_ivm_explain_refresh") {
     // CREATE-time snapshot of affectQueryResultInPlan session variables (LogicalPlanBuilder:
     // CreateMTMVInfo -> getAffectQueryResultInPlanVariables), not from the session running the
     // EXPLAIN. The variables that could pin this plan (join distribution, runtime filters,
-    // ignore_shape_nodes) carry no affectQueryResultInPlan flag, so `set` cannot reach them —
-    // verified empirically (regenerating with ignore_shape_nodes set produced identical output).
-    // The normalization in explainIvmPlanWithoutStreamId is therefore the only reliable way to
-    // keep these shape expectations stable across environments.
+    // ignore_shape_nodes, disable_join_reorder) carry no affectQueryResultInPlan flag, so `set`
+    // cannot reach them — verified empirically (regenerating with ignore_shape_nodes set
+    // produced identical output). The normalization in explainIvmPlanWithoutStreamId and the
+    // statistics the two tables publish before the plans are explained (see below) are what
+    // keep these shape expectations stable.
+
     sql """drop materialized view if exists test_ivm_explain_refresh_mv;"""
     sql """drop table if exists test_ivm_explain_refresh_t1;"""
     sql """drop table if exists test_ivm_explain_refresh_t2;"""
@@ -127,6 +129,28 @@ suite("test_ivm_explain_refresh") {
     waitingMTMVTaskFinishedByMvName("test_ivm_explain_refresh_mv")
 
     sql "INSERT INTO test_ivm_explain_refresh_t1 VALUES (1, 11), (4, 40);"
+
+    // Pin the statistics of the two tables before the plans below are explained. The shape
+    // of the refresh plan follows them: while a table has no statistics, it is planned at
+    // the rows its load reported, and as soon as the Automatic Analyzer collected them the
+    // outer join of the pending stream plan is mirrored. The analyzer runs at some point
+    // after the load and cannot be reached from this session (see the note above), so the
+    // tables publish their exact statistics instead: t1 holds the physical rows (1,10),
+    // (2,20), (1,11) and (4,40), t2 holds (1,100) and (3,300).
+    multi_sql """
+        alter table test_ivm_explain_refresh_t1 modify column k1
+            set stats ('row_count'='4', 'ndv'='3', 'data_size'='12', 'avg_size'='3', 'max_size'='4',
+                       'num_nulls'='0', 'min_value'='1', 'max_value'='4');
+        alter table test_ivm_explain_refresh_t1 modify column v1
+            set stats ('row_count'='4', 'ndv'='4', 'data_size'='16', 'avg_size'='4', 'max_size'='4',
+                       'num_nulls'='0', 'min_value'='10', 'max_value'='40');
+        alter table test_ivm_explain_refresh_t2 modify column k1
+            set stats ('row_count'='2', 'ndv'='2', 'data_size'='8', 'avg_size'='4', 'max_size'='4',
+                       'num_nulls'='0', 'min_value'='1', 'max_value'='3');
+        alter table test_ivm_explain_refresh_t2 modify column v2
+            set stats ('row_count'='2', 'ndv'='2', 'data_size'='8', 'avg_size'='4', 'max_size'='4',
+                       'num_nulls'='0', 'min_value'='100', 'max_value'='300');
+    """
 
     explainIvmPlanWithoutStreamId("all_streams_shape_plan", """
         EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL WITH ALL STREAMS

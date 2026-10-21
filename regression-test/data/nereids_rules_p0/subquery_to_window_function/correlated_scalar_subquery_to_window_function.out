@@ -29,17 +29,16 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((f.k = d.k)) otherCondition=(((cast(f.v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->k
-------------PhysicalOlapScan[fact(f)] apply RFs: RF1
-------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((f2.k = d.k)) otherCondition=() build RFs:RF0 k->k
-----------------PhysicalProject
-------------------PhysicalOlapScan[dim(d)] apply RFs: RF0
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[fact(f2)]
+----------hashJoin[INNER_JOIN colocated] hashCondition=((f2.k = d.k)) otherCondition=(((cast(f.v as BIGINT) * 2) > SUM(f2.v))) build RFs:RF1 k->k;RF2 k->k
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((f.k = d.k)) otherCondition=() build RFs:RF0 k->k
+--------------PhysicalOlapScan[fact(f)] apply RFs: RF0 RF2
+--------------PhysicalProject
+----------------PhysicalOlapScan[dim(d)] apply RFs: RF1
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[fact(f2)]
 
 -- !shared_filter_above_window --
 30	5	3	8
