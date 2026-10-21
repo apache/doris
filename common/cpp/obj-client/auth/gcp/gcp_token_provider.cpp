@@ -19,8 +19,18 @@
 
 #include <glog/logging.h>
 #include <google/cloud/credentials.h>
+#include <google/cloud/internal/oauth2_decorate_credentials.h>
+#include <google/cloud/internal/oauth2_error_credentials.h>
+#include <google/cloud/internal/oauth2_google_application_default_credentials_file.h>
+#include <google/cloud/internal/oauth2_service_account_credentials.h>
+#include <google/cloud/internal/rest_client.h>
 #include <google/cloud/internal/unified_rest_credentials.h>
+#include <rapidjson/document.h>
 
+#include <fstream>
+#include <iterator>
+#include <set>
+#include <string_view>
 #include <utility>
 
 namespace doris {
@@ -29,9 +39,46 @@ namespace {
 constexpr char GCS_READ_WRITE_SCOPE[] = "https://www.googleapis.com/auth/devstorage.read_write";
 constexpr char CLOUD_PLATFORM_SCOPE[] = "https://www.googleapis.com/auth/cloud-platform";
 
-std::shared_ptr<google::cloud::Credentials> make_credentials(const GcpCredentialConfig& credential,
-                                                             const std::string& ca_cert_path,
-                                                             GcpTokenScope token_scope) {
+std::shared_ptr<google::cloud::oauth2_internal::Credentials> make_default_storage_credentials(
+        const google::cloud::Options& options) {
+    namespace oauth2 = google::cloud::oauth2_internal;
+    auto path = oauth2::GoogleAdcFilePathFromEnvVarOrEmpty();
+    if (path.empty()) {
+        path = oauth2::GoogleAdcFilePathFromWellKnownPathOrEmpty();
+    }
+    std::ifstream input(path);
+    std::string contents(std::istreambuf_iterator<char> {input}, {});
+    rapidjson::Document document;
+    document.Parse(contents.data(), contents.size());
+    // The generic SDK adapter emits scoped self-signed JWTs for service-account
+    // JSON keys, which GCS rejects. Keep other ADC types (and their errors) on
+    // the SDK's normal resolution path, including federation and VM identities.
+    if (document.HasParseError() || !document.IsObject() || !document.HasMember("type") ||
+        !document["type"].IsString() ||
+        std::string_view(document["type"].GetString(), document["type"].GetStringLength()) !=
+                "service_account") {
+        return google::cloud::rest_internal::MapCredentials(
+                *google::cloud::MakeGoogleDefaultCredentials(options));
+    }
+    auto info = oauth2::ParseServiceAccountCredentials(contents, path);
+    if (!info) {
+        return std::make_shared<oauth2::ErrorCredentials>(info.status());
+    }
+    info->enable_self_signed_jwt = false;
+    const auto& scopes = options.get<google::cloud::ScopesOption>();
+    info->scopes = std::set<std::string>(scopes.begin(), scopes.end());
+    return oauth2::Decorate(std::make_shared<oauth2::ServiceAccountCredentials>(
+                                    *info, options,
+                                    [](const google::cloud::Options& opts) {
+                                        return google::cloud::rest_internal::MakeDefaultRestClient(
+                                                "", opts);
+                                    }),
+                            options);
+}
+
+std::shared_ptr<google::cloud::oauth2_internal::Credentials> make_credentials(
+        const GcpCredentialConfig& credential, const std::string& ca_cert_path,
+        GcpTokenScope token_scope) {
     google::cloud::Options options;
     if (!ca_cert_path.empty()) {
         options.set<google::cloud::CARootsFilePathOption>(ca_cert_path);
@@ -51,6 +98,11 @@ std::shared_ptr<google::cloud::Credentials> make_credentials(const GcpCredential
     std::shared_ptr<google::cloud::Credentials> credentials;
     switch (credential.provider_type) {
     case GcpCredentialProviderType::Default:
+        // A direct service-account ADC token goes to GCS. Impersonation sources
+        // instead authenticate to IAM, which accepts the SDK's self-signed JWTs.
+        if (credential.impersonation_service_account.empty()) {
+            return make_default_storage_credentials(options);
+        }
         credentials = google::cloud::MakeGoogleDefaultCredentials(options);
         break;
     case GcpCredentialProviderType::ComputeEngine:
@@ -64,15 +116,14 @@ std::shared_ptr<google::cloud::Credentials> make_credentials(const GcpCredential
                 std::move(credentials), credential.impersonation_service_account,
                 std::move(impersonation_options));
     }
-    return credentials;
+    return google::cloud::rest_internal::MapCredentials(*credentials);
 }
 
 } // namespace
 
 GcpTokenProvider::GcpTokenProvider(const GcpCredentialConfig& credential,
                                    const std::string& ca_cert_path, GcpTokenScope token_scope)
-        : GcpTokenProvider(google::cloud::rest_internal::MapCredentials(
-                  *make_credentials(credential, ca_cert_path, token_scope))) {}
+        : GcpTokenProvider(make_credentials(credential, ca_cert_path, token_scope)) {}
 
 GcpTokenProvider::GcpTokenProvider(
         std::shared_ptr<google::cloud::oauth2_internal::Credentials> credentials)
