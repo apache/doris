@@ -8744,7 +8744,8 @@ TEST_F(VariantColumnWriterReaderTest, test_search_distinguishes_unindexed_histor
             leaf->set_parent_unique_id(parent.unique_id());
             leaf->set_is_nullable(true);
             leaf->set_path_info(PathInData(leaf->name()));
-            auto schema = std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {leaf});
+            auto schema = std::make_shared<Schema>(std::vector<TabletColumnPtr> {leaf},
+                                                   std::vector<ColumnId> {0});
             TSearchFieldBinding binding;
             binding.__set_field_name(leaf->name());
             binding.__set_is_variant_subcolumn(true);
@@ -8781,8 +8782,9 @@ TEST_F(VariantColumnWriterReaderTest, test_search_distinguishes_unindexed_histor
             OlapReaderStatistics stats;
             segment_v2::ColumnIteratorOptions opts;
             opts.stats = &stats;
-            auto scan = std::make_shared<IndexExecContext>(no_indexes, types, status_map, nullptr,
-                                                           segment.get(), opts, schema);
+            std::vector<ColumnId> col_ids {0};
+            auto scan = std::make_shared<IndexExecContext>(col_ids, no_indexes, types, status_map,
+                                                           nullptr, segment.get(), opts, schema);
             VExprContext context(expr);
             context.set_index_context(scan);
             const auto status = expr->evaluate_inverted_index(&context, 2);

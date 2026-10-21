@@ -1426,8 +1426,9 @@ TEST_F(VSearchExprTest, MissingVariantChildIteratorDoesNotUseParentIterator) {
 
     // Without storage evidence, a missing child iterator is unavailable rather than missing.
     segment_v2::ColumnIteratorOptions column_iter_opts;
-    auto inverted_ctx = std::make_shared<IndexExecContext>(
-            col_ids, index_iterators, storage_types, status_map, nullptr, nullptr, column_iter_opts);
+    auto inverted_ctx =
+            std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
+                                               nullptr, nullptr, column_iter_opts);
     auto context = std::make_shared<VExprContext>(expr);
     context->set_index_context(inverted_ctx);
 
@@ -1461,8 +1462,9 @@ TEST_F(VSearchExprTest, MissingVariantRootUsesCurrentReadSchemaUid) {
         leaf_pb.set_type("STRING");
         leaf_pb.set_is_key(false);
         leaf_pb.set_is_nullable(true);
-        auto read_schema = std::make_shared<ReadSchema>(
-                std::vector<TabletColumnPtr> {std::make_shared<TabletColumn>(leaf_pb)});
+        auto read_schema = std::make_shared<Schema>(
+                std::vector<TabletColumnPtr> {std::make_shared<TabletColumn>(leaf_pb)},
+                std::vector<ColumnId> {0});
         for (bool negated : {false, true}) {
             TExprNode node = test_node;
             node.search_param.__set_original_dsl(negated ? "NOT data.items.message:hello"
@@ -1490,8 +1492,10 @@ TEST_F(VSearchExprTest, MissingVariantRootUsesCurrentReadSchemaUid) {
             OlapReaderStatistics stats;
             segment_v2::ColumnIteratorOptions opts;
             opts.stats = &stats;
-            auto index_context = std::make_shared<IndexExecContext>(
-                    iterators, types, status_map, nullptr, segment.get(), opts, read_schema);
+            std::vector<ColumnId> col_ids {0};
+            auto index_context =
+                    std::make_shared<IndexExecContext>(col_ids, iterators, types, status_map,
+                                                       nullptr, segment.get(), opts, read_schema);
             auto context = std::make_shared<VExprContext>(expr);
             context->set_index_context(index_context);
             ASSERT_TRUE(expr->evaluate_inverted_index(context.get(), 4).ok());
