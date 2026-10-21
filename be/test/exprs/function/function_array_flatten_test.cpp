@@ -78,12 +78,12 @@ void expect_flatten(ColumnPtr source, DataTypePtr source_type, ColumnPtr expecte
 
     FunctionUtils fn_utils(result_type, {source_type}, false);
     auto* context = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     block.insert({nullptr, result_type, "result"});
     auto status = function->execute(context, block, {0}, 1, rows);
-    EXPECT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-    EXPECT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ASSERT_TRUE(status.ok()) << status;
 
     auto result = block.get_by_position(1).column->convert_to_full_column_if_const();
