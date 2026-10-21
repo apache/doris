@@ -22,6 +22,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties.DelegatedTokenMode;
 
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
@@ -43,6 +44,8 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMappingParser;
+import org.apache.iceberg.rest.requests.UpdateTableRequest;
+import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
 import org.apache.iceberg.types.Types;
 import org.junit.After;
 import org.junit.Assert;
@@ -51,11 +54,13 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Exercises the public DROP entry points against real committed Iceberg metadata. */
 public class IcebergColumnDropTest {
@@ -68,7 +73,11 @@ public class IcebergColumnDropTest {
         catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db"));
-        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class,
+                Mockito.withSettings().extraInterfaces(IcebergUserSessionCatalog.class));
+        IcebergUserSessionCatalog sessionCatalog = (IcebergUserSessionCatalog) dorisCatalog;
+        Mockito.when(sessionCatalog.getRestSessionCatalog()).thenReturn(IcebergRestSchemaCommit.newSessionCatalog());
+        Mockito.when(sessionCatalog.getDelegatedTokenMode()).thenReturn(DelegatedTokenMode.ACCESS_TOKEN);
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(authenticator);
         Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
         Mockito.doReturn(Optional.empty()).when(dorisCatalog).getDbForReplay(Mockito.anyString());
@@ -202,7 +211,7 @@ public class IcebergColumnDropTest {
     }
 
     @Test
-    public void testRestDropRetainsRebasedFenceAndCleansWriterProperties() throws Exception {
+    public void testRestDropRebasesWithoutChangingPartitionFieldsAndCleansWriterProperties() throws Exception {
         Table table = createTable("rest_rebase", 2, false);
         String property = TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "other";
         int historicalOtherId = table.schema().findField("other").fieldId();
@@ -220,10 +229,10 @@ public class IcebergColumnDropTest {
         Assert.assertTrue(rest.requirements.stream()
                 .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
         Assert.assertFalse(rest.clientChanges.stream().anyMatch(MetadataUpdate.RemovePartitionSpecs.class::isInstance));
-        Assert.assertEquals(3, after.specs().size());
+        Assert.assertEquals(2, after.specs().size());
+        Assert.assertEquals(table.spec().fields().get(0).fieldId(), after.lastAssignedPartitionId());
         Assert.assertEquals(0, after.defaultSpecId());
-        Assert.assertTrue(after.specs().stream().flatMap(spec -> spec.fields().stream())
-                .anyMatch(field -> field.name().startsWith("_doris_schema_drop_fence_") && field.transform().isVoid()));
+        Assert.assertFalse(rest.clientChanges.stream().anyMatch(MetadataUpdate.AddPartitionSpec.class::isInstance));
     }
 
     @Test
@@ -252,15 +261,15 @@ public class IcebergColumnDropTest {
     }
 
     @Test
-    public void testRestFormatV1RejectsBeforeCommit() {
+    public void testRestFormatV1UnreferencedDrop() throws Exception {
         Table table = createTable("rest_v1", 1, false);
         RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), null);
-        String before = metadata("rest_v1").metadataFileLocation();
-        UserException error = Assert.assertThrows(UserException.class,
-                () -> drop(new BaseTable(rest, table.name()), ColumnPath.of("other")));
-        Assert.assertTrue(error.getMessage(), error.getMessage().contains("format-v1"));
-        Assert.assertEquals(0, rest.commitAttempts);
-        Assert.assertEquals(before, metadata("rest_v1").metadataFileLocation());
+        int partitionId = metadata("rest_v1").lastAssignedPartitionId();
+        drop(new BaseTable(rest, table.name()), ColumnPath.of("other"));
+        Assert.assertNull(metadata("rest_v1").schema().findField("other"));
+        Assert.assertNotNull(metadata("rest_v1").schema().findField("metric"));
+        Assert.assertEquals(partitionId, metadata("rest_v1").lastAssignedPartitionId());
+        Assert.assertEquals(1, rest.commitAttempts);
     }
 
     @Test
@@ -406,30 +415,92 @@ public class IcebergColumnDropTest {
     }
 
     @Test
-    public void testRestDropWithoutFenceSourceFailsBeforeCommit() {
+    public void testRestDropWithOnlyCollectionRemaining() throws Exception {
         Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()),
                 Types.NestedField.optional(2, "values", Types.ListType.ofOptional(3, Types.IntegerType.get())));
-        Table table = catalog.buildTable(TableIdentifier.of("db", "no_fence_source"), schema)
+        Table table = catalog.buildTable(TableIdentifier.of("db", "collection_remaining"), schema)
                 .withProperty(TableProperties.FORMAT_VERSION, "2").create();
         RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), null);
-        String before = metadata("no_fence_source").metadataFileLocation();
-        UserException error = Assert.assertThrows(UserException.class,
-                () -> drop(new BaseTable(rest, table.name()), ColumnPath.of("id")));
-        Assert.assertTrue(error.getMessage(), error.getMessage().contains("Cannot safely fence"));
-        Assert.assertEquals(0, rest.commitAttempts);
-        Assert.assertEquals(before, metadata("no_fence_source").metadataFileLocation());
+        drop(new BaseTable(rest, table.name()), ColumnPath.of("id"));
+        Assert.assertNull(metadata("collection_remaining").schema().findField("id"));
+        Assert.assertNotNull(metadata("collection_remaining").schema().findField("values"));
+        Assert.assertTrue(metadata("collection_remaining").specs().stream().allMatch(spec -> spec.fields().isEmpty()));
+        Assert.assertEquals(1, rest.commitAttempts);
     }
 
     @Test
-    public void testRestFenceNameDoesNotCollideWithUserColumn() throws Exception {
+    public void testRestDropDoesNotCreateInternalPartitionFields() throws Exception {
         Schema schema = new Schema(Types.NestedField.optional(1, "_doris_schema_drop_fence_1000", Types.LongType.get()),
                 Types.NestedField.optional(2, "other", Types.IntegerType.get()));
         Table table = catalog.buildTable(TableIdentifier.of("db", "fence_collision"), schema).create();
         RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), null);
         drop(new BaseTable(rest, table.name()), ColumnPath.of("other"));
         Assert.assertNotNull(metadata("fence_collision").schema().findField("_doris_schema_drop_fence_1000"));
-        Assert.assertTrue(metadata("fence_collision").specs().stream().flatMap(spec -> spec.fields().stream())
-                .anyMatch(field -> field.name().equals("_doris_schema_drop_fence_1001")));
+        Assert.assertTrue(metadata("fence_collision").specs().stream().allMatch(spec -> spec.fields().isEmpty()));
+    }
+
+    @Test
+    public void testRestConsecutiveOrdinaryDrops() throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "a", Types.LongType.get()),
+                Types.NestedField.optional(3, "b", Types.LongType.get()));
+        Table table = catalog.buildTable(TableIdentifier.of("db", "consecutive_drops"), schema)
+                .withProperty(TableProperties.FORMAT_VERSION, "2").create();
+        drop(new BaseTable(new RestTableOperations(((HasTableOperations) table).operations(), null), table.name()),
+                ColumnPath.of("b"));
+        table = catalog.loadTable(TableIdentifier.of("db", "consecutive_drops"));
+        drop(new BaseTable(new RestTableOperations(((HasTableOperations) table).operations(), null), table.name()),
+                ColumnPath.of("id"));
+        TableMetadata after = metadata("consecutive_drops");
+        Assert.assertNull(after.schema().findField("id"));
+        Assert.assertNull(after.schema().findField("b"));
+        Assert.assertNotNull(after.schema().findField("a"));
+        Assert.assertEquals(0, after.defaultSpecId());
+    }
+
+    @Test
+    public void testUnconfiguredRestCommitFailsBeforeWriting() {
+        Table table = createTable("unsupported_rest", 2, false);
+        ExternalCatalog unconfigured = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(unconfigured.getExecutionAuthenticator()).thenReturn(authenticator);
+        Mockito.when(unconfigured.getProperties()).thenReturn(Collections.emptyMap());
+        ops = new IcebergMetadataOps(unconfigured, catalog);
+        RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), null);
+        String before = metadata("unsupported_rest").metadataFileLocation();
+        UserException error = Assert.assertThrows(UserException.class,
+                () -> drop(new BaseTable(rest, table.name()), ColumnPath.of("other")));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("partition-counter validation"));
+        Assert.assertEquals(0, rest.commitAttempts);
+        Assert.assertEquals(before, metadata("unsupported_rest").metadataFileLocation());
+    }
+
+    @Test
+    public void testDropRevalidatesRowLineageAfterFormatUpgrade() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "_row_id", Types.LongType.get()));
+        Table table = catalog.buildTable(TableIdentifier.of("db", "format_upgrade"), schema)
+                .withProperty(TableProperties.FORMAT_VERSION, "2").create();
+        AtomicInteger commits = new AtomicInteger();
+        DelegatingTableOperations upgrading = new DelegatingTableOperations(((HasTableOperations) table).operations()) {
+            @Override
+            public TableMetadata refresh() {
+                new BaseTable(delegate, "upgrading_writer").updateProperties()
+                        .set(TableProperties.FORMAT_VERSION, "3").commit();
+                return delegate.refresh();
+            }
+
+            @Override
+            public void commit(TableMetadata base, TableMetadata next) {
+                commits.incrementAndGet();
+                super.commit(base, next);
+            }
+        };
+        UserException error = Assert.assertThrows(UserException.class,
+                () -> drop(new BaseTable(upgrading, table.name()), ColumnPath.of("_row_id")));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("row lineage"));
+        Assert.assertEquals(0, commits.get());
+        Assert.assertEquals(3, metadata("format_upgrade").formatVersion());
+        Assert.assertNotNull(metadata("format_upgrade").schema().findField("_row_id"));
     }
 
     private static class DelegatingTableOperations implements TableOperations {
@@ -493,8 +564,17 @@ public class IcebergColumnDropTest {
             commitAttempts++;
             Assert.assertTrue("DROP must submit once", injectConcurrentSpec);
             injectConcurrentSpec = false;
-            clientChanges = next.changes();
-            requirements = UpdateRequirements.forUpdateTable(base, clientChanges);
+            UpdateTableRequest request = UpdateTableRequest.create(null,
+                    UpdateRequirements.forUpdateTable(base, next.changes()), next.changes());
+            try {
+                // Exercise the same serializer as the real REST client's on-the-wire request.
+                request = UpdateTableRequestParser.fromJson(IcebergRestSchemaCommit.newMapper()
+                        .writeValueAsString(request));
+            } catch (IOException e) {
+                throw new AssertionError(e);
+            }
+            clientChanges = request.updates();
+            requirements = request.requirements();
             int specId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
             if (sourceColumn == null) {
                 PartitionSpec concurrentSpec = PartitionSpec.builderFor(base.schema()).withSpecId(specId).build();

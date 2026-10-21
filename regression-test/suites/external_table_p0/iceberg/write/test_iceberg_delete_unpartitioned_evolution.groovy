@@ -53,6 +53,23 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         """), actual)
     }
 
+    // A DROP precondition must not leave a partition dependency on another ordinary column.
+    spark_iceberg """drop table if exists demo.${dbName}.ordinary_consecutive_drops"""
+    spark_iceberg """
+        create table demo.${dbName}.ordinary_consecutive_drops (id bigint, a bigint, b bigint)
+        using iceberg tblproperties ('format-version' = '2')
+    """
+    spark_iceberg """insert into demo.${dbName}.ordinary_consecutive_drops values (1, 10, 100), (2, 20, 200)"""
+    sql """refresh database ${dbName}"""
+    def expectedConsecutiveDrops = spark_iceberg """
+        select a from demo.${dbName}.ordinary_consecutive_drops order by a
+    """
+    sql """alter table ordinary_consecutive_drops drop column b"""
+    sql """alter table ordinary_consecutive_drops drop column id"""
+    assertSparkDorisResultEquals(expectedConsecutiveDrops, sql("""
+        select a from ordinary_consecutive_drops order by a
+    """))
+
     // REPLACE retains historical spec 0 while writing new files under an unpartitioned spec.
     // Spark's replace transaction exercises the same Iceberg metadata transition as Trino RTAS.
     spark_iceberg """drop table if exists demo.${dbName}.replace_to_unpartitioned"""

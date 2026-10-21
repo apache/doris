@@ -85,7 +85,6 @@ import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.rest.RESTSessionCatalog;
-import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -99,7 +98,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -116,7 +114,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
     private static final String PROP_LOCATION = "location";
-    private static final String REST_DROP_FENCE_PREFIX = "_doris_schema_drop_fence_";
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -129,6 +126,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
     // this class never re-checks the catalog type or reads REST properties directly.
     private final IcebergUserSessionCatalog userSessionCatalog;
+    private final boolean restSchemaCommitSupported;
     private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
     private final ThreadPoolExecutor threadPoolWithPreAuth;
@@ -157,6 +155,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ? (IcebergUserSessionCatalog) dorisCatalog : null;
         RESTSessionCatalog restSessionCatalog =
                 userSessionCatalog == null ? null : userSessionCatalog.getRestSessionCatalog();
+        this.restSchemaCommitSupported = IcebergRestSchemaCommit.supports(restSessionCatalog);
         IcebergRestProperties.DelegatedTokenMode delegatedTokenMode =
                 userSessionCatalog == null ? IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN
                         : userSessionCatalog.getDelegatedTokenMode();
@@ -1016,94 +1015,24 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         // Stage the standard SDK update against exactly the validated base. Recapturing operations.current()
         // here could instead delete a same-name replacement published on a shared handle after refresh.
         CapturingTableOperations schemaCapture = new CapturingTableOperations(operations, base);
-        new BaseTable(schemaCapture, table.name()).updateSchema()
-                .deleteColumn(resolvedPath.getFullPath()).commit();
+        Table stagedTable = new BaseTable(schemaCapture, table.name());
+        if (!path.isNested()) {
+            validateRowLineageColumnMutation(stagedTable, path.getTopLevelName(), "drop");
+        }
+        stagedTable.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
         TableMetadata schemaUpdate = schemaCapture.committed();
         if (isRestTableOperations(operations)) {
-            commitRestDropWithSpecFence(operations, table.name(), base, resolvedPath, schemaUpdate);
+            if (!restSchemaCommitSupported) {
+                throw new UserException(
+                        "Iceberg REST schema DROP requires a catalog with partition-counter validation");
+            }
+            // No retained spec references the target, so a new SDK partition reference must allocate a field ID.
+            IcebergRestSchemaCommit.commit(operations, base, schemaUpdate);
             return;
         }
 
         // Direct catalogs atomically reject metadata changes after the validated refresh through their CAS.
         operations.commit(base, schemaUpdate);
-    }
-
-    private static void commitRestDropWithSpecFence(
-            TableOperations operations, String tableName, TableMetadata base, ResolvedColumnPath resolvedPath,
-            TableMetadata schemaUpdate) throws UserException {
-        if (base.formatVersion() < 2) {
-            throw new UserException(
-                    "Cannot safely drop a column from a format-v1 Iceberg REST table: " + tableName);
-        }
-
-        Set<Integer> droppedFieldIds = fieldSubtreeIds(resolvedPath);
-        String fenceSource = findRestFenceSource(base, droppedFieldIds);
-        if (fenceSource == null) {
-            throw new UserException(
-                    "Cannot safely fence a column drop in Iceberg REST table: " + tableName);
-        }
-        String fenceName = newRestFenceName(base);
-
-        // Validation proved that no retained spec references the drop target, so any concurrent new reference
-        // must allocate a partition field ID. Adding a distinct void field makes REST assert that ID counter.
-        CapturingTableOperations fenceCapture = new CapturingTableOperations(operations, base);
-        new BaseTable(fenceCapture, tableName).updateSpec()
-                .addField(fenceName, Expressions.transform(fenceSource, Transforms.alwaysNull()))
-                .addNonDefaultSpec().commit();
-
-        TableMetadata.Builder combined = TableMetadata.buildFrom(base);
-        schemaUpdate.changes().forEach(update -> update.applyTo(combined));
-        fenceCapture.committed().changes().forEach(update -> update.applyTo(combined));
-        // The durable fence must stay in metadata: removing its client-predicted spec ID could delete a
-        // concurrently added spec after REST renumbers the fence during server-side rebase.
-        operations.commit(base, combined.build());
-    }
-
-    private static String findRestFenceSource(TableMetadata metadata, Set<Integer> droppedFieldIds) {
-        LinkedHashSet<Integer> candidates = new LinkedHashSet<>();
-        metadata.specs().forEach(spec -> spec.fields().forEach(field -> candidates.add(field.sourceId())));
-        candidates.addAll(metadata.schema().identifierFieldIds());
-        collectStructPrimitiveFieldIds(metadata.schema().asStruct(), droppedFieldIds, candidates);
-
-        return candidates.stream()
-                .filter(id -> !droppedFieldIds.contains(id))
-                .filter(id -> metadata.schema().findField(id) != null)
-                .filter(id -> metadata.spec().fields().stream()
-                        .noneMatch(field -> field.sourceId() == id && field.transform().isVoid()))
-                .map(metadata.schema()::findColumnName)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static void collectStructPrimitiveFieldIds(
-            Types.StructType struct, Set<Integer> droppedFieldIds, Set<Integer> candidates) {
-        for (NestedField field : struct.fields()) {
-            if (droppedFieldIds.contains(field.fieldId())) {
-                continue;
-            }
-            if (field.type().isPrimitiveType()) {
-                candidates.add(field.fieldId());
-            } else if (field.type().isStructType()) {
-                collectStructPrimitiveFieldIds(field.type().asStructType(), droppedFieldIds, candidates);
-            }
-        }
-    }
-
-    private static String newRestFenceName(TableMetadata metadata) {
-        int suffix = metadata.lastAssignedPartitionId() + 1;
-        String candidate = REST_DROP_FENCE_PREFIX + suffix;
-        while (hasFieldOrPartitionName(metadata, candidate)) {
-            candidate = REST_DROP_FENCE_PREFIX + ++suffix;
-        }
-        return candidate;
-    }
-
-    private static boolean hasFieldOrPartitionName(TableMetadata metadata, String candidate) {
-        boolean fieldNameExists = TypeUtil.indexById(metadata.schema().asStruct()).values().stream()
-                .anyMatch(field -> field.name().equalsIgnoreCase(candidate));
-        return fieldNameExists || metadata.specs().stream().flatMap(spec -> spec.fields().stream())
-                .anyMatch(field -> field.name().equalsIgnoreCase(candidate));
     }
 
     private ResolvedColumnPath validatePinnedDropIdentity(
@@ -1154,7 +1083,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Set<Integer> droppedFieldIds = TypeUtil.indexById(
                 Types.StructType.of(columnPath.getField())).keySet();
         // Every retained spec resolves partition types by source field ID against the current schema. Checking
-        // the current spec too establishes that a later REST fence can detect any newly introduced reference.
+        // the current spec too establishes that a later REST requirement can detect any new SDK reference.
         boolean usedByRetainedSpec = metadata.specs().stream()
                 .anyMatch(spec -> spec.fields().stream().anyMatch(field ->
                         droppedFieldIds.contains(field.sourceId())));
