@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.thrift.TGcpCredential;
+import org.apache.doris.thrift.TObjStorageType;
+import org.apache.doris.thrift.TPushStoragePolicyReq;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.base.Strings;
@@ -703,6 +705,42 @@ public class S3ResourceTest {
             Assertions.assertFalse(thrift.isSetCredProviderType());
             Assertions.assertEquals(2000, thrift.getConnTimeoutMs());
         }
+    }
+
+    @Test
+    public void testMinioAlterSurvivesReplayAndBatchedPolicyPush() throws Exception {
+        S3Resource minio = new S3Resource("minio_resource");
+        minio.id = 1L;
+        minio.version = 0L;
+        minio.setProperties(ImmutableMap.copyOf(s3Properties));
+        minio.modifyProperties(ImmutableMap.of("provider", "MINIO", "s3_validity_check", "false"));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            minio.write(output);
+        }
+        S3Resource restored;
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            restored = (S3Resource) Resource.read(input);
+        }
+        Assertions.assertEquals("MINIO", restored.getProperty("provider"));
+        S3Resource unrelated = new S3Resource("unrelated_resource");
+        unrelated.id = 2L;
+        unrelated.version = 0L;
+        unrelated.setProperties(ImmutableMap.copyOf(s3Properties));
+        unrelated.modifyProperties(ImmutableMap.of(S3ResourceCompat.CONNECTION_TIMEOUT_MS, "2000"));
+        // The MinIO resource is unreferenced but participates in the same update as other resources/drops.
+        PushStoragePolicyTask task = new PushStoragePolicyTask(1L, List.of(),
+                List.of(restored, unrelated), List.of(9L));
+        TPushStoragePolicyReq request = task.toThrift();
+        Assertions.assertEquals(2, request.getResourceSize());
+        Assertions.assertEquals(1L, request.getResource().get(0).getId());
+        Assertions.assertEquals(2L, request.getResource().get(1).getId());
+        Assertions.assertEquals(List.of(9L), request.getDroppedStoragePolicy());
+        TS3StorageParam minioThrift = request.getResource().get(0).getS3StorageParam();
+        Assertions.assertEquals(TObjStorageType.AWS, minioThrift.getProvider());
+        Assertions.assertEquals(s3AccessKey, minioThrift.getAk());
+        Assertions.assertEquals(s3SecretKey, minioThrift.getSk());
+        Assertions.assertEquals(2000, request.getResource().get(1).getS3StorageParam().getConnTimeoutMs());
     }
 
     @Test

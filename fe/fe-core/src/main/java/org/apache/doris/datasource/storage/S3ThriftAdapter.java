@@ -74,8 +74,20 @@ public final class S3ThriftAdapter {
         TS3StorageParam s3Info = new TS3StorageParam();
         if (StringUtils.isNotBlank(properties.get("provider"))) {
             String provider = properties.get("provider").trim().toUpperCase(Locale.ROOT);
-            s3Info.setProvider("S3".equals(provider) ? TObjStorageType.AWS
-                    : "GCS".equals(provider) ? TObjStorageType.GCP : TObjStorageType.valueOf(provider));
+            // Filesystem dialect names such as MINIO have no Thrift enum value.
+            // They use the same AWS-compatible backend as S3 and must not abort a policy batch.
+            switch (provider) {
+                case "S3":
+                case "MINIO":
+                case "OZONE":
+                    s3Info.setProvider(TObjStorageType.AWS);
+                    break;
+                case "GCS":
+                    s3Info.setProvider(TObjStorageType.GCP);
+                    break;
+                default:
+                    s3Info.setProvider(TObjStorageType.valueOf(provider));
+            }
         }
 
         if (properties.containsKey(ROLE_ARN)) {
