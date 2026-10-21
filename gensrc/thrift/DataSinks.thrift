@@ -528,6 +528,10 @@ struct TIcebergDeleteSink {
     5: optional PlanNodes.TFileFormatType file_format
     6: optional PlanNodes.TFileCompressType compress_type
     7: optional string output_path
+    // The raw (un-normalized) data location: the same directory as output_path, in the table's
+    // own form. BE writes delete files under output_path and commits them under table_location,
+    // e.g. written to s3://b/db/t/data/delete_x.parquet, committed as oss://b/db/t/data/delete_x.parquet.
+    // It must not be the table root, or committed paths would miss the data directory.
     8: optional string table_location
     9: optional map<string, string> hadoop_config
     10: optional Types.TFileType file_type
@@ -571,6 +575,7 @@ struct TIcebergMergeSink {
 
     // delete side (position delete only)
     20: optional TFileContent delete_type
+    // Same contract as TIcebergDeleteSink.table_location: the raw form of output_path's directory.
     21: optional string table_location
     22: optional i32 partition_spec_id_for_delete
     23: optional string partition_data_json_for_delete

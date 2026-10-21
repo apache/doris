@@ -536,6 +536,8 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         TIcebergCommitData commit_data;
         RETURN_IF_ERROR(writer->close(commit_data));
 
+        // The writer reports the path it wrote; the table records its own location form.
+        commit_data.__set_file_path(_commit_path_of(delete_file_path));
         // Set referenced data file path
         commit_data.__set_referenced_data_file_path(data_file_path);
 
@@ -693,7 +695,7 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
 
     for (const auto& blob : blobs) {
         TIcebergCommitData commit_data;
-        commit_data.__set_file_path(puffin_path);
+        commit_data.__set_file_path(_commit_path_of(puffin_path));
         commit_data.__set_row_count(blob.merged_count);
         commit_data.__set_affected_rows(blob.delete_count);
         commit_data.__set_file_size(puffin_file_size);
@@ -824,6 +826,33 @@ std::string VIcebergDeleteSink::_generate_delete_file_path(
 
     // Delete files are data files in Iceberg, write under data location
     return fmt::format("{}{}", base_path, file_name);
+}
+
+// Delete files are written under output_path, the location form BE addresses the storage
+// with, but Iceberg metadata must record the table's own form, which FE sends as
+// table_location (the raw data location; every FE version sets it to the same directory as
+// output_path). This mirrors data files, which are written under write_path and committed
+// under original_write_path. Example: an OSS table has table_location oss://b/db/t/data, which
+// FE normalizes to output_path s3://b/db/t/data; delete_pos_1.parquet is written to
+// s3://b/db/t/data/delete_pos_1.parquet and committed as oss://b/db/t/data/delete_pos_1.parquet.
+// Committing the s3:// form made other engines resolve the file with the wrong scheme.
+std::string VIcebergDeleteSink::_commit_path_of(const std::string& write_path) const {
+    // Without both locations there is nothing to rebase: an empty output_path means the file
+    // was already written under table_location, and an FE that sends no table_location gives
+    // no other form to record.
+    if (_output_path.empty() || _table_location.empty()) {
+        return write_path;
+    }
+    std::string write_base = _output_path;
+    if (write_base.back() != '/') {
+        write_base += '/';
+    }
+    std::string commit_base = _table_location;
+    if (commit_base.back() != '/') {
+        commit_base += '/';
+    }
+    DORIS_CHECK(write_path.starts_with(write_base));
+    return commit_base + write_path.substr(write_base.size());
 }
 
 std::string VIcebergDeleteSink::_generate_puffin_file_path() {

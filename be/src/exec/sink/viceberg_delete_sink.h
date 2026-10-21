@@ -121,6 +121,9 @@ private:
      */
     std::string _generate_delete_file_path(const std::string& referenced_data_file = "");
 
+    // The path the commit records for a delete file written at write_path; see the definition.
+    std::string _commit_path_of(const std::string& write_path) const;
+
     /**
      * Get $row_id column index from block
      */
