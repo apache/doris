@@ -73,20 +73,26 @@ Status verify_missing_variant_path(const TSearchFieldBinding& binding, int colum
     }
     const auto& read_schema = index_context->read_schema();
     DORIS_CHECK_GE(column_index, 0);
-    DORIS_CHECK_LT(static_cast<size_t>(column_index), read_schema->num_read_columns());
-    const auto& column = *read_schema->column(column_index);
+    DORIS_CHECK_LT(static_cast<size_t>(column_index), read_schema->num_column_ids());
+    const auto& column = *read_schema->column(read_schema->column_id(column_index));
     const auto& opts = index_context->column_iter_opts();
     DORIS_CHECK(opts.stats != nullptr);
-    StorageReadOptions read_options(*opts.stats);
-    read_options.io_ctx = opts.io_ctx;
-    std::shared_ptr<VariantColumnReader> reader;
-    Status st = segment->get_variant_root_reader(column, read_options, &reader);
+    const int32_t root_uid =
+            column.parent_unique_id() >= 0 ? column.parent_unique_id() : column.unique_id();
+    // DROP/ADD can leave an old segment without the current root UID. Do not open its
+    // historical same-named column or initialize readers for a root that is absent.
+    if (!segment->tablet_schema()->has_column_unique_id(root_uid)) {
+        return Status::OK();
+    }
+    std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    Status st = segment->get_column_reader(root_uid, &column_reader, opts.stats, &opts.io_ctx);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // After DROP v(uid=1), ADD v(uid=2), an old segment cannot contain this scan's root.
         // Resolve by the current uid so historical values of the same name cannot match.
         return Status::OK();
     }
     RETURN_IF_ERROR(st);
+    auto* reader = dynamic_cast<VariantColumnReader*>(column_reader.get());
     DORIS_CHECK(reader != nullptr);
     RETURN_IF_ERROR(reader->load_external_meta_once(opts.stats, &opts.io_ctx));
     const PathInData path(binding.subcolumn_path);
