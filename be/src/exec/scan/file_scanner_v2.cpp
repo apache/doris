@@ -513,9 +513,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                                 _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
-                LOG_EVERY_T(INFO, 10)
-                        << "Skip missing file: query_id=" << print_id(_state->query_id())
-                        << ", path=" << _current_range.path << ", reason=NOT_FOUND";
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 _state->update_num_finished_scan_range(1);
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
@@ -605,8 +604,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
                                               config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
-            LOG_EVERY_T(INFO, 10) << "Skip missing file: query_id=" << print_id(_state->query_id())
-                                  << ", path=" << _current_range.path << ", reason=NOT_FOUND";
+            LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                      << ", path=" << _current_range.path << ", reason=NOT_FOUND";
             _state->update_num_finished_scan_range(1);
             continue;
         }
