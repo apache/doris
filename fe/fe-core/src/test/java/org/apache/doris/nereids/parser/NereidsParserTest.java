@@ -1746,6 +1746,21 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testCreateSyncMvIfNotExists() {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(
+                "CREATE MATERIALIZED VIEW IF NOT EXISTS mv1 SELECT k1 FROM t2");
+        CreateMaterializedViewCommand command = Assertions.assertInstanceOf(
+                CreateMaterializedViewCommand.class, logicalPlan);
+        Assertions.assertTrue(command.isIfNotExists());
+
+        LogicalPlan withoutClause = parser.parseSingle("CREATE MATERIALIZED VIEW mv1 SELECT k1 FROM t2");
+        CreateMaterializedViewCommand withoutClauseCommand = Assertions.assertInstanceOf(
+                CreateMaterializedViewCommand.class, withoutClause);
+        Assertions.assertFalse(withoutClauseCommand.isIfNotExists());
+    }
+
+    @Test
     public void testDropTemporaryTable() throws Exception {
         NereidsParser parser = new NereidsParser();
         Map<String, Boolean> mustTemporaryResult = ImmutableMap.of(
