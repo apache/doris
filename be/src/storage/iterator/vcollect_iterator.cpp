@@ -542,10 +542,6 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
             if (res.is<END_OF_FILE>() && _is_empty()) {
                 break;
             }
-
-            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-                RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
-            }
         }
     } while (!_is_empty());
     _ref.row_pos = -1;
@@ -591,28 +587,8 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         if (res.is<END_OF_FILE>() && block->rows() == 0) {
             return Status::Error<END_OF_FILE>("");
         }
-        if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-            RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
-        }
         return Status::OK();
     }
-}
-
-RowLocation VCollectIterator::Level0Iterator::current_row_location() {
-    RowLocation& segment_row_id = _block_row_locations[_get_data_by_ref ? _current : _ref.row_pos];
-    return RowLocation(_rs_reader->rowset()->rowset_id(), segment_row_id.segment_id,
-                       segment_row_id.row_id);
-}
-
-Status VCollectIterator::Level0Iterator::current_block_row_locations(
-        std::vector<RowLocation>* block_row_locations) {
-    block_row_locations->resize(_block_row_locations.size());
-    for (auto i = 0; i < _block_row_locations.size(); i++) {
-        RowLocation& row_location = _block_row_locations[i];
-        (*block_row_locations)[i] = RowLocation(_rs_reader->rowset()->rowset_id(),
-                                                row_location.segment_id, row_location.row_id);
-    }
-    return Status::OK();
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
@@ -915,14 +891,8 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     size_t column_count = target_columns.size();
 
     auto batch_size = _reader->batch_max_rows();
-    if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-        _block_row_locations.resize(batch_size);
-    }
     int continuous_row_in_block = 0;
     do {
-        if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-            _block_row_locations[target_block_row] = _cur_child->current_row_location();
-        }
         ++target_block_row;
         ++continuous_row_in_block;
         // cur block finished, copy before merge_next cause merge_next will
@@ -941,9 +911,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         }
         auto res = _merge_next(&cur_row);
         if (UNLIKELY(res.is<END_OF_FILE>())) {
-            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-                _block_row_locations.resize(target_block_row);
-            }
             return res;
         }
 
@@ -988,9 +955,6 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
-            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-                _block_row_locations.resize(target_block_row);
-            }
             return Status::OK();
         }
     } while (true);
@@ -1015,21 +979,6 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     } else {
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
-    }
-}
-
-Status VCollectIterator::Level1Iterator::current_block_row_locations(
-        std::vector<RowLocation>* block_row_locations) {
-    if (!_merge) {
-        if (UNLIKELY(_cur_child == nullptr)) {
-            block_row_locations->clear();
-            return Status::Error<END_OF_FILE>("");
-        }
-        return _cur_child->current_block_row_locations(block_row_locations);
-    } else {
-        DCHECK(_reader->_reader_context.record_rowids);
-        *block_row_locations = _block_row_locations;
-        return Status::OK();
     }
 }
 

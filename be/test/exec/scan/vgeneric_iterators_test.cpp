@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -569,6 +570,10 @@ public:
                     *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
                     data_len = sizeof(double);
                     break;
+                case FieldType::OLAP_FIELD_TYPE_STRING:
+                    std::memcpy(data, &_seq_col_rows_returned, sizeof(_seq_col_rows_returned));
+                    data_len = sizeof(_seq_col_rows_returned);
+                    break;
                 default:
                     break;
                 }
@@ -597,6 +602,7 @@ public:
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     EXPECT_TRUE(1);
     auto schema = create_schema();
+    schema.append_compaction_rowid_column();
     auto output_schema = std::make_shared<ReadSchema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
@@ -637,6 +643,12 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
+
+    const auto rowid = block.get_by_position(schema.rowid_ordinal()).column->get_data_at(0);
+    ASSERT_EQ(sizeof(int), rowid.size);
+    int rowid_value = 0;
+    std::memcpy(&rowid_value, rowid.data, sizeof(rowid_value));
+    EXPECT_EQ(seg_iter_num - 1, rowid_value);
 }
 
 // Mirror of MergeWithSeqColumn but with small_seq_first=true.

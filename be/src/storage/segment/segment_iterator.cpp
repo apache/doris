@@ -1551,7 +1551,6 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     // ranges): the fabricated [0, df) range only counts correctly against a
     // full [0, num_rows) bitmap.
     facts.row_bitmap_is_full = _row_bitmap.cardinality() == uint64_t(num_rows());
-    facts.record_rowids = _opts.record_rowids;
     facts.has_ann_topn = _opts.ann_topn_runtime != nullptr;
     facts.has_score_runtime = _score_runtime != nullptr;
     // Mirror of the _need_read_data preamble: rows must be emitted as defaults,
@@ -1611,7 +1610,6 @@ bool SegmentIterator::_should_engage_count_emit_shortcut(const Block* block) {
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
     facts.has_virtual_columns = !_virtual_column_exprs.empty();
-    facts.record_rowids = _opts.record_rowids || _schema->rowid_ordinal() >= 0;
     facts.has_read_limit = _opts.read_limit > 0;
     facts.read_orderby_key_reverse = _opts.read_orderby_key_reverse;
     facts.has_condition_cache_digest = _opts.condition_cache_digest != 0;
@@ -1889,6 +1887,13 @@ Status SegmentIterator::_init_column_iterators() {
         if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
             continue;
         }
+        if (_schema->column(cid)->name() == BeConsts::COMPACTION_ROWID_COL) {
+            // Compaction reads synthesize source locations rather than reading a stored column.
+            _column_iterators[cid].reset(
+                    new CompactionRowIdColumnIterator(_opts.rowset_id, _segment->id()));
+            continue;
+        }
+
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             auto& id_file_map = _opts.runtime_state->get_id_file_map();
             uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
@@ -3402,23 +3407,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate.type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
-}
-
-Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-    DCHECK(_opts.record_rowids);
-    DCHECK_GE(_block_rowids.size(), _selected_size);
-    block_row_locations->resize(_selected_size);
-    uint32_t sid = segment_id();
-    if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
-        }
-    } else {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
-        }
-    }
-    return Status::OK();
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {
