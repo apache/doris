@@ -104,6 +104,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
                                  .changelog_scan_type = params.changelog_scan_type}),
+          _scoring_read_source(std::move(params.scoring_read_source)),
+          _shared_collection_statistics(std::move(params.shared_collection_statistics)),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
           _bucket_seq(params.bucket_seq),
@@ -278,20 +280,53 @@ Status OlapScanner::_prepare_impl() {
     }
 
     if (_tablet_reader_params.score_runtime) {
-        SCOPED_TIMER(local_state->_statistics_collect_timer);
-        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>(
-                std::make_unique<SearchPredicateCollector>());
-
-        auto io_ctx = build_score_runtime_collection_io_context(
-                _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
-                &_tablet_reader->mutable_stats()->file_cache_stats);
-
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        RETURN_IF_ERROR(_prepare_collection_statistics());
     }
 
     _has_prepared = true;
+    return Status::OK();
+}
+
+Status OlapScanner::_prepare_collection_statistics() {
+    auto& local_state = _local_state->cast<OlapScanLocalState>();
+    const auto& tablet = _tablet_reader_params.tablet;
+    SCOPED_TIMER(local_state._statistics_collect_timer);
+    _tablet_reader_params.collection_statistics =
+            _shared_collection_statistics != nullptr
+                    ? _shared_collection_statistics
+                    : std::make_shared<CollectionStatistics>(
+                              std::make_unique<SearchPredicateCollector>());
+
+    auto io_ctx = build_score_runtime_collection_io_context(
+            _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
+            &_tablet_reader->mutable_stats()->file_cache_stats);
+
+    const bool physical_row_identity = tablet->keys_type() == KeysType::DUP_KEYS ||
+                                       (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                        tablet->enable_unique_key_merge_on_write());
+    if (_tablet_reader_params.tablet_schema->get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::SNII ||
+        !physical_row_identity || _tablet_reader_params.read_changelog) {
+        // MOR/AGG readers can synthesize values from multiple physical rows;
+        // their corpus cannot be represented by one live-document bitmap.
+        // SNII and changelog scans also retain their existing scoring contract.
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>(
+                std::make_unique<SearchPredicateCollector>());
+        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+    } else {
+        if (_scoring_read_source == nullptr) {
+            _scoring_read_source = std::make_shared<TabletReadSource>(
+                    TabletReadSource {.rs_splits = _tablet_reader_params.rs_splits,
+                                      .delete_predicates = _tablet_reader_params.delete_predicates,
+                                      .delete_bitmap = _tablet_reader_params.delete_bitmap});
+        }
+        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect_visible_collection(
+                _state, *_scoring_read_source, tablet, _tablet_reader_params.version.second,
+                _tablet_reader_params.tablet_schema,
+                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+    }
     return Status::OK();
 }
 

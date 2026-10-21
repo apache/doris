@@ -193,7 +193,8 @@ ScoringIndexCandidates resolve_text_scoring_index_candidates(const TabletSchemaS
     ScoringIndexCandidates candidates {.field_type = scoring_leaf_type(column),
                                        .index_suffix_path = column.suffix_path(),
                                        .index_metas = tablet_schema->inverted_indexs(column),
-                                       .owned_index_metas = {}};
+                                       .owned_index_metas = {},
+                                       .read_column = std::make_shared<TabletColumn>(column)};
 
     // The collector has tablet-schema context but no segment-side variant
     // inference. Resolve only shapes that are deterministic from schema:
@@ -210,6 +211,7 @@ ScoringIndexCandidates resolve_text_scoring_index_candidates(const TabletSchemaS
         !sub_column_info.indexes.empty()) {
         candidates.field_type = scoring_leaf_type(sub_column_info.column);
         candidates.index_suffix_path = sub_column_info.column.suffix_path();
+        candidates.read_column = std::make_shared<TabletColumn>(sub_column_info.column);
         for (auto& index : sub_column_info.indexes) {
             candidates.index_metas.push_back(index.get());
             candidates.owned_index_metas.emplace_back(std::move(index));
@@ -255,6 +257,7 @@ void preserve_selected_index_metadata(const ScoringIndexCandidates& candidates,
     DORIS_CHECK(selected_index != nullptr);
     DORIS_CHECK(collect_info != nullptr);
     collect_info->index_meta = selected_index;
+    collect_info->read_column = candidates.read_column;
     for (const auto& owned_index : candidates.owned_index_metas) {
         if (owned_index.get() == selected_index) {
             collect_info->owned_index_meta = owned_index;

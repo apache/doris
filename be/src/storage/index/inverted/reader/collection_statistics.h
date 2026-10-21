@@ -43,6 +43,9 @@ struct IOContext;
 } // namespace io
 
 struct RowSetSplits;
+struct TabletReadSource;
+class BaseTablet;
+struct VisibleScoringDocuments;
 
 class Rowset;
 class RowsetSegmentView;
@@ -66,6 +69,14 @@ public:
                                    const VExprContextSPtrs& common_expr_ctxs_push_down,
                                    io::IOContext* io_ctx);
 
+    // All scanners of a tablet share the captured collection and initialize it once.
+    // User predicates and scanner row ranges must not change the scoring population.
+    Status collect_visible_collection(RuntimeState* state, const TabletReadSource& read_source,
+                                      const std::shared_ptr<BaseTablet>& tablet, int64_t version,
+                                      const TabletSchemaSPtr& tablet_schema,
+                                      const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                      io::IOContext* io_ctx);
+
     MOCK_FUNCTION float get_or_calculate_idf(const std::wstring& lucene_col_name,
                                              const std::wstring& term);
     MOCK_FUNCTION float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
@@ -81,9 +92,16 @@ private:
                                 const VExprContextSPtrs& common_expr_ctxs_push_down,
                                 const TabletSchemaSPtr& tablet_schema,
                                 CollectInfoMap* collect_infos);
+    Status collect_visible_collection_impl(RuntimeState* state, const TabletReadSource& read_source,
+                                           const std::shared_ptr<BaseTablet>& tablet,
+                                           int64_t version, const TabletSchemaSPtr& tablet_schema,
+                                           const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                           io::IOContext* io_ctx);
     Status process_segment(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
-                           io::IOContext* io_ctx);
+                           io::IOContext* io_ctx,
+                           const VisibleScoringDocuments* visible_documents = nullptr,
+                           RuntimeState* state = nullptr);
     Status admit_snii_scoring_segment(const std::wstring& field_name, uint64_t index_doc_count,
                                       uint64_t sum_total_term_freq, bool has_positions,
                                       bool has_norms,
@@ -104,6 +122,9 @@ private:
     std::unordered_map<std::wstring, float> _avg_dl_by_col;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
     PredicateCollectorPtr _search_collector;
+    std::once_flag _visible_collection_once;
+    Status _visible_collection_status;
+    bool _visible_statistics = false;
 
     MOCK_DEFINE(friend class BM25SimilarityTest;)
     MOCK_DEFINE(friend class CollectionStatisticsTest;)

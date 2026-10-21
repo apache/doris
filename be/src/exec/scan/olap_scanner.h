@@ -84,6 +84,8 @@ public:
         int32_t bucket_num = 0;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
+        std::shared_ptr<const TabletReadSource> scoring_read_source = nullptr;
+        CollectionStatisticsPtr shared_collection_statistics = nullptr;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -114,6 +116,7 @@ private:
 
     [[nodiscard]] Status _init_tso_predicates();
     [[nodiscard]] Status _init_read_schema();
+    [[nodiscard]] Status _prepare_collection_statistics();
     [[nodiscard]] Status _init_variant_columns();
 #ifndef NDEBUG
     Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
@@ -122,6 +125,8 @@ private:
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;
+    std::shared_ptr<const TabletReadSource> _scoring_read_source;
+    CollectionStatisticsPtr _shared_collection_statistics;
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;
     std::optional<int64_t> _end_tso;

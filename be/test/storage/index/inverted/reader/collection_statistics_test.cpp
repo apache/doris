@@ -30,6 +30,10 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/common/variant_util.h"
@@ -50,6 +54,7 @@
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/reader/predicate_collector.h"
+#include "storage/index/inverted/reader/visible_collection.h"
 #include "storage/index/inverted/snii/format/phrase_bigram.h"
 #include "storage/index/inverted/snii/query/bm25_scorer.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
@@ -442,7 +447,8 @@ protected:
     }
 
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
-                                   const std::string& segment_path) {
+                                   const std::string& segment_path,
+                                   const std::vector<std::string>& documents = {"alpha beta"}) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -466,7 +472,10 @@ protected:
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
         RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
                 &tablet_schema->column(0), &column_writer, &file_writer, index_metas[0]));
-        std::vector<Slice> values {Slice("alpha beta")};
+        std::vector<Slice> values;
+        for (const auto& document : documents) {
+            values.emplace_back(document.data(), document.size());
+        }
         RETURN_IF_ERROR(column_writer->add_values("content", values.data(), values.size()));
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
@@ -2798,6 +2807,222 @@ TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyCompone
 
     const std::map<std::string, std::string> valid = {{"parser", "english"}};
     EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
+}
+
+TEST_F(CollectionStatisticsTest, VisibleMaskExcludesHistoricalTokenCountsAndDocumentFrequencies) {
+    auto schema = create_legacy_v3_schema();
+    const std::string path = test_dir_ + "/visible_stats.dat";
+    std::string long_document;
+    for (int i = 0; i < 256; ++i) {
+        long_document += "alpha ";
+    }
+    std::string second_document = "alpha alpha ";
+    for (int i = 0; i < 14; ++i) {
+        second_document += "omega ";
+    }
+    ASSERT_TRUE(
+            write_legacy_v3_segment(schema, path, {"alpha", long_document, second_document}).ok());
+    auto meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(schema, meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, path);
+    CollectInfoMap infos;
+    ASSERT_TRUE(stats_->extract_collect_info(runtime_state_.get(),
+                                             create_match_expr_contexts("alpha"), schema, &infos)
+                        .ok());
+    VisibleScoringDocuments visible;
+    visible.segments[rowset->rowset_id()][0] = roaring::Roaring {0, 2};
+    for (auto segment : rowset->segments()) {
+        ASSERT_TRUE(stats_->process_segment(rowset, segment, schema.get(), infos, nullptr, &visible,
+                                            runtime_state_.get())
+                            .ok());
+    }
+    expect_collected_stats(L"1", 2, 17);
+    expect_collected_term(L"1", L"alpha", 2);
+}
+
+TEST_F(CollectionStatisticsTest, FullyDeletedSnapshotCanConstructZeroIdf) {
+    stats_->_visible_statistics = true;
+    stats_->_total_num_docs = 0;
+    stats_->_total_num_tokens[L"1"] = 0;
+    stats_->_term_doc_freqs[L"1"][L"alpha"] = 0;
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_idf(L"1", L"alpha"), 0.0F);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 0.0F);
+}
+
+TEST(ExactScoringDocLengthsTest, ConcurrentLoadsPublishOneCompleteVector) {
+    ExactScoringDocLengths cache;
+    std::atomic<int> calls {0};
+    std::barrier start(9);
+    std::vector<std::future<std::pair<const std::vector<uint64_t>*, uint64_t>>> futures;
+    for (int i = 0; i < 8; ++i) {
+        futures.push_back(std::async(std::launch::async, [&] {
+            start.arrive_and_wait();
+            const std::vector<uint64_t>* lengths = nullptr;
+            uint64_t total = 0;
+            auto status = cache.get_or_load(
+                    [&](std::vector<uint64_t>* out) {
+                        ++calls;
+                        *out = {1, 16, 41};
+                        return Status::OK();
+                    },
+                    &lengths, &total);
+            EXPECT_TRUE(status.ok());
+            return std::make_pair(lengths, total);
+        }));
+    }
+    start.arrive_and_wait();
+    const std::vector<uint64_t>* first = nullptr;
+    for (auto& future : futures) {
+        auto [lengths, total] = future.get();
+        ASSERT_NE(lengths, nullptr);
+        EXPECT_EQ(*lengths, (std::vector<uint64_t> {1, 16, 41}));
+        EXPECT_EQ(total, 58);
+        if (first == nullptr) {
+            first = lengths;
+        }
+        EXPECT_EQ(lengths, first);
+    }
+    EXPECT_EQ(calls.load(), 1);
+}
+
+TEST(ExactScoringDocLengthsTest, FailedLoadDoesNotPublishPartialCounts) {
+    ExactScoringDocLengths cache;
+    const std::vector<uint64_t>* lengths = nullptr;
+    auto failure = cache.get_or_load(
+            [](std::vector<uint64_t>* out) {
+                *out = {999};
+                return Status::Cancelled("cancelled while reading raw text");
+            },
+            &lengths);
+    EXPECT_FALSE(failure.ok());
+    EXPECT_EQ(lengths, nullptr);
+    uint64_t total = 0;
+    ASSERT_TRUE(cache.get_or_load(
+                             [](std::vector<uint64_t>* out) {
+                                 *out = {1, 16};
+                                 return Status::OK();
+                             },
+                             &lengths, &total)
+                        .ok());
+    ASSERT_NE(lengths, nullptr);
+    EXPECT_EQ(*lengths, (std::vector<uint64_t> {1, 16}));
+    EXPECT_EQ(total, 17);
+}
+
+TEST(ExactScoringDocLengthsTest, EmptyVectorIsAValidCachedResult) {
+    ExactScoringDocLengths cache;
+    const std::vector<uint64_t>* lengths = nullptr;
+    uint64_t total = 99;
+    ASSERT_TRUE(cache.get_or_load(
+                             [](std::vector<uint64_t>* out) {
+                                 out->clear();
+                                 return Status::OK();
+                             },
+                             &lengths, &total)
+                        .ok());
+    ASSERT_TRUE(lengths->empty());
+    EXPECT_EQ(total, 0);
+    ASSERT_TRUE(cache.get_or_load(
+                             [](std::vector<uint64_t>*) {
+                                 return Status::InternalError(
+                                         "must not reload a complete empty vector");
+                             },
+                             &lengths)
+                        .ok());
+}
+
+TEST(ExactScoringDocLengthsTest, RawTextRetainsRepeatedTokensAndNonRepresentableLengths) {
+    const std::map<std::string, std::string> properties {{"parser", "english"},
+                                                         {"support_phrase", "false"}};
+    auto context = analyzer_context_from_properties(properties);
+    ASSERT_TRUE(context.has_value());
+    auto text = ColumnString::create();
+    std::string value = "alpha ";
+    for (int i = 0; i < 40; ++i) {
+        value += "omega ";
+    }
+    text->insert_data(value.data(), value.size());
+    text->insert_data("", 0);
+    uint64_t count = 0;
+    // ignore_above is not a length limit for analyzed text.
+    ASSERT_TRUE(visible_collection_detail::count_raw_tokens(*text, 0, context.value(), properties,
+                                                            1, &count)
+                        .ok());
+    EXPECT_EQ(count, 41);
+    ASSERT_TRUE(visible_collection_detail::count_raw_tokens(*text, 1, context.value(), properties,
+                                                            1, &count)
+                        .ok());
+    EXPECT_EQ(count, 41);
+}
+
+TEST(ExactScoringDocLengthsTest, RawArraysSkipNullElementsAndKeepRepeatedTerms) {
+    const std::map<std::string, std::string> properties {{"parser", "english"},
+                                                         {"support_phrase", "false"}};
+    auto context = analyzer_context_from_properties(properties);
+    ASSERT_TRUE(context.has_value());
+    auto text = ColumnString::create();
+    text->insert_data("alpha", 5);
+    text->insert_data("ignored", 7);
+    text->insert_data("alpha omega", 11);
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 1, 0});
+    auto nested = ColumnNullable::create(std::move(text), std::move(nulls));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(3);
+    offsets->get_data().push_back(3);
+    auto arrays = ColumnArray::create(std::move(nested), std::move(offsets));
+    uint64_t count = 0;
+    ASSERT_TRUE(visible_collection_detail::count_raw_tokens(*arrays, 0, context.value(), properties,
+                                                            1, &count)
+                        .ok());
+    EXPECT_EQ(count, 3);
+    ASSERT_TRUE(visible_collection_detail::count_raw_tokens(*arrays, 1, context.value(), properties,
+                                                            1, &count)
+                        .ok());
+    EXPECT_EQ(count, 3);
+}
+
+TEST(ExactScoringDocLengthsTest, WaitingQueryCanCancelWithoutPoisoningTheOwnerLoad) {
+    ExactScoringDocLengths cache;
+    std::promise<void> started;
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    auto owner = std::async(std::launch::async, [&] {
+        const std::vector<uint64_t>* lengths = nullptr;
+        return cache.get_or_load(
+                [&](std::vector<uint64_t>* out) {
+                    started.set_value();
+                    released.wait();
+                    *out = {1, 16};
+                    return Status::OK();
+                },
+                &lengths);
+    });
+    started.get_future().wait();
+    auto waiter = std::async(std::launch::async, [&] {
+        const std::vector<uint64_t>* lengths = nullptr;
+        return cache.get_or_load(
+                [](std::vector<uint64_t>*) {
+                    return Status::InternalError("waiter must not run another loader");
+                },
+                &lengths, nullptr, [] { return Status::Cancelled("waiting query cancelled"); });
+    });
+    const auto ready = waiter.wait_for(std::chrono::seconds(3));
+    release.set_value();
+    EXPECT_TRUE(owner.get().ok());
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_FALSE(waiter.get().ok());
+    const std::vector<uint64_t>* lengths = nullptr;
+    uint64_t total = 0;
+    ASSERT_TRUE(cache.get_or_load(
+                             [](std::vector<uint64_t>*) {
+                                 return Status::InternalError(
+                                         "completed owner result must remain cached");
+                             },
+                             &lengths, &total)
+                        .ok());
+    EXPECT_EQ(total, 17);
 }
 
 } // namespace doris
