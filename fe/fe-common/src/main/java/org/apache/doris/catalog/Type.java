@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SqlStringUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
@@ -497,6 +498,11 @@ public abstract class Type {
     }
 
     public String hideVersionForVersionColumn(Boolean isToSql, boolean showNestedComment) {
+        return hideVersionForVersionColumn(isToSql, showNestedComment, false);
+    }
+
+    public String hideVersionForVersionColumn(
+            Boolean isToSql, boolean showNestedComment, boolean noBackslashEscapes) {
         if (isDatetime() || isDatetimeV2()) {
             StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
@@ -528,13 +534,13 @@ public abstract class Type {
             return typeStr.toString();
         } else if (isArrayType()) {
             String nestedDesc = ((ArrayType) this).getItemType()
-                    .hideVersionForVersionColumn(isToSql, showNestedComment);
+                    .hideVersionForVersionColumn(isToSql, showNestedComment, noBackslashEscapes);
             return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
             String keyDesc = ((MapType) this).getKeyType()
-                    .hideVersionForVersionColumn(isToSql, showNestedComment);
+                    .hideVersionForVersionColumn(isToSql, showNestedComment, noBackslashEscapes);
             String valueDesc = ((MapType) this).getValueType()
-                    .hideVersionForVersionColumn(isToSql, showNestedComment);
+                    .hideVersionForVersionColumn(isToSql, showNestedComment, noBackslashEscapes);
             return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
@@ -542,7 +548,8 @@ public abstract class Type {
             for (int i = 0; i < structType.getFields().size(); i++) {
                 StructField field = structType.getFields().get(i);
                 StringBuilder desc = new StringBuilder(field.getName()).append(":")
-                        .append(field.getType().hideVersionForVersionColumn(isToSql, showNestedComment));
+                        .append(field.getType().hideVersionForVersionColumn(
+                                isToSql, showNestedComment, noBackslashEscapes));
                 // Requiredness is schema semantics and must survive independently of whether
                 // nested documentation is requested for DESCRIBE output.
                 if (!field.getContainsNull()) {
@@ -550,7 +557,9 @@ public abstract class Type {
                 }
                 // Nested docs are part of DESCRIBE output only when comments were explicitly requested.
                 if (showNestedComment && field.isCommentSpecified()) {
-                    desc.append(String.format(" comment '%s'", field.getComment()));
+                    // Comments must remain parseable even when they contain quotes or backslashes.
+                    desc.append(" comment ").append(
+                            SqlStringUtils.quoteStringLiteral(field.getComment(), noBackslashEscapes));
                 }
                 fieldDesc.add(desc.toString());
             }
