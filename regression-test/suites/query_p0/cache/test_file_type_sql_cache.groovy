@@ -42,22 +42,26 @@ suite("test_file_type_sql_cache") {
             sql "SET enable_sql_cache = true"
             sql "DROP TABLE IF EXISTS test_file_type_sql_cache_values"
             sql """
-                CREATE TABLE test_file_type_sql_cache_values (id INT NOT NULL, j JSON)
+                CREATE TABLE test_file_type_sql_cache_values (
+                    id INT NOT NULL, uri STRING, file_offset BIGINT, file_size BIGINT,
+                    content_type STRING, checksum STRING)
                 DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
                 PROPERTIES("replication_num"="1")
             """
             sql """
                 INSERT INTO test_file_type_sql_cache_values VALUES
-                (1, JSON_PARSE('{"uri":"urn:cache:one","offset":2,"size":5,
-                    "content_type":"text/plain","checksum":"CRC32:00000000","inline":null}')),
-                (2, NULL)
+                (1, 'urn:cache:one', 2, 5, 'text/plain', 'CRC32:00000000'),
+                (2, NULL, NULL, NULL, NULL, NULL)
             """
             def statement = """
                 SELECT id, f,
                        CAST(ARRAY(CAST(f AS ${publicStruct}), NULL) AS ARRAY<FILE>) AS files,
                        CAST(NAMED_STRUCT('f', CAST(f AS ${publicStruct})) AS STRUCT<f:FILE>) AS holder,
                        CAST(MAP('source', CAST(f AS ${publicStruct})) AS MAP<STRING,FILE>) AS lookup
-                FROM (SELECT id, CAST(j AS FILE) AS f FROM test_file_type_sql_cache_values) file_rows ORDER BY id
+                FROM (SELECT id, CAST(IF(uri IS NULL, NULL,
+                    NAMED_STRUCT('uri', uri, 'offset', file_offset, 'size', file_size,
+                        'content_type', content_type, 'checksum', checksum, 'inline', NULL)) AS FILE) AS f
+                    FROM test_file_type_sql_cache_values) file_rows ORDER BY id
             """
             qt_uncached statement
             primeSqlCache(statement)
@@ -65,7 +69,7 @@ suite("test_file_type_sql_cache") {
 
             sql """
                 INSERT INTO test_file_type_sql_cache_values VALUES
-                (3, JSON_PARSE('{"uri":"urn:cache:three","size":0,"offset":null,"content_type":null,"checksum":null,"inline":null}'))
+                (3, 'urn:cache:three', NULL, 0, NULL, NULL)
             """
             assertFalse(hasSqlCache(statement), "A new table version must invalidate the cached FILE rows")
             qt_after_insert statement
