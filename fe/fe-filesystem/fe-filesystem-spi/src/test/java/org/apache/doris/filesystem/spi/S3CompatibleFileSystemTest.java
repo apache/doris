@@ -42,11 +42,13 @@ import java.util.regex.Pattern;
 class S3CompatibleFileSystemTest {
 
     @Test
-    void numericRangesRejectExcessiveExpansion() {
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3CompatibleFileSystem.compileGlobPattern("data_{1..10001}.csv"));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> S3CompatibleFileSystem.compileGlobPattern("{1..101}/data_{1..101}.csv"));
+    void numericRangesMatchWithoutExcessiveExpansion() {
+        Pattern largeRange = S3CompatibleFileSystem.compileGlobPattern("data_{1..10001}.csv");
+        Assertions.assertTrue(largeRange.matcher("data_10001.csv").matches());
+        Assertions.assertFalse(largeRange.matcher("data_10002.csv").matches());
+        Pattern product = S3CompatibleFileSystem.compileGlobPattern("{1..101}/data_{1..101}.csv");
+        Assertions.assertTrue(product.matcher("101/data_101.csv").matches());
+        Assertions.assertFalse(product.matcher("102/data_101.csv").matches());
     }
 
     @Test

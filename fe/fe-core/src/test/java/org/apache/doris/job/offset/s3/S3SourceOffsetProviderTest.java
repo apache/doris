@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
@@ -203,5 +204,21 @@ public class S3SourceOffsetProviderTest {
         for (String key : otherKeys) {
             Assertions.assertFalse(matcher.matcher(key).matches(), "Unexpected file: " + key);
         }
+    }
+
+    @Test
+    void hasMoreDataToConsumeUsesUtf8BinaryOrder() {
+        String privateUseKey = "data/" + Character.toString(0xE000) + "/file.csv";
+        String emojiKey = "data/" + Character.toString(0x1F600) + "/file.csv";
+        Assertions.assertTrue(privateUseKey.compareTo(emojiKey) > 0);
+        Assertions.assertTrue(ObjectStorageGlob.compareUtf8Binary(privateUseKey, emojiKey) < 0);
+
+        S3Offset currentOffset = new S3Offset();
+        currentOffset.setEndFile(privateUseKey);
+        S3SourceOffsetProvider provider = new S3SourceOffsetProvider();
+        provider.currentOffset = currentOffset;
+        provider.maxEndFile = emojiKey;
+
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
     }
 }
