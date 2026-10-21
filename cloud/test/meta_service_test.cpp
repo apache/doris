@@ -2922,7 +2922,25 @@ TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
     AbortTxnWithCoordinatorResponse abort_txn_resp;
 
     abort_txn_req.set_id(coordinator_id);
-    abort_txn_req.set_ip(host);
+    abort_txn_req.set_cloud_unique_id(cloud_unique_id);
+    abort_txn_req.set_ip("192.168.100.200:9050"); // Same backend, changed address.
+
+    // The current backend process must not be aborted even when its address changed.
+    abort_txn_req.set_start_time(cur_time);
+    meta_service->abort_txn_with_coordinator(&abort_txn_cntl, &abort_txn_req, &abort_txn_resp,
+                                             nullptr);
+    ASSERT_EQ(abort_txn_resp.status().code(), MetaServiceCode::OK);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(txn_info_key({mock_instance, db_id, txn_id}), &value),
+                  TxnErrorCode::TXN_OK);
+        TxnInfoPB info;
+        ASSERT_TRUE(info.ParseFromString(value));
+        ASSERT_EQ(info.status(), TxnStatusPB::TXN_STATUS_PREPARED);
+    }
+    abort_txn_resp.Clear();
     abort_txn_req.set_start_time(cur_time + 3600);
 
     // first time to check txn conflict
@@ -3062,6 +3080,49 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorTest) {
 
         ASSERT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT);
     }
+    // A rescheduled backend retains its ID while its address changes. Test both scan paths.
+    {
+        const bool original_mode = config::enable_get_prepare_txn_by_coordinator_by_running_key;
+        DORIS_CLOUD_DEFER {
+            config::enable_get_prepare_txn_by_coordinator_by_running_key = original_mode;
+        };
+        for (bool scan_by_running_key : {false, true}) {
+            config::enable_get_prepare_txn_by_coordinator_by_running_key = scan_by_running_key;
+            brpc::Controller cntl;
+            GetPrepareTxnByCoordinatorRequest req;
+            GetPrepareTxnByCoordinatorResponse resp;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_id(coordinator_id);
+            req.set_ip("192.168.100.200:9050");
+            meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+            ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(resp.txn_infos_size(), 5);
+
+            // Startup time still protects transactions belonging to the current process.
+            resp.Clear();
+            req.set_start_time(cur_time);
+            meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+            ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(resp.txn_infos_size(), 0);
+
+            // A reused address with a different known ID is a different coordinator.
+            resp.Clear();
+            req.clear_start_time();
+            req.set_id(coordinator_id + 1);
+            req.set_ip(host);
+            meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+            ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(resp.txn_infos_size(), 0);
+
+            // An unknown request ID retains address-based compatibility.
+            resp.Clear();
+            req.set_id(0);
+            meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
+            ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(resp.txn_infos_size(), 5);
+        }
+    }
+
     // Running entries also include precommitted/lazy-committed and expired transactions.
     {
         std::unique_ptr<Transaction> txn;
@@ -3376,9 +3437,11 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorScanModeTest) {
         req.set_start_time(150);
         meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
-        ASSERT_EQ(resp.txn_infos_size(), 2);
+        // Txn 3 has the same backend ID despite its changed address.
+        ASSERT_EQ(resp.txn_infos_size(), 3);
         EXPECT_EQ(resp.txn_infos(0).txn_id(), 1);
         EXPECT_EQ(resp.txn_infos(1).txn_id(), 2);
+        EXPECT_EQ(resp.txn_infos(2).txn_id(), 3);
     }
 
     // Skip malformed running keys on the first, middle and last data pages.
@@ -3412,9 +3475,10 @@ TEST(MetaServiceTest, GetPrepareTxnByCoordinatorScanModeTest) {
         req.set_start_time(150);
         meta_service->get_prepare_txn_by_coordinator(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
-        ASSERT_EQ(resp.txn_infos_size(), 2);
+        ASSERT_EQ(resp.txn_infos_size(), 3);
         EXPECT_EQ(resp.txn_infos(0).txn_id(), 1);
         EXPECT_EQ(resp.txn_infos(1).txn_id(), 2);
+        EXPECT_EQ(resp.txn_infos(2).txn_id(), 3);
         EXPECT_EQ(pages, 9 + 3 + 1);
     }
 
