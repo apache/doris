@@ -763,7 +763,7 @@ public class S3ResourceTest {
 
     @Test
     public void testGsAliasesMatchConnectorAndResourceProtocols() throws Exception {
-        for (String provider : new String[] {"GCP", "gcp"}) {
+        for (String provider : new String[] {"GCP", "gcp", "GCS", "gcs"}) {
             Map<String, String> properties = new HashMap<>(s3Properties);
             properties.put("provider", provider);
             properties.put("gs.endpoint", "https://storage.googleapis.com");
@@ -810,6 +810,44 @@ public class S3ResourceTest {
             connector = (S3CompatibleFileSystemProperties) StorageAdapter.of(resource.getCopiedProperties()).getSpiProperties();
             Assertions.assertEquals("canonical-secret", connector.getSecretKey());
             Assertions.assertEquals("", connector.getSessionToken());
+        }
+    }
+
+    @Test
+    public void testGcsProviderAlterRotatesKeysAcrossReplayAndPolicyPush() throws Exception {
+        for (String provider : new String[] {"GCS", "gcs"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", "GCP");
+            S3Resource resource = new S3Resource("gcs_resource");
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            resource.references.put("policy", Resource.ReferenceType.POLICY);
+            resource.modifyProperties(ImmutableMap.of("provider", provider,
+                    "gs.access_key", "rotated-access", "gs.secret_key", "rotated-secret",
+                    "s3_validity_check", "false"));
+            Assertions.assertEquals("rotated-access", resource.getProperty(S3ResourceCompat.ACCESS_KEY));
+            Assertions.assertEquals("rotated-secret", resource.getProperty(S3ResourceCompat.SECRET_KEY));
+
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream output = new DataOutputStream(bytes)) {
+                resource.write(output);
+            }
+            S3Resource restored;
+            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                restored = (S3Resource) Resource.read(input);
+            }
+            Assertions.assertEquals(resource.getCopiedProperties(), restored.getCopiedProperties());
+            Assertions.assertEquals(provider, restored.getProperty("provider"));
+            Assertions.assertFalse(restored.getCopiedProperties().containsKey("gs.access_key"));
+            Assertions.assertFalse(restored.getCopiedProperties().containsKey("gs.secret_key"));
+            S3CompatibleFileSystemProperties connector = (S3CompatibleFileSystemProperties)
+                    StorageAdapter.of(restored.getCopiedProperties()).getSpiProperties();
+            Assertions.assertEquals("rotated-access", connector.getAccessKey());
+            Assertions.assertEquals("rotated-secret", connector.getSecretKey());
+            PushStoragePolicyTask task = new PushStoragePolicyTask(1L, List.of(), List.of(restored), List.of());
+            TS3StorageParam thrift = task.toThrift().getResource().get(0).getS3StorageParam();
+            Assertions.assertEquals(TObjStorageType.GCP, thrift.getProvider());
+            Assertions.assertEquals("rotated-access", thrift.getAk());
+            Assertions.assertEquals("rotated-secret", thrift.getSk());
         }
     }
 

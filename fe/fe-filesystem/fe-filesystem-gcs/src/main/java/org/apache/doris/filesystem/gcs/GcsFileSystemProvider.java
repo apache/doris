@@ -74,7 +74,7 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
             selected = "GCP";
             normalized.put("provider", selected);
         }
-        if ("GCP".equalsIgnoreCase(selected)) {
+        if ("GCP".equalsIgnoreCase(selected) || STORAGE_TYPE_GCS.equalsIgnoreCase(selected)) {
             RESOURCE_ALIASES.forEach((alias, key) -> {
                 String value = normalized.remove(alias);
                 if (value != null && !value.isBlank()) {

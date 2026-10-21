@@ -231,13 +231,15 @@ class GcsFileSystemProviderTest {
 
     @Test
     void normalizePropertiesUsesEffectiveProviderForPartialAlter() {
-        Map<String, String> stored = Map.of("provider", "GCP", "s3.endpoint", "old.endpoint");
         Map<String, String> patch = Map.of("gs.endpoint", "storage.googleapis.com",
                 "gs.connection.maximum", "25", "gs.impersonation_service_account", "");
-        Map<String, String> normalized = provider.normalizeProperties(patch, stored);
-        Assertions.assertEquals(Map.of("s3.endpoint", "storage.googleapis.com", "s3.connection.maximum", "25",
-                "gs.impersonation_service_account", ""), normalized);
-        Assertions.assertEquals("old.endpoint", stored.get("s3.endpoint"));
+        for (String selected : new String[] {"GCP", "gcp", "GCS", "gcs"}) {
+            Map<String, String> stored = Map.of("provider", selected, "s3.endpoint", "old.endpoint");
+            Map<String, String> normalized = provider.normalizeProperties(patch, stored);
+            Assertions.assertEquals(Map.of("s3.endpoint", "storage.googleapis.com", "s3.connection.maximum", "25",
+                    "gs.impersonation_service_account", ""), normalized);
+            Assertions.assertEquals("old.endpoint", stored.get("s3.endpoint"));
+        }
         Assertions.assertTrue(patch.containsKey("gs.endpoint"));
         Assertions.assertTrue(provider.clearablePropertyKeys().contains("gs.impersonation_service_account"));
         Assertions.assertTrue(provider.modifiableCredentialPropertyKeys().contains("gs.credential_provider_type"));
