@@ -67,6 +67,37 @@ public class PropertyAnalyzerTest {
                 () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
     }
 
+    @Test
+    public void testAnalyzeBinlogConfig() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "TRUE");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES, "1024");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, "10");
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false");
+        Map<String, String> analyzed = PropertyAnalyzer.analyzeBinlogConfig(properties);
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true",
+                PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60",
+                PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES, "1024",
+                PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, "10"), analyzed);
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false"), properties);
+
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "False");
+        Assertions.assertEquals("false", PropertyAnalyzer.analyzeBinlogConfig(properties)
+                .get(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
+
+        for (Map.Entry<String, String> invalid : Map.of(
+                PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "Invalid binlog enable value: yes",
+                "binlog.ttl_second", "Unknown binlog property: binlog.ttl_second",
+                "binlog.compaction", "Unknown binlog property: binlog.compaction").entrySet()) {
+            Map<String, String> invalidProperties = new HashMap<>();
+            invalidProperties.put(invalid.getKey(), "yes");
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeBinlogConfig(invalidProperties));
+            Assertions.assertTrue(exception.getMessage().contains(invalid.getValue()), exception.getMessage());
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"ROW", "row", "STATEMENT_AND_SNAPSHOT", "statement_and_snapshot", "rows"})
     public void testReplacedBinlogKeysAreRejected(String value) {
