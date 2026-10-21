@@ -56,6 +56,8 @@ import java.util.regex.Pattern;
  */
 public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
+    private static final System.Logger LOG = System.getLogger(S3CompatibleFileSystem.class.getName());
+
     // Object stores do not have real directories; use a zero-byte marker with trailing slash.
     private static final String DIR_MARKER_SUFFIX = "/";
     private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
@@ -1177,7 +1179,9 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     }
 
     private static List<String> expandDeterministicKeyPattern(String pattern, int maxPaths) {
-        if (maxPaths <= 0 || pattern.isEmpty() || pattern.endsWith(DIR_MARKER_SUFFIX)) {
+        // Keep the original deterministic-path boundary, including escaped glob literals.
+        if (maxPaths <= 0 || pattern.isEmpty() || pattern.endsWith(DIR_MARKER_SUFFIX)
+                || pattern.indexOf('*') >= 0 || pattern.indexOf('?') >= 0 || pattern.indexOf('\\') >= 0) {
             return null;
         }
         List<String> expanded = expandGlobListPrefixes(pattern, false, maxPaths);
@@ -1201,49 +1205,24 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
     }
 
     private GlobListing globListDeterministicKeys(String bucket, String patternPrefix, String base,
-            List<String> keys, String startAfter, long maxBytes, long maxFiles) throws IOException {
+            List<String> keys) throws IOException {
         List<FileEntry> files = new ArrayList<>();
-        long totalSize = 0L;
-        boolean reachLimit = false;
-        String nextMatchAfterLimit = "";
         String lastMatchedKey = "";
-        String lastSkippedKey = null;
-        boolean probedKeyAfterStart = false;
         for (String key : keys) {
-            if (startAfter != null && !startAfter.isEmpty() && UTF8_BINARY_ORDER.compare(key, startAfter) <= 0) {
-                lastSkippedKey = key;
-                continue;
-            }
-            probedKeyAfterStart = true;
             RemoteObject obj = headObjectIfPresent(base + key);
             if (obj == null) {
                 continue;
             }
             String objectKey = obj.getKey();
-            if (reachLimit) {
-                nextMatchAfterLimit = objectKey;
-                break;
-            }
             files.add(new FileEntry(
                     Location.of(base + objectKey),
                     obj.getSize(),
                     false,
                     obj.getModificationTime(),
                     List.of()));
-            totalSize += obj.getSize();
             lastMatchedKey = objectKey;
-            if ((maxFiles > 0 && files.size() >= maxFiles)
-                    || (maxBytes > 0 && totalSize >= maxBytes)) {
-                reachLimit = true;
-            }
         }
-        if (!probedKeyAfterStart && lastSkippedKey != null) {
-            // Incremental readers may have consumed all deterministic keys already. Keep a
-            // HEAD probe here so credential changes are still surfaced without requiring ListBucket.
-            headObjectIfPresent(base + lastSkippedKey);
-        }
-        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
-        return new GlobListing(files, bucket, patternPrefix, maxFile);
+        return new GlobListing(files, bucket, patternPrefix, lastMatchedKey);
     }
 
     @Override
@@ -1258,12 +1237,20 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
         String expandedKeyPattern = GlobPattern.expandNumericRanges(keyPattern);
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        if (skipListForDeterministicPath) {
-            List<String> deterministicKeys = expandDeterministicKeyPattern(
-                    expandedKeyPattern, maxDeterministicHeadPaths);
-            if (deterministicKeys != null) {
-                return globListDeterministicKeys(bucket, longestNonGlobPrefix(keyPattern), base,
-                        deterministicKeys, startAfter, maxBytes, maxFiles);
+        // Preserve #60414's eligibility: path-style addressing and incremental/limited reads
+        // must keep LIST semantics. Even an empty, non-null cursor selects the LIST path.
+        if (skipListForDeterministicPath && !usePathStyle
+                && maxBytes <= 0 && maxFiles <= 0 && startAfter == null) {
+            try {
+                List<String> deterministicKeys = expandDeterministicKeyPattern(
+                        expandedKeyPattern, maxDeterministicHeadPaths);
+                if (deterministicKeys != null) {
+                    return globListDeterministicKeys(bucket, longestNonGlobPrefix(keyPattern), base,
+                            deterministicKeys);
+                }
+            } catch (IOException | RuntimeException e) {
+                // Discard partial HEAD results and retry the complete pattern through LIST.
+                LOG.log(System.Logger.Level.WARNING, "Failed to use HEAD requests, falling back to listing", e);
             }
         }
 
