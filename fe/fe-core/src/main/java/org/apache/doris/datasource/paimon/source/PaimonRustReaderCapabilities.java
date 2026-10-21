@@ -109,6 +109,59 @@ final class PaimonRustReaderCapabilities {
         return true;
     }
 
+    /** Vector-path companion to {@link #canRead}. The vector reader materializes the
+     *  projected rows of its Top-K results through the same Arrow decoders as the batch
+     *  path, so a file whose historical schema version decodes differently must stay off
+     *  the vector path too. Only the per-file schema gates apply: the vector path never
+     *  opens a merge reader (its Top-K chain applies deletion vectors inside the search),
+     *  so the merge-retention gates do not judge it. Loud backstop for shapes the rewrite
+     *  pre-flight cannot see (options-selected schemas, mid-statement ALTER races); it
+     *  mirrors {@link #hasRustIncompatibleSchemaHistory} exactly, so it can only fail
+     *  loudly on shapes the pre-flight could not have declined. */
+    boolean canVectorRead(DataSplit split) {
+        if (schema == null || !hasCompatibleSchemaVersion(schema)) {
+            return false;
+        }
+        for (DataFileMeta file : split.dataFiles()) {
+            if (file.schemaId() != schema.id() && !compatibleFileSchemas.computeIfAbsent(
+                    file.schemaId(), this::hasCompatibleFileSchema)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Rewrite pre-flight for the vector path: whether ANY historical schema version of
+     *  the table decodes differently from the current one under the rust reader (the
+     *  per-file gate {@link #canRead} runs per split and cannot judge a whole rewrite).
+     *  Example: a TIMESTAMP(3) column widened to TIMESTAMP(9) while old files remain --
+     *  the vector reader's safe cast NULLs out-of-range values the ordinary path
+     *  preserves, so the rewrite must decline and let the query run ordinary.
+     *  Conservative when the incompatible files are long gone: rare, and correctness-safe. */
+    public static boolean hasRustIncompatibleSchemaHistory(FileStoreTable table) {
+        TableSchema current = table.schema();
+        if (current == null || !hasCompatibleSchemaVersion(current)) {
+            return true;
+        }
+        List<TableSchema> history;
+        try {
+            history = table.schemaManager().listAll();
+        } catch (RuntimeException e) {
+            // Failure to establish compatibility must not opt a table into Rust.
+            return true;
+        }
+        for (TableSchema historical : history) {
+            if (historical == null || historical.id() == current.id()) {
+                continue;
+            }
+            if (!hasCompatibleSchemaVersion(historical)
+                    || hasIncompatibleEvolution(historical.fields(), current.fields())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static boolean hasFullNestedProjection(TupleDescriptor tuple) {
         for (SlotDescriptor slot : tuple.getSlots()) {
             // The ABI projects only root names, while Arrow struct SerDes bind by ordinal.

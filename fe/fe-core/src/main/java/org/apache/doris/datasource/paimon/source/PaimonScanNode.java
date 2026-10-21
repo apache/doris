@@ -1076,9 +1076,25 @@ public class PaimonScanNode extends FileQueryScanNode {
             // would return the wrong child on the vector path exactly as it would
             // on the batch path. The rewrite pre-flights this and declines; this
             // is the loud backstop for shapes the raw-table pre-flight cannot see.
+            boolean vectorSchemaIncompatible = false;
             if (vectorSearchSplit) {
                 canUseRust = canUseRust && rustEligibility.vectorEligible()
                         && PaimonRustReaderCapabilities.hasFullNestedProjection(desc);
+                if (canUseRust) {
+                    if (rustReaderCapabilities == null) {
+                        rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                    }
+                    // Per-file schema-compat backstop mirroring the rewrite's
+                    // hasRustIncompatibleSchemaHistory pre-flight: the vector
+                    // reader materializes projected rows through the same Arrow
+                    // decoders, so a historically incompatible file must stay off
+                    // the vector path. Can only fail for shapes the pre-flight
+                    // could not see (options-selected schemas, mid-statement
+                    // ALTER races) — loud, like every vector backstop.
+                    vectorSchemaIncompatible =
+                            !rustReaderCapabilities.canVectorRead((DataSplit) split);
+                    canUseRust = canUseRust && !vectorSchemaIncompatible;
+                }
             }
             if (!vectorSearchSplit && canUseRust) {
                 canUseRust = canUseRust && nativeSplit && !splitDvNotMaterialized
@@ -1157,6 +1173,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (vectorSearchSplit
                         && !PaimonRustReaderCapabilities.hasFullNestedProjection(desc)) {
                     reasons.add("pruned_nested_projection");
+                }
+                if (vectorSearchSplit && vectorSchemaIncompatible) {
+                    reasons.add("historical_schema_evolution");
                 }
                 if (reasons.isEmpty()) {
                     reasons.add(vectorSearchSplit ? "unknown" : "capability_whitelist");
@@ -1579,6 +1598,17 @@ public class PaimonScanNode extends FileQueryScanNode {
      */
     @VisibleForTesting
     public List<Split> getVectorSearchSplits() throws UserException {
+        // The relation may have bound the pinned-empty generation (no commit existed
+        // at binding). The ordinary path fences that state to an empty result; the
+        // vector builder would resolve the table's LATEST here and expose a first
+        // commit that landed after binding, breaking read consistency. Mirror the
+        // ordinary fence (see getPaimonSplitFromAPI).
+        Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+        if (relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
+                && ((PaimonMvccSnapshot) relationSnapshot.get()).getSnapshotCacheValue()
+                        .getSnapshot().getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+            return Collections.emptyList();
+        }
         Table paimonTable = getProcessedTable();
         // Only the partition-half of the predicate is pushed into Paimon planning.
         // The data (residual) half is left for BE's vector-search filter, and passing

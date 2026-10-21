@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -111,6 +112,10 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
     private static final Set<Type> VECTOR_FILTER_SUPPORTED_COLUMN_TYPES = ImmutableSet.of(
             Type.BOOLEAN, Type.TINYINT, Type.SMALLINT, Type.INT, Type.BIGINT,
             Type.STRING, Type.DATE, Type.DATEV2);
+
+    /** The BE rust predicate converter encodes the IN option list under a 16-bit
+     *  child count; a bigger list is dropped whole into the post-fetch residual. */
+    private static final int MAX_IN_PREDICATE_CHILDREN = 0xFFFF;
 
     @Override
     public List<Rule> buildRules() {
@@ -271,11 +276,13 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         }
         String annColumnName = vectorSlot.getOriginalColumn().get().getName();
 
-        // Validate the PK-vector index and metric on the Paimon table.
+        // Validate the PK-vector index and metric on the relation's bound Paimon
+        // table: a branch table carries its own index options and can differ from
+        // the main table (see boundPaimonTable).
         PaimonExternalTable paimonTable = (PaimonExternalTable) scan.getTable();
         CoreOptions coreOptions;
         try {
-            Table basePaimonTable = paimonTable.getPaimonTable(Optional.empty());
+            Table basePaimonTable = boundPaimonTable(paimonTable, scan);
             coreOptions = CoreOptions.fromMap(basePaimonTable.options());
         } catch (Throwable t) {
             return null;
@@ -318,14 +325,27 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         // this (the whitelist admits only scalar columns); the order-key alias
         // is replaced by the synthetic slot and cannot reach it either; so only
         // a Project output expression over a complex column has to decline.
+        //
+        // A NoneMovableFunction in the projection (assert_true) must keep
+        // evaluating below the TopN — see projectContainsNonMovableExpression.
+        //
+        // A historically evolved schema must stay off the vector reader: its
+        // materialization decodes projected values through Arrow safe casts,
+        // which can silently NULL out-of-range values (a TIMESTAMP(3) widened
+        // to TIMESTAMP(9) reading a year-2300 value) where the ordinary path
+        // preserves them — see PaimonRustReaderCapabilities.hasRustIncompatibleSchemaHistory.
         try {
-            Table table = paimonTable.getPaimonTable(Optional.empty());
+            Table table = boundPaimonTable(paimonTable, scan);
             if ((optionalFilter.isPresent()
                     && filterHasDataConjunct(optionalFilter.get(), table)
                     && !PaimonScanNode.vectorSearchSupportsDataPredicate(table))
                     || table.rowType().getFieldNames().stream().anyMatch(
                             name -> name.equalsIgnoreCase(PaimonVectorSearch.SEARCH_DISTANCE_COLUMN))
-                    || !complexColumnsRideAsWholeColumns(project, orderKeyAlias)) {
+                    || !complexColumnsRideAsWholeColumns(project, orderKeyAlias)
+                    || projectContainsNonMovableExpression(project, orderKeyAlias)
+                    || (table instanceof FileStoreTable
+                            && PaimonVectorSearch.hasRustIncompatibleSchemaHistory(
+                                    (FileStoreTable) table))) {
                 return null;
             }
         } catch (Throwable t) {
@@ -340,7 +360,7 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         // those queries run through the ordinary paths, where they are supported.
         try {
             if (projectedColumnsContainVariant(project, optionalFilter)
-                    || orcSchemaContainsTimestampLtz(paimonTable)) {
+                    || orcSchemaContainsTimestampLtz(boundPaimonTable(paimonTable, scan))) {
                 return null;
             }
         } catch (Throwable t) {
@@ -367,7 +387,7 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         // relation-option-processed table, so it stays authoritative for t@options
         // overrides this raw-table pre-flight cannot see.
         try {
-            Table baseTable = paimonTable.getPaimonTable(Optional.empty());
+            Table baseTable = boundPaimonTable(paimonTable, scan);
             PaimonExternalCatalog catalog = (PaimonExternalCatalog) paimonTable.getCatalog();
             Map<StorageProperties.Type, StorageProperties> storagePropertiesMap =
                     VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
@@ -472,6 +492,15 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
         }
         if (conjunct instanceof InPredicate) {
             InPredicate in = (InPredicate) conjunct;
+            // The BE converter encodes the option list under a 16-bit child count
+            // (see PaimonRustPredicateConverter._convert_in): a bigger list —
+            // reachable by raising expr_children_limit — is dropped whole and lands
+            // in the post-fetch residual, re-enabling the bounded-TopK truncation
+            // this whitelist exists to prevent. Mirror the converter's cap: the
+            // slot plus the options must fit uint16.
+            if (in.getOptions().size() + 1 > MAX_IN_PREDICATE_CHILDREN) {
+                return false;
+            }
             return isVectorFilterColumnSlot(in.getCompareExpr())
                     && in.getOptions().stream().allMatch(PushDownVectorTopNIntoPaimonScan::ridesAsLiteral);
         }
@@ -520,27 +549,85 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
     }
 
     /**
+     * The relation's bound Paimon table -- branch, time travel, statement fence or
+     * option overrides included -- instead of the cached main table. A branch is an
+     * independently configured table: it can carry a different vector-index metric
+     * (inner-product where main has l2), different deletion-vector options or a
+     * different schema, and the scan reads the BRANCH's schema through paimon-rust.
+     * Validating index/metric/eligibility against the main table would accept a
+     * query whose search then scores and reorders with the branch's metric --
+     * wrong results even at full recall.
+     *
+     * <p>Relation options ({@code t@options(...)}) apply over the statement snapshot
+     * and are resolved through the table's own option-application path; everything
+     * else rides the relation's bound snapshot captured at binding.
+     */
+    private static Table boundPaimonTable(PaimonExternalTable paimonTable, LogicalFileScan scan) {
+        if (scan.getScanParams().isPresent() && scan.getScanParams().get().isOptions()) {
+            return paimonTable.getPaimonTable(scan.getScanParams().get());
+        }
+        return paimonTable.getPaimonTable(scan.getRelationSnapshot());
+    }
+
+    /**
+     * A Project expression whose evaluation must stay BELOW the TopN (a
+     * NoneMovableFunction, such as {@code assert_true}) still has to raise on rows
+     * the bounded Top-K would never fetch: on the ordinary path the Project
+     * evaluates before the TopN and fails for a rejected far row, while
+     * {@code withVectorTopN} truncates the scan to the near rows first, so the
+     * assertion never sees them and the query silently succeeds. Any non-movable
+     * expression outside the order-key alias keeps the ordinary path. This is a
+     * SELECT expression; the filter residual thread is separate.
+     */
+    private static boolean projectContainsNonMovableExpression(
+            LogicalProject<?> project, Alias orderKeyAlias) {
+        for (NamedExpression projection : project.getProjects()) {
+            if (!(projection instanceof Alias) || projection.equals(orderKeyAlias)) {
+                continue;
+            }
+            if (((Alias) projection).child().anyMatch(e -> e instanceof NoneMovableFunction)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Whether every complex-typed column referenced by the projection rides as a
      * whole column. Nested pruning materializes the scan tuple with a REDUCED type
      * for a column whose fields are accessed ({@code Project(struct_element(payload,
      * 'b'))} prunes {@code payload ROW<a,b>} to {@code ROW<b>}), but the vector
      * reader projects only root names and returns the full Arrow value, whose
      * struct SerDe binds children by ordinal — the wrong child comes back. A bare
-     * slot output keeps the full type, and a complex slot consumed ONLY by a
-     * distance function never reaches the scan at all (this rewrite replaces every
-     * occurrence of the function with the synthetic distance slot, order-key alias
-     * included), so only any OTHER expression over a complex column forces the
-     * decline. Filter conjuncts cannot reach this: the shape whitelist admits only
-     * scalar columns.
+     * slot output keeps the full type — UNLESS it was already pruned (an outer
+     * field projection can leave an already-pruned bare slot here), whose reduced
+     * type no longer equals the original column's type; the desc-side backstop
+     * would fail loudly, so decline instead. A complex slot consumed ONLY by a
+     * distance function never reaches the scan at all (this rewrite replaces
+     * every occurrence of the function with the synthetic distance slot,
+     * order-key alias included), so only any OTHER expression over a complex
+     * column forces the decline. Filter conjuncts cannot reach this: the shape
+     * whitelist admits only scalar columns.
      */
     private static boolean complexColumnsRideAsWholeColumns(LogicalProject<?> project,
             Alias orderKeyAlias) {
         for (NamedExpression projection : project.getProjects()) {
             if (!(projection instanceof Alias)) {
+                // A bare passthrough slot output: whole unless already pruned.
+                if (projection instanceof SlotReference
+                        && !slotRidesWholeColumn((SlotReference) projection)) {
+                    return false;
+                }
                 continue;
             }
             Alias alias = (Alias) projection;
-            if (alias.equals(orderKeyAlias) || alias.child() instanceof SlotReference) {
+            if (alias.equals(orderKeyAlias)) {
+                continue;
+            }
+            if (alias.child() instanceof SlotReference) {
+                if (!slotRidesWholeColumn((SlotReference) alias.child())) {
+                    return false;
+                }
                 continue;
             }
             Set<SlotReference> replacedSlots = new HashSet<>();
@@ -551,12 +638,30 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
             }
             Set<SlotReference> slots = alias.child().collect(SlotReference.class::isInstance);
             for (SlotReference slot : slots) {
-                if (!replacedSlots.contains(slot) && slot.getDataType().isComplexType()) {
-                    return false;
+                if (!replacedSlots.contains(slot)) {
+                    if (slot.getDataType().isComplexType() || !slotRidesWholeColumn(slot)) {
+                        return false;
+                    }
                 }
             }
         }
         return true;
+    }
+
+    /**
+     * A whole-riding slot keeps the type it was created with from the original
+     * column ({@code SlotReference.fromColumn}: {@code DataType.fromCatalogType}).
+     * Nested pruning materializes a REDUCED type ({@code ROW<b>} from
+     * {@code ROW<a,b>}) while the original column keeps the full one; only a whole
+     * slot may ride the vector path, matching the desc-side backstop's
+     * slot-versus-column comparison.
+     */
+    private static boolean slotRidesWholeColumn(SlotReference slot) {
+        if (!slot.getDataType().isComplexType() || !slot.getOriginalColumn().isPresent()) {
+            return true;
+        }
+        return slot.getDataType().equals(org.apache.doris.nereids.types.DataType.fromCatalogType(
+                slot.getOriginalColumn().get().getType()));
     }
 
     private static boolean isVectorFilterColumnSlot(Expression expr) {
@@ -601,9 +706,9 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
      * split would materialize rows through that decoder with no fallback. Snapshot
      * selection is irrelevant here -- this is a physical-file property.
      */
-    private static boolean orcSchemaContainsTimestampLtz(PaimonExternalTable paimonTable) {
+    private static boolean orcSchemaContainsTimestampLtz(Table boundTable) {
         try {
-            Table baseTable = paimonTable.getPaimonTable(Optional.empty());
+            Table baseTable = boundTable;
             if (!(baseTable instanceof FileStoreTable)) {
                 return false;
             }

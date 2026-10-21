@@ -382,8 +382,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             // Reader-produced Paimon PK-vector search distance: a synthetic output column
             // filled by the BE reader by name, not present in the table's file schema,
-            // so it has no Parquet/ORC column position to map.
-            if (PaimonVectorSearch.SEARCH_DISTANCE_COLUMN.equalsIgnoreCase(colName)) {
+            // so it has no Parquet/ORC column position to map. Only skip it when the
+            // schema really does not carry the name: this method serves every external
+            // catalog, and a REAL column sharing the name (a Hive text table can
+            // legally define one) must keep its normal position mapping — skipping it
+            // would emit fewer column_idxs than the file has and fail the BE reader.
+            if (PaimonVectorSearch.SEARCH_DISTANCE_COLUMN.equalsIgnoreCase(colName)
+                    && columnNames.stream().noneMatch(n -> n.equalsIgnoreCase(colName))) {
                 continue;
             }
 

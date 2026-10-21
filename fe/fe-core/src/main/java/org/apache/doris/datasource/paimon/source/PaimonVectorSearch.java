@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.system.Backend;
 
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Collection;
@@ -106,5 +107,17 @@ public final class PaimonVectorSearch {
             Map<String, String> backendStorageProperties, Collection<Backend> backends) {
         return PaimonRustEligibility.of(paimonTable, tableLocation,
                 backendStorageProperties, backends).vectorEligible();
+    }
+
+    /**
+     * Rewrite pre-flight facade for
+     * {@link PaimonRustReaderCapabilities#hasRustIncompatibleSchemaHistory}: the
+     * vector reader materializes projected values through Arrow safe casts, which
+     * can silently NULL out-of-range values on a historically evolved schema (a
+     * TIMESTAMP(3) -> TIMESTAMP(9) widening reading year-2300 data); the rewrite
+     * must decline such tables so the query runs through the ordinary path.
+     */
+    public static boolean hasRustIncompatibleSchemaHistory(FileStoreTable table) {
+        return PaimonRustReaderCapabilities.hasRustIncompatibleSchemaHistory(table);
     }
 }
