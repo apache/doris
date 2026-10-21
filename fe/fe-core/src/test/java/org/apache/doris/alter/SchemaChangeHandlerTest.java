@@ -1349,6 +1349,41 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testLightAddAndDropIndexInOneStatementRejected() throws Exception {
+        String tableName = "sc_light_add_and_drop_index";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
+        int indexChangeJobCount = handler.getIndexChangeJobs().size();
+
+        // Both clauses take the light index change path, whose delete jobs carry a single direction.
+        for (String clauses : Lists.newArrayList(
+                "DROP INDEX idx_v1, ADD INDEX idx_v2 (v2) USING INVERTED",
+                "ADD INDEX idx_v2 (v2) USING INVERTED, DROP INDEX idx_v1")) {
+            String sql = "ALTER TABLE test." + tableName + " " + clauses;
+            Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("Can not add and drop indexes in one ALTER statement"),
+                    e.getMessage());
+        }
+        Assertions.assertEquals(Lists.newArrayList("idx_v1"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+        Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+        Assertions.assertEquals(indexChangeJobCount, handler.getIndexChangeJobs().size());
+    }
+
+    @Test
     public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
         createAnalyzerAliasTable("sc_ik_alias");
         alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "

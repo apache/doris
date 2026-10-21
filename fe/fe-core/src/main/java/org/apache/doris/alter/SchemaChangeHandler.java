@@ -3926,6 +3926,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
     // Throws if a full-table DROP INDEX in alterOps takes the light index change path and would then fail to
     // submit its delete jobs: no compute group, or an unfinished index change job on the dropped index.
+    // Also rejects a light DROP INDEX together with a light ADD INDEX: their delete jobs carry one direction
+    // for all altered indexes, so the added index would be deleted or the dropped one would be kept.
     private void checkLightDropIndexPreconditions(Database db, OlapTable olapTable, List<AlterOp> alterOps,
             boolean enableAddIndexForNewData) throws UserException {
         if (!Config.enable_light_index_change) {
@@ -3945,6 +3947,11 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         if (droppedIndexes.isEmpty()) {
             return;
+        }
+        if (alterOps.stream().anyMatch(alterOp -> alterOp instanceof CreateIndexOp
+                && ((CreateIndexOp) alterOp).getIndex().isLightAddIndexSupported(enableAddIndexForNewData))) {
+            throw new DdlException("Can not add and drop indexes in one ALTER statement,"
+                    + " please run them in separate statements.");
         }
         getCloudClusterName();
         checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
