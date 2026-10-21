@@ -763,7 +763,10 @@ bool CompactionMixin::handle_ordered_data_compaction() {
                    const auto& schema = rowset->tablet_schema();
                    return rowset->num_rows() > 0 &&
                           rowset->start_version() == rowset->end_version() &&
-                          (schema->version_col_idx() >= 0 || schema->commit_tso_col_idx() >= 0 ||
+                          // A non-light-schema-change tablet can retain VERSION by name while
+                          // version_col_idx is -1; linking its singleton would expose stored 0.
+                          (schema->field_index(VERSION_COL) >= 0 ||
+                           schema->commit_tso_col_idx() >= 0 ||
                            schema->changelog_tso_col_idx() >= 0);
                });
     };

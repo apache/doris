@@ -131,7 +131,8 @@ protected:
     int32_t _saved_segments_key_bounds_truncation_threshold = 0;
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool with_version_column = false,
-                                   bool with_commit_tso_column = false) {
+                                   bool with_commit_tso_column = false,
+                                   bool unset_version_col_idx = false) {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
@@ -188,7 +189,9 @@ protected:
             version_column->set_length(8);
             version_column->set_index_length(8);
             version_column->set_aggregation("REPLACE");
-            tablet_schema_pb.set_version_col_idx(3);
+            if (!unset_version_col_idx) {
+                tablet_schema_pb.set_version_col_idx(3);
+            }
         }
 
         if (with_commit_tso_column) {
@@ -369,9 +372,9 @@ protected:
                     uint8_t num = 0;
                     columns[2]->insert_data((const char*)&num, sizeof(num));
                 }
-                if (tablet_schema->version_col_idx() >= 0) {
-                    columns[tablet_schema->version_col_idx()]->insert_data(
-                            (const char*)&stored_version, sizeof(stored_version));
+                if (auto version_idx = tablet_schema->field_index(VERSION_COL); version_idx >= 0) {
+                    columns[version_idx]->insert_data((const char*)&stored_version,
+                                                      sizeof(stored_version));
                 }
                 if (tablet_schema->commit_tso_col_idx() >= 0) {
                     int64_t tso_placeholder = 0;
@@ -417,7 +420,7 @@ protected:
     }
 
     std::vector<int64_t> read_versions(Rowset* rowset, const TabletSchemaSPtr& tablet_schema) {
-        return read_hidden_values(rowset, tablet_schema, tablet_schema->version_col_idx());
+        return read_hidden_values(rowset, tablet_schema, tablet_schema->field_index(VERSION_COL));
     }
 
     void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
@@ -632,6 +635,31 @@ TEST_F(OrderedDataCompactionTest, test_01) {
 
 TEST_F(OrderedDataCompactionTest, test_version_col_singleton_rowset_not_linked) {
     auto tablet_schema = create_schema(UNIQUE_KEYS, true);
+    auto tablet = create_tablet(*tablet_schema, false, 10000, false);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(2, 1, 2, input_data);
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (const auto& rowset_data : input_data) {
+        auto rowset = create_rowset(tablet_schema, tablet, NONOVERLAPPING, rowset_data);
+        ASSERT_EQ(rowset->start_version(), rowset->end_version());
+        ASSERT_EQ(rowset->num_rows(), 2);
+        EXPECT_EQ(read_versions(rowset.get(), tablet_schema),
+                  (std::vector<int64_t> {rowset->end_version(), rowset->end_version()}));
+        input_rowsets.push_back(std::move(rowset));
+    }
+
+    CumulativeCompaction compaction(*engine_ref, tablet);
+    compaction._input_rowsets = std::move(input_rowsets);
+    ASSERT_FALSE(compaction.handle_ordered_data_compaction());
+}
+
+TEST_F(OrderedDataCompactionTest, test_version_col_with_unset_index_singleton_not_linked) {
+    // A schema created without light schema change has the VERSION column but no index in PB.
+    auto tablet_schema = create_schema(UNIQUE_KEYS, true, false, true);
+    ASSERT_EQ(tablet_schema->version_col_idx(), -1);
+    ASSERT_EQ(tablet_schema->field_index(VERSION_COL), 3);
     auto tablet = create_tablet(*tablet_schema, false, 10000, false);
     ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
 
