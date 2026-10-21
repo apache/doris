@@ -172,6 +172,13 @@ suite("test_score_filter_usage", "p0") {
         """
         exception "score(), MATCH and SEARCH cannot be used in HAVING or QUALIFY"
     }
+    test {
+        sql """
+            SELECT id, score() AS s, c1 MATCH 'red' AS m, row_number() OVER (PARTITION BY c1 ORDER BY id) AS rn
+            FROM test_score_filter_usage WHERE c1 MATCH 'apple' QUALIFY m AND rn = 1
+        """
+        exception "score(), MATCH and SEARCH cannot be used in HAVING or QUALIFY"
+    }
 
     // score() is the relevance for the MATCH and SEARCH predicates of its own SELECT on one table.
     test {
@@ -249,6 +256,23 @@ suite("test_score_filter_usage", "p0") {
         """
         exception nestedSelect
     }
+    // Decorrelation removes ORDER BY score() LIMIT from a correlated subquery.
+    test {
+        sql """
+            SELECT id FROM test_score_filter_usage b
+            WHERE (b.c1 MATCH 'red' OR b.c1 MATCH 'green') AND EXISTS (
+                SELECT 1 FROM test_score_filter_usage a
+                WHERE a.c1 = b.c1 AND a.c1 MATCH 'apple' AND score() > 0.6
+                ORDER BY score() DESC LIMIT 1)
+        """
+        exception "score() cannot be used in a correlated subquery"
+    }
+    order_qt_nested_score_topn_having """
+        SELECT * FROM (
+            SELECT id, score() AS s FROM test_score_filter_usage
+            WHERE c1 MATCH 'apple' HAVING c2 = 'sweet' ORDER BY s DESC LIMIT 2
+        ) x
+    """
     order_qt_nested_score_topn """
         SELECT x.id, x.s, b.c2 FROM (
             SELECT id, score() AS s FROM test_score_filter_usage

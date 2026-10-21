@@ -188,12 +188,35 @@ class BindScoreToOlapScanTest extends TestWithFeService {
             "SELECT * FROM (%s) x",
             "WITH c AS (%s) SELECT * FROM c",
             "SELECT * FROM (%s) x UNION ALL SELECT id, 0 FROM score_usage_V3",
-            "SELECT id FROM score_usage_V3 WHERE id IN (SELECT id FROM (%s) x)"})
+            "SELECT id FROM score_usage_V3 WHERE id IN (SELECT id FROM (%s) x)",
+            "SELECT id FROM score_usage_V3 WHERE EXISTS (%s)"})
     void testNestedScoreRequiresTopN(String query) {
         String scored = "SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001";
         assertScoreUsageError(String.format(query, scored), BindScoreToOlapScan.NESTED_SELECT_ERROR);
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(
                 String.format(query, scored + " ORDER BY s DESC LIMIT 2")));
+    }
+
+    @Test
+    void testNestedScoreTopNAboveHaving() {
+        // HAVING reads c2, which the SELECT does not return, so analysis restores the select list between
+        // LIMIT and ORDER BY.
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT * FROM (SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple'"
+                        + " HAVING c2 = 'sweet' ORDER BY s DESC LIMIT 2) x"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT id FROM score_usage_V3 b WHERE (b.c1 MATCH 'red' OR b.c1 MATCH 'green') AND EXISTS ("
+                    + "SELECT 1 FROM score_usage_V2 a WHERE a.c1 = b.c1 AND a.c1 MATCH 'apple'"
+                    + " AND score() > 0.6 ORDER BY score() DESC LIMIT 1)",
+            "SELECT id FROM score_usage_V3 b WHERE EXISTS (SELECT 1 FROM (SELECT c1, score() AS s"
+                    + " FROM score_usage_V2 WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 1) a WHERE a.c1 = b.c1)",
+            "SELECT id, (SELECT max(a.id) FROM score_usage_V2 a WHERE a.id = b.id AND a.c1 MATCH 'apple'"
+                    + " AND score() > 0.6) FROM score_usage_V3 b"})
+    void testCorrelatedSubqueryIsRejected(String query) {
+        assertScoreUsageError(query, BindScoreToOlapScan.CORRELATED_SUBQUERY_ERROR);
     }
 
     @Test
@@ -228,6 +251,17 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' QUALIFY rn = 1 AND s > 0.5",
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+        // MATCH through an alias of the select list.
+        assertScoreUsageError("SELECT id, score() AS s, c1 MATCH 'red' AS m,"
+                + " row_number() OVER (PARTITION BY c1 ORDER BY id) AS rn"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' QUALIFY m AND rn = 1",
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+        assertScoreUsageError("SELECT id, score() AS s, c1 MATCH 'red' AS m"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' HAVING m",
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+        assertScoreUsageError("SELECT c1 MATCH 'red' AS m, count(*) FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple' AND score() > 0.00001 GROUP BY m HAVING m",
                 BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
     }
 

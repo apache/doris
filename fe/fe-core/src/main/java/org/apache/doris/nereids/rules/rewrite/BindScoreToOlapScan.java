@@ -56,6 +56,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -74,7 +75,8 @@ import java.util.stream.Collectors;
  *   <li>in the select list, window functions and ORDER BY of a SELECT that does not aggregate.</li>
  * </ul>
  * A SELECT in a subquery, view, CTE or set operation has to ORDER BY score() with a LIMIT, which keeps
- * the predicates of the outer query away from its scan. Any other use of score() is rejected.
+ * the predicates of the outer query away from its scan. A correlated subquery cannot call score(), because
+ * decorrelation can remove that LIMIT. Any other use of score() is rejected.
  *
  * <p>This rule runs before subquery aliases are removed. It adds a score column to the scan, which
  * scores every row the scan returns, and replaces the score() calls of the SELECT with it.
@@ -86,6 +88,7 @@ public class BindScoreToOlapScan implements CustomRewriter {
             + "table and has a MATCH or SEARCH predicate in its WHERE clause";
     public static final String NESTED_SELECT_ERROR = "score() in a subquery, view, CTE or set operation "
             + "requires ORDER BY score() with LIMIT";
+    public static final String CORRELATED_SUBQUERY_ERROR = "score() cannot be used in a correlated subquery";
     public static final String AGGREGATE_ERROR = "score() can only be used in the WHERE clause of a SELECT "
             + "with GROUP BY, aggregate functions or DISTINCT";
     public static final String HAVING_OR_QUALIFY_ERROR = "score(), MATCH and SEARCH cannot be used in HAVING "
@@ -130,6 +133,11 @@ public class BindScoreToOlapScan implements CustomRewriter {
         boolean changed = false;
         for (int i = 0; i < plan.arity(); i++) {
             Plan child = plan.child(i);
+            // Decorrelation can remove the LIMIT and ORDER BY of a SELECT in a correlated subquery.
+            if (plan instanceof LogicalApply && i == 1 && ((LogicalApply<?, ?>) plan).isCorrelated()
+                    && child.anyMatch(node -> callsScore((Plan) node))) {
+                throw new AnalysisException(CORRELATED_SUBQUERY_ERROR);
+            }
             Plan newChild = startsSelect(plan, i) ? bindSelect(child, false) : bindNestedSelects(child);
             changed |= newChild != child;
             newChildren.add(newChild);
@@ -211,16 +219,21 @@ public class BindScoreToOlapScan implements CustomRewriter {
 
         List<Plan> aboveWhere = path.subList(0, clause + 1);
         boolean aggregates = aboveWhere.stream().anyMatch(LogicalAggregate.class::isInstance);
-        Set<Slot> scoreAliases = aboveWhere.stream()
-                .filter(LogicalProject.class::isInstance)
-                .flatMap(project -> ((LogicalProject<?>) project).getProjects().stream())
-                .filter(project -> project.containsType(Score.class))
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableSet.toImmutableSet());
+        // HAVING and QUALIFY can also read score(), MATCH and SEARCH through aliases of the SELECT.
+        Set<Slot> scoringAliases = new HashSet<>();
+        for (int i = aboveWhere.size() - 1; i >= 0; i--) {
+            for (Expression expression : aboveWhere.get(i).getExpressions()) {
+                if (expression instanceof NamedExpression
+                        && (expression.containsType(Score.class, Match.class, Search.class)
+                                || expression.getInputSlots().stream().anyMatch(scoringAliases::contains))) {
+                    scoringAliases.add(((NamedExpression) expression).toSlot());
+                }
+            }
+        }
         for (Plan node : aboveWhere) {
             if (node instanceof LogicalFilter && ((LogicalFilter<?>) node).getConjuncts().stream().anyMatch(
                     conjunct -> conjunct.containsType(Score.class, Match.class, Search.class)
-                            || conjunct.getInputSlots().stream().anyMatch(scoreAliases::contains))) {
+                            || conjunct.getInputSlots().stream().anyMatch(scoringAliases::contains))) {
                 throw new AnalysisException(HAVING_OR_QUALIFY_ERROR);
             }
             if (aggregates && callsScore(node)) {
@@ -259,11 +272,20 @@ public class BindScoreToOlapScan implements CustomRewriter {
         return expression.getInputSlots().isEmpty() && !expression.containsType(Score.class);
     }
 
-    // A TopN on the score above the SELECT, so that no outer predicate is pushed into the scan.
+    // A TopN on the score above the SELECT, so that no outer predicate is pushed into the scan. Analysis
+    // restores the select list between LIMIT and ORDER BY when HAVING or ORDER BY reads another column.
     private static boolean ordersByScoreWithLimit(List<Plan> aboveWhere) {
-        for (int i = 0; i + 1 < aboveWhere.size(); i++) {
-            if (aboveWhere.get(i) instanceof LogicalLimit && aboveWhere.get(i + 1) instanceof LogicalSort) {
-                List<OrderKey> orderKeys = ((LogicalSort<?>) aboveWhere.get(i + 1)).getOrderKeys();
+        for (int i = 0; i < aboveWhere.size(); i++) {
+            if (!(aboveWhere.get(i) instanceof LogicalLimit)) {
+                continue;
+            }
+            int sort = i + 1;
+            while (sort < aboveWhere.size() && aboveWhere.get(sort) instanceof LogicalProject
+                    && ((LogicalProject<?>) aboveWhere.get(sort)).isAllSlots()) {
+                sort++;
+            }
+            if (sort < aboveWhere.size() && aboveWhere.get(sort) instanceof LogicalSort) {
+                List<OrderKey> orderKeys = ((LogicalSort<?>) aboveWhere.get(sort)).getOrderKeys();
                 return orderKeys.size() == 1 && isScoreOrAlias(orderKeys.get(0).getExpr(), aboveWhere);
             }
         }

@@ -57,6 +57,9 @@
 sour	1
 sweet	1
 
+-- !nested_score_topn_having --
+1	0.4700036
+
 -- !nested_score_topn --
 1	0.4700036	sweet
 2	0.4700036	sour
