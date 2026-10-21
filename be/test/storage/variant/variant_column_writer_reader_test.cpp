@@ -1985,7 +1985,9 @@ protected:
         auto read_type = DataTypeFactory::instance().create_data_type(footer.columns(0));
         TabletColumn read_column = variant_util::get_column_by_type(
                 read_type, _tablet_schema->column(1).name(),
-                variant_util::ExtraInfo {.unique_id = -1, .parent_unique_id = 1});
+                variant_util::ExtraInfo {.unique_id = -1,
+                                         .parent_unique_id = 1,
+                                         .path_info = *_tablet_schema->column(1).path_info_ptr()});
         ColumnIteratorUPtr iterator;
         RETURN_IF_ERROR(reader->new_iterator(&iterator, &read_column));
         OlapReaderStatistics stats;
