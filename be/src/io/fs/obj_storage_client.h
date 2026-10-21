@@ -96,6 +96,7 @@ struct ObjectMeta {
 struct ObjectStorageListPageResponse {
     ObjectStorageResponse resp {};
     std::vector<ObjectMeta> objects {};
+    std::vector<std::string> common_prefixes {};
     std::string continuation_token {};
     bool has_more = false;
 };

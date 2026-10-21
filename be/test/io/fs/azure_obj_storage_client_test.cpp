@@ -35,6 +35,7 @@
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "core/value/file_value.h"
@@ -223,8 +224,9 @@ TEST_F(AzureFileMetadataTest, ListingEtagsReachFileChecksumsWithoutHeadRequests)
     for (const bool recursive : {false, true}) {
         auto transport = std::make_shared<AzureListTransport>();
         ObjectPool pool;
-        MockRowDescriptor descriptor(
-                {std::make_shared<DataTypeString>(), std::make_shared<DataTypeFile>()}, &pool);
+        MockRowDescriptor descriptor({std::make_shared<DataTypeString>(),
+                                      make_nullable(std::make_shared<DataTypeFile>())},
+                                     &pool);
         descriptor.tuple_desc_map[0]->slots()[0]->_col_name = "path";
         descriptor.tuple_desc_map[0]->slots()[1]->_col_name = "file";
         VListFileTVF listing(0, descriptor.tuple_desc_map[0]);
@@ -242,14 +244,21 @@ TEST_F(AzureFileMetadataTest, ListingEtagsReachFileChecksumsWithoutHeadRequests)
         while (!eos) {
             ASSERT_TRUE(listing.get_next(&state, &block, &eos).ok());
             for (size_t i = 0; i < block.rows(); ++i) {
-                const auto value = (*block.get_by_position(1).column)[i].get<TYPE_FILE>();
+                const auto field = (*block.get_by_position(1).column)[i];
+                if (field.is_null()) {
+                    EXPECT_FALSE(recursive);
+                    EXPECT_EQ((*block.get_by_position(0).column)[i].get<TYPE_STRING>(),
+                              "s3://container/tree/sub/");
+                    continue;
+                }
+                const auto value = field.get<TYPE_FILE>();
                 ASSERT_FALSE(value[4].is_null());
                 EXPECT_EQ(value[4].get<TYPE_STRING>(), "ETAG:opaque-2");
             }
             rows += block.rows();
             block.clear_column_data();
         }
-        EXPECT_EQ(rows, recursive ? 3 : 2);
+        EXPECT_EQ(rows, 3);
         EXPECT_EQ(transport->requests, 2);
     }
 }
