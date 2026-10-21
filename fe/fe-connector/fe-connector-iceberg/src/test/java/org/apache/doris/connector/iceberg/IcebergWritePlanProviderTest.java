@@ -66,6 +66,9 @@ import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -75,11 +78,17 @@ import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.DateTimeUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -91,6 +100,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Pins {@link IcebergWritePlanProvider#planWrite} for INSERT/OVERWRITE against legacy
@@ -413,6 +423,102 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void primitiveWriteDefaultsBecomeTypedSqlLiterals() {
+        // Each primitive write-default reaches the engine as SQL of the column's own type. The initial-default only
+        // describes rows written before the field existed, so it must never become the value of a new row.
+        Schema schema = new Schema(
+                defaultField(1, "boolean_col", Types.BooleanType.get(), true, false),
+                defaultField(2, "int_col", Types.IntegerType.get(), 34, 35),
+                defaultField(3, "long_col", Types.LongType.get(), 4_900_000_000L, 4_900_000_001L),
+                defaultField(4, "float_col", Types.FloatType.get(), 12.25F, 13.5F),
+                defaultField(5, "double_col", Types.DoubleType.get(), -123.5D, 456.75D),
+                defaultField(6, "decimal_col", Types.DecimalType.of(20, 4),
+                        new BigDecimal("12345.6789"), new BigDecimal("98765.4321")),
+                defaultField(7, "date_col", Types.DateType.get(),
+                        DateTimeUtil.isoDateToDays("2024-12-17"), DateTimeUtil.isoDateToDays("2025-01-18")),
+                defaultField(8, "timestamp_col", Types.TimestampType.withoutZone(),
+                        DateTimeUtil.isoTimestampToMicros("2024-12-17T23:59:59.123456"),
+                        DateTimeUtil.isoTimestampToMicros("2025-01-18T01:02:03.654321")),
+                defaultField(9, "timestamptz_col", Types.TimestampType.withZone(),
+                        DateTimeUtil.isoTimestamptzToMicros("2024-12-17T23:59:59.123456+00:00"),
+                        DateTimeUtil.isoTimestamptzToMicros("2025-01-18T01:02:03.654321+00:00")),
+                defaultField(10, "string_col", Types.StringType.get(), "initial-default", "write-default"),
+                defaultField(11, "uuid_col", Types.UUIDType.get(),
+                        UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
+                        UUID.fromString("123e4567-e89b-12d3-a456-426614174001")),
+                defaultField(12, "fixed_col", Types.FixedType.ofLength(4),
+                        ByteBuffer.wrap(new byte[] {0x01, 0x02, 0x03, 0x04}),
+                        ByteBuffer.wrap(new byte[] {0x0a, 0x0b, 0x0c, 0x0d})),
+                defaultField(13, "binary_col", Types.BinaryType.get(),
+                        ByteBuffer.wrap(new byte[] {0x05, 0x06}), ByteBuffer.wrap(new byte[] {0x0e, 0x0f})),
+                Types.NestedField.optional(14, "optional_col", Types.IntegerType.get()),
+                Types.NestedField.required(15, "required_col", Types.IntegerType.get()));
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "typed_defaults"), schema,
+                PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "3"));
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.typed_defaults", Optional.empty(), false, false);
+        Map<String, ConnectorColumn> columns = new HashMap<>();
+        for (ConnectorColumn column : writeContext.getColumns()) {
+            columns.put(column.getName(), column);
+        }
+
+        assertWriteDefault(columns.get("boolean_col"), ConnectorType.of("BOOLEAN"), "false");
+        assertWriteDefault(columns.get("int_col"), ConnectorType.of("INT"), "35");
+        assertWriteDefault(columns.get("long_col"), ConnectorType.of("BIGINT"), "4900000001");
+        assertWriteDefault(columns.get("float_col"), ConnectorType.of("FLOAT"), "13.5");
+        assertWriteDefault(columns.get("double_col"), ConnectorType.of("DOUBLE"), "456.75");
+        assertWriteDefault(columns.get("decimal_col"), ConnectorType.of("DECIMALV3", 20, 4), "98765.4321");
+        assertWriteDefault(columns.get("date_col"), ConnectorType.of("DATEV2"), "'2025-01-18'");
+        assertWriteDefault(columns.get("timestamp_col"), ConnectorType.of("DATETIMEV2", 6, 0),
+                "'2025-01-18 01:02:03.654321'");
+        assertWriteDefault(columns.get("timestamptz_col"), ConnectorType.of("TIMESTAMPTZ", 6, 0),
+                "'2025-01-18 01:02:03.654321+00:00'");
+        assertWriteDefault(columns.get("string_col"), ConnectorType.of("STRING"), "'write-default'");
+        assertWriteDefault(columns.get("uuid_col"), ConnectorType.of("UUID"),
+                "'123e4567-e89b-12d3-a456-426614174001'");
+        assertWriteDefault(columns.get("fixed_col"), ConnectorType.of("VARBINARY", 4, 0), "X'0A0B0C0D'");
+        assertWriteDefault(columns.get("binary_col"), ConnectorType.of("VARBINARY"), "X'0E0F'");
+        assertWriteDefault(columns.get("optional_col"), ConnectorType.of("INT"), "NULL");
+        assertWriteDefault(columns.get("required_col"), ConnectorType.of("INT"), null);
+        Assertions.assertFalse(columns.get("string_col").isNullable());
+        Assertions.assertEquals(table.schema().schemaId(), writeContext.getSchema().schemaId());
+        Assertions.assertEquals(SchemaParser.toJson(table.schema()), writeContext.getSchemaJson());
+        Assertions.assertTrue(writeContext.getMergeSchemaJson().contains("_row_id"));
+    }
+
+    private static Types.NestedField defaultField(int id, String name, Type type,
+            Object initialDefault, Object writeDefault) {
+        return Types.NestedField.required(name).withId(id).ofType(type)
+                .withInitialDefault(initialDefault).withWriteDefault(writeDefault).build();
+    }
+
+    private static void assertWriteDefault(ConnectorColumn column, ConnectorType type, String defaultSql) {
+        Assertions.assertEquals(type, column.getType(), column.getName());
+        Assertions.assertEquals(defaultSql, column.getDefaultValueSql(), column.getName());
+    }
+
+    @Test
+    public void complexWriteDefaultsRenderMapsAndNullElementsRecursively() {
+        // A complex write-default keeps every nested NULL in place and renders maps entry by entry.
+        Types.StructType structType = Types.StructType.of(
+                Types.NestedField.required(101, "count", Types.IntegerType.get()),
+                Types.NestedField.optional(102, "items", Types.ListType.ofOptional(103, Types.StringType.get())),
+                Types.NestedField.optional(104, "attributes",
+                        Types.MapType.ofOptional(105, 106, Types.StringType.get(), Types.IntegerType.get())));
+        Map<String, Integer> attributes = new LinkedHashMap<>();
+        attributes.put("one", 1);
+        attributes.put("none", null);
+        GenericRecord structDefault = GenericRecord.create(structType);
+        structDefault.setField("count", 7);
+        structDefault.setField("items", Arrays.asList("a", null));
+        structDefault.setField("attributes", attributes);
+
+        Assertions.assertEquals("named_struct('count', 7, 'items', array('a', NULL), "
+                        + "'attributes', map('one', 1, 'none', NULL))",
+                IcebergWriteSchemaContext.toDorisSql(structType, structDefault, false, false));
+    }
+
+    @Test
     public void zonedAndNestedBinaryWriteDefaultsIgnoreLegacyMappingFlags() {
         // A zoned default keeps its instant, and a nested binary leaf stays bytes, with the old flags off.
         Assertions.assertEquals("'2025-01-18 01:02:03.654321+00:00'", IcebergWriteSchemaContext.toDorisSql(
@@ -554,6 +660,97 @@ public class IcebergWritePlanProviderTest {
 
         Assertions.assertNull(writeContext.getSchema().findField("required_value"));
         Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+    }
+
+    @Test
+    public void pinnedWriterMetadataRejectsSchemaFormatSpecAndSortOrderDrift() {
+        // Pinned writer metadata stays valid only while its schema generation, format version, partition spec and
+        // sort order are still the table's; a spec or sort order that is gone, or reused with another definition,
+        // would label the written files with metadata they were not written with.
+        Table table = partitionedSortedTable(freshCatalog());
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.t1", Optional.empty(), false, false);
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+
+        assertWriterMetadataDrift(writeContext, withMetadata(table, "specs", Collections.emptyMap()),
+                "partition spec changed during write planning");
+        PartitionSpec redefinedSpec = PartitionSpec.builderFor(table.schema())
+                .withSpecId(table.spec().specId()).identity("name").build();
+        assertWriterMetadataDrift(writeContext, withMetadata(table, "specs",
+                Collections.singletonMap(redefinedSpec.specId(), redefinedSpec)),
+                "partition spec changed during write planning");
+        assertWriterMetadataDrift(writeContext, withMetadata(table, "sortOrders", Collections.emptyMap()),
+                "sort order changed during write planning");
+
+        table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
+        assertWriterMetadataDrift(writeContext, table, "schema changed during write planning");
+        assertWriterMetadataDrift(writeContext, table, "/format 3");
+        table.updateSchema().addColumn("added_after_planning", Types.IntegerType.get()).commit();
+        assertWriterMetadataDrift(writeContext, table, "current schema " + table.schema().schemaId() + "/");
+    }
+
+    private static void assertWriterMetadataDrift(IcebergWriteSchemaContext writeContext, Table current,
+            String expectedMessage) {
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> writeContext.validateCurrentSchema(current, false));
+        Assertions.assertTrue(ex.getMessage().contains(expectedMessage), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("retry the statement"), ex.getMessage());
+    }
+
+    /** A view of {@code table} whose {@code method} returns {@code value}; every other call reaches the table. */
+    private static Table withMetadata(Table table, String method, Object value) {
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class<?>[] {Table.class, HasTableOperations.class}, (proxy, invoked, args) -> {
+                    if (method.equals(invoked.getName())) {
+                        return value;
+                    }
+                    try {
+                        return invoked.invoke(table, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+    }
+
+    @Test
+    public void v1MetadataIdentityAcceptsRetainedAncestorAndRejectsReplacement() {
+        // A V1 table without a UUID is identified by its metadata file and timestamp: a later commit that keeps the
+        // pinned file in its metadata log is the same table, a reused file name with another timestamp is not.
+        String pinnedFile = "file:///tmp/v1_table/metadata/v1.metadata.json";
+        MutableMetadataOperations operations =
+                new MutableMetadataOperations(v1Metadata(pinnedFile, 1234L, null, 0L));
+        Assertions.assertNull(operations.current().uuid());
+        Table table = new BaseTable(operations, "db1.v1_table");
+        IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.create(
+                table, "db1.v1_table", Optional.empty(), false, false);
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+
+        operations.metadata = v1Metadata("file:///tmp/v1_table/metadata/v2.metadata.json", 2345L,
+                pinnedFile, 1234L);
+        Assertions.assertDoesNotThrow(() -> writeContext.validateCurrentSchema(table, false));
+
+        operations.metadata = v1Metadata(pinnedFile, 3456L, null, 0L);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> writeContext.validateCurrentSchema(table, false));
+        Assertions.assertTrue(ex.getMessage().contains("identity changed"), ex.getMessage());
+    }
+
+    /** V1 metadata without a table UUID, as written before Iceberg assigned one to every table. */
+    private static TableMetadata v1Metadata(String metadataFile, long lastUpdatedMillis,
+            String previousFile, long previousTimestampMillis) {
+        String metadataLog = previousFile == null ? "[]" : "[{\"timestamp-ms\":" + previousTimestampMillis
+                + ",\"metadata-file\":\"" + previousFile + "\"}]";
+        return TableMetadataParser.fromJson(metadataFile, "{\"format-version\":1,"
+                + "\"location\":\"file:///tmp/v1_table\","
+                + "\"last-updated-ms\":" + lastUpdatedMillis + ","
+                + "\"last-column-id\":1,"
+                + "\"schema\":{\"type\":\"struct\",\"schema-id\":0,\"fields\":["
+                + "{\"id\":1,\"name\":\"id\",\"required\":false,\"type\":\"int\"}]},"
+                + "\"partition-spec\":[],"
+                + "\"properties\":{\"write.format.default\":\"parquet\"},"
+                + "\"current-snapshot-id\":-1,"
+                + "\"snapshots\":[],"
+                + "\"metadata-log\":" + metadataLog + "}");
     }
 
     // ───────────────────────────── INSERT: table-derived fields ─────────────────────────────
@@ -2205,6 +2402,76 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
+    public void planWriteMergeSinkUsesCompleteStatementPinnedWriterMetadata() {
+        // Every merge-sink field that labels written files comes from the statement-pinned writer metadata, so a
+        // property, spec or sort-order change after the pin cannot make files claim metadata they were not
+        // written with. The bound write-metadata identity fence for spec and sort order is covered separately.
+        InMemoryCatalog catalog = freshCatalog();
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.parquet.compression-codec", "zstd");
+        tableProps.put("write.data.path", "oss://bucket/wh/db1/pinned/data");
+        tableProps.put("format-version", "3");
+        Table table = catalog.createTable(TableIdentifier.of("db1", "pinned"), SCHEMA,
+                PartitionSpec.builderFor(SCHEMA).identity("id").build(), tableProps);
+        table.replaceSortOrder().asc("id", NullOrder.NULLS_FIRST).commit();
+        RecordingConnectorContext ctx = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, ctx);
+        WriteSession session = sessionFor(table, ctx);
+        IcebergTableHandle tableHandle = new IcebergTableHandle("db1", "pinned");
+        provider.getWriteColumns(session, tableHandle, Optional.empty());
+        IcebergWriteSchemaContext pinned = IcebergStatementScope.activeWriteSchema(session, "db1", "pinned")
+                .orElseThrow(AssertionError::new);
+        int pinnedSpecId = pinned.getPartitionSpec().specId();
+
+        table.updateProperties()
+                .set("write.format.default", "orc")
+                .set("write.orc.compression-codec", "zlib")
+                .set("write.data.path", "oss://bucket/wh/db1/pinned/moved")
+                .set("write.metadata.metrics.default", "none")
+                .commit();
+        table.updateSpec().removeField("id").addField("name").commit();
+        table.replaceSortOrder().desc("name").commit();
+        TIcebergMergeSink sink = provider.planWrite(session,
+                new WriteHandle(tableHandle).writeOperation(WriteOperation.MERGE))
+                .getDataSink().getIcebergMergeSink();
+
+        Assertions.assertNotEquals(pinnedSpecId, table.spec().specId(), "the live spec must have moved on");
+        Assertions.assertEquals(pinned.getMergeSchemaJson(), sink.getSchemaJson());
+        Assertions.assertTrue(sink.getSchemaJson().contains("_row_id"));
+        Assertions.assertEquals(pinnedSpecId, sink.getPartitionSpecId());
+        Assertions.assertEquals(Collections.singletonMap(pinnedSpecId, pinned.getPartitionSpecJson()),
+                sink.getPartitionSpecsJson());
+        Assertions.assertEquals(pinnedSpecId, sink.getPartitionSpecIdForDelete());
+        Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
+        Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressionType());
+        Assertions.assertEquals("oss://bucket/wh/db1/pinned/data", sink.getOriginalOutputPath());
+        Assertions.assertEquals("oss://bucket/wh/db1/pinned/data", sink.getTableLocation());
+        Assertions.assertTrue(sink.isCollectColumnStats(), "the pinned metrics policy still collects stats");
+        Assertions.assertEquals(1, sink.getSortFieldsSize());
+        Assertions.assertEquals(table.schema().findField("id").fieldId(),
+                sink.getSortFields().get(0).getSourceColumnId());
+        Assertions.assertTrue(sink.getSortFields().get(0).isAscending());
+    }
+
+    @Test
+    public void planWriteMergeSinkPinsUnpartitionedSpecIdForDelete() {
+        // Once the last partition field is dropped, position deletes are written under the current unpartitioned
+        // spec. Its id is not the initial spec 0, so the delete side must carry the pinned id, not a default.
+        Table table = partitionedSortedTable(freshCatalog());
+        table.updateSpec().removeField("id").commit();
+
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.MERGE));
+
+        Assertions.assertFalse(table.spec().isPartitioned());
+        Assertions.assertNotEquals(0, table.spec().specId());
+        Assertions.assertFalse(sink.isSetPartitionSpecId());
+        Assertions.assertFalse(sink.isSetPartitionSpecsJson());
+        Assertions.assertEquals(table.spec().specId(), sink.getPartitionSpecIdForDelete());
+    }
+
+    @Test
     public void planWriteMergeSinkSortFieldsFromIdentitySortOrder() {
         Table table = partitionedSortedTable(freshCatalog());
         TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
@@ -2539,6 +2806,45 @@ public class IcebergWritePlanProviderTest {
 
         @Override
         public void deleteFile(String path) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    /** Table operations over replaceable metadata, so a test can advance or replace a table without a catalog. */
+    private static final class MutableMetadataOperations implements TableOperations {
+        private TableMetadata metadata;
+
+        MutableMetadataOperations(TableMetadata metadata) {
+            this.metadata = metadata;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return metadata;
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return metadata;
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata updated) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public FileIO io() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
             throw new UnsupportedOperationException();
         }
     }
