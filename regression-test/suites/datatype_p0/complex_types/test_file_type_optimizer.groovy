@@ -20,8 +20,8 @@ suite("test_file_type_optimizer") {
             "content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>"
     def fileCtes = """
         WITH file_values AS (
-            SELECT number AS id, CAST(JSON_PARSE(CONCAT('{"uri":"urn:optimizer:', number,
-                '","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}')) AS FILE) AS f
+            SELECT number AS id, CAST(NAMED_STRUCT('uri', CONCAT('urn:optimizer:', number),
+                'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS FILE) AS f
             FROM numbers("number"="3")
         ), file_scan AS (
             SELECT id, f, CAST(ARRAY(CAST(f AS ${publicStruct})) AS ARRAY<FILE>) AS a,
