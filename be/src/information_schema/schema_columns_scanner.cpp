@@ -173,6 +173,8 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
         return "uuid";
     case TPrimitiveType::VARIANT:
         return "variant";
+    case TPrimitiveType::VARBINARY:
+        return "varbinary";
     default:
         return "unknown";
     }
@@ -310,6 +312,12 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         return "uuid";
     case TPrimitiveType::VARIANT:
         return "variant";
+    case TPrimitiveType::VARBINARY:
+        // An FE without the VARBINARY column size sends no length.
+        if (desc.__isset.columnLength) {
+            return "varbinary(" + std::to_string(desc.columnLength) + ")";
+        }
+        return "varbinary";
     default:
         return "unknown";
     }
@@ -520,13 +528,13 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // CHARACTER_MAXIMUM_LENGTH
-    // For string columns, the maximum length in characters.
+    // For string columns, the maximum length in characters; for binary columns, in bytes.
     {
         std::vector<int64_t> srcs(columns_num);
         for (int i = 0; i < columns_num; ++i) {
             int data_type = _desc_result.columns[i].columnDesc.columnType;
             if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
-                data_type == TPrimitiveType::STRING) {
+                data_type == TPrimitiveType::STRING || data_type == TPrimitiveType::VARBINARY) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
                     srcs[i] = _desc_result.columns[i].columnDesc.columnLength;
                     datas[i] = srcs.data() + i;
@@ -549,6 +557,14 @@ Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
                 data_type == TPrimitiveType::STRING) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
                     srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4L;
+                    datas[i] = srcs.data() + i;
+                } else {
+                    datas[i] = nullptr;
+                }
+            } else if (data_type == TPrimitiveType::VARBINARY) {
+                // The length of a binary column is in bytes already.
+                if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
+                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength;
                     datas[i] = srcs.data() + i;
                 } else {
                     datas[i] = nullptr;

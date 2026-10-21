@@ -142,9 +142,8 @@ public class PaimonConnectorMetadataColumnEvolutionTest {
     }
 
     @Test
-    public void modifyColumnKeepsRemoteTimestampPrecisionBehindLossyProjection() {
-        // Doris shows a Paimon TIMESTAMP(9) as DATETIMEV2(6). A MODIFY COLUMN that keeps the projected
-        // type (here it only changes the comment) must not narrow the remote column to TIMESTAMP(6).
+    public void modifyColumnKeepsRemoteNanosecondTimestampPrecision() {
+        // A comment-only modification must preserve the remote nanosecond precision.
         List<DataField> fields = Arrays.asList(
                 new DataField(0, "id", new IntType(false)),
                 new DataField(1, "ts", new TimestampType(9)));
@@ -161,7 +160,7 @@ public class PaimonConnectorMetadataColumnEvolutionTest {
         tsHandle.setPaimonTable(table);
 
         tsMetadata.modifyColumn(null, tsHandle, new ConnectorColumn(
-                "ts", ConnectorType.of("DATETIMEV2", 6, 0), "event time", true, null), null);
+                "ts", ConnectorType.of("TIMESTAMP_NS"), "event time", true, null), null);
 
         Assertions.assertEquals(1, tsOps.lastSchemaChanges.size());
         Assertions.assertInstanceOf(SchemaChange.UpdateColumnComment.class, tsOps.lastSchemaChanges.get(0),

@@ -95,10 +95,10 @@ public:
 
     bool need_read_delete_bitmap() const {
         return _tablet_meta->enable_unique_key_merge_on_write() ||
-               _tablet_meta->is_row_binlog_tablet();
+               _tablet_meta->is_changelog_tablet();
     }
 
-    bool is_row_binlog_tablet() const { return _tablet_meta->is_row_binlog_tablet(); }
+    bool is_changelog_tablet() const { return _tablet_meta->is_changelog_tablet(); }
 
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
@@ -165,7 +165,7 @@ public:
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
                                             bool cloud_get_rowset_meta) const;
 
-    bool scan_expired_row_binlog_rowsets();
+    bool scan_expired_changelog_rowsets();
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 
@@ -372,7 +372,7 @@ public:
 
 protected:
     // Protected by the tablet header lock; discovery resumes after this version.
-    Version _row_binlog_ttl_scan_cursor {-1, -1};
+    Version _changelog_ttl_scan_cursor {-1, -1};
 
     // Find the missed versions until the spec_version.
     //

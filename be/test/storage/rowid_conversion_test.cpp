@@ -51,7 +51,7 @@
 #include "storage/compaction_task_tracker.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/merger.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
@@ -398,7 +398,7 @@ protected:
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
@@ -838,7 +838,7 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
         EXPECT_TRUE(read_schema
                             ->init_from_tablet_schema(*tablet_schema,
                                                       /*merge_by_sequence_mapping=*/false,
-                                                      /*map_row_binlog_columns=*/false)
+                                                      /*map_changelog_columns=*/false)
                             .ok());
         RowsetReaderSharedPtr output_reader;
         create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_reader);
@@ -1041,7 +1041,7 @@ TEST_F(TestRowIdConversion, SingleRowsetGroupedCompactionRowIdConversionIsComple
             EXPECT_TRUE(read_schema
                                 ->init_from_tablet_schema(*tablet_schema,
                                                           /*merge_by_sequence_mapping=*/false,
-                                                          /*map_row_binlog_columns=*/false)
+                                                          /*map_changelog_columns=*/false)
                                 .ok());
             RowsetReaderSharedPtr second_output_reader;
             create_and_init_rowset_reader(second_output_rowset.get(), second_reader_context,

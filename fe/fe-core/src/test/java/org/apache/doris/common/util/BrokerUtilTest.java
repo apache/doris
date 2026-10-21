@@ -151,4 +151,19 @@ public class BrokerUtilTest {
         Assertions.assertEquals(Collections.singletonList(false), parsed.getIsNull());
     }
 
+    @Test
+    public void parseColumnsFromPathForLoadKeepsLegacyNullSemantics() throws Exception {
+        FilePartitionUtils.ParsedColumnsFromPath parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+        Assertions.assertEquals(Collections.singletonList(""), parsed.getValues());
+        Assertions.assertEquals(Collections.singletonList(true), parsed.getIsNull());
+
+        // Other values, including the Hive default partition, parse as on the query path.
+        parsed = FilePartitionUtils.parseColumnsFromPathWithNullInfoForLoad(
+                "hdfs://host/table/p=a/q=" + ConnectorPartitionValues.NULL_PARTITION_NAME + "/data.orc",
+                Lists.newArrayList("p", "q"), true, false);
+        Assertions.assertEquals(Lists.newArrayList("a", ""), parsed.getValues());
+        Assertions.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
+    }
+
 }

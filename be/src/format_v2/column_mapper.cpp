@@ -51,6 +51,7 @@
 #include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/schema_projection.h"
 #include "format_v2/table_reader.h"
@@ -59,6 +60,16 @@
 namespace doris::format {
 
 namespace {
+
+bool requires_paimon_datetime_precision_conversion(const DataTypePtr& source_type,
+                                                   const DataTypePtr& target_type) {
+    const auto source = remove_nullable(source_type);
+    const auto target = remove_nullable(target_type);
+    const auto primitive = source->get_primitive_type();
+    return primitive == target->get_primitive_type() &&
+           (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ) &&
+           source->get_scale() > target->get_scale();
+}
 
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
     const auto& table_children =
@@ -1102,7 +1113,9 @@ static VExprSPtr cast_file_expr_to_table_type(const VExprSPtr& file_expr,
     DORIS_CHECK(file_expr != nullptr);
     DORIS_CHECK(table_type != nullptr);
     DORIS_CHECK(rewrite_context != nullptr);
-    auto cast_expr = Cast::create_shared(table_type);
+    // Localized filters perform the same evolution as projection; SQL non-strict casts must
+    // not replace an overflowing retained DATE with NULL and filter it out before materialization.
+    auto cast_expr = EvolutionCast::create_shared(table_type);
     cast_expr->add_child(file_expr);
     rewrite_context->add_created_expr(cast_expr);
     return cast_expr;
@@ -1246,6 +1259,10 @@ static bool rewrite_in_struct_literal_predicate(
     return true;
 }
 
+// Defined with the other mapping-shape helpers below; needed when rewriting table expressions to
+// file-local expressions (a slot with unmapped children cannot stand in for the table value).
+static bool mapping_slot_has_unmapped_child(const ColumnMapping& mapping);
+
 static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
         const VExprSPtr& expr,
         const std::map<GlobalIndex, FileSlotRewriteInfo>& global_to_file_slot,
@@ -1288,6 +1305,15 @@ static VExprSPtr rewrite_struct_or_slot_expr_to_file_expr(
         return expr;
     }
     const auto& rewrite_info = rewrite_it->second;
+    DORIS_CHECK(rewrite_info.root_mapping != nullptr);
+    if (mapping_slot_has_unmapped_child(*rewrite_info.root_mapping)) {
+        // Final materialization substitutes a default/NULL for every child the projection left
+        // unmapped, so the file slot carries only a partial value: any file-local evaluation under
+        // this slot (whole-root casts included) would use a different value than the user sees.
+        // Keep such predicates above TableReader instead of filtering on the physical row.
+        *can_localize = false;
+        return expr;
+    }
     auto file_slot = create_file_slot_ref(*slot_ref, rewrite_info, rewrite_context);
     if (rewrite_info.file_type->equals(*rewrite_info.table_type)) {
         return file_slot;
@@ -1500,8 +1526,23 @@ static bool needs_complex_rematerialize(const ColumnMapping& mapping) {
     return false;
 }
 
+// The physical slot is only a partial carrier of the table value when the projection left at least
+// one descendant without a file mapping: final materialization substitutes a default/NULL for that
+// child, so a predicate rooted at this slot must not be evaluated on the file value (DORIS-29685).
+// Scalar type promotion and struct renaming keep their existing localization paths.
+static bool mapping_slot_has_unmapped_child(const ColumnMapping& mapping) {
+    return std::ranges::any_of(mapping.child_mappings, [](const ColumnMapping& child) {
+        return !child.file_local_id.has_value() || mapping_slot_has_unmapped_child(child);
+    });
+}
+
 static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     if (mapping.table_type == nullptr || mapping.file_type == nullptr) {
+        return false;
+    }
+    // A historical .600000 timestamp narrowed to p0 must be materialized through the
+    // truncating cast; reusing its file column directly would retain the fraction.
+    if (mapping.truncate_datetimev2_precision) {
         return false;
     }
     const auto table_type = remove_nullable(mapping.table_type);
@@ -1510,6 +1551,9 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
             table_type->get_primitive_type() == TYPE_TIMESTAMPTZ &&
             file_type->get_primitive_type() == TYPE_TIMESTAMPTZ;
     if (!mapping.table_type->equals(*mapping.file_type) && !same_timestamptz_with_different_scale) {
+        return false;
+    }
+    if (mapping_slot_has_unmapped_child(mapping)) {
         return false;
     }
     return !needs_complex_rematerialize(mapping);
@@ -1547,6 +1591,11 @@ static FilterConversionType direct_filter_conversion(const ColumnMapping& mappin
     // Apply the same rule to a complex root because generic array/map/struct expressions rewrite
     // the root slot and can otherwise expose a nested VARBINARY child to the reader.
     if (type_contains_varbinary(mapping.table_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
+    // Filtering the historical .600000 value before p0 truncation can reject a row
+    // that equals the whole-second literal after repair. Keep that predicate above materialization.
+    if (mapping.truncate_datetimev2_precision) {
         return FilterConversionType::FINALIZE_ONLY;
     }
     const auto table_type = remove_nullable(mapping.table_type);
@@ -2022,12 +2071,11 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
                std::ranges::all_of(value.substr(digits_begin),
                                    [](unsigned char c) { return std::isdigit(c); });
     };
-    if (path.size() != 1 || path[0].empty() || path[0] == "NULL" ||
-        path[0].find('.') != std::string::npos || is_numeric_selector(path[0]) ||
-        !mapping.file_local_id.has_value()) {
-        // Thrift currently carries access paths as strings without segment-kind or escaping
-        // metadata. Signed numeric tokens are therefore also ambiguous between an array selector
-        // and an object key, so only a single unambiguous key can be mapped losslessly to a leaf.
+    if (path.empty() || !mapping.file_local_id.has_value() ||
+        std::ranges::any_of(path, is_numeric_selector)) {
+        // The legacy path cannot distinguish a numeric object key from an array index. Preserve
+        // correctness by falling back for the whole path until typed array-index segments exist.
+        // TODO: Support numeric array indexes with an explicitly typed access-path protocol.
         return false;
     }
     *root_projection = LocalColumnIndex::partial_local(*mapping.file_local_id);
@@ -2061,6 +2109,11 @@ static bool build_variant_leaf_path_projection(const ColumnMapping& mapping,
                 return false;
             }
             typed_projection.project_all_children = true;
+        } else if (typed->type == nullptr ||
+                   remove_nullable(typed->type)->get_primitive_type() != TYPE_STRUCT) {
+            // Every intermediate typed_value must be an object. This prevents a legacy untyped
+            // path produced through an array/explode operation from crossing a repeated node.
+            return false;
         }
         current_projection->children.push_back(std::move(typed_projection));
         current_projection = &current_projection->children.back();
@@ -2189,7 +2242,8 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
         return;
     }
 
-    auto expr = Cast::create_shared(mapping->table_type);
+    auto expr = EvolutionCast::create_shared(mapping->table_type,
+                                             mapping->truncate_datetimev2_precision);
     expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
                                             cast_set<int>(block_position.value()), -1,
                                             mapping->file_type, mapping->file_column_name));
@@ -2904,6 +2958,11 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->projected_file_children = file_field.children;
     mapping->timestamp_is_adjusted_to_utc = file_field.timestamp_is_adjusted_to_utc;
     mapping->file_type = file_field.type;
+    const auto file_type = remove_nullable(mapping->file_type);
+    const auto table_type = remove_nullable(mapping->table_type);
+    mapping->truncate_datetimev2_precision =
+            _options.truncate_datetimev2_precision_for_paimon &&
+            requires_paimon_datetime_precision_conversion(file_type, table_type);
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.
     mapping->variant_access_paths = table_column.variant_access_paths;

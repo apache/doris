@@ -27,6 +27,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -174,20 +175,21 @@ public class AgentTaskTest {
         Assertions.assertEquals(createReplicaTask.getSignature(), request.getSignature());
         Assertions.assertNotNull(request.getCreateTabletReq());
 
-        // create with row binlog tablet
-        BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, false);
-        CreateReplicaTask createWithRowBinlog = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
+        // create with changelog tablet
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(new BinlogConfig(),
+                BinlogTestUtils.newTestChangelogConfig(true, false));
+        CreateReplicaTask createWithChangelog = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false,
                 binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5);
-        createWithRowBinlog.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
-        TAgentTaskRequest requestWithRowBinlog =
-                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);
-        Assertions.assertNotNull(requestWithRowBinlog.getCreateTabletReq());
-        Assertions.assertEquals(TTabletRole.TABLET_ROLE_ROW_BINLOG,
-                requestWithRowBinlog.getCreateTabletReq().getTabletRole());
+        createWithChangelog.setTabletRole(TTabletRole.TABLET_ROLE_CHANGELOG);
+        TAgentTaskRequest requestWithChangelog =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithChangelog);
+        Assertions.assertNotNull(requestWithChangelog.getCreateTabletReq());
+        Assertions.assertEquals(TTabletRole.TABLET_ROLE_CHANGELOG,
+                requestWithChangelog.getCreateTabletReq().getTabletRole());
 
         List<Index> bfIndexes = Arrays.asList(new Index(1L, "bf_k1", Arrays.asList("k1"),
                 IndexType.BLOOMFILTER, Map.of("bloom_filter_fpp", "0.02"), ""));

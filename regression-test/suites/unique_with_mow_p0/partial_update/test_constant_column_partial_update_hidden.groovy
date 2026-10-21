@@ -76,9 +76,8 @@ suite("test_constant_column_partial_update_hidden", "p0,nonConcurrent") {
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "true",
                 "store_row_column" = "${useRowStore}",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
 

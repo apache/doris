@@ -3141,7 +3141,7 @@ Status OrcReader::on_string_dicts_loaded(
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
             if (slot_desc->id() == slot_id) {
-                auto data_type = slot_desc->get_data_type_ptr();
+                auto data_type = slot_desc->type();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
                             {ColumnNullable::create(
@@ -3158,8 +3158,7 @@ Status OrcReader::on_string_dicts_loaded(
 
             } else {
                 temp_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                        slot_desc->get_data_type_ptr(),
-                                                        slot_desc->col_name()));
+                                                        slot_desc->type(), slot_desc->col_name()));
             }
             ++index;
         }

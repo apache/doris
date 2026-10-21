@@ -43,7 +43,7 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
 
     GeoPoint point;
     auto cur_res = point.from_coord(24.7, 56.7);
-    EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+    EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
     std::string buf;
     point.encode_to(&buf);
 
@@ -84,7 +84,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text) {
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
-        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
         std::string buf;
         point.encode_to(&buf);
 
@@ -101,7 +101,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_wkt) {
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
-        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
         std::string buf;
         point.encode_to(&buf);
 
@@ -118,7 +118,7 @@ TEST(VGeoFunctionsTest, function_geo_st_x) {
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
-        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
         std::string buf;
         point.encode_to(&buf);
 
@@ -135,7 +135,7 @@ TEST(VGeoFunctionsTest, function_geo_st_y) {
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
-        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
         std::string buf;
         point.encode_to(&buf);
 
@@ -195,13 +195,13 @@ TEST(VGeoFunctionsTest, function_geo_st_angle) {
 
         GeoPoint point1;
         auto cur_res1 = point1.from_coord(1, 0);
-        EXPECT_TRUE(cur_res1 == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res1 == GeoParseStatus::GEO_PARSE_OK);
         GeoPoint point2;
         auto cur_res2 = point2.from_coord(0, 0);
-        EXPECT_TRUE(cur_res2 == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res2 == GeoParseStatus::GEO_PARSE_OK);
         GeoPoint point3;
         auto cur_res3 = point3.from_coord(0, 1);
-        EXPECT_TRUE(cur_res3 == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res3 == GeoParseStatus::GEO_PARSE_OK);
         std::string buf1;
         point1.encode_to(&buf1);
         std::string buf2;
@@ -222,10 +222,10 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
     std::string func_name = "st_azimuth";
     GeoPoint point1;
     auto cur_res1 = point1.from_coord(0, 0);
-    EXPECT_TRUE(cur_res1 == GEO_PARSE_OK);
+    EXPECT_TRUE(cur_res1 == GeoParseStatus::GEO_PARSE_OK);
     GeoPoint point2;
     auto cur_res2 = point2.from_coord(1, 0);
-    EXPECT_TRUE(cur_res2 == GEO_PARSE_OK);
+    EXPECT_TRUE(cur_res2 == GeoParseStatus::GEO_PARSE_OK);
 
     std::string buf1;
     point1.encode_to(&buf1);
@@ -272,18 +272,18 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
 
     std::string shape1 = std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
     std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(shape1.data(), shape1.size(), status));
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     EXPECT_TRUE(shape != nullptr);
     shape->encode_to(&buf1);
 
     GeoPoint point1;
     status = point1.from_coord(5, 5);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     point1.encode_to(&buf2);
 
     GeoPoint point2;
     status = point2.from_coord(50, 50);
-    EXPECT_TRUE(status == GEO_PARSE_OK);
+    EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
     point2.encode_to(&buf3);
 
     DataSet data_set = {{{buf1, buf2}, (uint8_t)1},
@@ -326,7 +326,7 @@ TEST(VGeoFunctionsTest, function_geo_st_circle) {
         GeoCircle circle;
         std::string buf;
         auto value = circle.init(111, 64, 10000);
-        EXPECT_TRUE(value == GEO_PARSE_OK);
+        EXPECT_TRUE(value == GeoParseStatus::GEO_PARSE_OK);
         circle.encode_to(&buf);
         DataSet data_set = {{{(double)111, (double)64, (double)10000}, buf},
                             {{Null(), (double)64, (double)10000}, Null()},
@@ -347,7 +347,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometryfromtext) {
         std::string input = "LINESTRING (1 1, 2 2)";
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), status));
         EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
+        EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
 
@@ -365,7 +365,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromtext) {
         std::string input = "LINESTRING (1 1, 2 2)";
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), status));
         EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
+        EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
 
@@ -383,7 +383,7 @@ TEST(VGeoFunctionsTest, function_geo_st_linefromtext) {
         std::string input = "LINESTRING (1 1, 2 2)";
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), status));
         EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
+        EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
 
@@ -401,7 +401,7 @@ TEST(VGeoFunctionsTest, function_geo_st_polygon) {
         std::string input = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), status));
         EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
+        EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, buf},
                             {{Null()}, Null()}};
@@ -420,7 +420,7 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
         std::string input = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))";
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), status));
         EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
+        EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, buf},
                             {{Null()}, Null()}};
@@ -436,7 +436,7 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
 
         GeoCircle circle;
         auto cur_res = circle.init(0, 0, 1);
-        EXPECT_TRUE(cur_res == GEO_PARSE_OK);
+        EXPECT_TRUE(cur_res == GeoParseStatus::GEO_PARSE_OK);
         std::string buf;
         circle.encode_to(&buf);
         DataSet data_set = {{{buf}, (double)3.1415926535897869}, {{Null()}, Null()}};
@@ -455,7 +455,7 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
         std::string input = "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))";
         std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(input.data(), input.size(), status));
         EXPECT_TRUE(shape != nullptr);
-        EXPECT_TRUE(status == GEO_PARSE_OK);
+        EXPECT_TRUE(status == GeoParseStatus::GEO_PARSE_OK);
         shape->encode_to(&buf);
         DataSet data_set = {{{buf}, (double)12364.036567076409}, {{Null()}, Null()}};
 

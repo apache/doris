@@ -168,8 +168,9 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     _delete_row_count += delete_rows;
     _insert_row_count += insert_rows;
 
-    // A delete-only plan deliberately omits the data writer so Variant target schemas never enter
-    // the unsupported Iceberg data-write path. Reject a mismatched FE plan before dereferencing it.
+    // A delete-only plan omits the data writer, which it does not need and which a BE before Variant
+    // writes could not open for a Variant target schema. Reject a mismatched FE plan before
+    // dereferencing it.
     if (has_insert && !_writes_data_files) {
         return Status::InternalError(
                 "Iceberg delete-only merge sink received a data insert operation");

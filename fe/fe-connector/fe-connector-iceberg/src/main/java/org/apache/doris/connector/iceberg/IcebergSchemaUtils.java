@@ -500,6 +500,10 @@ public final class IcebergSchemaUtils {
             case DATE:
                 columnType.setType(TPrimitiveType.DATEV2);
                 break;
+            case TIMESTAMP_NANO:
+                columnType.setType(((Types.TimestampNanoType) type).shouldAdjustToUTC()
+                        ? TPrimitiveType.STRING : TPrimitiveType.TIMESTAMP_NS);
+                break;
             case TIMESTAMP:
                 boolean timestampTz = ((Types.TimestampType) type).shouldAdjustToUTC();
                 columnType.setType(timestampTz ? TPrimitiveType.TIMESTAMPTZ : TPrimitiveType.DATETIMEV2);
@@ -517,12 +521,15 @@ public final class IcebergSchemaUtils {
     }
 
     static String serializeInitialDefault(Type type, Object value, boolean enableTimestampTz) {
+        if (type.typeId() == TypeID.VARIANT) {
+            throw new DorisConnectorException("Iceberg VARIANT initial-default must be NULL");
+        }
         if (type.isNestedType()) {
             return SingleValueParser.toJson(type, value);
         }
         String humanValue = Transforms.identity(type).toHumanString(type, value);
-        if (type.typeId() == TypeID.TIMESTAMP) {
-            // Iceberg prints ISO-8601 (2024-01-01T00:00:00); Doris DATETIMEV2 needs a space separator.
+        if (type.typeId() == TypeID.TIMESTAMP || type.typeId() == TypeID.TIMESTAMP_NANO) {
+            // Iceberg prints ISO-8601 (2024-01-01T00:00:00); Doris temporal literals need a space separator.
             String dorisValue = humanValue.replace('T', ' ');
             // Preserve the offset through the FE-to-BE transport independently of legacy flags.
             return dorisValue;

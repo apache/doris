@@ -285,7 +285,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE, meta.getSessionVariables());
                         basicMvContext.setDatabase(meta.getDbName());
 
-                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
+                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
                                 ConnectContextUtil.getAffectQueryResultInPlanVariables(
                                         cascadesContext.getConnectContext()), meta.getSessionVariables());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),

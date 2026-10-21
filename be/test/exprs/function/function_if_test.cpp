@@ -74,12 +74,12 @@ TEST(FunctionIfTest, NullableConditionNotPolluteSharedNestedColumn) {
 
     FunctionUtils fn_utils(bool_type, {nullable_bool_type, bool_type, bool_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     auto st = func->execute(fn_ctx, block, {0, 1, 2}, 3, 2);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     const auto& result_data =
             assert_cast<const ColumnUInt8&>(*block.get_by_position(3).column).get_data();

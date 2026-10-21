@@ -176,7 +176,25 @@ public final class ConnectorSessionBuilder {
         }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
                 catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
-                captureStatementScope());
+                captureStatementScope(), captureBeExecVersion());
+    }
+
+    /**
+     * Captures the backend execution version that NereidsPlanner pinned for the current statement, which the
+     * query options sent to the backends and the write handle carry too. It is read off the same statement
+     * context as {@link #captureStatementScope()}. Without a statement context, or before the planner pins the
+     * version (offline planning, commands that plan no query, tests), it is {@code Config.be_exec_version}.
+     */
+    private int captureBeExecVersion() {
+        ConnectContext ctx = connectContext != null ? connectContext : ConnectContext.get();
+        if (ctx == null) {
+            return Config.be_exec_version;
+        }
+        StatementContext sc = ctx.getStatementContext();
+        if (sc == null || !sc.hasBeExecVersion()) {
+            return Config.be_exec_version;
+        }
+        return sc.getBeExecVersion();
     }
 
     /**

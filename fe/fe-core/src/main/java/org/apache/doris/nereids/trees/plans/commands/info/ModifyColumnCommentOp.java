@@ -81,8 +81,8 @@ public class ModifyColumnCommentOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Modifying column comment does not change schema, allow on row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Modifying column comment does not change schema, allow on changelog tables.
         return true;
     }
 

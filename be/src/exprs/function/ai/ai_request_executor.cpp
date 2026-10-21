@@ -27,11 +27,134 @@
 
 #include "exprs/function/ai/ai_adapter.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "service/http/http_client.h"
 #include "util/defer_op.h"
 #include "util/security.h"
 
 namespace doris {
+
+struct AIExecutionStatistics::Impl {
+    RuntimeProfile profile {"AI_FUNCTION"};
+    RuntimeProfile::Counter* input_rows =
+            profile.add_counter_with_level("AIFunctionInputRows", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* null_rows =
+            profile.add_counter_with_level("AIFunctionSkippedNullRows", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* logical =
+            profile.add_counter_with_level("AIFunctionLogicalRequestCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* first =
+            profile.add_counter_with_level("AIFunctionFirstAttemptCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* attempts =
+            profile.add_counter_with_level("AIFunctionRequestCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* retries =
+            profile.add_counter_with_level("AIFunctionRetryCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* errors =
+            profile.add_counter_with_level("AIFunctionErrorCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* timeouts =
+            profile.add_counter_with_level("AIFunctionTimeoutCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* cancelled =
+            profile.add_counter_with_level("AIFunctionCancelledCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* parse_errors =
+            profile.add_counter_with_level("AIFunctionParseErrorCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* parse_time =
+            profile.add_counter_with_level("AIFunctionParseTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* retry_wait_ns =
+            profile.add_counter_with_level("AIFunctionRetryWaitTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* http_time_ns =
+            profile.add_counter_with_level("AIFunctionHttpTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* dns_time_ns =
+            profile.add_counter_with_level("AIFunctionDnsTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* connect_time_ns =
+            profile.add_counter_with_level("AIFunctionTcpConnectTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* tls_time_ns =
+            profile.add_counter_with_level("AIFunctionTlsHandshakeTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* first_byte_time_ns =
+            profile.add_counter_with_level("AIFunctionFirstByteTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* usage_parse_time_ns =
+            profile.add_counter_with_level("AIFunctionUsageParseTime", TUnit::TIME_NS, 1);
+    RuntimeProfile::Counter* new_connections =
+            profile.add_counter_with_level("AIFunctionNewConnectionCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* prompt_tokens =
+            profile.add_counter_with_level("AIFunctionPromptTokens", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* completion_tokens =
+            profile.add_counter_with_level("AIFunctionCompletionTokens", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* total_tokens =
+            profile.add_counter_with_level("AIFunctionTotalTokens", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* prompt_usage_count =
+            profile.add_counter_with_level("AIFunctionPromptUsageCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* completion_usage_count =
+            profile.add_counter_with_level("AIFunctionCompletionUsageCount", TUnit::UNIT, 1);
+    RuntimeProfile::Counter* total_usage_count =
+            profile.add_counter_with_level("AIFunctionTotalUsageCount", TUnit::UNIT, 1);
+};
+
+AIExecutionStatistics::AIExecutionStatistics() : _impl(std::make_unique<Impl>()) {}
+AIExecutionStatistics::~AIExecutionStatistics() = default;
+RuntimeProfile* AIExecutionStatistics::profile() {
+    return &_impl->profile;
+}
+
+void AIExecutionStatistics::update_profile_snapshot(TRuntimeProfileTree& fragment_profile,
+                                                    int profile_level) {
+    TRuntimeProfileTree ai_profile;
+    _impl->profile.to_thrift(&ai_profile, profile_level);
+    auto& root = fragment_profile.nodes.front();
+    const auto& ai_root = ai_profile.nodes.front();
+    std::erase_if(root.counters,
+                  [](const auto& counter) { return counter.name.starts_with("AIFunction"); });
+    for (auto& [parent, children] : root.child_counters_map) {
+        std::erase_if(children, [](const auto& child) { return child.starts_with("AIFunction"); });
+    }
+    for (const auto& counter : ai_root.counters) {
+        if (counter.name.starts_with("AIFunction")) {
+            root.counters.push_back(counter);
+        }
+    }
+    for (const auto& [parent, children] : ai_root.child_counters_map) {
+        for (const auto& child : children) {
+            if (child.starts_with("AIFunction")) {
+                root.child_counters_map[parent].insert(child);
+            }
+        }
+    }
+}
+
+void AIExecutionStatistics::record_input(int64_t rows, int64_t skipped_nulls) {
+    _impl->input_rows->update(rows);
+    _impl->null_rows->update(skipped_nulls);
+}
+
+void AIExecutionStatistics::record_parse(int64_t elapsed_ns, bool failed) {
+    _impl->parse_time->update(elapsed_ns);
+    _impl->parse_errors->update(failed);
+    _impl->errors->update(failed);
+}
+
+void AIExecutionStatistics::record_request(const AIRequestStats& stats, const Status& status,
+                                           bool cancelled) {
+    _impl->logical->update(1);
+    _impl->first->update(stats.attempts > 0);
+    _impl->attempts->update(stats.attempts);
+    _impl->retries->update(stats.attempts - (stats.attempts > 0));
+    _impl->errors->update(!status.ok());
+    _impl->timeouts->update(status.is<ErrorCode::TIMEOUT>());
+    _impl->cancelled->update(cancelled && !status.ok() && !status.is<ErrorCode::TIMEOUT>());
+    _impl->retry_wait_ns->update(stats.retry_wait_ns);
+    _impl->http_time_ns->update(stats.http_time_ns);
+    _impl->dns_time_ns->update(stats.dns_time_ns);
+    _impl->connect_time_ns->update(stats.connect_time_ns);
+    _impl->tls_time_ns->update(stats.tls_time_ns);
+    _impl->first_byte_time_ns->update(stats.first_byte_time_ns);
+    _impl->usage_parse_time_ns->update(stats.usage_parse_time_ns);
+    _impl->new_connections->update(stats.new_connections);
+    _impl->prompt_tokens->update(stats.prompt_tokens);
+    _impl->completion_tokens->update(stats.completion_tokens);
+    _impl->total_tokens->update(stats.total_tokens);
+    _impl->prompt_usage_count->update(stats.prompt_usage_count);
+    _impl->completion_usage_count->update(stats.completion_usage_count);
+    _impl->total_usage_count->update(stats.total_usage_count);
+}
+
 // Borrowing removes a client from idle, ensuring exclusive use of its easy handle.
 struct AIRequestExecutor::ClientCache {
     std::unique_ptr<HttpClient> borrow() {
@@ -61,10 +184,11 @@ struct AIRequestExecutor::ClientCache {
     std::vector<std::unique_ptr<HttpClient>> idle;
 };
 
-AIRequestExecutor::AIRequestExecutor()
+AIRequestExecutor::AIRequestExecutor(std::shared_ptr<AIExecutionStatistics> statistics)
         : _now([] { return Clock::now(); }),
           _sleep([](Clock::duration delay) { std::this_thread::sleep_for(delay); }),
-          _clients(std::make_unique<ClientCache>()) {}
+          _clients(std::make_unique<ClientCache>()),
+          _statistics(std::move(statistics)) {}
 AIRequestExecutor::~AIRequestExecutor() = default;
 
 AIErrorType AIRequestExecutor::classify_http_status(long http_status) {
@@ -147,7 +271,8 @@ Status AIRequestExecutor::check_query_status(QueryContext* query_context,
 }
 
 Status AIRequestExecutor::wait_for_retry(int64_t delay_ms, QueryContext* query_context,
-                                         Clock::time_point deadline, AIRequestStats& stats) const {
+                                         Clock::time_point deadline, AIRequestStats& stats,
+                                         bool collect_statistics) const {
     RETURN_IF_ERROR(check_query_status(query_context, deadline));
     const auto started = _now();
     const auto remaining_ms =
@@ -158,8 +283,12 @@ Status AIRequestExecutor::wait_for_retry(int64_t delay_ms, QueryContext* query_c
                                 delay_ms, remaining_ms);
     }
     Defer record_wait([&] {
-        stats.retry_wait_ms +=
-                std::chrono::duration_cast<std::chrono::milliseconds>(_now() - started).count();
+        // Retry waiting is required even when its elapsed time is not being collected.
+        if (collect_statistics) {
+            const auto elapsed = _now() - started;
+            stats.retry_wait_ns +=
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
+        }
     });
     const auto retry_at = started + std::chrono::milliseconds(delay_ms);
     while (_now() < retry_at) {
@@ -195,7 +324,7 @@ AIErrorType AIRequestExecutor::classify_response(int curl_code, long http_status
 Status AIRequestExecutor::execute_single_request(
         HttpClient* client, const std::string& request_body, std::string& response,
         const AIResource& config, const AIAdapter& adapter, QueryContext* query_context,
-        Clock::time_point deadline, AIRequestStats& stats) {
+        Clock::time_point deadline, AIRequestStats& stats, bool collect_statistics) {
     // Read HTTP error bodies for diagnostics, using the same mode for all AI functions.
     RETURN_IF_ERROR(client->init(config.endpoint, false));
     RETURN_IF_ERROR(adapter.set_authentication(client));
@@ -213,13 +342,42 @@ Status AIRequestExecutor::execute_single_request(
     ++stats.attempts;
     Status status = client->execute_post_request(request_body, &response);
     client->set_abort_callback({});
+    // Large EMBED responses must not build an extra JSON DOM when nobody requests usage.
+    if (!collect_statistics) {
+        return status;
+    }
+    const auto metrics = client->get_transfer_metrics();
+    stats.http_time_ns += metrics.total_time_ns;
+    stats.dns_time_ns += metrics.dns_time_ns;
+    stats.connect_time_ns += metrics.connect_time_ns;
+    stats.tls_time_ns += metrics.tls_time_ns;
+    stats.first_byte_time_ns += metrics.first_byte_time_ns;
+    stats.new_connections += metrics.new_connections;
+    // Inspect every attempt, including provider errors, before response reuse or cancellation.
+    const auto parse_started = Clock::now();
+    const auto usage = adapter.parse_usage(response);
+    stats.usage_parse_time_ns +=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - parse_started)
+                    .count();
+    if (usage.prompt_tokens) {
+        stats.prompt_tokens += *usage.prompt_tokens;
+        ++stats.prompt_usage_count;
+    }
+    if (usage.completion_tokens) {
+        stats.completion_tokens += *usage.completion_tokens;
+        ++stats.completion_usage_count;
+    }
+    if (usage.total_tokens) {
+        stats.total_tokens += *usage.total_tokens;
+        ++stats.total_usage_count;
+    }
     return status;
 }
 
 Status AIRequestExecutor::prepare_retry(HttpClient& client, const AIResource& config,
                                         QueryContext* query_context, Clock::time_point deadline,
                                         AIErrorType error, const Status& request_status,
-                                        AIRequestStats& stats) const {
+                                        AIRequestStats& stats, bool collect_statistics) const {
     // Stop on non-retryable errors or exhausted retry budgets.
     if (error == AIErrorType::NON_RETRYABLE || stats.attempts - 1 >= config.max_retries) {
         return request_status;
@@ -237,20 +395,24 @@ Status AIRequestExecutor::prepare_retry(HttpClient& client, const AIResource& co
     // Wait within the query deadline, polling for cancellation before the next send.
     LOG(INFO) << "AI retry scheduled, next_attempt=" << stats.attempts + 1
               << ", delay_ms=" << delay_ms;
-    return wait_for_retry(delay_ms, query_context, deadline, stats);
+    return wait_for_retry(delay_ms, query_context, deadline, stats, collect_statistics);
 }
 
 Status AIRequestExecutor::execute(const std::string& request_body, std::string& response,
                                   const AIResource& config, const AIAdapter& adapter,
                                   QueryContext* query_context, AIRequestStats* output_stats) {
-    // Preserve statistics on success, failure, cancellation and timeout.
     AIRequestStats stats;
-    Defer publish_stats([&] {
-        if (output_stats != nullptr) {
-            *output_stats = stats;
-        }
-    });
+    const bool collect_statistics = _statistics != nullptr || output_stats != nullptr;
+    const Status result = execute_with_retry(request_body, response, config, adapter, query_context,
+                                             stats, collect_statistics);
+    publish_stats(stats, result, query_context, output_stats);
+    return result;
+}
 
+Status AIRequestExecutor::execute_with_retry(const std::string& request_body, std::string& response,
+                                             const AIResource& config, const AIAdapter& adapter,
+                                             QueryContext* query_context, AIRequestStats& stats,
+                                             bool collect_statistics) {
     // Establish one deadline for all attempts and waits.
     if (query_context == nullptr) {
         return Status::InternalError("Query context is null");
@@ -268,8 +430,9 @@ Status AIRequestExecutor::execute(const std::string& request_body, std::string& 
         RETURN_IF_ERROR(check_query_status(query_context, deadline));
         response.clear();
         const auto attempts_before = stats.attempts;
-        Status status = execute_single_request(client.get(), request_body, response, config,
-                                               adapter, query_context, deadline, stats);
+        Status status =
+                execute_single_request(client.get(), request_body, response, config, adapter,
+                                       query_context, deadline, stats, collect_statistics);
         if (stats.attempts == attempts_before) {
             return status;
         }
@@ -293,8 +456,20 @@ Status AIRequestExecutor::execute(const std::string& request_body, std::string& 
                   << ", response_body=" << response;
 
         // Complete retry checks and waiting before starting another request.
-        RETURN_IF_ERROR(
-                prepare_retry(*client, config, query_context, deadline, error, status, stats));
+        RETURN_IF_ERROR(prepare_retry(*client, config, query_context, deadline, error, status,
+                                      stats, collect_statistics));
+    }
+}
+
+void AIRequestExecutor::publish_stats(const AIRequestStats& stats, const Status& status,
+                                      QueryContext* query_context,
+                                      AIRequestStats* output_stats) const {
+    if (output_stats != nullptr) {
+        *output_stats = stats;
+    }
+    if (_statistics) {
+        _statistics->record_request(stats, status,
+                                    query_context != nullptr && query_context->is_cancelled());
     }
 }
 

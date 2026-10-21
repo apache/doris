@@ -143,7 +143,8 @@ Status VExprContext::open(RuntimeState* state) {
     // Fragment-local state is only initialized for original contexts. Clones inherit the
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
-            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+            _is_clone ? FunctionContext::FunctionStateScope::THREAD_LOCAL
+                      : FunctionContext::FunctionStateScope::FRAGMENT_LOCAL;
     Status st;
     RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
     return st;
@@ -155,7 +156,8 @@ void VExprContext::close() {
         return;
     }
     FunctionContext::FunctionStateScope scope =
-            _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+            _is_clone ? FunctionContext::FunctionStateScope::THREAD_LOCAL
+                      : FunctionContext::FunctionStateScope::FRAGMENT_LOCAL;
     _root->close(this, scope);
 }
 
@@ -176,7 +178,7 @@ Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     // The object of segment_v2::AnnRangeSearchRuntime is not shared by threads.
     new_ctx->_ann_range_search_runtime = this->_ann_range_search_runtime;
 
-    return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
+    return _root->open(state, new_ctx.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
 }
 
 void VExprContext::clone_fn_contexts(VExprContext* other) {

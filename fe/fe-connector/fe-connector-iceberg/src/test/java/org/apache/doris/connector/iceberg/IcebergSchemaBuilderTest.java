@@ -24,6 +24,8 @@ import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.spi.ddl.ConnectorSortField;
 
+import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -382,5 +384,71 @@ public class IcebergSchemaBuilderTest {
         catalogProps.put("table-default.format-version", "3");
         Map<String, String> props = IcebergSchemaBuilder.buildTableProperties(tableProps, catalogProps);
         Assertions.assertEquals("1", props.get(TableProperties.FORMAT_VERSION));
+    }
+
+    @Test
+    public void variantIsSupportedOnlyAsTopLevelColumn() {
+        // A top-level VARIANT, as declared by DDL or as the VARIANT_COMPUTE_V2 type a CTAS reads from an Iceberg
+        // table, becomes an Iceberg VARIANT; one nested in a STRUCT, an ARRAY or a MAP is rejected, as is a
+        // nested field declared as VARIANT.
+        for (String typeName : Arrays.asList("VARIANT", "VARIANT_COMPUTE_V2")) {
+            ConnectorType variant = ConnectorType.of(typeName);
+            Schema schema = IcebergSchemaBuilder.buildSchema(Arrays.asList(
+                    new ConnectorColumn("id", ConnectorType.of("INT"), null, false, null),
+                    new ConnectorColumn("payload", variant, "doc", true, null)));
+            Assertions.assertEquals(Types.VariantType.get(), schema.findField("payload").type());
+            Assertions.assertTrue(schema.findField("payload").isOptional());
+            Assertions.assertEquals(Types.VariantType.get(), IcebergSchemaBuilder.buildColumnType(variant));
+            for (ConnectorType nested : Arrays.asList(
+                    ConnectorType.structOf(Collections.singletonList("v"), Collections.singletonList(variant)),
+                    ConnectorType.arrayOf(variant),
+                    ConnectorType.mapOf(ConnectorType.of("STRING"), variant))) {
+                assertNestedVariantRejected(() -> IcebergSchemaBuilder.buildSchema(Collections.singletonList(
+                        new ConnectorColumn("payload", nested, null, true, null))));
+                assertNestedVariantRejected(() -> IcebergSchemaBuilder.buildColumnType(nested));
+            }
+            assertNestedVariantRejected(() -> IcebergSchemaBuilder.buildNestedFieldType(variant));
+        }
+    }
+
+    private static void assertNestedVariantRejected(Runnable build) {
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class, build::run);
+        Assertions.assertEquals("Iceberg VARIANT DDL currently supports only top-level columns",
+                exception.getMessage());
+    }
+
+    @Test
+    public void effectiveFileFormatFollowsCatalogAndTablePrecedence() {
+        // Catalog table-default, then the table request, then catalog table-override; the write-format nickname wins
+        // over write.format.default wherever it is set, as it does for an existing table.
+        Assertions.assertEquals(FileFormat.PARQUET,
+                IcebergSchemaBuilder.getEffectiveFileFormat(Collections.emptyMap(), Collections.emptyMap()));
+        Assertions.assertEquals(FileFormat.ORC, IcebergSchemaBuilder.getEffectiveFileFormat(
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc"), Collections.emptyMap()));
+        Assertions.assertEquals(FileFormat.ORC, IcebergSchemaBuilder.getEffectiveFileFormat(
+                Collections.emptyMap(), Collections.singletonMap(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.DEFAULT_FILE_FORMAT, "orc")));
+        Assertions.assertEquals(FileFormat.PARQUET, IcebergSchemaBuilder.getEffectiveFileFormat(
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc"), Collections.singletonMap(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.DEFAULT_FILE_FORMAT, "parquet")));
+        Assertions.assertEquals(FileFormat.ORC, IcebergSchemaBuilder.getEffectiveFileFormat(
+                Collections.singletonMap("write-format", "orc"), Collections.singletonMap(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.DEFAULT_FILE_FORMAT, "parquet")));
+        Assertions.assertEquals(FileFormat.PARQUET, IcebergSchemaBuilder.getEffectiveFileFormat(
+                Collections.singletonMap(TableProperties.DEFAULT_FILE_FORMAT, "orc"), Collections.singletonMap(
+                        CatalogProperties.TABLE_OVERRIDE_PREFIX + "write-format", "parquet")));
+        Map<String, String> catalogDefaults = new HashMap<>();
+        catalogDefaults.put(CatalogProperties.TABLE_DEFAULT_PREFIX + "write-format", "orc");
+        catalogDefaults.put(CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.DEFAULT_FILE_FORMAT, "parquet");
+        Assertions.assertEquals(FileFormat.ORC,
+                IcebergSchemaBuilder.getEffectiveFileFormat(Collections.emptyMap(), catalogDefaults));
+    }
+
+    @Test
+    public void variantDefaultValuesMustBeNull() {
+        Assertions.assertNull(IcebergSchemaBuilder.parseDefaultLiteral(null, Types.VariantType.get()));
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergSchemaBuilder.parseDefaultLiteral("{\"source\":\"ddl\"}", Types.VariantType.get()));
+        Assertions.assertEquals("Iceberg VARIANT default values must be NULL", exception.getMessage());
     }
 }

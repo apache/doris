@@ -41,8 +41,8 @@
 #include "core/extended_types.h"
 #include "io/io_common.h"
 #include "storage/field_type.h"
-#include "storage/index/inverted/inverted_index_stats.h"
-#include "storage/index/snii/snii_query_stats.h"
+#include "storage/index/inverted/common/inverted_index_stats.h"
+#include "storage/index/inverted/common/snii_query_stats.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset_id.h"
@@ -59,8 +59,8 @@ enum CompactionType {
     BASE_COMPACTION = 1,
     CUMULATIVE_COMPACTION = 2,
     FULL_COMPACTION = 3,
-    // Only used by scheduler to route row-binlog tablets to the binlog thread pool.
-    CUMU_BINLOG_COMPACTION = 4
+    // Only used by scheduler to route changelog tablets to the changelog thread pool.
+    CHANGELOG_COMPACTION = 4
 };
 
 struct CompactionScoreStats {

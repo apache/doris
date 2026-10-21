@@ -31,7 +31,7 @@
 #include "core/types.h"
 #include "io/fs/file_writer.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/olap_common.h"
@@ -1340,6 +1340,19 @@ Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 
 uint64_t VariantColumnWriter::estimate_buffer_size() {
     return _impl->estimate_buffer_size();
+}
+
+uint64_t VariantColumnWriter::get_raw_data_bytes() const {
+    return _impl->get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+}
+
+uint64_t VariantColumnWriter::get_total_uncompressed_data_pages_bytes() const {
+    return _impl->get_total_data_pages_bytes(
+            &ColumnWriter::get_total_uncompressed_data_pages_bytes);
+}
+
+uint64_t VariantColumnWriter::get_total_compressed_data_pages_bytes() const {
+    return _impl->get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
 }
 
 Status VariantColumnWriter::finish() {

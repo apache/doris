@@ -439,6 +439,8 @@ final class IcebergWriteSchemaContext {
                 return binarySql(byteBufferBytes((ByteBuffer) value), enableMappingVarbinary);
             case DATE:
                 return quote(LocalDate.ofEpochDay(((Integer) value).longValue()).toString());
+            case TIMESTAMP_NANO:
+                // Identity formatting preserves all nine digits, including negative epoch fractions.
             case TIMESTAMP:
                 String timestamp = Transforms.identity(type).toHumanString(type, value).replace('T', ' ');
                 // Zoned defaults retain their offset regardless of the legacy catalog flag.
@@ -472,6 +474,8 @@ final class IcebergWriteSchemaContext {
                             enableMappingVarbinary, enableMappingTimestampTz));
                 }
                 return "named_struct(" + String.join(", ", fields) + ")";
+            case VARIANT:
+                throw new DorisConnectorException("Iceberg VARIANT write-default must be NULL");
             default:
                 throw new DorisConnectorException("Unsupported Iceberg write-default type: " + type);
         }

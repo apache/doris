@@ -73,7 +73,7 @@ private:
     std::vector<uint16_t> _convert_block_to_null(Block& block);
     Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     friend struct ProcessHashTableProbe;
 
     // one probe row may match multiple build rows. and we need output whenever we filled a block.
@@ -184,7 +184,7 @@ private:
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
-    template <int JoinOpType>
+    template <TJoinOp::type JoinOpType>
     friend struct ProcessHashTableProbe;
 
     const TJoinDistributionType::type _join_distribution;

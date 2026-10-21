@@ -115,6 +115,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     String lastRenameTableDb;
     String lastRenameTableOld;
     String lastRenameTableNew;
+    String lastSetPropertiesDb;
+    String lastSetPropertiesTable;
+    Map<String, String> lastSetProperties;
     /** Canned location answers for the load-before-drop helpers (default: absent). */
     Optional<String> tableLocation = Optional.empty();
     Optional<String> namespaceLocation = Optional.empty();
@@ -280,6 +283,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastRenameTableDb = dbName;
         lastRenameTableOld = oldName;
         lastRenameTableNew = newName;
+    }
+
+    @Override
+    public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+        log.add("setTableProperties:" + dbName + "." + tableName + ":" + properties);
+        lastSetPropertiesDb = dbName;
+        lastSetPropertiesTable = tableName;
+        lastSetProperties = properties;
     }
 
     @Override

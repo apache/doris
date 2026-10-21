@@ -111,6 +111,12 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  v variant\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table two_variant_tbl(\n"
+                + "  id int,\n"
+                + "  v1 variant,\n"
+                + "  v2 variant\n"
+                + ") properties ('replication_num'='1')");
+
         // Table for string-length offset-only optimization tests
         createTable("create table str_tbl(\n"
                 + "  id int,\n"
@@ -403,6 +409,43 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantNumericSegmentsKeepLegacyPath() throws Exception {
+        withVariantSubPathPruningDisabled(() -> {
+            assertColumn("select v['0']['city'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(path("v", "0", "city")),
+                    ImmutableList.of());
+            assertColumn("select v[0]['city'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(path("v", "0", "city")),
+                    ImmutableList.of());
+            assertColumn("select v['0'], v[0] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(path("v", "0")),
+                    ImmutableList.of());
+        });
+    }
+
+    @Test
+    public void testVariantMultipleObjectAccessPaths() throws Exception {
+        withVariantSubPathPruningDisabled(() -> {
+            assertColumn("select v['profile']['city'], v['profile']['age'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(
+                            path("v", "profile", "age"),
+                            path("v", "profile", "city")),
+                    ImmutableList.of());
+
+            assertColumn("select v['a.b'], v['a']['b'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(
+                            path("v", "a", "b"),
+                            path("v", "a.b")),
+                    ImmutableList.of());
+        });
+    }
+
+    @Test
     public void testVariantMultiProjectionAccessPaths() throws Exception {
         assertVariantSubColumnSlots("select v['a'], v['b']['c'] from variant_tbl",
                 ImmutableList.of(
@@ -490,7 +533,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantAccessPath() throws Exception {
         assertColumn("select x['k'] from variant_tbl lateral view explode(v) tmp as x",
                 "variant",
-                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v")),
                 ImmutableList.of()
         );
     }
@@ -499,7 +542,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantProjectAndFilterAccessPath() throws Exception {
         assertColumn("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x where x['y'] is not null",
                 "variant",
-                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -508,7 +551,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantMultiLevelFieldAccessPath() throws Exception {
         assertColumn("select x['a']['b'] from variant_tbl lateral view explode(v['arr']) tmp as x",
                 "variant",
-                ImmutableList.of(path("v", "arr", "a", "b")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -517,7 +560,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantWithOuterPredicateAccessPath() throws Exception {
         assertAllAccessPathsContain("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where v['filter']['k'] = 1 and x['y'] is not null",
-                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y"), path("v", "filter", "k")),
+                ImmutableList.of(
+                        path("v", "arr"),
+                        path("v", "filter", "k")),
                 ImmutableList.of());
     }
 
@@ -526,9 +571,50 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select x['m'] from (select v as a from variant_tbl) t lateral view explode(a['arr']) tmp as x "
                         + "where x['n'] is not null",
                 "variant",
-                ImmutableList.of(path("v", "arr", "m"), path("v", "arr", "n")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
+    }
+
+    @Test
+    public void testMultiArgumentExplodePreservesVariantContainers() throws Exception {
+        assertColumn("select x1['k'] from variant_tbl lateral view explode(v, v) tmp as x1, x2",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
+
+        assertColumns("select x1['k'] from variant_tbl "
+                        + "lateral view explode(v['a'], v['b']) tmp as x1, x2",
+                ImmutableList.of(
+                        Triple.of("variant", ImmutableList.of(path("v", "a")), ImmutableList.of()),
+                        Triple.of("variant", ImmutableList.of(path("v", "b")), ImmutableList.of())));
+
+        assertColumn("select x1['k'] from variant_tbl "
+                        + "lateral view explode_outer(v, v) tmp as x1, x2",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testMultiArgumentExplodeKeepsUnreadVariantArgumentContainer() throws Exception {
+        // x2 is never read, but v2 still decides how many rows explode generates, so the narrow
+        // v2['k'] projection must not leave v2 as a partial read. Sub-path pruning, which gives
+        // v2['k'] its own slot, only rewrites OLAP scans; with it off, v2['k'] and the explode
+        // argument share one slot as they do in an external file scan.
+        withVariantSubPathPruningDisabled(() -> {
+            assertColumns("select x1['k'], v2['k'] from two_variant_tbl "
+                            + "lateral view explode(v1, v2) tmp as x1, x2",
+                    ImmutableList.of(
+                            Triple.of("variant", ImmutableList.of(path("v1")), ImmutableList.of()),
+                            Triple.of("variant", ImmutableList.of(path("v2")), ImmutableList.of())));
+
+            assertColumns("select x2['k'], v1['k'] from two_variant_tbl "
+                            + "lateral view explode_outer(v1, v2) tmp as x1, x2",
+                    ImmutableList.of(
+                            Triple.of("variant", ImmutableList.of(path("v1")), ImmutableList.of()),
+                            Triple.of("variant", ImmutableList.of(path("v2")), ImmutableList.of())));
+        });
     }
 
     @Test
@@ -2041,6 +2127,25 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
     private ColumnAccessPath path(String... path) {
         return ColumnAccessPath.data(ImmutableList.copyOf(path));
+    }
+
+    private void withVariantSubPathPruningDisabled(CheckedRunnable runnable) throws Exception {
+        String disabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().setDisableNereidsRules(
+                disabledRules.isEmpty()
+                        ? "VARIANT_SUB_PATH_PRUNING"
+                        : disabledRules + ",VARIANT_SUB_PATH_PRUNING");
+        try {
+            runnable.run();
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules(disabledRules);
+        }
+    }
+
+    @FunctionalInterface
+    private interface CheckedRunnable {
+        void run() throws Exception;
     }
 
     private ColumnAccessPath metaPath(String... path) {

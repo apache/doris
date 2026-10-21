@@ -34,6 +34,23 @@ build_version_patch="${DORIS_BUILD_VERSION_PATCH-0}"
 build_version_hotfix="${DORIS_BUILD_VERSION_HOTFIX-0}"
 build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-""}"
 
+validate_build_version_component() {
+    local component_name="$1"
+    local component_value="$2"
+
+    # Version metrics encode each component as one base-100 digit. Reject values such as 100
+    # instead of silently carrying them into the adjacent component and creating collisions.
+    if [[ ! "${component_value}" =~ ^(0|[1-9][0-9]?)$ ]]; then
+        echo "${component_name} must be a decimal integer between 0 and 99, got: ${component_value}" >&2
+        exit 1
+    fi
+}
+
+validate_build_version_component "DORIS_BUILD_VERSION_MAJOR" "${build_version_major}"
+validate_build_version_component "DORIS_BUILD_VERSION_MINOR" "${build_version_minor}"
+validate_build_version_component "DORIS_BUILD_VERSION_PATCH" "${build_version_patch}"
+validate_build_version_component "DORIS_BUILD_VERSION_HOTFIX" "${build_version_hotfix}"
+
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"

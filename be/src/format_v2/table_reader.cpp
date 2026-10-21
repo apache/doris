@@ -962,6 +962,7 @@ TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
 
 Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
+    _parquet_profile_cache = options.parquet_profile_cache;
     if (_scanner_profile != nullptr) {
         const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
         static const char* table_profile = file_scan_profile::TABLE_READER;
@@ -1412,7 +1413,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                hive_parquet_time_zone, preserve_binary_uuid());
+                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {

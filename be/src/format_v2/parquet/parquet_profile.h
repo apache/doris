@@ -16,6 +16,8 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 
 #include "runtime/runtime_profile.h"
 
@@ -32,14 +34,9 @@ struct ParquetPageSkipProfile {
 
 // ============================================================================
 // ============================================================================
-struct ParquetColumnReaderProfile {
-    RuntimeProfile::Counter* reader_read_rows = nullptr;   // rows read by read()
-    RuntimeProfile::Counter* reader_skip_rows = nullptr;   // rows skipped by skip()
-    RuntimeProfile::Counter* reader_select_rows = nullptr; // rows selected by select()
-    // COUNT(nullable_col) shape-only path; ordinary scans keep both counters zero.
-    RuntimeProfile::Counter* level_only_read_time = nullptr;
-    RuntimeProfile::Counter* level_only_skip_time = nullptr;
-    RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
+// Deferred Variant columns can outlive the scanner. This bundle retains all their counters,
+// while ordinary file/column reader copies only increment one shared reference count.
+struct ParquetVariantProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
     std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
     // Complete unshredded roots imported without rebuilding their Variant value tree. Bytes count
@@ -57,6 +54,24 @@ struct ParquetColumnReaderProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
+};
+
+struct ParquetColumnReaderProfile {
+    RuntimeProfile::Counter* reader_read_rows = nullptr;   // rows read by read()
+    RuntimeProfile::Counter* reader_skip_rows = nullptr;   // rows skipped by skip()
+    RuntimeProfile::Counter* reader_select_rows = nullptr; // rows selected by select()
+    // COUNT(nullable_col) shape-only path; ordinary scans keep both counters zero.
+    RuntimeProfile::Counter* level_only_read_time = nullptr;
+    RuntimeProfile::Counter* level_only_skip_time = nullptr;
+    RuntimeProfile::Counter* materialization_time = nullptr; // value materialization time (ns)
+    // One ownership reference per profile copy, rather than one per Variant counter.
+    std::shared_ptr<const ParquetVariantProfile> variant_counters;
+
+    const ParquetVariantProfile& variant_profile() const {
+        static const ParquetVariantProfile disabled;
+        return variant_counters ? *variant_counters : disabled;
+    }
+
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
@@ -164,8 +179,11 @@ struct ParquetProfile {
     RuntimeProfile::Counter* selected_row_ranges = nullptr;
     RuntimeProfile::Counter* filtered_group_rows = nullptr;
     RuntimeProfile::Counter* filtered_page_rows = nullptr;
-    // File-level Variant access paths that safely retained a physical typed-leaf projection.
+    // Variant access paths eligible for a row-group physical typed-leaf projection.
     RuntimeProfile::Counter* variant_leaf_projections = nullptr;
+    // Row-group outcomes for candidate Variant projections, counted per projected column opened.
+    RuntimeProfile::Counter* variant_leaf_projection_row_group_columns = nullptr;
+    RuntimeProfile::Counter* variant_full_projection_row_group_columns = nullptr;
 
     // ======== Page Skip ========
     RuntimeProfile::Counter* pages_skipped_by_data_page_filter = nullptr;
@@ -187,21 +205,14 @@ struct ParquetProfile {
     RuntimeProfile::Counter* level_only_read_time = nullptr;
     RuntimeProfile::Counter* level_only_skip_time = nullptr;
     RuntimeProfile::Counter* materialization_time = nullptr;
-    std::shared_ptr<RuntimeProfile::Counter> variant_reconstruction_time;
-    std::shared_ptr<RuntimeProfile::Counter> variant_reconstructed_rows;
-    // These counters are persistent because direct import can happen after scanner teardown.
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_time;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_import_bytes;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_time;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_direct_seek_bytes;
-    std::shared_ptr<RuntimeProfile::Counter> variant_unshredded_prefix_reuse_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_direct_subtree_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
-    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
-    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
-    std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_unsupported_fallbacks;
+    // One ownership reference per profile copy, rather than one per Variant counter.
+    std::shared_ptr<const ParquetVariantProfile> variant_counters;
+
+    const ParquetVariantProfile& variant_profile() const {
+        static const ParquetVariantProfile disabled;
+        return variant_counters ? *variant_counters : disabled;
+    }
+
     RuntimeProfile::Counter* hybrid_selection_batches = nullptr;
     RuntimeProfile::Counter* hybrid_selection_ranges = nullptr;
     RuntimeProfile::Counter* hybrid_selection_null_fallback_batches = nullptr;
@@ -283,6 +294,25 @@ struct ParquetProfile {
     RuntimeProfile::Counter* bloom_filter_conservative_fallbacks = nullptr;
     RuntimeProfile::Counter* bloom_filter_corrupt_rejections = nullptr;
     RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
+};
+
+// One immutable counter set per scanner RuntimeProfile. Readers copy its handles instead of
+// registering every counter again for each file. Lazy initialization keeps other formats' profiles
+// free of unused Parquet counters.
+class ParquetProfileCache {
+public:
+    explicit ParquetProfileCache(RuntimeProfile* profile) : _profile(profile) {}
+    const ParquetProfile& get();
+    // Nested table readers share a child RuntimeProfile across scanner instances. Their counters
+    // must stay on that child, while the root scan owns the cache until every scanner is closed.
+    ParquetProfileCache* get_child_cache(RuntimeProfile* child_profile);
+
+private:
+    RuntimeProfile* _profile;
+    std::once_flag _initialized;
+    ParquetProfile _counters;
+    std::mutex _children_mutex;
+    std::unordered_map<RuntimeProfile*, std::unique_ptr<ParquetProfileCache>> _children;
 };
 
 } // namespace doris::format::parquet

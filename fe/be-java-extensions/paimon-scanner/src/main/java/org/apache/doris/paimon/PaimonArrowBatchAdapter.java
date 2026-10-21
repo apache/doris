@@ -133,16 +133,17 @@ final class PaimonArrowBatchAdapter {
 
         @Override
         public Arrow2PaimonVectorConverter visit(TimestampType timestampType) {
-            return timestampAdapter();
+            return timestampAdapter(timestampType.getPrecision());
         }
 
         @Override
         public Arrow2PaimonVectorConverter visit(
                 LocalZonedTimestampType localZonedTimestampType) {
-            return timestampAdapter();
+            return timestampAdapter(localZonedTimestampType.getPrecision());
         }
 
-        private static Arrow2PaimonVectorConverter timestampAdapter() {
+        private static Arrow2PaimonVectorConverter timestampAdapter(int targetPrecision) {
+            final int nanosPerUnit = (int) Math.pow(10, 9 - targetPrecision);
             return vector -> {
                 TimeStampVector timestamps = (TimeStampVector) vector;
                 TimeUnit unit = ((ArrowType.Timestamp) vector.getField().getType()).getUnit();
@@ -163,9 +164,12 @@ final class PaimonArrowBatchAdapter {
                             case MICROSECOND:
                                 return Timestamp.fromMicros(value);
                             case NANOSECOND:
-                                return Timestamp.fromEpochMillis(
-                                        Math.floorDiv(value, 1_000_000L),
-                                        (int) Math.floorMod(value, 1_000_000L));
+                                // Paimon serializers trust target precision. Truncate the positive
+                                // fractional remainder so negative epochs and leading zero digits
+                                // obey the same narrowing rule, including nested values and keys.
+                                int nanos = (int) Math.floorMod(value, 1_000_000L);
+                                return Timestamp.fromEpochMillis(Math.floorDiv(value, 1_000_000L),
+                                        nanos / nanosPerUnit * nanosPerUnit);
                             default:
                                 throw new IllegalArgumentException(
                                         "Unsupported Paimon Arrow timestamp unit: " + unit);
@@ -204,6 +208,10 @@ final class PaimonArrowBatchAdapter {
             TimeUnit unit = precision > 3
                     ? TimeUnit.MICROSECOND
                     : precision > 0 ? TimeUnit.MILLISECOND : TimeUnit.SECOND;
+            if (timeZone == null && precision > 6) {
+                // The transport must retain the sub-microsecond digits of TIMESTAMP_NS inputs.
+                unit = TimeUnit.NANOSECOND;
+            }
             return new FieldType(nullable, new ArrowType.Timestamp(unit, timeZone), null);
         }
     }

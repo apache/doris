@@ -282,12 +282,12 @@ public:
         _binlog_config = std::move(binlog_config);
     }
     TabletRolePB tablet_role() const { return _tablet_role; }
-    bool is_row_binlog_tablet() const {
-        return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
-    }
+    bool is_changelog_tablet() const { return _tablet_role == TabletRolePB::TABLET_ROLE_CHANGELOG; }
     void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
-    int64_t binlog_tablet_id() const { return _binlog_tablet_id; }
-    void set_binlog_tablet_id(int64_t binlog_tablet_id) { _binlog_tablet_id = binlog_tablet_id; }
+    int64_t changelog_tablet_id() const { return _changelog_tablet_id; }
+    void set_changelog_tablet_id(int64_t changelog_tablet_id) {
+        _changelog_tablet_id = changelog_tablet_id;
+    }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -416,7 +416,7 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
-    int64_t _binlog_tablet_id = 0;
+    int64_t _changelog_tablet_id = 0;
 
     // meta for compaction
     std::string _compaction_policy;
