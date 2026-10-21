@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
@@ -176,7 +177,8 @@ public class BindScoreToOlapScan implements CustomRewriter {
     }
 
     // The plan nodes from the root of the SELECT down to its olap scan; empty when the SELECT reads
-    // anything else than one olap table, e.g. a join, a subquery or a lateral view.
+    // anything else than one olap table, e.g. a join, a subquery, a lateral view or a table stream,
+    // which is read by separate scans of its table and of its changes.
     private static List<Plan> pathToScan(Plan root) {
         List<Plan> path = new ArrayList<>();
         Plan node = root;
@@ -192,6 +194,9 @@ public class BindScoreToOlapScan implements CustomRewriter {
             } else {
                 return ImmutableList.of();
             }
+        }
+        if (node instanceof LogicalOlapTableStreamScan) {
+            return ImmutableList.of();
         }
         path.add(node);
         return path;

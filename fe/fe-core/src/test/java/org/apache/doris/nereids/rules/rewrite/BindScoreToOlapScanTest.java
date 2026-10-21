@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
@@ -42,6 +43,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 class BindScoreToOlapScanTest extends TestWithFeService {
+    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableTableStream;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -66,6 +69,22 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 + "PROPERTIES ('replication_num' = '1', 'inverted_index_storage_format' = 'V3')");
         createView("CREATE VIEW score_usage_top AS SELECT id, score() AS s FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 2");
+        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableTableStream = Config.enable_table_stream;
+        Config.enable_feature_binlog = true;
+        Config.enable_table_stream = true;
+        createTable("CREATE TABLE score_usage_binlog (id INT, c1 TEXT, "
+                + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
+                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createTable("CREATE STREAM score_usage_stream ON TABLE score_usage_binlog "
+                + "PROPERTIES ('type' = 'append_only')");
+    }
+
+    @Override
+    protected void runAfterAll() {
+        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_table_stream = originalEnableTableStream;
     }
 
     static Stream<Arguments> scoringPredicates() {
@@ -266,7 +285,9 @@ class BindScoreToOlapScanTest extends TestWithFeService {
             "SELECT id, score() FROM score_usage_V2 WHERE c1 MATCH 'apple'"
                     + " AND id IN (SELECT id FROM score_usage_V3)",
             "SELECT id, e, score() FROM score_usage_V2 LATERAL VIEW explode(array(1, 2)) t AS e"
-                    + " WHERE c1 MATCH 'apple'"})
+                    + " WHERE c1 MATCH 'apple'",
+            // A table stream is read by separate scans of its table and of its changes.
+            "SELECT id, score() AS s FROM score_usage_stream WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 10"})
     void testUnsupportedSelectIsRejected(String query) {
         assertScoreUsageError(query, BindScoreToOlapScan.UNSUPPORTED_SELECT_ERROR);
     }
