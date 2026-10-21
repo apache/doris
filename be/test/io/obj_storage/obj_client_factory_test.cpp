@@ -17,9 +17,12 @@
 
 #include "io/obj_storage/obj_client_factory.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,9 +32,11 @@
 #include "common/config.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/obj_storage/obj_client_holder.h"
 #include "io/obj_storage/obj_storage_config.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -52,23 +57,30 @@ private:
     bool _was_enabled;
 };
 
-S3ClientConf make_s3_conf(std::string endpoint) {
-    S3ClientConf conf;
-    conf.endpoint = std::move(endpoint);
-    conf.region = "us-east-1";
-    conf.ak = "ak";
-    conf.sk = "sk";
-    conf.bucket = "bucket";
-    return conf;
+// A cold-storage resource as FE sends it; ObjStorageConfigResolver::from_storage_param is one
+// of the flat sources that share the mapping into the typed backends.
+TS3StorageParam make_s3_param(std::string endpoint) {
+    TS3StorageParam param;
+    param.__set_endpoint(std::move(endpoint));
+    param.__set_region("us-east-1");
+    param.__set_ak("ak");
+    param.__set_sk("sk");
+    param.__set_bucket("bucket");
+    param.__set_provider(TObjStorageType::AWS);
+    return param;
 }
 
-S3ClientConf make_azure_conf(std::string endpoint) {
-    auto conf = make_s3_conf(std::move(endpoint));
-    conf.provider = ObjStorageProvider::AZURE;
-    conf.ak = "account";
-    conf.sk = "YWNjb3VudC1rZXk=";
-    conf.bucket = "container";
-    return conf;
+TS3StorageParam make_azure_param(std::string endpoint) {
+    auto param = make_s3_param(std::move(endpoint));
+    param.__set_provider(TObjStorageType::AZURE);
+    param.__set_ak("account");
+    param.__set_sk("YWNjb3VudC1rZXk=");
+    param.__set_bucket("container");
+    return param;
+}
+
+ObjClientConfig resolve(const TS3StorageParam& param) {
+    return ObjStorageConfigResolver::from_storage_param(param).client;
 }
 
 } // namespace
@@ -100,28 +112,30 @@ protected:
     std::function<void()> _on_s3_build;
 };
 
-TEST_F(ObjClientFactoryTest, ResolvesS3ConfIntoS3Backend) {
-    auto conf = make_s3_conf("resolve-s3.example.com");
-    conf.provider = ObjStorageProvider::OSS;
-    conf.token = "token";
-    conf.role_arn = "role";
-    conf.external_id = "external";
-    conf.cred_provider_type = CredProviderType::InstanceProfile;
-    conf.use_virtual_addressing = false;
-    conf.need_override_endpoint = false;
-    conf.max_connections = 10;
-    conf.request_timeout_ms = 20;
-    conf.connect_timeout_ms = 30;
-    conf.is_internal_bucket = true;
+TEST_F(ObjClientFactoryTest, ResolvesS3ParamIntoS3Backend) {
+    auto param = make_s3_param("resolve-s3.example.com");
+    param.__set_provider(TObjStorageType::OSS);
+    param.__set_token("token");
+    param.__set_role_arn("role");
+    param.__set_external_id("external");
+    param.__set_cred_provider_type(TCredProviderType::INSTANCE_PROFILE);
+    param.__set_use_path_style(true);
+    param.__set_max_conn(10);
+    param.__set_request_timeout_ms(20);
+    param.__set_conn_timeout_ms(30);
+    param.__set_root_path("root");
 
-    auto config = ObjStorageConfigResolver::from_client_conf(conf);
+    auto storage = ObjStorageConfigResolver::from_storage_param(param);
+    EXPECT_EQ(storage.bucket, "bucket");
+    EXPECT_EQ(storage.prefix, "root");
+    const auto& config = storage.client;
 
     ASSERT_TRUE(std::holds_alternative<S3ClientConfig>(config.backend));
     const auto& s3 = std::get<S3ClientConfig>(config.backend);
     EXPECT_EQ(s3.vendor, ObjStorageProvider::OSS);
     EXPECT_EQ(s3.endpoint, "resolve-s3.example.com");
     EXPECT_EQ(s3.region, "us-east-1");
-    EXPECT_FALSE(s3.need_override_endpoint);
+    EXPECT_TRUE(s3.need_override_endpoint);
     EXPECT_FALSE(s3.use_virtual_addressing);
     EXPECT_EQ(s3.auth.access_key, "ak");
     EXPECT_EQ(s3.auth.secret_key, "sk");
@@ -132,15 +146,14 @@ TEST_F(ObjClientFactoryTest, ResolvesS3ConfIntoS3Backend) {
     EXPECT_EQ(config.connection.max_connections, 10);
     EXPECT_EQ(config.connection.request_timeout_ms, 20);
     EXPECT_EQ(config.connection.connect_timeout_ms, 30);
-    EXPECT_EQ(config.usage, ClientUsage::INTERNAL_STORAGE);
+    // A cold-storage resource is an external bucket; storage vaults are internal.
+    EXPECT_EQ(config.usage, ClientUsage::EXTERNAL_ACCESS);
     EXPECT_EQ(config.provider(), ObjStorageProvider::OSS);
     EXPECT_EQ(config.endpoint(), "resolve-s3.example.com");
 }
 
-TEST_F(ObjClientFactoryTest, ResolvesAzureConfIntoAzureBackend) {
-    auto conf = make_azure_conf("resolve-azure.example.com");
-
-    auto config = ObjStorageConfigResolver::from_client_conf(conf);
+TEST_F(ObjClientFactoryTest, ResolvesAzureParamIntoAzureBackend) {
+    auto config = resolve(make_azure_param("resolve-azure.example.com"));
 
     ASSERT_TRUE(std::holds_alternative<AzureClientConfig>(config.backend));
     const auto& azure = std::get<AzureClientConfig>(config.backend);
@@ -155,77 +168,69 @@ TEST_F(ObjClientFactoryTest, ResolvesAzureConfIntoAzureBackend) {
 
 TEST_F(ObjClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
     // Azure never read region, token or the AWS role, so they do not split Azure clients.
-    auto azure_conf = make_azure_conf("identity-azure.example.com");
-    auto azure_with_s3_fields = azure_conf;
-    azure_with_s3_fields.region = "other-region";
-    azure_with_s3_fields.token = "token";
-    azure_with_s3_fields.role_arn = "role";
-    EXPECT_EQ(ObjStorageConfigResolver::from_client_conf(azure_conf),
-              ObjStorageConfigResolver::from_client_conf(azure_with_s3_fields));
+    auto azure_param = make_azure_param("identity-azure.example.com");
+    auto azure_with_s3_fields = azure_param;
+    azure_with_s3_fields.__set_region("other-region");
+    azure_with_s3_fields.__set_token("token");
+    azure_with_s3_fields.__set_role_arn("role");
+    EXPECT_EQ(resolve(azure_param), resolve(azure_with_s3_fields));
 
     // The Azure client is bound to one container; an S3 client is not bound to a bucket.
-    auto azure_other_container = azure_conf;
-    azure_other_container.bucket = "other-container";
-    EXPECT_NE(ObjStorageConfigResolver::from_client_conf(azure_conf),
-              ObjStorageConfigResolver::from_client_conf(azure_other_container));
+    auto azure_other_container = azure_param;
+    azure_other_container.__set_bucket("other-container");
+    EXPECT_NE(resolve(azure_param), resolve(azure_other_container));
 
-    auto s3_conf = make_s3_conf("identity-s3.example.com");
-    auto s3_other_bucket = s3_conf;
-    s3_other_bucket.bucket = "other-bucket";
-    EXPECT_EQ(ObjStorageConfigResolver::from_client_conf(s3_conf),
-              ObjStorageConfigResolver::from_client_conf(s3_other_bucket));
+    auto s3_param = make_s3_param("identity-s3.example.com");
+    auto s3_other_bucket = s3_param;
+    s3_other_bucket.__set_bucket("other-bucket");
+    EXPECT_EQ(resolve(s3_param), resolve(s3_other_bucket));
 
-    auto s3_other_region = s3_conf;
-    s3_other_region.region = "other-region";
-    EXPECT_NE(ObjStorageConfigResolver::from_client_conf(s3_conf),
-              ObjStorageConfigResolver::from_client_conf(s3_other_region));
+    auto s3_other_region = s3_param;
+    s3_other_region.__set_region("other-region");
+    EXPECT_NE(resolve(s3_param), resolve(s3_other_region));
 
     // The same endpoint and credentials on another backend or usage is another client.
-    auto s3_as_azure = s3_conf;
-    s3_as_azure.provider = ObjStorageProvider::AZURE;
-    EXPECT_NE(ObjStorageConfigResolver::from_client_conf(s3_conf),
-              ObjStorageConfigResolver::from_client_conf(s3_as_azure));
-    auto s3_internal = s3_conf;
-    s3_internal.is_internal_bucket = true;
-    EXPECT_NE(ObjStorageConfigResolver::from_client_conf(s3_conf),
-              ObjStorageConfigResolver::from_client_conf(s3_internal));
+    auto s3_as_azure = s3_param;
+    s3_as_azure.__set_provider(TObjStorageType::AZURE);
+    EXPECT_NE(resolve(s3_param), resolve(s3_as_azure));
+    auto s3_internal = resolve(s3_param);
+    s3_internal.usage = ClientUsage::INTERNAL_STORAGE;
+    EXPECT_NE(resolve(s3_param), s3_internal);
 }
 
 TEST_F(ObjClientFactoryTest, ToStringMasksCredentials) {
-    auto s3_conf = make_s3_conf("mask-s3.example.com");
-    s3_conf.ak = "AKIDEXAMPLE";
-    s3_conf.sk = "s3-secret-key";
-    s3_conf.token = "s3-session-token";
-    auto s3_text = ObjStorageConfigResolver::from_client_conf(s3_conf).to_string();
+    auto s3_param = make_s3_param("mask-s3.example.com");
+    s3_param.__set_ak("AKIDEXAMPLE");
+    s3_param.__set_sk("s3-secret-key");
+    s3_param.__set_token("s3-session-token");
+    auto s3_text = resolve(s3_param).to_string();
     EXPECT_EQ(s3_text.find("AKIDEXAMPLE"), std::string::npos);
     EXPECT_EQ(s3_text.find("s3-secret-key"), std::string::npos);
     EXPECT_EQ(s3_text.find("s3-session-token"), std::string::npos);
 
-    auto azure_text =
-            ObjStorageConfigResolver::from_client_conf(make_azure_conf("mask-azure.example.com"))
-                    .to_string();
+    auto azure_text = resolve(make_azure_param("mask-azure.example.com")).to_string();
     EXPECT_EQ(azure_text.find("YWNjb3VudC1rZXk="), std::string::npos);
     EXPECT_NE(azure_text.find("shared_key"), std::string::npos);
 }
 
 TEST_F(ObjClientFactoryTest, S3ProviderCachesByFullConfig) {
     auto& factory = ObjClientFactory::instance();
-    auto conf = make_s3_conf("s3-provider-cache.example.com");
+    auto param = make_s3_param("s3-provider-cache.example.com");
 
-    auto first = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(conf));
+    auto first = factory.get_or_create(resolve(param));
     ASSERT_TRUE(first.has_value()) << first.error();
     EXPECT_EQ(_s3_builds, 1);
 
-    auto other_bucket = conf;
-    other_bucket.bucket = "other-bucket";
-    auto shared = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(other_bucket));
+    auto other_bucket = param;
+    other_bucket.__set_bucket("other-bucket");
+    auto shared = factory.get_or_create(resolve(other_bucket));
     ASSERT_TRUE(shared.has_value()) << shared.error();
     EXPECT_EQ(shared.value(), first.value());
     EXPECT_EQ(_s3_builds, 1);
 
-    auto other_key = conf;
-    other_key.sk = "other-sk";
-    auto separate = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(other_key));
+    auto other_key = param;
+    other_key.__set_sk("other-sk");
+    auto separate = factory.get_or_create(resolve(other_key));
     ASSERT_TRUE(separate.has_value()) << separate.error();
     EXPECT_NE(separate.value(), first.value());
     EXPECT_EQ(_s3_builds, 2);
@@ -233,19 +238,18 @@ TEST_F(ObjClientFactoryTest, S3ProviderCachesByFullConfig) {
 
 TEST_F(ObjClientFactoryTest, AzureProviderCachesByContainer) {
     auto& factory = ObjClientFactory::instance();
-    auto conf = make_azure_conf("azure-provider-cache.example.com");
+    auto param = make_azure_param("azure-provider-cache.example.com");
 
-    auto first = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(conf));
+    auto first = factory.get_or_create(resolve(param));
 #ifdef USE_AZURE
     ASSERT_TRUE(first.has_value()) << first.error();
-    auto cached = factory.get_or_create(ObjStorageConfigResolver::from_client_conf(conf));
+    auto cached = factory.get_or_create(resolve(param));
     ASSERT_TRUE(cached.has_value()) << cached.error();
     EXPECT_EQ(cached.value(), first.value());
 
-    auto other_container = conf;
-    other_container.bucket = "other-container";
-    auto separate =
-            factory.get_or_create(ObjStorageConfigResolver::from_client_conf(other_container));
+    auto other_container = param;
+    other_container.__set_bucket("other-container");
+    auto separate = factory.get_or_create(resolve(other_container));
     ASSERT_TRUE(separate.has_value()) << separate.error();
     EXPECT_NE(separate.value(), first.value());
 #else
@@ -300,70 +304,151 @@ TEST_F(ObjClientFactoryTest, AzureProviderCacheIsBounded) {
 #endif
 }
 
-TEST_F(ObjClientFactoryTest, HolderPublishesConfAndClientTogether) {
-    auto conf = make_s3_conf("holder-state.example.com");
-    ObjClientHolder holder(conf);
+const std::string& secret_key_of(const ObjClientConfig& config) {
+    return std::get<S3ClientConfig>(config.backend).auth.secret_key;
+}
+
+TEST_F(ObjClientFactoryTest, HolderPublishesConfigAndClientTogether) {
+    auto param = make_s3_param("holder-state.example.com");
+    auto config = resolve(param);
+    ObjClientHolder holder(config);
     EXPECT_EQ(holder.get(), nullptr);
     EXPECT_EQ(holder.state()->generation, 0U);
 
     ASSERT_TRUE(holder.init().ok());
     auto initial = holder.state();
     EXPECT_EQ(initial->generation, 1U);
-    EXPECT_EQ(initial->legacy_conf, conf);
+    EXPECT_EQ(initial->config, config);
     ASSERT_NE(initial->client, nullptr);
 
-    auto rotated = conf;
-    rotated.sk = "rotated-sk";
-    ASSERT_TRUE(holder.reset(rotated).ok());
+    auto rotated = param;
+    rotated.__set_sk("rotated-sk");
+    ASSERT_TRUE(holder.reset(resolve(rotated)).ok());
     auto current = holder.state();
     EXPECT_EQ(current->generation, 2U);
-    EXPECT_EQ(current->legacy_conf->sk, "rotated-sk");
+    EXPECT_EQ(secret_key_of(current->config), "rotated-sk");
     EXPECT_NE(current->client, initial->client);
     EXPECT_EQ(holder.get(), current->client);
-    // A request that took the old snapshot keeps its client and conf.
-    EXPECT_EQ(initial->legacy_conf->sk, "sk");
+    // A request that took the old snapshot keeps its client and config.
+    EXPECT_EQ(secret_key_of(initial->config), "sk");
     EXPECT_NE(initial->client, nullptr);
 
-    // An unchanged conf publishes nothing.
-    ASSERT_TRUE(holder.reset(rotated).ok());
+    // An unchanged config publishes nothing.
+    ASSERT_TRUE(holder.reset(resolve(rotated)).ok());
     EXPECT_EQ(holder.state(), current);
 }
 
 TEST_F(ObjClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
-    auto conf = make_s3_conf("holder-conflict.example.com");
-    ObjClientHolder holder(conf);
+    auto param = make_s3_param("holder-conflict.example.com");
+    ObjClientHolder holder(resolve(param));
     ASSERT_TRUE(holder.init().ok());
 
-    auto outer = conf;
-    outer.sk = "outer-sk";
-    auto inner = conf;
-    inner.sk = "inner-sk";
+    auto outer = param;
+    outer.__set_sk("outer-sk");
+    auto inner = param;
+    inner.__set_sk("inner-sk");
     // While the outer reset builds its client outside the lock, another reset publishes
     // generation 2. The outer reset was merged onto generation 1, so publishing it would
-    // overwrite the inner update with a conf that never saw it.
+    // overwrite the inner update with a config that never saw it.
     Status inner_status;
-    _on_s3_build = [&] { inner_status = holder.reset(inner); };
+    _on_s3_build = [&] { inner_status = holder.reset(resolve(inner)); };
 
-    auto outer_status = holder.reset(outer);
+    auto outer_status = holder.reset(resolve(outer));
 
     ASSERT_TRUE(inner_status.ok()) << inner_status;
     EXPECT_TRUE(outer_status.is<ErrorCode::ABORTED>()) << outer_status;
     auto current = holder.state();
     EXPECT_EQ(current->generation, 2U);
-    EXPECT_EQ(current->legacy_conf->sk, "inner-sk");
+    EXPECT_EQ(secret_key_of(current->config), "inner-sk");
 }
 
-TEST_F(ObjClientFactoryTest, HolderBuildsTypedConfigThroughFactory) {
-    auto config =
-            ObjStorageConfigResolver::from_client_conf(make_s3_conf("holder-typed.example.com"));
-    ObjClientHolder holder(config);
-    ASSERT_TRUE(holder.init().ok());
-    auto current = holder.state();
-    // A typed holder has no legacy conf to merge into, so it is never reset.
-    EXPECT_FALSE(current->legacy_conf.has_value());
-    EXPECT_EQ(current->config, config);
-    EXPECT_NE(current->client, nullptr);
+TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
+    auto current = resolve(make_s3_param("merge-target.example.com"));
+    auto update_param = make_s3_param("other-endpoint.example.com");
+    update_param.__set_region("other-region");
+    update_param.__set_sk("new-sk");
+    update_param.__set_use_path_style(true);
+    update_param.__set_max_conn(7);
+
+    auto merged = ObjStorageConfigResolver::merge_update(current, resolve(update_param));
+    ASSERT_TRUE(merged.has_value()) << merged.error();
+    const auto& s3 = std::get<S3ClientConfig>(merged->backend);
+    // The target stays; credentials, addressing and connection options follow the update.
+    EXPECT_EQ(s3.endpoint, "merge-target.example.com");
+    EXPECT_EQ(s3.region, "us-east-1");
+    EXPECT_EQ(s3.auth.secret_key, "new-sk");
+    EXPECT_FALSE(s3.use_virtual_addressing);
+    EXPECT_EQ(merged->connection.max_connections, 7);
+
+    // Another backend is another storage target, which needs a new binding.
+    auto as_azure = ObjStorageConfigResolver::merge_update(
+            current, resolve(make_azure_param("merge-target.example.com")));
+    ASSERT_FALSE(as_azure.has_value());
+    EXPECT_TRUE(as_azure.error().is<ErrorCode::INVALID_ARGUMENT>()) << as_azure.error();
+}
+
+TEST_F(ObjClientFactoryTest, FactoryValidatesBeforeBuilding) {
+    auto& factory = ObjClientFactory::instance();
+    auto no_region = make_s3_param("validate-s3.example.com");
+    no_region.__set_region("");
+    EXPECT_FALSE(factory.get_or_create(resolve(no_region)).has_value());
+    auto ak_without_sk = make_s3_param("validate-s3.example.com");
+    ak_without_sk.__set_sk("");
+    EXPECT_FALSE(factory.get_or_create(resolve(ak_without_sk)).has_value());
+    // An assumed role needs no static keys.
+    auto role = ak_without_sk;
+    role.__set_role_arn("role");
+    EXPECT_TRUE(factory.get_or_create(resolve(role)).has_value());
     EXPECT_EQ(_s3_builds, 1);
+
+    // Azure has no region; its SharedKey account and key come together, like ak/sk.
+    auto azure_no_key = make_azure_param("validate-azure.example.com");
+    azure_no_key.__set_sk("");
+    auto result = factory.get_or_create(resolve(azure_no_key));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().is<ErrorCode::INVALID_ARGUMENT>()) << result.error();
+}
+
+TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
+    auto location = ObjStorageUri::parse_s3("s3://props-bucket/dir/file");
+    ASSERT_TRUE(location.has_value()) << location.error();
+    std::map<std::string, std::string> props = {{"AWS_ENDPOINT", "props.example.com"},
+                                                {"AWS_REGION", "r"},
+                                                {"AWS_ACCESS_KEY", "ak"},
+                                                {"AWS_SECRET_KEY", "sk"},
+                                                {"use_path_style", "true"},
+                                                {"AWS_MAX_CONNECTIONS", "8"}};
+    auto from_props = ObjStorageConfigResolver::from_properties(props, location.value());
+    ASSERT_TRUE(from_props.has_value()) << from_props.error();
+    EXPECT_EQ(from_props->bucket, "props-bucket");
+    EXPECT_EQ(from_props->prefix, "");
+    EXPECT_FALSE(std::get<S3ClientConfig>(from_props->client.backend).use_virtual_addressing);
+    EXPECT_EQ(from_props->client.connection.max_connections, 8);
+
+    // provider=azure selects Azure; the bucket of the location is the container.
+    props["provider"] = "azure";
+    auto azure = ObjStorageConfigResolver::from_properties(props, location.value());
+    ASSERT_TRUE(azure.has_value()) << azure.error();
+    EXPECT_EQ(std::get<AzureClientConfig>(azure->client.backend).container, "props-bucket");
+
+    // Properties are checked when they are converted: a region is required.
+    props.erase("AWS_REGION");
+    EXPECT_FALSE(ObjStorageConfigResolver::from_properties(props, location.value()).has_value());
+
+    cloud::ObjectStoreInfoPB vault;
+    vault.set_endpoint("vault.example.com");
+    vault.set_region("r");
+    vault.set_ak("ak");
+    vault.set_sk("sk");
+    vault.set_bucket("vault-bucket");
+    vault.set_prefix("vault-prefix");
+    vault.set_provider(cloud::ObjectStoreInfoPB_Provider_COS);
+    auto from_vault = ObjStorageConfigResolver::from_object_store_info(vault);
+    EXPECT_EQ(from_vault.bucket, "vault-bucket");
+    EXPECT_EQ(from_vault.prefix, "vault-prefix");
+    // A storage vault is a Doris internal bucket.
+    EXPECT_EQ(from_vault.client.usage, ClientUsage::INTERNAL_STORAGE);
+    EXPECT_EQ(from_vault.client.provider(), ObjStorageProvider::COS);
 }
 
 TEST_F(ObjClientFactoryTest, ExpiredSasFailsBeforeAnyClientIsBuilt) {

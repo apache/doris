@@ -242,7 +242,7 @@ struct RowsetWriterContext {
             }
         }();
 
-        bool is_s3_fs = fs->type() == io::FileSystemType::S3;
+        bool is_s3_fs = fs->type() == io::FileSystemType::OBJECT_STORAGE;
 
         auto algorithm = encrypt_algorithm;
 

@@ -18,7 +18,9 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "io/obj_storage/azure_client_provider.h"
@@ -27,13 +29,19 @@
 
 namespace doris::io {
 
-// Entry for getting a BE native object storage client. It only dispatches on the backend
-// alternative; validation, construction and caching belong to the selected provider.
+// Entry for getting a BE native object storage client. It validates the configuration with
+// the rules of its backend, then dispatches to the provider that builds and caches the client.
 class ObjClientFactory {
 public:
     static ObjClientFactory& instance();
 
     Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config);
+
+#ifdef BE_TEST
+    // Replaces client construction (after validation) for tests; nullptr restores it.
+    void set_client_creator_for_test(
+            std::function<std::shared_ptr<ObjStorageClient>(const ObjClientConfig&)> creator);
+#endif
 
     // Called when azure_client_cache_capacity changes; see AzureClientProvider::set_cache_capacity.
     void set_azure_client_cache_capacity(size_t capacity) { _azure.set_cache_capacity(capacity); }
@@ -51,6 +59,10 @@ private:
 
     S3ClientProvider _s3;
     AzureClientProvider _azure;
+#ifdef BE_TEST
+    std::mutex _test_lock;
+    std::function<std::shared_ptr<ObjStorageClient>(const ObjClientConfig&)> _test_client_creator;
+#endif
 };
 
 // Wraps a newly built client with the BE shared rate limiter when its usage requires it.

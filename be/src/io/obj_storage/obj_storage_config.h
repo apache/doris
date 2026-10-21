@@ -30,9 +30,10 @@ namespace doris::io {
 
 // Client configuration of BE native object storage access, split by backend.
 //
-// The legacy S3ClientConf carries every provider in one flat struct: Azure reuses
-// ak/sk/bucket as account/key/container while region, role_arn and the AWS credential
-// provider type stay in the same struct and only mean something for S3. This model
+// The flat parameters FE and the storage metadata send (AWS_* properties, TS3StorageParam,
+// ObjectStoreInfoPB) carry every provider in one shape: Azure reuses ak/sk/bucket as
+// account/key/container while region, role_arn and the AWS credential provider type only
+// mean something for S3. This model
 // keeps exactly one backend alternative, so an Azure client cannot depend on an S3-only
 // field and an S3 client cannot depend on an Azure-only one. For example, an Azure conf
 // whose region differs is still the same Azure client, while for S3 it is a new client.
@@ -143,6 +144,18 @@ struct ObjClientConfig {
     ObjStorageProvider provider() const;
 
     const std::string& endpoint() const;
+
+    // Credentials are masked.
+    std::string to_string() const;
+};
+
+// One object storage binding: the bucket (Azure: container) and root prefix it serves, plus
+// the client configuration. Every input source (FE properties, TS3StorageParam,
+// ObjectStoreInfoPB, TAzureClientConfig) is turned into this by ObjStorageConfigResolver.
+struct ObjStorageConfig {
+    std::string bucket;
+    std::string prefix;
+    ObjClientConfig client;
 
     // Credentials are masked.
     std::string to_string() const;

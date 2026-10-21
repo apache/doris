@@ -19,9 +19,12 @@
 
 #include <absl/strings/ascii.h>
 #include <absl/strings/match.h>
+#include <absl/strings/str_split.h>
 
 #include <array>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace doris::io {
 namespace {
@@ -103,6 +106,59 @@ Result<ObjStorageUri> ObjStorageUri::parse_azure(const std::string& location) {
         return ResultError(
                 Status::InvalidArgument("Azure location names no container: {}", location));
     }
+    return uri;
+}
+
+Result<ObjStorageUri> ObjStorageUri::parse_s3(const std::string& location) {
+    if (location.empty()) {
+        return ResultError(Status::InvalidArgument("location is empty"));
+    }
+    ObjStorageUri uri {.original = location, .account {}, .bucket {}, .key {}};
+    std::vector<std::string> scheme_split = absl::StrSplit(location, "://");
+    if (scheme_split.size() == 2) {
+        const std::string& scheme = scheme_split[0];
+        const std::string& rest = scheme_split[1];
+        if (scheme == "s3") {
+            // s3://bucket1/path/to/file.txt; s3://bucket1 keeps the historical key "/".
+            std::vector<std::string> authority_split =
+                    absl::StrSplit(rest, absl::MaxSplits('/', 1));
+            uri.bucket = authority_split[0];
+            uri.key = authority_split.size() == 1 ? "/" : authority_split[1];
+        } else if (scheme == "http" || scheme == "https") {
+            // http(s)://host/bucket1/path/to/file.txt
+            std::vector<std::string> authority_split =
+                    absl::StrSplit(rest, absl::MaxSplits('/', 2));
+            if (authority_split.size() != 3) {
+                return ResultError(Status::InvalidArgument("Invalid S3 HTTP URI: {}", location));
+            }
+            uri.bucket = authority_split[1];
+            uri.key = authority_split[2];
+        } else if (scheme == "abfs" || scheme == "abfss" || scheme == "wasb" || scheme == "wasbs") {
+            // A native Azure location reaching an entry without typed Azure access, e.g.
+            // abfss://c1@acct.dfs.core.windows.net/db/f. FE rewrites these to s3://c1/db/f for
+            // such entries today; accepting the native form as well keeps them working if that
+            // rewrite is ever dropped. Only container and key are used, exactly as for the
+            // rewritten form, whose account FE has already discarded.
+            auto azure = parse_azure(location);
+            if (!azure.has_value()) {
+                return ResultError(std::move(azure).error());
+            }
+            uri.bucket = std::move(azure->bucket);
+            uri.key = std::move(azure->key);
+        } else {
+            return ResultError(Status::InvalidArgument("Invalid S3 URI: {}", location));
+        }
+    } else if (scheme_split.size() == 1) {
+        // No scheme, e.g. path/to/file.txt: a key relative to the binding's bucket.
+        uri.key = location;
+    } else {
+        return ResultError(Status::InvalidArgument("Invalid S3 URI: {}", location));
+    }
+    absl::StripAsciiWhitespace(&uri.key);
+    if (uri.key.empty()) {
+        return ResultError(Status::InvalidArgument("Invalid S3 key: {}", location));
+    }
+    uri.key = uri.key.substr(0, uri.key.find_first_of("?#"));
     return uri;
 }
 

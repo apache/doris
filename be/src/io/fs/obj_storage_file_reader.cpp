@@ -15,14 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/s3_file_reader.h"
+#include "io/fs/obj_storage_file_reader.h"
 
-#include <aws/core/http/URI.h>
-#include <aws/core/utils/Outcome.h>
-#include <aws/s3/S3Client.h>
-#include <aws/s3/S3Errors.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/GetObjectResult.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
@@ -50,23 +44,28 @@
 
 namespace doris::io {
 
-bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
-bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
-bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
-bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
-bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", "too_many_request");
-bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
-bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
-                                                           &s3_bytes_read_total);
-// Although we can get QPS from s3_bytes_per_read, but s3_bytes_per_read only
-// record successfull request, and s3_get_request_qps will record all request.
-bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
-                                                          &s3_file_reader_read_counter);
-bvar::LatencyRecorder s3_file_reader_latency("s3_file_reader", "s3_latency");
+// Throttling by the storage service, which every backend reports as HTTP 429.
+constexpr int OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS = 429;
 
-Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
-                                            std::string bucket, std::string key, int64_t file_size,
-                                            RuntimeProfile* profile) {
+bvar::Adder<uint64_t> obj_storage_file_reader_read_counter("s3_file_reader", "read_at");
+bvar::Adder<uint64_t> obj_storage_file_reader_total("s3_file_reader", "total_num");
+bvar::Adder<uint64_t> obj_storage_bytes_read_total("s3_file_reader", "bytes_read");
+bvar::Adder<uint64_t> obj_storage_file_being_read("s3_file_reader", "file_being_read");
+bvar::Adder<uint64_t> obj_storage_file_reader_too_many_request_counter("s3_file_reader",
+                                                                       "too_many_request");
+bvar::LatencyRecorder obj_storage_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
+bvar::PerSecond<bvar::Adder<uint64_t>> obj_storage_read_throughput("s3_file_reader",
+                                                                   "s3_read_throughput",
+                                                                   &obj_storage_bytes_read_total);
+// Although we can get QPS from obj_storage_bytes_per_read, but obj_storage_bytes_per_read only
+// record successfull request, and obj_storage_get_request_qps will record all request.
+bvar::PerSecond<bvar::Adder<uint64_t>> obj_storage_get_request_qps(
+        "s3_file_reader", "s3_get_request", &obj_storage_file_reader_read_counter);
+bvar::LatencyRecorder obj_storage_file_reader_latency("s3_file_reader", "s3_latency");
+
+Result<FileReaderSPtr> ObjStorageFileReader::create(std::shared_ptr<const ObjClientHolder> client,
+                                                    std::string bucket, std::string key,
+                                                    int64_t file_size, RuntimeProfile* profile) {
     if (file_size < 0) {
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {
@@ -76,12 +75,13 @@ Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolde
         file_size = res.value();
     }
 
-    return std::make_shared<S3FileReader>(std::move(client), std::move(bucket), std::move(key),
-                                          file_size, profile);
+    return std::make_shared<ObjStorageFileReader>(std::move(client), std::move(bucket),
+                                                  std::move(key), file_size, profile);
 }
 
-S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket,
-                           std::string key, size_t file_size, RuntimeProfile* profile)
+ObjStorageFileReader::ObjStorageFileReader(std::shared_ptr<const ObjClientHolder> client,
+                                           std::string bucket, std::string key, size_t file_size,
+                                           RuntimeProfile* profile)
         : _path(fmt::format("s3://{}/{}", bucket, key)),
           _file_size(file_size),
           _bucket(std::move(bucket)),
@@ -90,18 +90,16 @@ S3FileReader::S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::s
           _profile(profile) {
     DorisMetrics::instance()->s3_file_open_reading->increment(1);
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
-    s3_file_reader_total << 1;
-    s3_file_being_read << 1;
-
-    Aws::Http::SetCompliantRfc3986Encoding(true);
+    obj_storage_file_reader_total << 1;
+    obj_storage_file_being_read << 1;
 }
 
-S3FileReader::~S3FileReader() {
+ObjStorageFileReader::~ObjStorageFileReader() {
     static_cast<void>(close());
-    s3_file_being_read << -1;
+    obj_storage_file_being_read << -1;
 }
 
-Status S3FileReader::close() {
+Status ObjStorageFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->s3_file_open_reading->increment(-1);
@@ -109,8 +107,8 @@ Status S3FileReader::close() {
     return Status::OK();
 }
 
-Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                  const IOContext* /*io_ctx*/) {
+Status ObjStorageFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                          const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
@@ -157,7 +155,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();
-        s3_file_reader_latency << (end_ts - begin_ts);
+        obj_storage_file_reader_latency << (end_ts - begin_ts);
     }};
     SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
 
@@ -165,16 +163,15 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     Status last_error;
     while (retry_count <= max_retries) {
         *bytes_read = 0;
-        s3_file_reader_read_counter << 1;
+        obj_storage_file_reader_read_counter << 1;
         // clang-format off
         auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
                 to, offset, bytes_req, bytes_read);
         // clang-format on
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {
-            if (resp.http_code ==
-                static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
-                s3_file_reader_too_many_request_counter << 1;
+            if (resp.http_code == OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS) {
+                obj_storage_file_reader_too_many_request_counter << 1;
                 last_error = Status(resp.status.code, std::move(resp.status.msg));
                 retry_count++;
                 int wait_time = std::min(base_wait_time * (1 << retry_count),
@@ -198,8 +195,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             return Status::InternalError(msg);
         }
         _s3_stats.total_bytes_read += bytes_req;
-        s3_bytes_read_total << bytes_req;
-        s3_bytes_per_read << bytes_req;
+        obj_storage_bytes_read_total << bytes_req;
+        obj_storage_bytes_per_read << bytes_req;
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
         if (retry_count > 0) {
             LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
@@ -216,7 +213,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     return Status::InternalError(msg);
 }
 
-void S3FileReader::_collect_profile_before_close() {
+void ObjStorageFileReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
         const char* s3_profile_name = "S3Profile";
         auto* total_time =

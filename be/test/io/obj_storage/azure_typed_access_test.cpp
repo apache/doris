@@ -25,8 +25,8 @@
 
 #include "common/config.h"
 #include "io/file_factory.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/obj_storage/obj_storage_config.h"
 
 namespace doris::io {
@@ -62,7 +62,7 @@ TEST(AzureTypedAccessTest, CreateFsTakesContainerAndKeysFromNativeLocations) {
     auto fs = typed_access_create_fs(config, "abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet");
 #ifdef USE_AZURE
     ASSERT_TRUE(fs.has_value()) << fs.error();
-    auto* s3_fs = dynamic_cast<S3FileSystem*>(fs.value().get());
+    auto* s3_fs = dynamic_cast<ObjStorageFileSystem*>(fs.value().get());
     ASSERT_NE(s3_fs, nullptr);
     EXPECT_EQ(s3_fs->bucket(), "c1");
     const auto& backend = s3_fs->client_holder()->state()->config.backend;
@@ -104,7 +104,7 @@ TEST(AzureTypedAccessTest, CreateFileWriterUsesTheNativeLocation) {
     config::enable_file_cache = saved_enable_file_cache;
 #ifdef USE_AZURE
     ASSERT_TRUE(writer.has_value()) << writer.error();
-    auto* s3_writer = dynamic_cast<S3FileWriter*>(writer.value().get());
+    auto* s3_writer = dynamic_cast<ObjStorageFileWriter*>(writer.value().get());
     ASSERT_NE(s3_writer, nullptr);
     EXPECT_EQ(s3_writer->bucket(), "c1");
     EXPECT_EQ(s3_writer->key(), "db/t/f.parquet");

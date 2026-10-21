@@ -25,8 +25,10 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/ai/ai_functions.h"
+#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_storage_config.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "util/jsonb_utils.h"
-#include "util/s3_uri.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -418,8 +420,8 @@ private:
         return Status::OK();
     }
 
-    static Status init_s3_client_conf_from_json(const rapidjson::Value& file_input,
-                                                S3ClientConf& s3_client_conf) {
+    static Status init_s3_client_config_from_json(const rapidjson::Value& file_input,
+                                                  io::S3ClientConfig& s3_client_config) {
         std::string endpoint;
         RETURN_IF_ERROR(_get_required_string_field(file_input, "endpoint", endpoint));
         std::string region;
@@ -434,12 +436,12 @@ private:
             value = iter->value.GetString();
         };
 
-        get_optional_string_field("ak", s3_client_conf.ak);
-        get_optional_string_field("sk", s3_client_conf.sk);
-        get_optional_string_field("role_arn", s3_client_conf.role_arn);
-        get_optional_string_field("external_id", s3_client_conf.external_id);
-        s3_client_conf.endpoint = endpoint;
-        s3_client_conf.region = region;
+        get_optional_string_field("ak", s3_client_config.auth.access_key);
+        get_optional_string_field("sk", s3_client_config.auth.secret_key);
+        get_optional_string_field("role_arn", s3_client_config.auth.role_arn);
+        get_optional_string_field("external_id", s3_client_config.auth.external_id);
+        s3_client_config.endpoint = endpoint;
+        s3_client_config.region = region;
 
         return Status::OK();
     }
@@ -455,14 +457,16 @@ private:
             return Status::OK();
         }
 
-        S3ClientConf s3_client_conf;
-        RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, s3_client_conf));
-        auto s3_client = DORIS_TRY(S3ClientFactory::instance().create(s3_client_conf));
+        io::S3ClientConfig s3_client_config;
+        RETURN_IF_ERROR(init_s3_client_config_from_json(file_input, s3_client_config));
+        auto s3_client = DORIS_TRY(io::ObjClientFactory::instance().get_or_create(
+                io::ObjClientConfig {.connection = {},
+                                     .usage = io::ClientUsage::EXTERNAL_ACCESS,
+                                     .backend = std::move(s3_client_config)}));
 
-        S3URI s3_uri(uri);
-        RETURN_IF_ERROR(s3_uri.parse());
-        std::string bucket = s3_uri.get_bucket();
-        std::string key = s3_uri.get_key();
+        auto location = DORIS_TRY(io::ObjStorageUri::parse_s3(uri));
+        std::string bucket = location.bucket;
+        std::string key = location.key;
         DORIS_CHECK(!bucket.empty() && !key.empty());
         media_url = s3_client->generate_presigned_url({.bucket = bucket, .key = key, .prefix = ""},
                                                       ttl_seconds);

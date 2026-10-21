@@ -25,7 +25,7 @@
 namespace doris::snii::io {
 
 // Append-only writer (no seek-back), so the format can be produced in a single
-// streaming pass compatible with S3FileWriter / StreamSinkFileWriter / packed
+// streaming pass compatible with ObjStorageFileWriter / StreamSinkFileWriter / packed
 // writer. All container bytes are written front-to-back; back-references are
 // resolved by writing metadata last.
 class FileWriter {

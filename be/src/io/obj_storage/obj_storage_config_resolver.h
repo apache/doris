@@ -17,33 +17,48 @@
 
 #pragma once
 
+#include <map>
+#include <string>
+
 #include "common/status.h"
 #include "io/obj_storage/obj_storage_config.h"
 
 namespace doris {
-struct S3ClientConf;
 class TAzureClientConfig;
+class TS3StorageParam;
+namespace cloud {
+class ObjectStoreInfoPB;
+} // namespace cloud
 } // namespace doris
 
 namespace doris::io {
 struct ObjStorageUri;
 
-// The single place that turns the legacy flat S3ClientConf into the typed client
-// configuration. Every input source (FE properties, TS3StorageParam, ObjectStoreInfoPB)
-// still produces an S3ClientConf today, so they all reach the client providers through
-// this function and share one mapping.
+// The single place that turns every input source into typed object storage configuration.
+// After it, factories, holders, file systems and readers never read raw properties, Thrift or
+// Protobuf parameters again.
+//
+// The flat sources (FE properties, TS3StorageParam, ObjectStoreInfoPB) share one mapping into
+// the backend alternatives: provider AZURE becomes AzureClientConfig, which has always reused
+// ak/sk/bucket as the SharedKey account/key and the container; every other provider becomes
+// S3ClientConfig with that provider as its vendor. Fields the selected backend never read are
+// dropped, e.g. an Azure source's region, token and role_arn.
 class ObjStorageConfigResolver {
 public:
-    // The caller must have validated conf with the legacy rules (S3ClientFactory::create
-    // does). The mapping itself cannot fail: every legacy field either belongs to the
-    // selected backend or was never used by it.
-    //
-    // Example: provider=AZURE, ak="acct", sk="key", bucket="c1", region="r" becomes
-    // AzureClientConfig{account="acct", container="c1", auth=SharedKey{"key"}}; region,
-    // token and role_arn are dropped because the Azure client never read them.
-    static ObjClientConfig from_client_conf(const S3ClientConf& conf);
+    // FE properties of a FILE_S3 request (AWS_* keys; provider=azure selects Azure) for the
+    // file at `location`, whose bucket becomes the binding's bucket. Validated like before:
+    // endpoint and region are required, and ak/sk must come together unless a role is
+    // assumed.
+    static Result<ObjStorageConfig> from_properties(
+            const std::map<std::string, std::string>& properties, const ObjStorageUri& location);
 
-    // Typed Azure input sent by FE. Unlike the legacy conf it can carry SAS and client secret
+    // A cold-storage resource sent by FE.
+    static ObjStorageConfig from_storage_param(const TS3StorageParam& param);
+
+    // A storage vault in cloud mode, i.e. a Doris internal bucket.
+    static ObjStorageConfig from_object_store_info(const cloud::ObjectStoreInfoPB& info);
+
+    // Typed Azure input sent by FE. Unlike the flat sources it can carry SAS and client secret
     // credentials. location is the file being accessed: its container fills or must match the
     // configured one (see AzureConfigCodec::decode), and an account named by its host must
     // match the configured account, e.g. abfss://c1@other.dfs.core.windows.net/k with
@@ -52,6 +67,15 @@ public:
     // instead of at the first request.
     static Result<ObjClientConfig> from_azure_client_config(const TAzureClientConfig& config,
                                                             const ObjStorageUri& location);
+
+    // Merges a refreshed resource or vault configuration into the one a holder uses. The
+    // storage target stays: S3 keeps its vendor, endpoint, region and endpoint override, Azure
+    // keeps its endpoint. Credentials, connection options, usage, S3 addressing and the Azure
+    // account and container come from `update`, as the flat-field merge always did. A
+    // different backend is a different storage target, which needs a new binding rather than
+    // a reset, so it is rejected.
+    static Result<ObjClientConfig> merge_update(const ObjClientConfig& current,
+                                                const ObjClientConfig& update);
 };
 
 } // namespace doris::io

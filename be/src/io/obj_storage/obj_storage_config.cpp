@@ -131,4 +131,8 @@ std::string ObjClientConfig::to_string() const {
             usage == ClientUsage::INTERNAL_STORAGE ? "internal_storage" : "external_access");
 }
 
+std::string ObjStorageConfig::to_string() const {
+    return fmt::format("(bucket={}, prefix={}, client={})", bucket, prefix, client.to_string());
+}
+
 } // namespace doris::io

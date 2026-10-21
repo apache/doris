@@ -465,7 +465,7 @@ void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t 
     // Do NOT capture io_ctx: it points into the caller's stack/iterator which may be
     // destroyed when the query is cancelled before this background task runs. The S3
     // leg of the race is a best-effort background task whose result is discarded if the
-    // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
+    // peer wins; passing nullptr is safe because ObjStorageFileReader::read_at_impl ignores it.
     auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
         (void)owner;
         auto s3_buf = std::make_unique<char[]>(span_size);

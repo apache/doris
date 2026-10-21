@@ -57,6 +57,46 @@ public:
     }
 };
 
+// The rules every client request is checked against before anything is built or looked up;
+// they are the checks S3ClientFactory::create applied to the flat configuration.
+Status validate_obj_client_backend(const S3ClientConfig& s3) {
+    if (s3.endpoint.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
+    }
+    if (s3.region.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+    if (s3.auth.role_arn.empty()) {
+        // Either both credentials are provided or both are empty (anonymous access)
+        if (!s3.auth.access_key.empty() && s3.auth.secret_key.empty()) {
+            return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
+        }
+        if (!s3.auth.secret_key.empty() && s3.auth.access_key.empty()) {
+            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
+        }
+    }
+    return Status::OK();
+}
+
+// Azure has no region, which the flat configuration used to require with a placeholder value
+// ("dummy_region" from FE). Typed Azure configurations pass AzureConfigValidator before they get
+// here, so these weaker rules only matter for the flat sources.
+Status validate_obj_client_backend(const AzureClientConfig& azure) {
+    if (azure.endpoint.empty()) {
+        return Status::InvalidArgument<false>("Invalid azure conf, empty endpoint");
+    }
+    if (const auto* shared_key = std::get_if<AzureSharedKeyConfig>(&azure.auth)) {
+        // Either both are provided or both are empty, as for the flat ak/sk.
+        if (!azure.account.empty() && shared_key->account_key.empty()) {
+            return Status::InvalidArgument<false>("Invalid azure conf, empty account key");
+        }
+        if (!shared_key->account_key.empty() && azure.account.empty()) {
+            return Status::InvalidArgument<false>("Invalid azure conf, empty account name");
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 ObjClientFactory::ObjClientFactory() {
@@ -73,9 +113,28 @@ ObjClientFactory& ObjClientFactory::instance() {
 
 Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::get_or_create(
         const ObjClientConfig& config) {
+    RETURN_IF_ERROR_RESULT(
+            std::visit([](const auto& backend) { return validate_obj_client_backend(backend); },
+                       config.backend));
+#ifdef BE_TEST
+    {
+        std::lock_guard lock(_test_lock);
+        if (_test_client_creator) {
+            return _test_client_creator(config);
+        }
+    }
+#endif
     return std::visit([&](const auto& backend) { return _dispatch(config, backend); },
                       config.backend);
 }
+
+#ifdef BE_TEST
+void ObjClientFactory::set_client_creator_for_test(
+        std::function<std::shared_ptr<ObjStorageClient>(const ObjClientConfig&)> creator) {
+    std::lock_guard lock(_test_lock);
+    _test_client_creator = std::move(creator);
+}
+#endif
 
 Result<std::shared_ptr<ObjStorageClient>> ObjClientFactory::_dispatch(const ObjClientConfig& config,
                                                                       const S3ClientConfig& s3) {

@@ -21,6 +21,7 @@
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
+#include <aws/core/http/URI.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -57,64 +58,11 @@
 #include "cpp/sync_point.h"
 #include "cpp/util.h"
 #include "exec/scan/scanner_scheduler.h"
-#include "io/obj_storage/obj_client_factory.h"
 #include "io/obj_storage/obj_storage_config.h"
-#include "io/obj_storage/obj_storage_config_resolver.h"
 #include "runtime/exec_env.h"
 #include "util/s3_rate_limiter_manager.h"
-#include "util/s3_uri.h"
 
 namespace doris {
-namespace {
-
-doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
-    if (conf.endpoint.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
-    }
-    if (conf.region.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
-    }
-
-    if (conf.role_arn.empty()) {
-        // Allow anonymous access when both ak and sk are empty
-        bool hasAk = !conf.ak.empty();
-        bool hasSk = !conf.sk.empty();
-
-        // Either both credentials are provided or both are empty (anonymous access)
-        if (hasAk && conf.sk.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
-        }
-        if (hasSk && conf.ak.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
-        }
-    }
-    return Status::OK();
-}
-
-// Return true is convert `str` to int successfully
-bool to_int(std::string_view str, int& res) {
-    auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
-    return ec == std::errc {};
-}
-
-constexpr char USE_PATH_STYLE[] = "use_path_style";
-
-constexpr char AZURE_PROVIDER_STRING[] = "AZURE";
-constexpr char S3_PROVIDER[] = "provider";
-constexpr char S3_AK[] = "AWS_ACCESS_KEY";
-constexpr char S3_SK[] = "AWS_SECRET_KEY";
-constexpr char S3_ENDPOINT[] = "AWS_ENDPOINT";
-constexpr char S3_REGION[] = "AWS_REGION";
-constexpr char S3_TOKEN[] = "AWS_TOKEN";
-constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONNECTIONS";
-constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
-constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
-constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
-
-constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
-constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
-constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
-} // namespace
 
 S3ClientFactory::S3ClientFactory() {
     _aws_options = Aws::SDKOptions {};
@@ -124,6 +72,10 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
+    // Object keys must be encoded strictly by RFC 3986 in request URIs. The setting is global
+    // to the SDK, so it is applied once here; every object storage client is built after this
+    // factory (ObjClientFactory initializes it first).
+    Aws::Http::SetCompliantRfc3986Encoding(true);
     _get_ca_cert_file_path();
 
 #ifdef USE_AZURE
@@ -163,52 +115,12 @@ S3ClientFactory& S3ClientFactory::instance() {
     return ret;
 }
 
-Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3ClientConf& s3_conf) {
-    RETURN_IF_ERROR_RESULT(is_s3_conf_valid(s3_conf));
-
-#ifdef BE_TEST
-    {
-        std::lock_guard l(_lock);
-        if (_test_client_creator) {
-            return _test_client_creator(s3_conf);
-        }
-    }
-#endif
-
-    return io::ObjClientFactory::instance().get_or_create(
-            io::ObjStorageConfigResolver::from_client_conf(s3_conf));
-}
-
-#ifdef BE_TEST
-void S3ClientFactory::set_client_creator_for_test(
-        std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator) {
-    std::lock_guard l(_lock);
-    _test_client_creator = std::move(creator);
-}
-
-void S3ClientFactory::clear_client_creator_for_test() {
-    std::lock_guard l(_lock);
-    _test_client_creator = nullptr;
-}
-#endif
-
 std::string S3ClientFactory::_get_ca_cert_file_path() {
     std::lock_guard lock(_ca_cert_lock);
     if (_ca_cert_file_path.empty()) {
         _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     }
     return _ca_cert_file_path;
-}
-
-AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const S3ClientConf& s3_conf) {
-    return create_aws_credentials_provider(io::S3AuthConfig {
-            .access_key = s3_conf.ak,
-            .secret_key = s3_conf.sk,
-            .session_token = s3_conf.token,
-            .provider_type = s3_conf.cred_provider_type,
-            .role_arn = s3_conf.role_arn,
-            .external_id = s3_conf.external_id,
-    });
 }
 
 AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const io::S3AuthConfig& auth) {
@@ -230,240 +142,6 @@ AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const io::S
             .empty_credentials = EmptyCredentialsBehavior::ANONYMOUS,
             .sts_client_config = std::move(sts_config),
     });
-}
-
-Status S3ClientFactory::convert_properties_to_s3_conf(
-        const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
-    StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    if (auto it = properties.find(S3_AK); it != properties.end()) {
-        s3_conf->client_conf.ak = it->second;
-    }
-    if (auto it = properties.find(S3_SK); it != properties.end()) {
-        s3_conf->client_conf.sk = it->second;
-    }
-    if (auto it = properties.find(S3_TOKEN); it != properties.end()) {
-        s3_conf->client_conf.token = it->second;
-    }
-    if (auto it = properties.find(S3_ENDPOINT); it != properties.end()) {
-        s3_conf->client_conf.endpoint = it->second;
-    }
-    if (auto it = properties.find(S3_NEED_OVERRIDE_ENDPOINT); it != properties.end()) {
-        s3_conf->client_conf.need_override_endpoint = (it->second == "true");
-    }
-    if (auto it = properties.find(S3_REGION); it != properties.end()) {
-        s3_conf->client_conf.region = it->second;
-    }
-    if (auto it = properties.find(S3_MAX_CONN_SIZE); it != properties.end()) {
-        if (!to_int(it->second, s3_conf->client_conf.max_connections)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_MAX_CONN_SIZE, it->second);
-        }
-    }
-    if (auto it = properties.find(S3_REQUEST_TIMEOUT_MS); it != properties.end()) {
-        if (!to_int(it->second, s3_conf->client_conf.request_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_REQUEST_TIMEOUT_MS,
-                                           it->second);
-        }
-    }
-    if (auto it = properties.find(S3_CONN_TIMEOUT_MS); it != properties.end()) {
-        if (!to_int(it->second, s3_conf->client_conf.connect_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS,
-                                           it->second);
-        }
-    }
-    if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
-        // S3 Provider properties should be case insensitive.
-        if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
-            s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
-        }
-    }
-
-    if (s3_uri.get_bucket().empty()) {
-        return Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",
-                                       s3_uri.to_string());
-    }
-    s3_conf->bucket = s3_uri.get_bucket();
-    // For azure's compatibility
-    s3_conf->client_conf.bucket = s3_uri.get_bucket();
-    s3_conf->prefix = "";
-
-    // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
-    s3_conf->client_conf.use_virtual_addressing = true;
-    if (auto it = properties.find(USE_PATH_STYLE); it != properties.end()) {
-        s3_conf->client_conf.use_virtual_addressing = it->second != "true";
-    }
-
-    if (auto it = properties.find(S3_ROLE_ARN); it != properties.end()) {
-        // Keep provider type as Default unless explicitly configured by
-        // AWS_CREDENTIALS_PROVIDER_TYPE, consistent with FE behavior.
-        s3_conf->client_conf.role_arn = it->second;
-    }
-
-    if (auto it = properties.find(S3_EXTERNAL_ID); it != properties.end()) {
-        s3_conf->client_conf.external_id = it->second;
-    }
-
-    if (auto it = properties.find(S3_CREDENTIALS_PROVIDER_TYPE); it != properties.end()) {
-        s3_conf->client_conf.cred_provider_type = cred_provider_type_from_string(it->second);
-    }
-
-    if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
-        return st;
-    }
-    return Status::OK();
-}
-
-static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type cred_provider_type) {
-    switch (cred_provider_type) {
-    case TCredProviderType::DEFAULT:
-        return CredProviderType::Default;
-    case TCredProviderType::SIMPLE:
-        return CredProviderType::Simple;
-    case TCredProviderType::INSTANCE_PROFILE:
-        return CredProviderType::InstanceProfile;
-    case TCredProviderType::ENV:
-        return CredProviderType::Env;
-    case TCredProviderType::SYSTEM_PROPERTIES:
-        return CredProviderType::SystemProperties;
-    case TCredProviderType::WEB_IDENTITY:
-        return CredProviderType::WebIdentity;
-    case TCredProviderType::CONTAINER:
-        return CredProviderType::Container;
-    case TCredProviderType::ANONYMOUS:
-        return CredProviderType::Anonymous;
-    default:
-        __builtin_unreachable();
-        LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type
-                     << ", use default instead.";
-        return CredProviderType::Default;
-    }
-}
-
-S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
-    S3Conf ret {
-            .bucket = info.bucket(),
-            .prefix = info.prefix(),
-            .client_conf {
-                    .endpoint = info.endpoint(),
-                    .region = info.region(),
-                    .ak = info.ak(),
-                    .sk = info.sk(),
-                    .token = {},
-                    .bucket = info.bucket(),
-                    .provider = io::ObjStorageProvider::AWS,
-                    .use_virtual_addressing =
-                            info.has_use_path_style() ? !info.use_path_style() : true,
-
-                    .role_arn = info.role_arn(),
-                    .external_id = info.external_id(),
-                    // ObjectStoreInfoPB always describes a storage vault, i.e. a Doris
-                    // internal bucket in cloud mode.
-                    .is_internal_bucket = true,
-            },
-            .sse_enabled = info.sse_enabled(),
-    };
-
-    if (info.has_cred_provider_type()) {
-        ret.client_conf.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
-    }
-
-    io::ObjStorageProvider type = io::ObjStorageProvider::AWS;
-    switch (info.provider()) {
-    case cloud::ObjectStoreInfoPB_Provider_OSS:
-        type = io::ObjStorageProvider::OSS;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_S3:
-        type = io::ObjStorageProvider::AWS;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_COS:
-        type = io::ObjStorageProvider::COS;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_OBS:
-        type = io::ObjStorageProvider::OBS;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_BOS:
-        type = io::ObjStorageProvider::BOS;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_GCP:
-        type = io::ObjStorageProvider::GCP;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_AZURE:
-        type = io::ObjStorageProvider::AZURE;
-        break;
-    case cloud::ObjectStoreInfoPB_Provider_TOS:
-        type = io::ObjStorageProvider::TOS;
-        break;
-    default:
-        __builtin_unreachable();
-        LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
-    }
-    ret.client_conf.provider = type;
-    return ret;
-}
-
-S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
-    S3Conf ret {
-            .bucket = param.bucket,
-            .prefix = param.root_path,
-            .client_conf = {
-                    .endpoint = param.endpoint,
-                    .region = param.region,
-                    .ak = param.ak,
-                    .sk = param.sk,
-                    .token = param.token,
-                    .bucket = param.bucket,
-                    .provider = io::ObjStorageProvider::AWS,
-                    .max_connections = param.max_conn,
-                    .request_timeout_ms = param.request_timeout_ms,
-                    .connect_timeout_ms = param.conn_timeout_ms,
-                    // When using cold heat separation in minio, user might use ip address directly,
-                    // which needs enable use_virtual_addressing to true
-                    .use_virtual_addressing = !param.use_path_style,
-                    .role_arn = param.role_arn,
-                    .external_id = param.external_id,
-            }};
-
-    if (param.__isset.cred_provider_type) {
-        ret.client_conf.cred_provider_type =
-                cred_provider_type_from_thrift(param.cred_provider_type);
-    }
-
-    io::ObjStorageProvider type = io::ObjStorageProvider::AWS;
-    switch (param.provider) {
-    case TObjStorageType::UNKNOWN:
-        LOG_INFO("Receive one legal storage resource, set provider type to aws, param detail {}",
-                 ret.to_string());
-        type = io::ObjStorageProvider::AWS;
-        break;
-    case TObjStorageType::AWS:
-        type = io::ObjStorageProvider::AWS;
-        break;
-    case TObjStorageType::AZURE:
-        type = io::ObjStorageProvider::AZURE;
-        break;
-    case TObjStorageType::BOS:
-        type = io::ObjStorageProvider::BOS;
-        break;
-    case TObjStorageType::COS:
-        type = io::ObjStorageProvider::COS;
-        break;
-    case TObjStorageType::OBS:
-        type = io::ObjStorageProvider::OBS;
-        break;
-    case TObjStorageType::OSS:
-        type = io::ObjStorageProvider::OSS;
-        break;
-    case TObjStorageType::GCP:
-        type = io::ObjStorageProvider::GCP;
-        break;
-    case TObjStorageType::TOS:
-        type = io::ObjStorageProvider::TOS;
-        break;
-    default:
-        LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());
-        __builtin_unreachable();
-    }
-    ret.client_conf.provider = type;
-    return ret;
 }
 
 std::string hide_access_key(const std::string& ak) {

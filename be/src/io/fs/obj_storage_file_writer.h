@@ -29,30 +29,22 @@
 #include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/obj_storage_file_buffer_pool.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_bufferpool.h"
-
-namespace Aws::S3 {
-namespace Model {
-class CompletedPart;
-}
-class S3Client;
-} // namespace Aws::S3
 
 namespace doris {
-struct S3Conf;
 
 namespace io {
 struct S3FileBuffer;
-class S3FileSystem;
+class ObjStorageFileSystem;
 struct AsyncCloseStatusPack;
 class ObjClientHolder;
 
-class S3FileWriter final : public FileWriter {
+class ObjStorageFileWriter final : public FileWriter {
 public:
-    S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket, std::string key,
-                 const FileWriterOptions* opts);
-    ~S3FileWriter() override;
+    ObjStorageFileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket,
+                         std::string key, const FileWriterOptions* opts);
+    ~ObjStorageFileWriter() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 

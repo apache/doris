@@ -197,10 +197,10 @@ RULES = [
     ),
     (
         "runtime/runtime_state.h",
-        "io/fs/s3_file_system.h",
+        "io/fs/obj_storage_file_system.h",
         set(),
-        "RuntimeState holds the error-log S3 filesystem only behind a shared_ptr "
-        "(forward-declared, dereferenced in runtime_state.cpp); s3_file_system.h "
+        "RuntimeState holds the error-log object storage filesystem only behind a shared_ptr "
+        "(forward-declared, dereferenced in runtime_state.cpp); obj_storage_file_system.h "
         "carries util/s3_util.h, the AWS SDK surface and gen_cpp/cloud.pb.h, "
         "which must not ride into the ~1060 TUs that include RuntimeState",
     ),
@@ -534,7 +534,7 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/cloud.pb.h": 342,
     "gen_cpp/BackendService_types.h": 222,
     "gen_cpp/data.pb.h": 220,
-    "io/fs/s3_file_system.h": 109,  # the AWS SDK surface
+    "io/fs/obj_storage_file_system.h": 109,  # the AWS SDK surface
     "util/brpc_closure.h": 61,
     "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
 }

@@ -19,6 +19,8 @@
 
 #include "cpp/obj-client/obj_storage_client.h"
 #include "io/fs/file_system.h"
+#include "io/obj_storage/obj_client_factory.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -49,18 +51,13 @@ protected:
             S3ObjStorageClientRoleTest::prefix = std::getenv("AWS_PREFIX");
         }
 
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = endpoint,
-                 .region = region,
-                 .ak = "",
-                 .sk = "",
-                 .token = "",
-                 .bucket = bucket,
-                 .provider = ObjStorageProvider::AWS,
-                 .use_virtual_addressing = false,
-                 .cred_provider_type = CredProviderType::InstanceProfile,
-                 .role_arn = role_arn,
-                 .external_id = external_id});
+        auto client_config = io::make_test_s3_client_config(endpoint, region, "", "");
+        auto& s3 = std::get<io::S3ClientConfig>(client_config.backend);
+        s3.use_virtual_addressing = false;
+        s3.auth.provider_type = CredProviderType::InstanceProfile;
+        s3.auth.role_arn = role_arn;
+        s3.auth.external_id = external_id;
+        auto client_result = io::ObjClientFactory::instance().get_or_create(client_config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         S3ObjStorageClientRoleTest::obj_storage_client = std::move(client_result).value();
     }
