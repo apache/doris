@@ -47,6 +47,108 @@ struct TTabletStatResult {
     2: optional list<TTabletStat> tablet_stat_list
 }
 
+// Custom Routine Load properties cross the SQL-user to BE-process trust boundary.
+// Keep this allowlist shared by FE analysis and BE consumer initialization. New
+// librdkafka options must be reviewed before being exposed to SQL users. Never
+// allow shell commands, loadable modules/providers, or arbitrary local paths.
+const set<string> KAFKA_ALLOWED_PROPERTIES = [
+    "allow.auto.create.topics",
+    "api.version.fallback.ms",
+    "api.version.request",
+    "api.version.request.timeout.ms",
+    "auto.offset.reset",
+    "broker.address.family",
+    "broker.address.ttl",
+    "broker.version.fallback",
+    "check.crcs",
+    "client.dns.lookup",
+    "client.id",
+    "connections.max.idle.ms",
+    "enable.partition.eof",
+    "enable.sasl.oauthbearer.unsecure.jwt",
+    "enable.ssl.certificate.verification",
+    "fetch.error.backoff.ms",
+    "fetch.max.bytes",
+    "fetch.message.max.bytes",
+    "fetch.min.bytes",
+    "fetch.wait.max.ms",
+    "group.id",
+    "group.instance.id",
+    "heartbeat.interval.ms",
+    "isolation.level",
+    "max.partition.fetch.bytes",
+    "max.poll.interval.ms",
+    "metadata.max.age.ms",
+    "partition.assignment.strategy",
+    "queued.max.messages.kbytes",
+    "queued.min.messages",
+    "receive.message.max.bytes",
+    "reconnect.backoff.max.ms",
+    "reconnect.backoff.ms",
+    "retry.backoff.max.ms",
+    "retry.backoff.ms",
+    // Only the value "0" is accepted; ticket management is external.
+    "sasl.kerberos.min.time.before.relogin",
+    "sasl.kerberos.principal",
+    "sasl.kerberos.service.name",
+    "sasl.mechanism",
+    "sasl.mechanisms",
+    "sasl.oauthbearer.client.id",
+    "sasl.oauthbearer.client.secret",
+    "sasl.oauthbearer.config",
+    "sasl.oauthbearer.extensions",
+    "sasl.oauthbearer.method",
+    "sasl.oauthbearer.scope",
+    "sasl.oauthbearer.token.endpoint.url",
+    "sasl.password",
+    "sasl.username",
+    "security.protocol",
+    "session.timeout.ms",
+    "socket.connection.setup.timeout.ms",
+    "socket.keepalive.enable",
+    "socket.max.fails",
+    "socket.nagle.disable",
+    "socket.receive.buffer.bytes",
+    "socket.send.buffer.bytes",
+    "socket.timeout.ms",
+    "ssl.ca.pem",
+    "ssl.certificate.pem",
+    "ssl.cipher.suites",
+    "ssl.curves.list",
+    "ssl.endpoint.identification.algorithm",
+    "ssl.key.password",
+    "ssl.key.pem",
+    "ssl.keystore.password",
+    "ssl.sigalgs.list",
+    "topic.metadata.propagation.max.ms",
+    "topic.metadata.refresh.fast.interval.ms",
+    "topic.metadata.refresh.interval.ms",
+    "topic.metadata.refresh.sparse",
+]
+
+// These data files must be registered through CREATE FILE, never raw BE paths.
+const set<string> KAFKA_FILE_PROPERTIES = [
+    "https.ca.location",
+    "ssl.ca.location",
+    "ssl.certificate.location",
+    "ssl.crl.location",
+    "ssl.key.location",
+    "ssl.keystore.location",
+]
+
+// Doris consumes these itself; they must not be forwarded to librdkafka.
+const set<string> KAFKA_DORIS_PROPERTIES = [
+    "aws.access_key",
+    "aws.credentials_provider",
+    "aws.external_id",
+    "aws.profile_name",
+    "aws.region",
+    "aws.role_arn",
+    "aws.secret_key",
+    "kafka_default_offsets",
+    "kafka_origin_default_offsets",
+]
+
 struct TKafkaLoadInfo {
     1: required string brokers;
     2: required string topic;

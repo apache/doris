@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.InternalErrorCode;
@@ -208,29 +209,36 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void convertCustomProperties(boolean rebuild) throws DdlException {
-        if (customProperties.isEmpty()) {
-            return;
+        // Replay can restore properties accepted by an older FE. Reject them before
+        // metadata requests, including during a rolling upgrade with older BEs.
+        try {
+            KafkaDataSourceProperties.validateCustomProperties(customProperties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage(), e);
         }
-
         if (!rebuild && !convertedCustomProperties.isEmpty()) {
             return;
         }
 
-        if (rebuild) {
-            convertedCustomProperties.clear();
-        }
-
-        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
+        // Publish only a complete conversion. A failed FILE lookup must not leave
+        // a partial cache that skips validation/conversion on the next metadata request.
+        Map<String, String> convertedProperties = Maps.newHashMap();
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             if (entry.getValue().startsWith("FILE:")) {
                 // convert FILE:file_name -> FILE:file_id:md5
                 String file = entry.getValue().substring(entry.getValue().indexOf(":") + 1);
+                SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
                 SmallFile smallFile = smallFileMgr.getSmallFile(dbId, KAFKA_FILE_CATALOG, file, true);
-                convertedCustomProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
+                convertedProperties.put(entry.getKey(), "FILE:" + smallFile.id + ":" + smallFile.md5);
             } else {
-                convertedCustomProperties.put(entry.getKey(), entry.getValue());
+                convertedProperties.put(entry.getKey(), entry.getValue());
             }
         }
+
+        // Older BEs still use librdkafka's default shell command. Send the safe
+        // setting explicitly so new FE -> old BE also disables ticket execution.
+        convertedProperties.put("sasl.kerberos.min.time.before.relogin", "0");
+        convertedCustomProperties = convertedProperties;
 
         // This is mainly for compatibility. In the previous version, we directly obtained the value of the
         // KAFKA_DEFAULT_OFFSETS attribute. In the new version, we support date time as the value of
