@@ -122,7 +122,7 @@ suite("test_iceberg_variant_defaults",
             ALTER TABLE variant_defaults
             ADD COLUMN invalid_payload VARIANT DEFAULT '{"invalid":true}'
         """
-        exception "support null"
+        exception "only supports DEFAULT NULL"
     }
     assertEquals(schemaBeforeInvalidDefault, sql("DESC variant_defaults"),
             "Rejected non-null VARIANT default changed the Iceberg schema")
