@@ -22,8 +22,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
-import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -227,50 +225,5 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                                 )
                         )
                 );
-    }
-
-    @Test
-    public void scorePredicateOnlyFollowsTheOutputSide() {
-        Set<Expression> whereCondition = ImmutableSet.of(new GreaterThan(new Score(), new DoubleLiteral(0.5)));
-        for (JoinType joinType : ImmutableList.of(JoinType.INNER_JOIN, JoinType.CROSS_JOIN,
-                JoinType.FULL_OUTER_JOIN)) {
-            LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                    .joinEmptyOn(rScore, joinType)
-                    .filter(whereCondition)
-                    .build();
-            PlanChecker.from(connectContext, plan)
-                    .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
-                    .matchesFromRoot(
-                            logicalFilter(logicalJoin(logicalOlapScan(), logicalOlapScan()))
-                                    .when(filter -> filter.getConjuncts().equals(whereCondition)));
-        }
-        for (JoinType joinType : ImmutableList.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_SEMI_JOIN,
-                JoinType.LEFT_ANTI_JOIN)) {
-            LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                    .joinEmptyOn(rScore, joinType)
-                    .filter(whereCondition)
-                    .build();
-            PlanChecker.from(connectContext, plan)
-                    .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
-                    .matchesFromRoot(
-                            logicalJoin(
-                                    logicalFilter(logicalOlapScan())
-                                            .when(filter -> filter.getConjuncts().equals(whereCondition)),
-                                    logicalOlapScan()));
-        }
-        for (JoinType joinType : ImmutableList.of(JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN,
-                JoinType.RIGHT_ANTI_JOIN)) {
-            LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                    .joinEmptyOn(rScore, joinType)
-                    .filter(whereCondition)
-                    .build();
-            PlanChecker.from(connectContext, plan)
-                    .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
-                    .matchesFromRoot(
-                            logicalJoin(
-                                    logicalOlapScan(),
-                                    logicalFilter(logicalOlapScan())
-                                            .when(filter -> filter.getConjuncts().equals(whereCondition))));
-        }
     }
 }

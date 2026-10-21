@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -88,6 +89,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 )
                 .when(agg -> enablePushDownCountOnIndex())
                 .when(agg -> agg.getGroupByExpressions().isEmpty())
+                .when(agg -> !readsScore(agg.child()))
                 .when(agg -> {
                     Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                     if (funcs.isEmpty() || !funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct()
@@ -122,6 +124,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 )
                 .when(agg -> enablePushDownCountOnIndex())
                 .when(agg -> agg.getGroupByExpressions().isEmpty())
+                .when(agg -> !readsScore(agg.child().child()))
                 .when(agg -> {
                     Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                     if (funcs.isEmpty() || !funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct()
@@ -309,6 +312,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private boolean enablePushDownCountOnIndex() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext != null && connectContext.getSessionVariable().isEnablePushDownCountOnIndex();
+    }
+
+    // COUNT_ON_INDEX leaves the conjuncts to the scan, which fills its score column only after it
+    // evaluated them.
+    private static boolean readsScore(LogicalFilter<LogicalOlapScan> filter) {
+        Set<Slot> scoreSlots = Score.findScoreSlots(filter.child().getVirtualColumns());
+        return filter.getConjuncts().stream()
+                .anyMatch(conjunct -> conjunct.getInputSlots().stream().anyMatch(scoreSlots::contains));
     }
 
     private boolean checkSlotInOrExpression(Expression expr, Set<Slot> aggSlots) {

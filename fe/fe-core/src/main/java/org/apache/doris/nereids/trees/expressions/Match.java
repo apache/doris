@@ -39,6 +39,9 @@ import java.util.Optional;
 public abstract class Match extends BinaryOperator implements PropagateNullable, PreferPushDownProject {
 
     private final Optional<String> analyzer;
+    // Set on the WHERE predicates of a SELECT that calls score(): see Score. Any other MATCH
+    // only filters rows and adds nothing to the score of its scan.
+    private final Optional<ExprId> scoreId;
 
     public Match(List<Expression> children, String symbol) {
         this(children, symbol, null);
@@ -51,22 +54,36 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
      * @param analyzer the analyzer name, retaining the exact spelling of legacy policies
      */
     public Match(List<Expression> children, String symbol, String analyzer) {
+        this(children, symbol, analyzer, Optional.empty());
+    }
+
+    protected Match(List<Expression> children, String symbol, String analyzer, Optional<ExprId> scoreId) {
         super(children, symbol);
         this.analyzer = Optional.ofNullable(analyzer)
                 .map(String::trim)
                 .filter(s -> !s.isEmpty());
+        this.scoreId = scoreId;
     }
 
     /**
-     * Template method for creating a new instance with the given children and analyzer.
+     * Template method for creating a new instance with the given children, analyzer and score id.
      * Each subclass must implement this to return a new instance of itself.
      */
-    protected abstract Match createInstance(List<Expression> children, String analyzer);
+    protected abstract Match createInstance(List<Expression> children, String analyzer, Optional<ExprId> scoreId);
 
     @Override
     public final Match withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return createInstance(children, analyzer.orElse(null));
+        return createInstance(children, analyzer.orElse(null), scoreId);
+    }
+
+    public Match withScoreId(ExprId scoreId) {
+        return createInstance(children(), analyzer.orElse(null), Optional.of(scoreId));
+    }
+
+    /** The SELECT whose score() this predicate defines, see Score. */
+    public Optional<ExprId> getScoreId() {
+        return scoreId;
     }
 
     /**
@@ -150,11 +167,11 @@ public abstract class Match extends BinaryOperator implements PropagateNullable,
             return false;
         }
         Match other = (Match) obj;
-        return Objects.equals(analyzer, other.analyzer);
+        return Objects.equals(analyzer, other.analyzer) && Objects.equals(scoreId, other.scoreId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), analyzer);
+        return Objects.hash(super.hashCode(), analyzer, scoreId);
     }
 }

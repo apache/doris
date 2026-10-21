@@ -119,29 +119,23 @@ suite("test_bm25_score_range_filter", "p0") {
     """
     log.info("Explain result: ${explain_result}")
 
-    // Test 9: Error case - multiple score predicates not supported
-    test {
-        sql """
-            SELECT id, content, score() as s
-            FROM ${tableName}
-            WHERE content match_any 'apple' AND score() > 0.3 AND score() < 0.9
-            ORDER BY s DESC
-            LIMIT 10;
-        """
-        exception "Only one score() range predicate is supported"
-    }
+    // Test 9: Two score filters: the scan applies score() > 0.3, the plan above it score() < 0.9
+    order_qt_score_two_bounds """
+        SELECT id, content, score() as s
+        FROM ${tableName}
+        WHERE content match_any 'apple' AND score() > 0.3 AND score() < 0.9
+        ORDER BY s DESC
+        LIMIT 10;
+    """
 
-    // Test 10: Error case - score() < X not supported (max_score semantics)
-    test {
-        sql """
-            SELECT id, content, score() as s
-            FROM ${tableName}
-            WHERE content match_any 'apple' AND score() < 0.9
-            ORDER BY s DESC
-            LIMIT 10;
-        """
-        exception "score() predicate in WHERE clause must be in the form of 'score() > literal'"
-    }
+    // Test 10: score() < X is an ordinary filter on the score that the scan computes for every row
+    order_qt_score_upper_bound """
+        SELECT id, content, score() as s
+        FROM ${tableName}
+        WHERE content match_any 'apple' AND score() < 0.9
+        ORDER BY s DESC
+        LIMIT 10;
+    """
 
     // Test 11: Error case - score() compared with string type not supported
     test {

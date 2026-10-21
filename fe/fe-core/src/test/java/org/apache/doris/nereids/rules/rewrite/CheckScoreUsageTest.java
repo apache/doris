@@ -27,24 +27,27 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 class CheckScoreUsageTest extends TestWithFeService {
-    private static final String SCORE_USAGE_ERROR = "score()";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -125,13 +128,11 @@ class CheckScoreUsageTest extends TestWithFeService {
 
     @ParameterizedTest
     @MethodSource("scoringPredicates")
-    void testIneligibleTopNWithoutRangeKeepsItsDiagnostic(String format, String predicate) {
-        assertScoreUsageError("SELECT id, score() AS s FROM score_usage_" + format
-                + " WHERE " + predicate + " ORDER BY id LIMIT 10",
-                "ORDER BY expression must reference a score() function");
-        assertScoreUsageError("SELECT id, score() AS s FROM score_usage_" + format
-                + " WHERE " + predicate + " ORDER BY s, id LIMIT 10",
-                "TopN must have exactly one ordering expression");
+    void testScoreWithoutRangeOrTopNScoresEveryRow(String format, String predicate) {
+        for (String suffix : new String[] {"", " ORDER BY id LIMIT 10", " ORDER BY s, id LIMIT 10"}) {
+            assertFullScoring("SELECT id, score() AS s FROM score_usage_" + format
+                    + " WHERE " + predicate + suffix, 2);
+        }
     }
 
     @ParameterizedTest
@@ -147,12 +148,14 @@ class CheckScoreUsageTest extends TestWithFeService {
 
     @ParameterizedTest
     @MethodSource("scoringPredicates")
-    void testLossyScoreCastsAreRejected(String format, String predicate) {
-        for (String type : new String[] {"INT", "DECIMAL(10, 6)"}) {
+    void testOtherScoreFiltersSeeEveryScore(String format, String predicate) {
+        // Only score > x and score >= x go into the scan; any other filter on the score is an
+        // ordinary filter, which also keeps a TopN on the score from limiting the scoring.
+        for (String filter : new String[] {"CAST(score() AS INT) > 0", "CAST(score() AS DECIMAL(10, 6)) > 0",
+                "score() < 1", "score() * score() > 0", "(score() + 1 > 1 OR id = 1)"}) {
             for (String suffix : new String[] {"", " ORDER BY score() DESC LIMIT 10"}) {
-                assertScoreUsageError("SELECT id FROM score_usage_" + format
-                        + " WHERE " + predicate + " AND CAST(score() AS " + type + ") > 0" + suffix,
-                        "score() predicate in WHERE clause must be in the form");
+                assertFullScoring("SELECT id FROM score_usage_" + format
+                        + " WHERE " + predicate + " AND " + filter + suffix, 1);
             }
         }
     }
@@ -173,27 +176,17 @@ class CheckScoreUsageTest extends TestWithFeService {
 
     @ParameterizedTest
     @MethodSource("scoringPredicates")
-    void testAggregateScoreRemainsRejected(String format, String predicate) {
-        for (String projection : new String[] {"sum(score())", "count(distinct score())"}) {
-            assertScoreUsageError("SELECT " + projection + " FROM score_usage_" + format
-                    + " WHERE " + predicate + " AND score() > 0.00001");
+    void testScoreCanBeAggregatedAndGrouped(String format, String predicate) {
+        for (String query : new String[] {"SELECT sum(score())", "SELECT count(distinct score())",
+                "SELECT max(score()) AS m, id"}) {
+            assertScoreRangeWithoutTopN(query + " FROM score_usage_" + format
+                    + " WHERE " + predicate + " AND score() > 0.00001"
+                    + (query.endsWith("id") ? " GROUP BY id" : ""), query.endsWith("id") ? 2 : 1);
         }
-        assertScoreUsageError("SELECT score() FROM score_usage_" + format
+        assertScoreRangeWithoutTopN("SELECT score() FROM score_usage_" + format
                 + " WHERE " + predicate + " AND score() > 0.00001 GROUP BY score()");
-    }
-
-    @ParameterizedTest
-    @MethodSource("scoringPredicates")
-    void testNestedScoreInFilterIsRejected(String format, String predicate) {
-        assertScoreUsageError("SELECT id FROM score_usage_" + format
-                + " WHERE " + predicate + " AND (score() + 1 > 1 OR id = 1)");
-    }
-
-    @ParameterizedTest
-    @MethodSource("scoringPredicates")
-    void testScoreProjectionWithoutTopNIsRejected(String format, String predicate) {
-        assertScoreUsageError("SELECT id, score() FROM score_usage_" + format
-                + " WHERE " + predicate);
+        assertFullScoring("SELECT c2 FROM score_usage_" + format + " WHERE " + predicate
+                + " GROUP BY c2 HAVING max(score()) > 0.00001", 1);
     }
 
     @ParameterizedTest
@@ -242,73 +235,115 @@ class CheckScoreUsageTest extends TestWithFeService {
     }
 
     @Test
-    void testScoreFilterAboveJoinIsRejected() {
-        String join = "SELECT a.id FROM score_usage_V2 a JOIN score_usage_V3 b ON a.id = b.id"
-                + " WHERE a.c1 MATCH 'apple'";
-        String error = "score() filter must be in the WHERE clause of a query on one table";
-        assertScoreUsageError(join + " AND score() > 0.00001", error);
-        // With MATCH on both sides, score() must not silently filter each side by its own score.
-        assertScoreUsageError(join + " AND b.c1 MATCH 'apple' AND score() > 0.00001", error);
-        assertScoreUsageError("SELECT a.id FROM score_usage_V2 a, score_usage_V3 b"
-                + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001", error);
-        assertScoreUsageError("SELECT a.id FROM score_usage_V2 a JOIN score_usage_V3 b"
-                + " ON a.id = b.id AND score() > 0.00001 WHERE a.c1 MATCH 'apple'",
-                "can not contains Score expression");
+    void testScoreNextToWindowFunctions() {
+        // score() is a column of the scan, so a window in the same SELECT does not change it.
+        assertScoreRangeWithoutTopN("SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 3);
+        assertScoreRangeWithoutTopN("SELECT id, row_number() OVER (ORDER BY score() DESC) AS rn"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 2);
+        assertScoreRangeWithoutTopN("SELECT id, s, row_number() OVER (ORDER BY id) AS rn FROM ("
+                + "SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001) x", 3);
+        // A filter above the window must see the rows the window numbered: it stays an ordinary filter.
+        assertFullScoring("SELECT id, rn FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn,"
+                + " score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple') w WHERE s > 0.00001", 2);
+        assertFullScoring("SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple'"
+                + " QUALIFY row_number() OVER (ORDER BY score() DESC, id) = 1", 1);
     }
 
     @Test
-    void testScoreFilterAboveRowChangingOperatorIsRejected() {
-        String error = "score() filter must be in the WHERE clause of a query on one table";
-        // Pushed below the window, the filter would change row_number() of the remaining rows.
+    void testScoreBindsToTheTableOfItsMatch() {
+        for (String join : new String[] {"JOIN", "LEFT JOIN", "CROSS JOIN"}) {
+            String on = join.equals("CROSS JOIN") ? "" : " ON a.id = b.id";
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT a.id, score() AS s, b.c2 FROM score_usage_V2 a " + join + " score_usage_V3 b" + on
+                            + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001",
+                    planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
+        }
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT a.id, b.c2 FROM score_usage_V3 b RIGHT JOIN score_usage_V2 a ON a.id = b.id"
+                        + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001",
+                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
+        assertScoreRangeWithoutTopN("SELECT id, e FROM score_usage_V2 LATERAL VIEW explode(array(1, 2)) t AS e"
+                + " WHERE c1 MATCH 'apple' AND score() > 0.00001", 2);
+        assertScoreRangeWithoutTopN("WITH c AS (SELECT id, c1 FROM score_usage_V2)"
+                + " SELECT id FROM c WHERE c1 MATCH 'apple' AND score() > 0.00001");
+    }
+
+    @Test
+    void testScoreWithoutMatchInItsSelectIsRejected() {
+        String error = CheckScoreUsage.NO_SCORING_PREDICATE_ERROR;
+        assertScoreUsageError("SELECT score() FROM score_usage_V2", error);
+        assertScoreUsageError("SELECT score() FROM score_usage_V2 WHERE c2 = 'sweet'", error);
+        // score() belongs to the SELECT that calls it, not to the MATCH of a subquery, CTE or view.
         assertScoreUsageError("SELECT * FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple') w WHERE score() > 0.00001", error);
         assertScoreUsageError("SELECT * FROM (SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple' LIMIT 1) l"
                 + " WHERE score() > 0.00001", error);
-        // PushDownFilterThroughGenerate keeps predicates without input slots above a lateral view.
-        assertScoreUsageError("SELECT id, e FROM score_usage_V2 LATERAL VIEW explode(array(1, 2)) t AS e"
-                + " WHERE c1 MATCH 'apple' AND score() > 0.00001", error);
-        // The CTE is inlined after analysis, exposing the window to the outer filter.
-        assertScoreUsageError("WITH w AS (SELECT id, row_number() OVER (ORDER BY id) AS rn FROM score_usage_V2"
-                + " WHERE c1 MATCH 'apple') SELECT * FROM w WHERE score() > 0.00001", error);
-        // A recursive CTE produces its rows with a recursive union. Its recursive reference is bound
-        // by the planner, so plan the whole query.
+        assertScoreUsageError("WITH c AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')"
+                + " SELECT id FROM c WHERE score() > 0.00001", error);
+        // Its recursive reference is bound by the planner only, so plan the whole query.
         String recursive = "WITH RECURSIVE r AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple'"
                 + " UNION ALL SELECT CAST(id + 1 AS INT), c1 FROM r WHERE id < 3)"
                 + " SELECT id FROM r WHERE score() > 0.00001";
         NereidsException exception = Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(recursive));
         Assertions.assertTrue(exception.getMessage().contains(error), exception.getMessage());
-        // Window extraction computes the alias above the window, so the filter on s turns into a
-        // score() filter there.
-        assertScoreUsageError("SELECT id, rn FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn,"
-                + " score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple') w WHERE s > 0.00001", error);
-        // UNION DISTINCT and INTERSECT merge equal rows of different scans, which can have different
-        // scores. The alias forms turn into score() filters above the set operation.
-        String union = "(SELECT id, c1 FROM score_usage_V2 UNION SELECT id, c1 FROM score_usage_V3) u";
-        assertScoreUsageError("SELECT id FROM " + union + " WHERE c1 MATCH 'apple' AND score() > 0.00001", error);
-        assertScoreUsageError("SELECT id FROM (SELECT id, score() AS s FROM " + union
-                + " WHERE c1 MATCH 'apple') x WHERE s > 0.00001", error);
-        assertScoreUsageError("SELECT id FROM (SELECT id, score() AS s FROM (SELECT id, c1 FROM score_usage_V2"
-                + " INTERSECT SELECT id, c1 FROM score_usage_V3) u WHERE c1 MATCH 'apple') x WHERE s > 0.00001",
-                error);
     }
 
     @Test
-    void testScoreFilterOnCteOfOneScan() {
-        assertScoreRangeWithoutTopN("WITH c AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')"
-                + " SELECT id FROM c WHERE score() > 0.00001");
-    }
-
-    @Test
-    @Timeout(60)
-    void testSharedCteProducerIsCheckedOnce() {
-        // Every CTE reads the one before it twice; checking each consumer again would take 2^40 steps.
-        StringBuilder sql = new StringBuilder("WITH w0 AS (SELECT id, c1 FROM score_usage_V2 WHERE c1 MATCH 'apple')");
-        for (int i = 1; i <= 40; i++) {
-            sql.append(String.format(", w%d AS (SELECT * FROM w%d UNION ALL SELECT * FROM w%d)", i, i - 1, i - 1));
+    void testScoreOfSeveralTablesIsRejected() {
+        String error = BindScoreToOlapScan.UNRESOLVED_SCAN_ERROR;
+        assertScoreUsageError("SELECT a.id FROM score_usage_V2 a JOIN score_usage_V3 b ON a.id = b.id"
+                + " WHERE a.c1 MATCH 'apple' AND b.c1 MATCH 'apple' AND score() > 0.00001", error);
+        for (String setOperation : new String[] {"UNION ALL", "UNION", "INTERSECT"}) {
+            String input = "(SELECT id, c1 FROM score_usage_V2 " + setOperation
+                    + " SELECT id, c1 FROM score_usage_V3) u";
+            assertScoreUsageError("SELECT id FROM " + input + " WHERE c1 MATCH 'apple' AND score() > 0.00001",
+                    error);
+            assertScoreUsageError("SELECT id FROM (SELECT id, score() AS s FROM " + input
+                    + " WHERE c1 MATCH 'apple') x WHERE s > 0.00001", error);
         }
-        sql.append(" SELECT id FROM w40 WHERE score() > 0.00001");
-        PlanChecker.from(connectContext).analyze(sql.toString());
+        assertScoreUsageError("SELECT a.id FROM score_usage_V2 a JOIN score_usage_V3 b"
+                + " ON a.id = b.id AND score() > 0.00001 WHERE a.c1 MATCH 'apple'",
+                "can not contains Score expression");
+    }
+
+    @Test
+    void testOneTableScoredByTwoSelectsIsRejected() {
+        assertScoreUsageError("SELECT id, score() AS s2 FROM (SELECT id, c1, score() AS s1 FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple') x WHERE c1 MATCH 'red'", BindScoreToOlapScan.SHARED_SCAN_ERROR);
+    }
+
+    @Test
+    void testScoreAboveGroupByIsRejected() {
+        assertScoreUsageError("SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple' GROUP BY id"
+                + " HAVING score() > 0.00001", BindScoreToOlapScan.SCORE_NOT_AVAILABLE_ERROR);
+    }
+
+    @Test
+    void testMatchOfAnotherSelectDoesNotScore() {
+        for (String outer : new String[] {"c1 MATCH 'red'", "search('c1:red')"}) {
+            PlanChecker.from(connectContext).checkPlannerResult(
+                    "SELECT id, s FROM (SELECT id, c1, score() AS s FROM score_usage_V2"
+                            + " WHERE c1 MATCH 'apple' AND score() > 0.00001) x WHERE " + outer,
+                    planner -> {
+                        TPlanNode thriftScan = planner.getScanNodes().get(0).treeToThrift().getNodes().get(0);
+                        List<Boolean> collectScore = new ArrayList<>();
+                        for (TExpr conjunct : thriftScan.conjuncts) {
+                            for (TExprNode node : conjunct.nodes) {
+                                if (node.node_type == TExprNodeType.MATCH_PRED) {
+                                    collectScore.add(node.match_predicate.collect_score);
+                                } else if (node.node_type == TExprNodeType.SEARCH_EXPR) {
+                                    collectScore.add(node.search_param.collect_score);
+                                }
+                            }
+                        }
+                        // The MATCH of the scored SELECT adds to the score, the outer predicate does not.
+                        Assertions.assertEquals(2, collectScore.size(), thriftScan.conjuncts.toString());
+                        Assertions.assertTrue(collectScore.contains(true), thriftScan.conjuncts.toString());
+                        Assertions.assertTrue(collectScore.contains(false), thriftScan.conjuncts.toString());
+                    });
+        }
     }
 
     @Test
@@ -321,16 +356,13 @@ class CheckScoreUsageTest extends TestWithFeService {
                 planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "SELECT id FROM (SELECT id, c1 FROM score_usage_V2 UNION ALL SELECT id, c1 FROM score_usage_V3) u"
-                    + " WHERE c1 MATCH 'apple' AND score() > 0.00001",
-            // A filter on the score column of each branch is a filter on a value, which UNION DISTINCT keeps.
-            "SELECT * FROM (SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple'"
-                    + " UNION SELECT id, score() AS s FROM score_usage_V3 WHERE c1 MATCH 'apple') u"
-                    + " WHERE s > 0.00001"})
-    void testScoreFilterIsPushedIntoUnionBranches(String sql) {
-        PlanChecker.from(connectContext).checkPlannerResult(sql,
+    @Test
+    void testScoreColumnsOfUnionBranches() {
+        // A filter on the score column of each branch is a filter on a value, which UNION DISTINCT keeps.
+        PlanChecker.from(connectContext).checkPlannerResult(
+                "SELECT * FROM (SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple'"
+                        + " UNION SELECT id, score() AS s FROM score_usage_V3 WHERE c1 MATCH 'apple') u"
+                        + " WHERE s > 0.00001",
                 planner -> {
                     Assertions.assertEquals(2, planner.getScanNodes().size());
                     for (ScanNode scanNode : planner.getScanNodes()) {
@@ -346,18 +378,6 @@ class CheckScoreUsageTest extends TestWithFeService {
                 "SELECT a.id, b.c2 FROM (SELECT id FROM score_usage_V2"
                         + " WHERE c1 MATCH 'apple' AND score() > 0.00001) a"
                         + " JOIN score_usage_V3 b ON a.id = b.id",
-                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
-    }
-
-    @Test
-    void testScoreFilterFollowsPreservedSideOfOuterJoin() {
-        PlanChecker.from(connectContext).checkPlannerResult(
-                "SELECT a.id, b.c2 FROM score_usage_V2 a LEFT JOIN score_usage_V3 b ON a.id = b.id"
-                        + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001",
-                planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
-        PlanChecker.from(connectContext).checkPlannerResult(
-                "SELECT a.id, b.c2 FROM score_usage_V3 b RIGHT JOIN score_usage_V2 a ON a.id = b.id"
-                        + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001",
                 planner -> assertOnlyScanWithScoreRange(planner, "score_usage_V2"));
     }
 
@@ -394,7 +414,7 @@ class CheckScoreUsageTest extends TestWithFeService {
                     .rewrite();
             LogicalOlapScan scan = (LogicalOlapScan) checker.getCascadesContext().getRewritePlan()
                     .collectFirst(plan -> plan instanceof LogicalOlapScan).get();
-            // Only the score binding may contain score(); a CSE column would evaluate it as zero.
+            // Only the score column may contain score(); a CSE column would evaluate it as zero.
             List<NamedExpression> scoreColumns = scan.getVirtualColumns().stream()
                     .filter(column -> column.containsType(Score.class))
                     .collect(Collectors.toList());
@@ -403,6 +423,28 @@ class CheckScoreUsageTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = enableCse;
         }
+    }
+
+    @Test
+    void testFilterOnScoreRunsAboveTheScan() throws Exception {
+        // The scan fills its score column only after it evaluated its own conjuncts, so a filter on
+        // the score runs in a node above the scan, and COUNT_ON_INDEX cannot count in the scan.
+        for (String query : new String[] {"SELECT id", "SELECT count(*)"}) {
+            for (String filter : new String[] {"score() < 1", "CAST(score() AS INT) = 0", "(score() > 0 OR id = 1)"}) {
+                String explain = getSQLPlanOrErrorMsg("EXPLAIN " + query + " FROM score_usage_V2"
+                        + " WHERE c1 MATCH 'apple' AND " + filter);
+                String scanPredicates = Arrays.stream(explain.split("\n"))
+                        .filter(line -> line.contains("PREDICATES:")).findFirst().orElse("");
+                Assertions.assertTrue(scanPredicates.contains("MATCH_ANY"), explain);
+                Assertions.assertFalse(scanPredicates.contains("__score"), explain);
+                Assertions.assertTrue(explain.contains("VSELECT"), explain);
+                Assertions.assertFalse(explain.contains("COUNT_ON_INDEX"), explain);
+            }
+        }
+        // The scan applies the minimum score itself, before COUNT_ON_INDEX counts.
+        String explain = getSQLPlanOrErrorMsg("EXPLAIN SELECT count(*) FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple' AND score() > 0.5");
+        Assertions.assertTrue(explain.contains("COUNT_ON_INDEX"), explain);
     }
 
     @Test
@@ -433,28 +475,37 @@ class CheckScoreUsageTest extends TestWithFeService {
 
     private void assertScoreRangeWithoutTopN(String sql, int outputColumns, TExprOpcode op) {
         PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
-            Assertions.assertEquals(1, planner.getScanNodes().size());
-            OlapScanNode scan = (OlapScanNode) planner.getScanNodes().get(0);
-            TPlanNode thriftScan = scan.treeToThrift().getNodes().get(0);
-            Assertions.assertNotNull(thriftScan.olap_scan_node.score_sort_info);
-            Assertions.assertTrue(thriftScan.olap_scan_node.isSetScoreSortLimit());
-            Assertions.assertEquals(0, thriftScan.olap_scan_node.score_sort_limit);
-            Assertions.assertNotNull(thriftScan.olap_scan_node.score_range_info);
+            TPlanNode thriftScan = assertScoresEveryRow(planner, outputColumns);
+            Assertions.assertNotNull(thriftScan.olap_scan_node.score_range_info, sql);
             Assertions.assertEquals(op, thriftScan.olap_scan_node.score_range_info.op);
             Assertions.assertEquals(0.00001, thriftScan.olap_scan_node.score_range_info.threshold, 1e-10);
-            Assertions.assertTrue(thriftScan.olap_scan_node.score_sort_info.ordering_exprs.get(0)
-                    .nodes.get(0).slot_ref.is_virtual_slot, "Scoring must reference a virtual slot");
-            int scoreSlotId = thriftScan.olap_scan_node.score_sort_info.ordering_exprs.get(0)
-                    .nodes.get(0).slot_ref.slot_id;
-            Assertions.assertTrue(scan.getTupleDesc().getSlots().stream()
-                    .anyMatch(slot -> slot.getId().asInt() == scoreSlotId),
-                    "The score binding must reference a slot in the final scan tuple");
-            Assertions.assertEquals(outputColumns, planner.getFragments().get(0).getOutputExprs().size());
         });
     }
 
-    private void assertScoreUsageError(String sql) {
-        assertScoreUsageError(sql, SCORE_USAGE_ERROR);
+    // The scan scores every row and leaves every filter on the score to the plan above it.
+    private void assertFullScoring(String sql, int outputColumns) {
+        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
+            TPlanNode thriftScan = assertScoresEveryRow(planner, outputColumns);
+            Assertions.assertFalse(thriftScan.olap_scan_node.isSetScoreRangeInfo(), sql);
+        });
+    }
+
+    private TPlanNode assertScoresEveryRow(NereidsPlanner planner, int outputColumns) {
+        Assertions.assertEquals(1, planner.getScanNodes().size());
+        OlapScanNode scan = (OlapScanNode) planner.getScanNodes().get(0);
+        TPlanNode thriftScan = scan.treeToThrift().getNodes().get(0);
+        Assertions.assertNotNull(thriftScan.olap_scan_node.score_sort_info);
+        Assertions.assertTrue(thriftScan.olap_scan_node.isSetScoreSortLimit());
+        Assertions.assertEquals(0, thriftScan.olap_scan_node.score_sort_limit);
+        Assertions.assertTrue(thriftScan.olap_scan_node.score_sort_info.ordering_exprs.get(0)
+                .nodes.get(0).slot_ref.is_virtual_slot, "Scoring must reference a virtual slot");
+        int scoreSlotId = thriftScan.olap_scan_node.score_sort_info.ordering_exprs.get(0)
+                .nodes.get(0).slot_ref.slot_id;
+        Assertions.assertTrue(scan.getTupleDesc().getSlots().stream()
+                .anyMatch(slot -> slot.getId().asInt() == scoreSlotId),
+                "The score binding must reference a slot in the final scan tuple");
+        Assertions.assertEquals(outputColumns, planner.getFragments().get(0).getOutputExprs().size());
+        return thriftScan;
     }
 
     private void assertScoreUsageError(String sql, String error) {

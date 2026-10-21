@@ -129,6 +129,14 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
         newRelation = newRelation.withVirtualColumns(virtualColumns);
+        if (newRelation instanceof LogicalOlapScan) {
+            // The score and ANN order keys sort by virtual columns, which got new ids above.
+            LogicalOlapScan olapScan = (LogicalOlapScan) newRelation;
+            newRelation = olapScan.appendVirtualColumnsAndTopN(ImmutableList.of(),
+                    copyOrderKeys(olapScan.getAnnOrderKeys(), context), olapScan.getAnnLimit(),
+                    copyOrderKeys(olapScan.getScoreOrderKeys(), context), olapScan.getScoreLimit(),
+                    olapScan.getScoreRangeInfo());
+        }
         if (catalogRelation instanceof LogicalSchemaScan
                 && ((LogicalSchemaScan) catalogRelation).isFilterPushed()) {
             LogicalSchemaScan oldSchemaScan = (LogicalSchemaScan) catalogRelation;
@@ -273,11 +281,15 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     @Override
     public Plan visitLogicalTopN(LogicalTopN<? extends Plan> topN, DeepCopierContext context) {
         Plan child = topN.child().accept(this, context);
-        List<OrderKey> orderKeys = topN.getOrderKeys().stream()
+        List<OrderKey> orderKeys = copyOrderKeys(topN.getOrderKeys(), context);
+        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child);
+    }
+
+    private static List<OrderKey> copyOrderKeys(List<OrderKey> orderKeys, DeepCopierContext context) {
+        return orderKeys.stream()
                 .map(o -> new OrderKey(ExpressionDeepCopier.INSTANCE.deepCopy(o.getExpr(), context),
                         o.isAsc(), o.isNullFirst()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child);
     }
 
     @Override

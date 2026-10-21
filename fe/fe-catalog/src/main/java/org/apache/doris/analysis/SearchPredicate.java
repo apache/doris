@@ -32,6 +32,8 @@ public class SearchPredicate extends Predicate {
     private final String dslString;
     private final QsPlan qsPlan;
     private final List<Index> fieldIndexes;
+    // false for a SEARCH that only filters the rows of a scan: it must not add to the score() of that scan
+    private boolean collectScore = true;
 
     public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children, boolean nullable) {
         this(dslString, qsPlan, children, Collections.emptyList(), nullable);
@@ -57,6 +59,7 @@ public class SearchPredicate extends Predicate {
         this.dslString = other.dslString;
         this.qsPlan = other.qsPlan;
         this.fieldIndexes = other.fieldIndexes;
+        this.collectScore = other.collectScore;
     }
 
     @Override
@@ -81,12 +84,12 @@ public class SearchPredicate extends Predicate {
             return false;
         }
         SearchPredicate that = (SearchPredicate) obj;
-        return dslString.equals(that.dslString);
+        return dslString.equals(that.dslString) && collectScore == that.collectScore;
     }
 
     @Override
     public int hashCode() {
-        return java.util.Objects.hash(super.hashCode(), dslString);
+        return java.util.Objects.hash(super.hashCode(), dslString, collectScore);
     }
 
     public String getDslString() {
@@ -99,5 +102,13 @@ public class SearchPredicate extends Predicate {
 
     public List<Index> getFieldIndexes() {
         return fieldIndexes;
+    }
+
+    public boolean isCollectScore() {
+        return collectScore;
+    }
+
+    public void setCollectScore(boolean collectScore) {
+        this.collectScore = collectScore;
     }
 }

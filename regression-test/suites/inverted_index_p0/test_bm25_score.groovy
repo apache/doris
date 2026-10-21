@@ -103,59 +103,46 @@ suite("test_bm25_score", "p0") {
         // Test exception cases for score() function usage
         log.info("Testing exception cases for score() function...")
 
+        // score() is the relevance for the MATCH and SEARCH predicates in the WHERE clause of its own SELECT.
         test {
             sql """ select score() as score from test_bm25_score limit 10; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
         }
 
         test {
             sql """ select score() as score from test_bm25_score where status = 200 limit 10; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """ select score() as score from test_bm25_score where request match_any 'button.03.gif' limit 10; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by status limit 10; """
-            exception "ORDER BY expression must reference a score() function from SELECT clause for push down optimization"
+            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
         }
 
         test {
             sql """ select score() from test_bm25_score; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
         }
 
         test {
             sql """ select * from (select score() as s from test_bm25_score where status = 200) t; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
+            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
         }
 
         test {
             sql """ select score() as score from test_bm25_score where request = 'button.03.gif' order by score() limit 10; """
-            exception "WHERE clause must contain at least one MATCH or SEARCH function for score() push down optimization"
+            exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
         }
 
-        test {
-            sql """ select score() as score from test_bm25_score where request match 'button.03.gif'; """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
-
-        test {
-            sql """
+        // Without a TopN on the score, the scan scores every row it returns. Both agree on the best score.
+        qt_score_without_topn """ select count(), max(score()) from test_bm25_score where request match_any 'button.03.gif'; """
+        qt_score_topn_best """ select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score desc limit 1; """
+        qt_score_limit_without_order """ select count() from (select score() as score from test_bm25_score where request match_any 'button.03.gif' limit 10) t; """
+        qt_score_order_without_limit """ select count() from (select score() as score from test_bm25_score where request match_any 'button.03.gif' order by score) t; """
+        qt_score_order_by_other_column """ select count() from (select score() as score from test_bm25_score where request match_any 'button.03.gif' order by status limit 10) t; """
+        qt_score_order_by_score_and_column """ select status, score() as s from test_bm25_score where request match_any 'button.03.gif' order by s desc, status limit 3; """
+        qt_score_match_without_order """ select count(), max(score()) from test_bm25_score where request match 'button.03.gif'; """
+        qt_score_union_all """
+            select count(), max(score) from (
                 (select score() as score from test_bm25_score where request match_any 'button.03.gif')
                 union all
-                (select score() as score from test_bm25_score where request match_any 'test');
-            """
-            exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
-        }
+                (select score() as score from test_bm25_score where request match_any 'test')) u;
+        """
 
         // score() > 0.5 with ORDER BY and LIMIT is now supported after score range filter pushdown feature
         sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """

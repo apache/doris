@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
+import org.apache.doris.nereids.rules.rewrite.BindScoreToOlapScan;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
@@ -137,6 +138,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.PushDownScoreRangeIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
@@ -262,6 +264,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             // 3. finally, we can eliminate the LogicalView
                             topic("Inline view and check column privileges",
                                     bottomUp(new InlineLogicalView())
+                            ),
+                            topic("Bind score",
+                                    custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new)
                             ),
                             topic("Eliminate optimization",
                                     bottomUp(
@@ -426,6 +431,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     private static final List<RewriteJob> NORMALIZE_PLAN_JOBS = jobs(
             topic("Plan Normalization",
+                    // Tie score() calls to their SELECT while subqueries, views and CTEs still have
+                    // their own plan nodes.
+                    custom(RuleType.CHECK_SCORE_USAGE, CheckScoreUsage::new),
                     custom(RuleType.FOLD_CONSTANT_FOR_SQL_CACHE, FoldConstantForSqlCache::new),
                     // move MergeProjects rule from analyze phase
                     // because SubqueryToApply and BindSink rule may create extra project node
@@ -504,6 +512,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // so the CheckPrivileges should not change the plan
                     custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
                     bottomUp(new InlineLogicalView())
+                ),
+                // Bind score() now that views and CTEs are inlined, before window expressions are
+                // extracted and filters are pushed down.
+                topic("Bind score",
+                        custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new)
                 ),
                 topic("Eliminate optimization",
                         bottomUp(
@@ -803,9 +816,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topDown(new PushDownMatchProjectionAsVirtualColumn()),
+                // BindScoreToOlapScan scored every row of the scans. Push a minimum score filter into
+                // the scan first: a TopN on the score can only limit the scoring without other filters.
                 topic("score optimize",
-                        topDown(new PushDownScoreTopNIntoOlapScan(),
-                                new CheckScoreUsage())
+                        topDown(new PushDownScoreRangeIntoOlapScan()),
+                        topDown(new PushDownScoreTopNIntoOlapScan())
                 ),
                 topic("add projection for join",
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),

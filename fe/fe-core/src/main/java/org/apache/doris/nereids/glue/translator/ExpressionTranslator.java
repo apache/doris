@@ -53,6 +53,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.rewrite.BindScoreToOlapScan;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -280,7 +282,20 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
                 match.right().accept(this, context), match.getDataType().toCatalogDataType(),
                 NullableMode.DEPEND_ON_ARGUMENT, invertedIndex, match.nullable(), analyzer);
+        matchPredicate.setCollectScore(collectsScore(match.getScoreId(), context));
         return matchPredicate;
+    }
+
+    // A MATCH or SEARCH of the SELECT that calls score() adds to the score of the scan that it filters,
+    // see CheckScoreUsage, so that scan has to evaluate it. Any other one only filters rows.
+    private static boolean collectsScore(Optional<ExprId> predicateScoreId, PlanTranslatorContext context) {
+        if (!predicateScoreId.isPresent()) {
+            return !context.getScanScoreId().isPresent();
+        }
+        if (!predicateScoreId.equals(context.getScanScoreId())) {
+            throw new AnalysisException(BindScoreToOlapScan.UNEVALUATED_PREDICATE_ERROR);
+        }
+        return true;
     }
 
     @Override
@@ -735,6 +750,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         SearchPredicate searchPredicate = new SearchPredicate(searchExpression.getDslString(),
                 searchExpression.getQsPlan(), slotChildren, fieldIndexes,
                 searchExpression.nullable());
+        searchPredicate.setCollectScore(collectsScore(searchExpression.getScoreId(), context));
         return searchPredicate;
     }
 

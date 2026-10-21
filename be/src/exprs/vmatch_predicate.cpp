@@ -45,6 +45,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
@@ -57,7 +58,8 @@ namespace doris {
 
 using namespace doris::segment_v2;
 
-VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
+VMatchPredicate::VMatchPredicate(const TExprNode& node)
+        : VExpr(node), _collect_score(node.match_predicate.collect_score) {
     const auto resolved = AnalyzerConfigParser::parse(
             node.match_predicate.analyzer_name, node.match_predicate.parser_type,
             node.match_predicate.parser_mode, node.match_predicate.parser_lowercase,
@@ -175,6 +177,10 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
         context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
     }
+    // A MATCH that only filters the rows of the scan, e.g. one from another SELECT, must not add
+    // to score().
+    ScoreCollectionPause pause_scoring(
+            context->get_index_context()->get_index_query_context().get(), !_collect_score);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 

@@ -38,6 +38,8 @@ public class SearchExpression extends Expression {
     // The second argument of search(dsl, options), kept so that toSql() reproduces the call.
     private final Optional<String> optionsJson;
     private final SearchDslParser.QsPlan qsPlan;
+    // The score id of the search() call this expression binds, see Search.
+    private final Optional<ExprId> scoreId;
 
     public SearchExpression(String dslString, SearchDslParser.QsPlan qsPlan, List<Expression> slotChildren) {
         this(dslString, Optional.empty(), qsPlan, slotChildren);
@@ -46,14 +48,26 @@ public class SearchExpression extends Expression {
     /** Create a bound search expression that keeps the options argument of search(dsl, options). */
     public SearchExpression(String dslString, Optional<String> optionsJson, SearchDslParser.QsPlan qsPlan,
             List<Expression> slotChildren) {
+        this(dslString, optionsJson, qsPlan, slotChildren, Optional.empty());
+    }
+
+    /** Create a bound search expression that also keeps the score id of the search() call. */
+    public SearchExpression(String dslString, Optional<String> optionsJson, SearchDslParser.QsPlan qsPlan,
+            List<Expression> slotChildren, Optional<ExprId> scoreId) {
         super(slotChildren);
         this.dslString = Objects.requireNonNull(dslString, "dslString cannot be null");
         this.optionsJson = Objects.requireNonNull(optionsJson, "optionsJson cannot be null");
         this.qsPlan = Objects.requireNonNull(qsPlan, "qsPlan cannot be null");
+        this.scoreId = Objects.requireNonNull(scoreId, "scoreId cannot be null");
     }
 
     public String getDslString() {
         return dslString;
+    }
+
+    /** The SELECT whose score() this predicate defines, see Score. */
+    public Optional<ExprId> getScoreId() {
+        return scoreId;
     }
 
     public SearchDslParser.QsPlan getQsPlan() {
@@ -90,7 +104,7 @@ public class SearchExpression extends Expression {
                         "SearchExpression children must be SlotReference or ElementAt instances");
             }
         }
-        return new SearchExpression(dslString, optionsJson, qsPlan, children);
+        return new SearchExpression(dslString, optionsJson, qsPlan, children, scoreId);
     }
 
     @Override
@@ -124,11 +138,12 @@ public class SearchExpression extends Expression {
         SearchExpression that = (SearchExpression) o;
         return Objects.equals(dslString, that.dslString)
                 && Objects.equals(optionsJson, that.optionsJson)
-                && Objects.equals(qsPlan, that.qsPlan);
+                && Objects.equals(qsPlan, that.qsPlan)
+                && Objects.equals(scoreId, that.scoreId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), dslString, optionsJson, qsPlan);
+        return Objects.hash(super.hashCode(), dslString, optionsJson, qsPlan, scoreId);
     }
 }

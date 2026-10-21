@@ -18,7 +18,33 @@
 893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
 
 -- !sql --
-893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
+893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160416
+
+-- !score_without_topn --
+702	10.160415
+
+-- !score_topn_best --
+10.160415
+
+-- !score_limit_without_order --
+10
+
+-- !score_order_without_limit --
+702
+
+-- !score_order_by_other_column --
+10
+
+-- !score_order_by_score_and_column --
+200	10.160415
+200	4.585793
+200	4.585793
+
+-- !score_match_without_order --
+702	10.160415
+
+-- !score_union_all --
+703	10.160415
 
 -- !score_range_without_topn --
 14

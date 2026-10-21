@@ -174,7 +174,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
 
             // Create SearchExpression with slot children
             return new SearchExpression(search.getDslString(), Optional.ofNullable(search.getOptionsJson()),
-                    qsPlan, slotChildren);
+                    qsPlan, slotChildren, search.getScoreId());
 
         } catch (Exception e) {
             throw new AnalysisException("Failed to rewrite search expression: " + e.getMessage(), e);

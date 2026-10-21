@@ -1432,15 +1432,7 @@ Status SegmentIterator::_apply_index_expr() {
     // for later materialization via fast_execute(). They must not add BM25 scores
     // either: score() and its range filter only reflect the filtering conjuncts.
     {
-        CollectionSimilarityPtr filter_similarity =
-                _index_query_context != nullptr
-                        ? std::exchange(_index_query_context->collection_similarity, nullptr)
-                        : nullptr;
-        DEFER({
-            if (_index_query_context != nullptr) {
-                _index_query_context->collection_similarity = filter_similarity;
-            }
-        });
+        ScoreCollectionPause pause_scoring(_index_query_context.get(), true);
         for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
             if (_row_bitmap.isEmpty()) {
                 // Zero surviving rows: the projection column is never materialized,

@@ -422,6 +422,9 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
         msg.match_predicate.setParserLowercase(expr.getInvertedIndexParserLowercase());
         msg.match_predicate.setParserStopwords(expr.getInvertedIndexParserStopwords());
         msg.match_predicate.setAnalyzerName(expr.getInvertedIndexAnalyzerName());
+        if (!expr.isCollectScore()) {
+            msg.match_predicate.setCollectScore(false);
+        }
         return null;
     }
 
@@ -691,6 +694,10 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
 
         if (qsPlan.getMinimumShouldMatch() != null) {
             param.setMinimumShouldMatch(qsPlan.getMinimumShouldMatch());
+        }
+
+        if (!expr.isCollectScore()) {
+            param.setCollectScore(false);
         }
 
         return param;

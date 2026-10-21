@@ -23,7 +23,6 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -93,7 +92,8 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalJoin.class, Utils.fastArray(
                     AggregateFunction.class,
                     GroupingScalarFunction.class,
-                    // score() belongs to the scan that evaluates MATCH or SEARCH, not to a join.
+                    // score() is bound to the scan that the WHERE clause filters; a join condition
+                    // cannot use it.
                     Score.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
@@ -135,7 +135,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
-                    CheckScoreUsage.checkScoreFilterContext(plan, ctx.statementContext);
                     return null;
                 })
             ),

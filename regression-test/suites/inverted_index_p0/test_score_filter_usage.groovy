@@ -84,13 +84,20 @@ suite("test_score_filter_usage", "p0") {
         exception "limit + offset overflows the long range"
     }
 
-    test {
-        sql """
-            SELECT id FROM test_score_filter_usage
-            WHERE c1 MATCH 'apple' AND CAST(score() AS INT) > 0
-        """
-        exception "score() predicate in WHERE clause must be in the form"
-    }
+    // A lossy cast cannot go into the scan: it is an ordinary filter on the score column.
+    order_qt_lossy_cast_score_filter """
+        SELECT id FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND CAST(score() AS INT) = 0
+    """
+    // The scan fills the score column only after it evaluated its own conjuncts, so an ordinary
+    // filter on the score runs above the scan and sees the score 0.4700036, not 0.
+    order_qt_upper_bound_score_filter """
+        SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() < 0.1
+    """
+    qt_count_upper_bound_score_filter """
+        SELECT /*+ SET_VAR(enable_count_on_index_pushdown=true) */ count(*) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() < 0.1
+    """
 
     // The scan applies the score range before COUNT_ON_INDEX counts the remaining rows.
     qt_count_score_range """
@@ -136,18 +143,24 @@ suite("test_score_filter_usage", "p0") {
         WHERE a.c1 MATCH 'apple' AND score() > 0.00001
     """
 
-    // With an inner join score() cannot tell which table it belongs to; filter it in a subquery.
+    // score() belongs to the table that its MATCH filters, also in a join.
+    order_qt_join_score_range """
+        SELECT a.id, score() AS s, b.c2 FROM test_score_filter_usage a
+        JOIN test_score_filter_usage b ON a.id = b.id
+        WHERE a.c1 MATCH 'apple' AND score() > 0.00001
+    """
     order_qt_join_scored_subquery """
         SELECT a.id, b.c2 FROM (
             SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.00001
         ) a JOIN test_score_filter_usage b ON a.id = b.id
     """
+    // With a MATCH on each table, score() cannot tell which table it belongs to.
     test {
         sql """
             SELECT a.id FROM test_score_filter_usage a JOIN test_score_filter_usage b ON a.id = b.id
-            WHERE a.c1 MATCH 'apple' AND score() > 0.00001
+            WHERE a.c1 MATCH 'apple' AND b.c1 MATCH 'apple' AND score() > 0.00001
         """
-        exception "score() filter must be in the WHERE clause of a query on one table"
+        exception "score() requires the MATCH and SEARCH predicates of its WHERE clause to filter the columns of one table"
     }
     test {
         sql """
@@ -156,38 +169,42 @@ suite("test_score_filter_usage", "p0") {
         """
         exception "can not contains Score expression"
     }
+    // The scan computes the score, so it has to evaluate the MATCH.
+    test {
+        sql """
+            SELECT a.id, score() AS s FROM test_score_filter_usage a JOIN test_score_filter_usage b ON a.id = b.id
+            WHERE a.c1 MATCH 'apple' OR b.c2 = 'sour'
+        """
+        exception "score() requires the scan of its table to evaluate each MATCH and SEARCH predicate"
+    }
+    test {
+        sql """
+            SELECT id, score() AS s FROM (SELECT id, c1 FROM test_score_filter_usage ORDER BY id LIMIT 2) l
+            WHERE c1 MATCH 'apple' OR id = 3
+        """
+        exception "score() requires the scan of its table to evaluate each MATCH and SEARCH predicate"
+    }
 
-    // Each UNION ALL branch filters by the score of its own scan.
-    order_qt_union_all_score_range """
-        SELECT id FROM (
-            SELECT id, c1 FROM test_score_filter_usage
-            UNION ALL
-            SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
-        ) u WHERE c1 MATCH 'apple' AND score() > 0.00001
-    """
-    // UNION DISTINCT merges equal rows of different scans, which can have different scores.
-    test {
-        sql """
-            SELECT id FROM (
-                SELECT id, c1 FROM test_score_filter_usage
-                UNION
-                SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
-            ) u WHERE c1 MATCH 'apple' AND score() > 0.00001
-        """
-        exception "score() filter must be in the WHERE clause of a query on one table"
-    }
-    test {
-        sql """
-            SELECT id FROM (
-                SELECT id, score() AS s FROM (
+    // A set operation merges the rows of several tables: call score() in each of its inputs instead.
+    for (String setOperation : ["UNION ALL", "UNION"]) {
+        test {
+            sql """
+                SELECT id FROM (
                     SELECT id, c1 FROM test_score_filter_usage
-                    UNION
+                    ${setOperation}
                     SELECT id, c1 FROM test_score_filter_usage WHERE c2 = 'sweet'
-                ) u WHERE c1 MATCH 'apple'
-            ) x WHERE s > 0.00001
-        """
-        exception "score() filter must be in the WHERE clause of a query on one table"
+                ) u WHERE c1 MATCH 'apple' AND score() > 0.00001
+            """
+            exception "score() requires the MATCH and SEARCH predicates of its WHERE clause to filter the columns of one table"
+        }
     }
+    order_qt_union_all_score_column """
+        SELECT * FROM (
+            SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+            UNION ALL
+            SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND c2 = 'sweet'
+        ) u WHERE s > 0.00001
+    """
     // The score column of each branch is a value of its rows, so UNION DISTINCT can filter on it.
     order_qt_union_distinct_score_column """
         SELECT * FROM (
@@ -196,7 +213,24 @@ suite("test_score_filter_usage", "p0") {
             SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND c2 = 'sweet'
         ) u WHERE s > 0.00001
     """
-    // Below a window, the filter would change row_number(); it must be rejected instead.
+    // score() next to a window in the same SELECT: the WHERE clause filters before the window.
+    order_qt_window_same_select """
+        SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn
+        FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+    order_qt_window_order_by_score """
+        SELECT id, row_number() OVER (ORDER BY score() DESC, id) AS rn
+        FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+    """
+    // A filter on the score column above a window filters the rows that the window numbered.
+    order_qt_alias_filter_above_window """
+        SELECT id, rn FROM (
+            SELECT id, row_number() OVER (ORDER BY id) AS rn, score() AS s FROM test_score_filter_usage
+            WHERE c1 MATCH 'apple'
+        ) w WHERE s > 0.00001
+    """
+    // A SELECT without MATCH or SEARCH has no score, even over a subquery, CTE or window with one.
     test {
         sql """
             SELECT * FROM (
@@ -204,7 +238,7 @@ suite("test_score_filter_usage", "p0") {
                 WHERE c1 MATCH 'apple'
             ) w WHERE score() > 0.00001
         """
-        exception "score() filter must be in the WHERE clause of a query on one table"
+        exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
     }
     test {
         sql """
@@ -213,24 +247,21 @@ suite("test_score_filter_usage", "p0") {
                 WHERE c1 MATCH 'apple'
             ) SELECT * FROM w WHERE score() > 0.00001
         """
-        exception "score() filter must be in the WHERE clause of a query on one table"
+        exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
     }
-    // A CTE over one scan keeps its rows, so the outer filter binds to that scan.
-    order_qt_cte_score_range """
-        WITH c AS (SELECT id, c1 FROM test_score_filter_usage WHERE c1 MATCH 'apple')
-        SELECT id FROM c WHERE score() > 0.00001
-    """
-    // A filter on a score alias becomes a score() filter above the window; it must not move below it.
     test {
         sql """
-            SELECT id, rn FROM (
-                SELECT id, row_number() OVER (ORDER BY id) AS rn, score() AS s FROM test_score_filter_usage
-                WHERE c1 MATCH 'apple'
-            ) w WHERE s > 0.00001
+            WITH c AS (SELECT id, c1 FROM test_score_filter_usage WHERE c1 MATCH 'apple')
+            SELECT id FROM c WHERE score() > 0.00001
         """
-        exception "score() filter must be in the WHERE clause of a query on one table"
+        exception "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT"
     }
-    // Without a window, a filter on a score alias binds to the scan that computes the score.
+    // A CTE is a table for the SELECT whose MATCH filters it.
+    order_qt_cte_score_range """
+        WITH c AS (SELECT id, c1 FROM test_score_filter_usage)
+        SELECT id, score() AS s FROM c WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
+    // A filter on a score alias binds to the scan that computes the score.
     order_qt_alias_score_range """
         SELECT id, s FROM (SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple') x
         WHERE s > 0.00001
@@ -240,6 +271,57 @@ suite("test_score_filter_usage", "p0") {
             SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple'
         ) a JOIN test_score_filter_usage b ON a.id = b.id WHERE a.s > 0.00001
     """
+
+    // A MATCH or SEARCH of another SELECT only filters the rows: it adds nothing to the score of
+    // the scan it is pushed into (0.4700036, not 1.4508327).
+    order_qt_outer_match_keeps_score """
+        SELECT id, s FROM (
+            SELECT id, c1, score() AS s FROM test_score_filter_usage
+            WHERE c1 MATCH 'apple' AND score() > 0.00001
+        ) x WHERE x.c1 MATCH 'red'
+    """
+    order_qt_outer_search_keeps_score """
+        SELECT id, s FROM (
+            SELECT id, c1, score() AS s FROM test_score_filter_usage
+            WHERE c1 MATCH 'apple' AND score() > 0.00001
+        ) x WHERE search('c1:red')
+    """
+    order_qt_outer_match_below_threshold """
+        SELECT id, s FROM (
+            SELECT id, c1, score() AS s FROM test_score_filter_usage
+            WHERE c1 MATCH 'apple' AND score() > 0.6
+        ) x WHERE x.c1 MATCH 'red'
+    """
+    // Two SELECTs that score the same table would need two scores from one scan.
+    test {
+        sql """
+            SELECT id, score() AS s2 FROM (
+                SELECT id, c1, score() AS s1 FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+            ) x WHERE c1 MATCH 'red'
+        """
+        exception "score() is called by two SELECTs whose MATCH or SEARCH predicates filter the same table"
+    }
+
+    // score() is a value of each row: it can be aggregated or grouped, but it is gone above GROUP BY.
+    order_qt_aggregate_score """
+        SELECT c2, count(*), max(score()) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' GROUP BY c2
+    """
+    order_qt_having_aggregate_score """
+        SELECT c2, max(score()) AS m FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' GROUP BY c2 HAVING max(score()) > 0.00001
+    """
+    order_qt_qualify_score """
+        SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+        QUALIFY row_number() OVER (ORDER BY score() DESC, id) = 1
+    """
+    test {
+        sql """
+            SELECT c2 FROM test_score_filter_usage WHERE c1 MATCH 'apple'
+            GROUP BY c2 HAVING score() > 0.00001
+        """
+        exception "score() is not available above GROUP BY"
+    }
 
     // A projected MATCH must not add its BM25 score to the one the filter compares (0.4700036).
     order_qt_projected_match_above_score """

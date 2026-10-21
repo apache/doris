@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 
 namespace roaring {
 class Roaring;
@@ -96,5 +97,31 @@ struct IndexQueryContext {
     bool candidate_rows_consumed = false;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
+
+// Pauses score collection on an index query context while the object lives: the MATCH and SEARCH
+// predicates evaluated meanwhile still filter rows but add nothing to score(). Used for predicates
+// that only filter, e.g. a projected MATCH or one from another SELECT than the score() of the
+// scan. The collector keeps the scores of the other predicates and is put back on destruction.
+class ScoreCollectionPause {
+public:
+    ScoreCollectionPause(IndexQueryContext* context, bool pause)
+            : _context(context),
+              _collector(pause && context != nullptr
+                                 ? std::exchange(context->collection_similarity, nullptr)
+                                 : nullptr) {}
+
+    ~ScoreCollectionPause() {
+        if (_collector != nullptr) {
+            _context->collection_similarity = std::move(_collector);
+        }
+    }
+
+    ScoreCollectionPause(const ScoreCollectionPause&) = delete;
+    ScoreCollectionPause& operator=(const ScoreCollectionPause&) = delete;
+
+private:
+    IndexQueryContext* _context;
+    CollectionSimilarityPtr _collector;
+};
 
 } // namespace doris::segment_v2

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * like expression: a MATCH_PHRASE_PREFIX 'hello w'.
@@ -35,13 +36,13 @@ public class MatchPhrasePrefix extends Match {
         super(ImmutableList.of(left, right), "MATCH_PHRASE_PREFIX", analyzer);
     }
 
-    private MatchPhrasePrefix(List<Expression> children, String analyzer) {
-        super(children, "MATCH_PHRASE_PREFIX", analyzer);
+    private MatchPhrasePrefix(List<Expression> children, String analyzer, Optional<ExprId> scoreId) {
+        super(children, "MATCH_PHRASE_PREFIX", analyzer, scoreId);
     }
 
     @Override
-    protected MatchPhrasePrefix createInstance(List<Expression> children, String analyzer) {
-        return new MatchPhrasePrefix(children, analyzer);
+    protected MatchPhrasePrefix createInstance(List<Expression> children, String analyzer, Optional<ExprId> scoreId) {
+        return new MatchPhrasePrefix(children, analyzer, scoreId);
     }
 
     @Override

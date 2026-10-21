@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -30,6 +31,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * ScalarFunction 'search' - simplified architecture similar to MultiMatch.
@@ -57,19 +60,44 @@ public class Search extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
+    // Set on the WHERE predicates of a SELECT that calls score(): see Score. Any other SEARCH
+    // only filters rows and adds nothing to the score of its scan.
+    private final Optional<ExprId> scoreId;
+
     public Search(Expression... varArgs) {
         super("search", varArgs);
+        this.scoreId = Optional.empty();
     }
 
-    private Search(ScalarFunctionParams functionParams) {
+    private Search(ScalarFunctionParams functionParams, Optional<ExprId> scoreId) {
         super(functionParams);
+        this.scoreId = scoreId;
     }
 
     @Override
     public Search withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1 && children.size() <= 2,
                 "search() requires 1-2 arguments");
-        return new Search(getFunctionParams(children));
+        return new Search(getFunctionParams(children), scoreId);
+    }
+
+    public Search withScoreId(ExprId scoreId) {
+        return new Search(getFunctionParams(children()), Optional.of(scoreId));
+    }
+
+    /** The SELECT whose score() this predicate defines, see Score. */
+    public Optional<ExprId> getScoreId() {
+        return scoreId;
+    }
+
+    @Override
+    protected boolean extraEquals(Expression that) {
+        return super.extraEquals(that) && scoreId.equals(((Search) that).scoreId);
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), scoreId);
     }
 
     @Override

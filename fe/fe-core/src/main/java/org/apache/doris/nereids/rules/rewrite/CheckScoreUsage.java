@@ -17,198 +17,188 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
-import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.common.collect.ImmutableSet;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 /**
- * Reject score() calls outside a supported scan scoring context.
- * Aggregates cannot consume raw score() calls.
+ * Tie every score() call to the MATCH and SEARCH predicates it scores.
+ *
+ * <p>score() is the relevance of a row for the MATCH and SEARCH predicates in the WHERE clause of
+ * its own SELECT. This rewriter runs first in rewrite, while subqueries, views and CTEs still have
+ * their own plan nodes. It gives every SELECT that calls score() a new score id and marks with it
+ * the score() calls of the SELECT and the MATCH and SEARCH predicates of its filters.
+ * BindScoreToOlapScan later binds the calls to the scan that those predicates filter.
+ *
+ * <p>A MATCH or SEARCH without a score id only filters rows: it adds nothing to the score of its
+ * scan, even when a filter of an outer SELECT is pushed down onto that scan.
  */
-public class CheckScoreUsage implements RewriteRuleFactory {
-    private static final Logger LOG = LogManager.getLogger(CheckScoreUsage.class);
-    private static final String SCORE_CONTEXT_ERROR =
-            "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization, "
-                    + "or a supported minimum score filter with MATCH or SEARCH";
-    private static final String SCORE_FILTER_CONTEXT_ERROR =
-            "score() filter must be in the WHERE clause of a query on one table with a MATCH or SEARCH "
-                    + "predicate. It cannot filter the result of an inner, cross or full join, an aggregation, "
-                    + "a window or another operator; put the MATCH or SEARCH predicate and the score() filter "
-                    + "in a subquery on that table";
-
-    /**
-     * Fail a score() filter whose input combines or recomputes rows. score() has no input slot, so
-     * predicate pushdown would treat it as a constant and move it below a window, an aggregation
-     * or an inner join, changing the result or filtering another scan. Called after analysis,
-     * before any pushdown or CTE inlining.
-     */
-    public static void checkScoreFilterContext(Plan plan, StatementContext statementContext) {
-        if (!(plan instanceof LogicalFilter || plan instanceof LogicalHaving || plan instanceof LogicalQualify)) {
-            return;
-        }
-        if (plan.getExpressions().stream().noneMatch(expr -> expr.containsType(Score.class))) {
-            return;
-        }
-        if (!producesScanRows(plan.child(0), statementContext, new HashMap<>())) {
-            throw new AnalysisException(SCORE_FILTER_CONTEXT_ERROR);
-        }
-    }
-
-    // Whether every output row is a row of one scan, so that a filter above can move down to it.
-    // Outer, semi and anti joins keep every row of one side. cteResults keeps the answer for each
-    // CTE, because several consumers can read the same producer.
-    private static boolean producesScanRows(Plan plan, StatementContext statementContext,
-            Map<CTEId, Boolean> cteResults) {
-        if (plan instanceof LogicalCTEConsumer) {
-            // The producer decides the rows: a single-use CTE is inlined into its consumer later.
-            // A consumer only reads a CTE defined before it, so this recursion ends.
-            CTEId cteId = ((LogicalCTEConsumer) plan).getCteId();
-            Boolean result = cteResults.get(cteId);
-            if (result == null) {
-                LogicalCTEProducer<? extends Plan> producer = statementContext.getCteProducerByCteId(cteId);
-                Preconditions.checkState(producer != null, "CTE producer %s is not analyzed", cteId);
-                result = producesScanRows(producer.child(), statementContext, cteResults);
-                cteResults.put(cteId, result);
-            }
-            return result;
-        }
-        if (plan instanceof LogicalRelation) {
-            return true;
-        }
-        if (plan instanceof LogicalJoin) {
-            JoinType joinType = ((LogicalJoin<?, ?>) plan).getJoinType();
-            if (joinType.isLeftJoin()) {
-                return producesScanRows(plan.child(0), statementContext, cteResults);
-            }
-            return joinType.isRightJoin() && producesScanRows(plan.child(1), statementContext, cteResults);
-        }
-        if (plan instanceof LogicalUnion) {
-            // UNION DISTINCT merges equal rows of different scans, which can have different scores.
-            return ((LogicalUnion) plan).getQualifier() == Qualifier.ALL
-                    && plan.children().stream()
-                    .allMatch(child -> producesScanRows(child, statementContext, cteResults));
-        }
-        if (plan instanceof LogicalProject) {
-            // Analysis keeps window functions in the project; they depend on the other rows.
-            return ((LogicalProject<?>) plan).getProjects().stream()
-                    .noneMatch(project -> project.containsType(WindowExpression.class))
-                    && producesScanRows(plan.child(0), statementContext, cteResults);
-        }
-        if (plan instanceof LogicalFilter || plan instanceof LogicalSort || plan instanceof LogicalSubQueryAlias
-                || plan instanceof LogicalView || plan instanceof LogicalCheckPolicy
-                || plan instanceof LogicalSelectHint) {
-            return producesScanRows(plan.child(0), statementContext, cteResults);
-        }
-        return false;
-    }
+public class CheckScoreUsage implements CustomRewriter {
+    public static final String NO_SCORING_PREDICATE_ERROR =
+            "score() requires a MATCH or SEARCH predicate in the WHERE clause of the same SELECT";
+    public static final String UNSUPPORTED_CLAUSE_ERROR = "score() can only be used in the SELECT list "
+            + "and in the WHERE, GROUP BY, HAVING, QUALIFY and ORDER BY clauses";
 
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-            logicalProject(any())
-                .when(project -> {
-                    boolean hasScore = hasScoreFunction(project);
-                    boolean isOptimized = isScoreAlreadyOptimized(project);
-                    LOG.debug("Project check - hasScore: " + hasScore + ", isOptimized: " + isOptimized);
-                    return hasScore && !isOptimized;
-                })
-                .then(project -> {
-                    throw new AnalysisException(SCORE_CONTEXT_ERROR);
-                }).toRule(RuleType.CHECK_SCORE_USAGE),
-
-            // A score() filter on a scan was bound by PushDownScoreTopNIntoOlapScan. One left here
-            // filters another operator, e.g. an inner join, and would evaluate the scalar placeholder
-            // as zero.
-            logicalFilter(any())
-                .when(filter -> filter.getConjuncts().stream().anyMatch(this::containsScoreFunction))
-                .then(filter -> {
-                    throw new AnalysisException(SCORE_FILTER_CONTEXT_ERROR);
-                }).toRule(RuleType.CHECK_SCORE_USAGE),
-
-            logicalAggregate(any())
-                .when(this::hasScoreInAggregate)
-                .then(agg -> {
-                    throw new AnalysisException("score() function cannot be used in aggregate functions.");
-                }).toRule(RuleType.CHECK_SCORE_USAGE)
-        );
-    }
-
-    private boolean hasScoreFunction(LogicalProject<?> project) {
-        return project.getProjects().stream()
-                .anyMatch(projection -> {
-                    if (projection instanceof Alias) {
-                        return containsScoreFunction(((Alias) projection).child());
-                    }
-                    return false;
-                });
-    }
-
-    private boolean hasScoreInAggregate(LogicalAggregate<?> agg) {
-        boolean hasScoreInOutput = agg.getOutputExpressions().stream()
-                .anyMatch(this::containsScoreFunction);
-
-        boolean hasScoreInGroupBy = agg.getGroupByExpressions().stream()
-                .anyMatch(this::containsScoreFunction);
-
-        if (hasScoreInOutput || hasScoreInGroupBy) {
-            return true;
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!containsScore(plan)) {
+            return plan;
         }
-        // Aggregate normalization can move score() arguments into the child projection.
-        Plan child = agg.child();
-        return child instanceof LogicalProject && hasScoreFunction((LogicalProject<?>) child);
+        return tagSelect(plan);
     }
 
-    private boolean containsScoreFunction(Expression expr) {
-        return expr.containsType(Score.class);
+    /** Whether any plan node of the tree calls score() in its own expressions. */
+    public static boolean containsScore(Plan plan) {
+        return plan.anyMatch(node -> ((Plan) node).getExpressions().stream()
+                .anyMatch(expression -> expression.containsType(Score.class)));
     }
 
-    private boolean isScoreAlreadyOptimized(LogicalProject<?> project) {
-        Plan child = project.child();
-        if (child instanceof LogicalOlapScan) {
-            LogicalOlapScan scan = (LogicalOlapScan) child;
-            return scan.getVirtualColumns().stream()
-                    .anyMatch(virtualCol -> {
-                        if (virtualCol instanceof Alias) {
-                            Expression childExpr = ((Alias) virtualCol).child();
-                            return containsScoreFunction(childExpr);
-                        }
-                        return false;
-                    });
+    // A SELECT consists of the plan nodes from its root down to the roots of its subqueries, views,
+    // CTE producers and set operation inputs, which are SELECTs of their own.
+    private static boolean startsSelect(Plan parent, int childIndex) {
+        return parent instanceof LogicalSubQueryAlias || parent instanceof LogicalView
+                || parent instanceof LogicalCTEProducer || parent instanceof LogicalSetOperation
+                || parent instanceof LogicalRecursiveUnionAnchor || parent instanceof LogicalRecursiveUnionProducer
+                || parent instanceof LogicalApply && childIndex == 1;
+    }
+
+    private Plan tagSelect(Plan root) {
+        SelectSummary select = new SelectSummary();
+        summarize(root, select);
+        if (!select.callsScore) {
+            return tag(root, Optional.empty());
         }
-        return false;
+        if (!select.hasScoringPredicate) {
+            throw new AnalysisException(NO_SCORING_PREDICATE_ERROR);
+        }
+        if (select.unsupportedClause) {
+            throw new AnalysisException(UNSUPPORTED_CLAUSE_ERROR);
+        }
+        return tag(root, Optional.of(StatementScopeIdGenerator.newExprId()));
+    }
+
+    private void summarize(Plan plan, SelectSummary select) {
+        if (plan.getExpressions().stream().anyMatch(expression -> expression.containsType(Score.class))) {
+            select.callsScore = true;
+            select.unsupportedClause |= !canCallScore(plan);
+        }
+        if (plan instanceof LogicalFilter && ((LogicalFilter<?>) plan).getConjuncts().stream()
+                .anyMatch(conjunct -> conjunct.containsType(Match.class, Search.class))) {
+            select.hasScoringPredicate = true;
+        }
+        for (int i = 0; i < plan.arity(); i++) {
+            if (!startsSelect(plan, i)) {
+                summarize(plan.child(i), select);
+            }
+        }
+    }
+
+    // HAVING and QUALIFY are filters by now. Join conditions are rejected by CheckAnalysis.
+    private static boolean canCallScore(Plan plan) {
+        return plan instanceof LogicalProject || plan instanceof LogicalFilter
+                || plan instanceof LogicalAggregate || plan instanceof LogicalSort;
+    }
+
+    private Plan tag(Plan plan, Optional<ExprId> scoreId) {
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
+        boolean changed = false;
+        for (int i = 0; i < plan.arity(); i++) {
+            Plan child = plan.child(i);
+            Plan newChild = startsSelect(plan, i) ? tagSelect(child) : tag(child, scoreId);
+            changed |= newChild != child;
+            newChildren.add(newChild);
+        }
+        Plan newPlan = changed ? plan.withChildren(newChildren.build()) : plan;
+        return scoreId.isPresent() ? tagExpressions(newPlan, scoreId.get()) : newPlan;
+    }
+
+    private Plan tagExpressions(Plan plan, ExprId scoreId) {
+        if (plan.getExpressions().stream()
+                .noneMatch(expression -> expression.containsType(Score.class, Match.class, Search.class))) {
+            return plan;
+        }
+        if (plan instanceof LogicalFilter) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            return filter.withConjuncts(filter.getConjuncts().stream()
+                    .map(conjunct -> tagScoreAndPredicates(conjunct, scoreId))
+                    .collect(ImmutableSet.toImmutableSet()));
+        }
+        if (plan instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) plan;
+            return project.withProjects(tagScore(project.getProjects(), scoreId));
+        }
+        if (plan instanceof LogicalAggregate) {
+            LogicalAggregate<?> aggregate = (LogicalAggregate<?>) plan;
+            List<Expression> groupBy = aggregate.getGroupByExpressions().stream()
+                    .map(expression -> tagScore(expression, scoreId))
+                    .collect(ImmutableList.toImmutableList());
+            return aggregate.withGroupByAndOutput(groupBy, tagScore(aggregate.getOutputExpressions(), scoreId));
+        }
+        if (plan instanceof LogicalSort) {
+            LogicalSort<?> sort = (LogicalSort<?>) plan;
+            List<OrderKey> orderKeys = sort.getOrderKeys().stream()
+                    .map(orderKey -> orderKey.withExpression(tagScore(orderKey.getExpr(), scoreId)))
+                    .collect(ImmutableList.toImmutableList());
+            return sort.withOrderKeys(orderKeys);
+        }
+        // A MATCH or SEARCH outside a filter, e.g. in a join condition, only filters rows.
+        return plan;
+    }
+
+    private static List<NamedExpression> tagScore(List<NamedExpression> expressions, ExprId scoreId) {
+        return expressions.stream()
+                .map(expression -> (NamedExpression) tagScore(expression, scoreId))
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    private static Expression tagScore(Expression expression, ExprId scoreId) {
+        return expression.rewriteDownShortCircuit(
+                node -> node instanceof Score ? ((Score) node).withScoreId(scoreId) : node);
+    }
+
+    // The MATCH and SEARCH predicates of a filter define the score of the SELECT.
+    private static Expression tagScoreAndPredicates(Expression conjunct, ExprId scoreId) {
+        return conjunct.rewriteDownShortCircuit(node -> {
+            if (node instanceof Score) {
+                return ((Score) node).withScoreId(scoreId);
+            } else if (node instanceof Match) {
+                return ((Match) node).withScoreId(scoreId);
+            } else if (node instanceof Search) {
+                return ((Search) node).withScoreId(scoreId);
+            }
+            return node;
+        });
+    }
+
+    private static class SelectSummary {
+        private boolean callsScore;
+        private boolean hasScoringPredicate;
+        private boolean unsupportedClause;
     }
 }

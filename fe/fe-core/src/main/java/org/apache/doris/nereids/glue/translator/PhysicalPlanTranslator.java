@@ -99,6 +99,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -1543,7 +1544,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     // i.e, the physical filter's nereids's id will be mapped to final plan's scan node
                     addPlanRoot(inputFragment, planNode, filter);
                 }
-                addConjunctsToPlanNode(filter, planNode, context);
+                // The scan fills its score column only after it evaluated its own conjuncts, so a
+                // conjunct on the score is evaluated above the scan.
+                Set<Expression> scoreConjuncts = planNode instanceof OlapScanNode
+                        && filter.child(0) instanceof PhysicalOlapScan
+                        ? conjunctsOnScore(filter.getConjuncts(), (PhysicalOlapScan) filter.child(0))
+                        : ImmutableSet.of();
+                addConjunctsToPlanNode(filter, Sets.difference(filter.getConjuncts(), scoreConjuncts),
+                        planNode, context);
+                if (!scoreConjuncts.isEmpty()) {
+                    planNode = createSelectNode(filter, planNode, context);
+                    addPlanRoot(inputFragment, planNode, filter);
+                    addConjunctsToPlanNode(filter, scoreConjuncts, planNode, context);
+                }
             }
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), filter);
@@ -3353,18 +3366,40 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
+    private static Set<Expression> conjunctsOnScore(Set<Expression> conjuncts, PhysicalOlapScan scan) {
+        Set<Slot> scoreSlots = Score.findScoreSlots(scan.getVirtualColumns());
+        return conjuncts.stream()
+                .filter(conjunct -> conjunct.getInputSlots().stream().anyMatch(scoreSlots::contains))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
     private void addConjunctsToPlanNode(PhysicalFilter<? extends Plan> filter,
             PlanNode planNode,
             PlanTranslatorContext context) {
+        addConjunctsToPlanNode(filter, filter.getConjuncts(), planNode, context);
+    }
+
+    private void addConjunctsToPlanNode(PhysicalFilter<? extends Plan> filter, Set<Expression> conjuncts,
+            PlanNode planNode, PlanTranslatorContext context) {
         if (planNode instanceof ScanNode
-                && ExpressionUtils.containsNonCacheableExpression(filter.getConjuncts())) {
+                && ExpressionUtils.containsNonCacheableExpression(conjuncts)) {
             planNode.setEnableConditionCache(false);
         }
-        for (Expression conjunct : filter.getConjuncts()) {
+        // Only the MATCH and SEARCH predicates with the score id of the scan add to its score().
+        Plan scan = filter.child(0) instanceof PhysicalStorageLayerAggregate
+                ? ((PhysicalStorageLayerAggregate) filter.child(0)).getRelation() : filter.child(0);
+        Optional<ExprId> scanScoreId = Optional.empty();
+        if (planNode instanceof OlapScanNode && scan instanceof PhysicalOlapScan) {
+            scanScoreId = Score.findScoreColumn(((PhysicalOlapScan) scan).getVirtualColumns())
+                    .map(scoreColumn -> ((Score) scoreColumn.child()).getScoreId().get());
+        }
+        context.setScanScoreId(scanScoreId);
+        for (Expression conjunct : conjuncts) {
             for (Expression singleConjunct : ExpressionUtils.extractConjunctionToSet(conjunct)) {
                 planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context));
             }
         }
+        context.setScanScoreId(Optional.empty());
         updateLegacyPlanIdToPhysicalPlan(planNode, filter);
     }
 
