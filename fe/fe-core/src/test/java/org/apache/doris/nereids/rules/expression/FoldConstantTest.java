@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
@@ -105,9 +106,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -117,18 +120,24 @@ import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
@@ -136,12 +145,14 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
@@ -1669,6 +1680,78 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteExpression("cast('20210101' as datetime)", "'2021-01-01 00:00:00'");
         assertRewriteExpression("cast('2021-01-01T00:00:00' as datetime)", "'2021-01-01 00:00:00'");
         assertRewriteExpression("cast ('2022-12-02 22:23:24.999999' as datetimev2(3))", "'2022-12-02 22:23:25.000'");
+    }
+
+    @Test
+    void testStrictTemporalContainerCastOverflow() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        boolean oldStrictCast = sessionVariable.enableStrictCast;
+        sessionVariable.enableStrictCast = false;
+        try {
+            List<Literal> expected = temporalLiteralContainers(new TimeStampNsLiteral("2024-01-01 00:00:00"));
+            for (String date : ImmutableList.of("1600-01-01", "2500-01-01")) {
+                for (Literal value : ImmutableList.of(new DateLiteral(date), new DateV2Literal(date),
+                        new DateTimeV2Literal(date + " 00:00:00"))) {
+                    List<Literal> containers = temporalLiteralContainers(value);
+                    for (int i = 0; i < containers.size(); i++) {
+                        Cast cast = new Cast(containers.get(i), expected.get(i).getDataType(), false, true);
+                        CastException exception = Assertions.assertThrows(CastException.class,
+                                () -> FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(cast, context));
+                        Assertions.assertTrue(exception.getMessage().contains("outside Int64 epoch nanosecond range"));
+                    }
+                }
+            }
+        } finally {
+            sessionVariable.enableStrictCast = oldStrictCast;
+        }
+    }
+
+    @Test
+    void testStrictTemporalContainerCastValidValues() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        boolean oldStrictCast = sessionVariable.enableStrictCast;
+        sessionVariable.enableStrictCast = false;
+        try {
+            List<Literal> expected = temporalLiteralContainers(new TimeStampNsLiteral("2024-01-01 00:00:00"));
+            for (Literal value : ImmutableList.of(new DateLiteral("2024-01-01"), new DateV2Literal("2024-01-01"),
+                    new DateTimeV2Literal("2024-01-01 00:00:00"))) {
+                List<Literal> containers = temporalLiteralContainers(value);
+                for (int i = 0; i < containers.size(); i++) {
+                    Cast cast = new Cast(containers.get(i), expected.get(i).getDataType(), false, true);
+                    Assertions.assertEquals(expected.get(i),
+                            FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(cast, context));
+                }
+            }
+            ArrayType target = ArrayType.of(TimeStampNsType.INSTANCE);
+            for (ArrayLiteral array : ImmutableList.of(new ArrayLiteral(ImmutableList.of()),
+                    new ArrayLiteral(ImmutableList.of(new NullLiteral(DateTimeV2Type.MAX))))) {
+                Expression result = FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
+                        new Cast(array, target, false, true), context);
+                Assertions.assertInstanceOf(ArrayLiteral.class, result);
+                Assertions.assertEquals(target, result.getDataType());
+            }
+            Expression nonStrict = FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
+                    new Cast(new ArrayLiteral(ImmutableList.of(new DateV2Literal("2500-01-01"))), target), context);
+            Assertions.assertInstanceOf(ArrayLiteral.class, nonStrict);
+            Assertions.assertTrue(((ArrayLiteral) nonStrict).getValue().get(0).isNullLiteral());
+        } finally {
+            sessionVariable.enableStrictCast = oldStrictCast;
+        }
+    }
+
+    private List<Literal> temporalLiteralContainers(Literal value) {
+        ArrayLiteral array = new ArrayLiteral(ImmutableList.of(value));
+        MapLiteral map = new MapLiteral(ImmutableMap.of(new IntegerLiteral(1), value));
+        // branch-4.2 requires nullable target fields for conversions that can produce NULL.
+        return ImmutableList.of(array, new ArrayLiteral(ImmutableList.of(array)), map,
+                new MapLiteral(ImmutableMap.of(value, new IntegerLiteral(1))),
+                nullableFieldStruct(value),
+                new ArrayLiteral(ImmutableList.of(nullableFieldStruct(map))));
+    }
+
+    private StructLiteral nullableFieldStruct(Literal value) {
+        return new StructLiteral(ImmutableList.of(value), new StructType(ImmutableList.of(
+                new StructField("col1", value.getDataType(), true, ""))));
     }
 
     @Test
