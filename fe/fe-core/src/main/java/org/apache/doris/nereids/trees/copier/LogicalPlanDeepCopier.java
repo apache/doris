@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.copier;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -114,16 +113,12 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         }
         updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
         if (!catalogRelation.getVirtualColumns().isEmpty()) {
-            // Each virtual column gets a new id, and its old slot maps to that id.
+            // A virtual column can refer to the others, so each one gets its new id before any is copied.
+            for (NamedExpression column : catalogRelation.getVirtualColumns()) {
+                context.exprIdReplaceMap.put(column.getExprId(), StatementScopeIdGenerator.newExprId());
+            }
             List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
-                    .map(column -> {
-                        NamedExpression newColumn = column instanceof Alias
-                                ? new Alias(ExpressionDeepCopier.INSTANCE.deepCopy(((Alias) column).child(),
-                                        context), column.getName())
-                                : (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(column, context);
-                        context.exprIdReplaceMap.put(column.getExprId(), newColumn.getExprId());
-                        return newColumn;
-                    })
+                    .map(column -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(column, context))
                     .collect(ImmutableList.toImmutableList());
             newRelation = newRelation.withVirtualColumns(virtualColumns);
             if (newRelation instanceof LogicalOlapScan) {

@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -108,6 +110,23 @@ public class LogicalPlanDeepCopierTest {
         for (Slot slot : scan.getOutput()) {
             Assertions.assertTrue(copy.getOutputExprIdSet().contains(context.exprIdReplaceMap.get(slot.getExprId())),
                     slot.toString());
+        }
+    }
+
+    @Test
+    public void testDeepCopyOlapScanWithDependentVirtualColumns() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
+        Slot id = scan.getOutput().get(0);
+        Alias sum = new Alias(new Add(id, id), "v1");
+        Alias product = new Alias(new Multiply(sum.toSlot(), sum.toSlot()), "v2");
+        // A virtual column can refer to one that comes after it.
+        for (List<NamedExpression> virtualColumns : ImmutableList.<List<NamedExpression>>of(
+                ImmutableList.of(sum, product), ImmutableList.of(product, sum))) {
+            LogicalOlapScan copy = (LogicalOlapScan) scan.withVirtualColumns(virtualColumns)
+                    .accept(LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+            for (NamedExpression column : copy.getVirtualColumns()) {
+                Assertions.assertTrue(copy.getOutputSet().containsAll(column.getInputSlots()), column.toString());
+            }
         }
     }
 
