@@ -125,9 +125,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         return newColumn;
                     })
                     .collect(ImmutableList.toImmutableList());
-            // The copied relation still outputs the old virtual columns, so compute its output again.
-            newRelation = (LogicalCatalogRelation) newRelation.withVirtualColumns(virtualColumns)
-                    .withGroupExprLogicalPropChildren(Optional.empty(), Optional.empty(), ImmutableList.of());
+            newRelation = newRelation.withVirtualColumns(virtualColumns);
             if (newRelation instanceof LogicalOlapScan) {
                 // The score and ANN order keys sort by virtual columns.
                 LogicalOlapScan olapScan = (LogicalOlapScan) newRelation;

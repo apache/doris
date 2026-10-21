@@ -134,6 +134,10 @@ suite("test_score_filter_usage", "p0") {
         SELECT c2, count(*) FROM test_score_filter_usage
         WHERE c1 MATCH 'apple' AND score() > 0.00001 GROUP BY c2
     """
+    order_qt_grouping_sets_score_range """
+        SELECT c2, count(*) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001 GROUP BY GROUPING SETS ((c2), ())
+    """
     test {
         sql "SELECT c2, max(score()) FROM test_score_filter_usage WHERE c1 MATCH 'apple' GROUP BY c2"
         exception "score() can only be used in the WHERE clause of a SELECT with GROUP BY"

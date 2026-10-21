@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -185,7 +186,7 @@ public class BindScoreToOlapScan implements CustomRewriter {
                 node = node.child(1);
             } else if (node instanceof LogicalSink || node instanceof LogicalLimit || node instanceof LogicalSort
                     || node instanceof LogicalProject || node instanceof LogicalFilter
-                    || node instanceof LogicalAggregate
+                    || node instanceof LogicalAggregate || node instanceof LogicalRepeat
                     || node instanceof LogicalSubQueryAlias && !startsSelect(node, 0)) {
                 node = node.child(0);
             } else {

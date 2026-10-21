@@ -128,6 +128,9 @@ class BindScoreToOlapScanTest extends TestWithFeService {
         assertScoreRange("SELECT count(*)" + from, 1, TExprOpcode.GT);
         assertScoreRange("SELECT c2, count(*)" + from + " GROUP BY c2 HAVING count(*) > 0", 2, TExprOpcode.GT);
         assertScoreRange("SELECT DISTINCT c2" + from, 1, TExprOpcode.GT);
+        for (String groupBy : new String[] {"GROUPING SETS ((c2), ())", "ROLLUP(c2)", "CUBE(c2)"}) {
+            assertScoreRange("SELECT c2, count(*)" + from + " GROUP BY " + groupBy, 2, TExprOpcode.GT);
+        }
     }
 
     @ParameterizedTest
@@ -149,7 +152,8 @@ class BindScoreToOlapScanTest extends TestWithFeService {
         String from = " FROM score_usage_" + format + " WHERE " + predicate;
         for (String query : new String[] {"SELECT sum(score())" + from, "SELECT count(distinct score())" + from,
                 "SELECT score()" + from + " GROUP BY score()", "SELECT DISTINCT score()" + from,
-                "SELECT c2, max(score())" + from + " GROUP BY c2"}) {
+                "SELECT c2, max(score())" + from + " GROUP BY c2",
+                "SELECT c2, max(score())" + from + " GROUP BY ROLLUP(c2)"}) {
             assertScoreUsageError(query, BindScoreToOlapScan.AGGREGATE_ERROR);
         }
     }

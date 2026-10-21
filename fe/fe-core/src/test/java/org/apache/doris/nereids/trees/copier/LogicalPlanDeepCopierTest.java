@@ -105,6 +105,10 @@ public class LogicalPlanDeepCopierTest {
         Assertions.assertFalse(copy.getOutput().contains(scoreColumn.toSlot()));
         Assertions.assertEquals(copiedScore, copy.getScoreOrderKeys().get(0).getExpr());
         Assertions.assertEquals(copiedScore.getExprId(), context.exprIdReplaceMap.get(scoreColumn.getExprId()));
+        for (Slot slot : scan.getOutput()) {
+            Assertions.assertTrue(copy.getOutputExprIdSet().contains(context.exprIdReplaceMap.get(slot.getExprId())),
+                    slot.toString());
+        }
     }
 
     @Test
