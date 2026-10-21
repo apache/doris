@@ -646,7 +646,12 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
                 const auto* raw_data = concrete_array->GetValue(offset_i);
-                assert_cast<ColumnType&>(column).insert_data((char*)raw_data, width);
+                // Fixed-size Arrow CHAR values are NUL-padded on write. A search cast from
+                // text has no padding, so keep the same logical value when reading it back.
+                const size_t length =
+                        _type == TYPE_CHAR ? strnlen(reinterpret_cast<const char*>(raw_data), width)
+                                           : width;
+                assert_cast<ColumnType&>(column).insert_data((char*)raw_data, length);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
             }

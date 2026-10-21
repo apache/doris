@@ -610,7 +610,7 @@ public class NereidsDataDescription {
         Type type = column.getOriginType();
         if (type.isComplexType()) {
             try {
-                ComplexTypeDefaultValue.canonicalize(DataType.fromCatalogType(type), value);
+                ComplexTypeDefaultValue.canonicalizeForLoad(DataType.fromCatalogType(type), value);
             } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }

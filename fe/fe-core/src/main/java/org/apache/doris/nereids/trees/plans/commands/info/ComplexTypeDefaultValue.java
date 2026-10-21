@@ -77,6 +77,19 @@ public class ComplexTypeDefaultValue {
      * Validate the default literal of a complex column and return its canonical text.
      */
     public static String canonicalize(DataType type, String defaultValue) throws AnalysisException {
+        return canonicalize(type, defaultValue, false);
+    }
+
+    /**
+     * Validate a transient load mapping value. Unlike a persisted column default, its text does not
+     * have to survive SHOW CREATE TABLE replay, so nested quotes and backslashes can be escaped.
+     */
+    public static String canonicalizeForLoad(DataType type, String value) throws AnalysisException {
+        return canonicalize(type, value, true);
+    }
+
+    private static String canonicalize(DataType type, String defaultValue, boolean forLoad)
+            throws AnalysisException {
         Preconditions.checkArgument(type.isArrayType() || type.isMapType() || type.isStructType(),
                 "%s is not a complex type", type);
         Expression expression;
@@ -89,7 +102,7 @@ public class ComplexTypeDefaultValue {
             throw literalShapeException(type);
         }
         try {
-            return render((Literal) expression, type);
+            return render((Literal) expression, type, forLoad);
         } catch (AnalysisException e) {
             throw new AnalysisException(String.format("Invalid default value '%s' for %s column: %s",
                     defaultValue, type.toSql(), e.getMessage()), e);
@@ -118,7 +131,7 @@ public class ComplexTypeDefaultValue {
         return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 
-    private static String render(Literal literal, DataType type) throws AnalysisException {
+    private static String render(Literal literal, DataType type, boolean forLoad) throws AnalysisException {
         if (literal instanceof NullLiteral) {
             return "null";
         }
@@ -129,7 +142,7 @@ public class ComplexTypeDefaultValue {
             DataType itemType = ((ArrayType) type).getItemType();
             StringJoiner joiner = new StringJoiner(", ", "[", "]");
             for (Literal item : ((ArrayLiteral) literal).getValue()) {
-                joiner.add(render(item, itemType));
+                joiner.add(render(item, itemType, forLoad));
             }
             return joiner.toString();
         }
@@ -144,12 +157,12 @@ public class ComplexTypeDefaultValue {
             Set<String> keys = new HashSet<>();
             StringJoiner joiner = new StringJoiner(", ", "{", "}");
             for (Map.Entry<Literal, Literal> entry : ((MapLiteral) literal).getValue().entrySet()) {
-                String key = render(entry.getKey(), mapType.getKeyType());
+                String key = render(entry.getKey(), mapType.getKeyType(), forLoad);
                 if (!keys.add(key)) {
                     throw new AnalysisException(String.format("map key %s is repeated after casting to %s", key,
                             mapType.getKeyType().toSql()));
                 }
-                joiner.add(key + ":" + render(entry.getValue(), mapType.getValueType()));
+                joiner.add(key + ":" + render(entry.getValue(), mapType.getValueType(), forLoad));
             }
             return joiner.toString();
         }
@@ -169,14 +182,14 @@ public class ComplexTypeDefaultValue {
             }
             StringJoiner joiner = new StringJoiner(", ", "{", "}");
             for (int i = 0; i < fields.size(); i++) {
-                joiner.add(render(values.get(i), fields.get(i).getDataType()));
+                joiner.add(render(values.get(i), fields.get(i).getDataType(), forLoad));
             }
             return joiner.toString();
         }
-        return renderScalar(literal, type);
+        return renderScalar(literal, type, forLoad);
     }
 
-    private static String renderScalar(Literal literal, DataType type) throws AnalysisException {
+    private static String renderScalar(Literal literal, DataType type, boolean forLoad) throws AnalysisException {
         if (type.isStringLikeType()) {
             // The cast to VARCHAR(n) silently truncates a longer value, while a scalar VARCHAR(n) column
             // rejects such a default, so cast to STRING and check the length against the declared type.
@@ -194,7 +207,7 @@ public class ComplexTypeDefaultValue {
             if (type.isCharType() && value.indexOf('\0') >= 0) {
                 throw new AnalysisException("CHAR default value must not contain NUL");
             }
-            return renderQuoted(literal, value);
+            return renderQuoted(literal, value, forLoad);
         }
         literal = (Literal) literal.checkedCastTo(type);
         if (type.isBooleanType()) {
@@ -216,17 +229,20 @@ public class ComplexTypeDefaultValue {
         }
         if (type.isDateType() || type.isDateV2Type() || type.isDateTimeType() || type.isDateTimeV2Type()
                 || type.isIPType()) {
-            return renderQuoted(literal, literal.getStringValue());
+            return renderQuoted(literal, literal.getStringValue(), forLoad);
         }
         throw new AnalysisException(type.toSql() + " is not supported as a nested type of a default value");
     }
 
-    private static String renderQuoted(Literal literal, String value) throws AnalysisException {
-        if (value.indexOf('"') >= 0 || value.indexOf('\'') >= 0 || value.indexOf('\\') >= 0) {
+    private static String renderQuoted(Literal literal, String value, boolean forLoad) throws AnalysisException {
+        if (!forLoad && (value.indexOf('"') >= 0 || value.indexOf('\'') >= 0 || value.indexOf('\\') >= 0)) {
             throw new AnalysisException("string value " + literal.toSql()
                     + " must not contain quote or backslash");
         }
-        return "\"" + value + "\"";
+        // The BE string-to-complex cast removes the escape character before a nested quote or
+        // backslash. Persisted defaults cannot use this encoding because their other readers do
+        // not decode it; a load mapping only goes through the cast.
+        return "\"" + (forLoad ? value.replace("\\", "\\\\").replace("\"", "\\\"") : value) + "\"";
     }
 
     /**

@@ -611,7 +611,7 @@ public class NereidsLoadScanProvider {
         if (!column.getOriginType().isComplexType() || !(value instanceof StringLikeLiteral)) {
             return value;
         }
-        return new StringLiteral(ComplexTypeDefaultValue.canonicalize(
+        return new StringLiteral(ComplexTypeDefaultValue.canonicalizeForLoad(
                 DataType.fromCatalogType(column.getOriginType()), ((StringLikeLiteral) value).getStringValue()));
     }
 

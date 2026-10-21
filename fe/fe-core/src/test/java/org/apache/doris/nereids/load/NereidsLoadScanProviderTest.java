@@ -322,6 +322,28 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
+    public void testComplexLoadReplacementAllowsQuotedStrings() throws Exception {
+        OlapTable table = mockTable(Arrays.asList(
+                new Column("k", PrimitiveType.INT, true),
+                new Column("v", ArrayType.create(ScalarType.createStringType(), true), true)));
+        Column column = table.getColumn("v");
+        String value = "[\"a\"\"b\", \"it's\", \"a\\\\b\"]";
+        String canonical = "[\"a\\\"b\", \"it's\", \"a\\\\b\"]";
+
+        // The persisted default format cannot contain these characters, but a load mapping is
+        // converted by the string-to-complex cast and must preserve each nested string.
+        NereidsDataDescription.validateMappingFunction("replace_value", Lists.newArrayList(null, value),
+                Collections.emptyMap(), column, false);
+        NereidsDataDescription.validateMappingFunction("default_value", Lists.newArrayList(value),
+                Collections.emptyMap(), column, false);
+        NereidsParamCreateContext context = createMappingLoadContext(table,
+                new UnboundFunction("replace_value", ImmutableList.of(new NullLiteral(), new StringLiteral(value))),
+                Pair.of("replace_value", Lists.newArrayList(null, value)));
+        Cast replacement = (Cast) context.exprMap.get("v").child(2);
+        Assertions.assertEquals(new StringLiteral(canonical), replacement.child());
+    }
+
+    @Test
     public void testArrowMapSearchComparesKeysAndValues() throws Exception {
         OlapTable table = mockTable(Arrays.asList(
                 new Column("k", PrimitiveType.INT, true),
