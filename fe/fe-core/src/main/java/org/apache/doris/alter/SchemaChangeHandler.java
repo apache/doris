@@ -2388,6 +2388,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
+            // A light DROP INDEX publishes the index metadata before it submits its delete jobs. Run the checks
+            // that can reject those jobs before any clause below touches table metadata (processDropColumn
+            // updates the bloom filter columns in place), so a rejected statement leaves the table unchanged.
+            checkLightDropIndexPreconditions(db, olapTable, alterOps, enableAddIndexForNewData);
+
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();
                 // alter table properties
@@ -2641,21 +2646,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                 break;
                             }
                         }
-                        // Inverted index supports light schema change in both cloud and local mode.
-                        // NGRAM_BF and BfIndex support it only in cloud mode.
-                        boolean supportLightIndexChange = false;
-                        if (found != null) {
-                            if (Config.isCloudMode()) {
-                                supportLightIndexChange = enableAddIndexForNewData
-                                        && (found.getIndexType() == IndexType.NGRAM_BF
-                                        || found.getIndexType() == IndexType.BLOOMFILTER
-                                        || found.getIndexType() == IndexType.INVERTED);
-                            } else {
-                                supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                        || found.getIndexType() == IndexType.ANN;
-                            }
-                        }
-                        if (supportLightIndexChange) {
+                        if (found != null && isLightDropIndexSupported(found, enableAddIndexForNewData)) {
                             alterIndexes.add(found);
                             isDropIndex = true;
                             lightIndexChange = true;
@@ -3559,11 +3550,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     currentIndexMeta.getSchemaHash(), currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
         }
 
-        // Reject the drop before touching metadata, so a failed DROP INDEX leaves the table unchanged.
-        if (alterIndexes != null && isDropIndex && !isReplay) {
-            checkNoIndexChangeJobOnPartitions(db, olapTable, alterIndexes, olapTable.getPartitionNames());
-        }
-
         //update base index schema
         Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
@@ -3926,8 +3912,46 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    // Inverted index supports light schema change in both cloud and local mode.
+    // NGRAM_BF and BfIndex support it only in cloud mode.
+    private static boolean isLightDropIndexSupported(Index index, boolean enableAddIndexForNewData) {
+        if (Config.isCloudMode()) {
+            return enableAddIndexForNewData
+                    && (index.getIndexType() == IndexType.NGRAM_BF
+                    || index.getIndexType() == IndexType.BLOOMFILTER
+                    || index.getIndexType() == IndexType.INVERTED);
+        }
+        return index.getIndexType() == IndexType.INVERTED || index.getIndexType() == IndexType.ANN;
+    }
+
+    // Throws if a full-table DROP INDEX in alterOps takes the light index change path and would then fail to
+    // submit its delete jobs: no compute group, or an unfinished index change job on the dropped index.
+    private void checkLightDropIndexPreconditions(Database db, OlapTable olapTable, List<AlterOp> alterOps,
+            boolean enableAddIndexForNewData) throws UserException {
+        if (!Config.enable_light_index_change) {
+            return;
+        }
+        List<Index> droppedIndexes = new ArrayList<>();
+        for (AlterOp alterOp : alterOps) {
+            if (!(alterOp instanceof DropIndexOp) || ((DropIndexOp) alterOp).hasPartitionSpec()) {
+                continue;
+            }
+            String indexName = ((DropIndexOp) alterOp).getIndexName();
+            olapTable.getIndexes().stream()
+                    .filter(index -> index.getIndexName().equalsIgnoreCase(indexName))
+                    .filter(index -> isLightDropIndexSupported(index, enableAddIndexForNewData))
+                    .findFirst()
+                    .ifPresent(droppedIndexes::add);
+        }
+        if (droppedIndexes.isEmpty()) {
+            return;
+        }
+        getCloudClusterName();
+        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
+    }
+
     // Throws if any of the partitions still has an unfinished index change job on the base index.
-    void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
+    private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
             Set<String> partitionNames) throws DdlException {
         for (String partitionName : partitionNames) {
             if (hasIndexChangeJobOnPartition(olapTable.getBaseIndexId(), db.getId(), olapTable.getId(),

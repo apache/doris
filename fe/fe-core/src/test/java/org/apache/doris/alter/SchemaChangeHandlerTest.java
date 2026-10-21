@@ -1294,32 +1294,57 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testCheckNoIndexChangeJobOnPartitions() throws Exception {
+    public void testDropIndexRejectedByIndexChangeJobKeepsMetadata() throws Exception {
+        String tableName = "sc_drop_index_conflict";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'v2');");
+
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
-        List<Index> alterIndexes = Lists.newArrayList(
-                new Index(1L, "idx_error_msg", Lists.newArrayList("error_msg"), IndexType.NGRAM_BF, null, ""));
+        Index index = tbl.getIndexes().stream()
+                .filter(idx -> idx.getIndexName().equals("idx_v1"))
+                .findFirst().get();
+        int schemaVersion = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion();
 
-        handler.checkNoIndexChangeJobOnPartitions(db, tbl, alterIndexes, tbl.getPartitionNames());
-
+        // An unfinished drop job on the same index, e.g. left by DROP INDEX ... PARTITION.
+        // It is only registered in indexChangeJobs so that the job scheduler does not run or cancel it.
         long jobId = Env.getCurrentEnv().getNextId();
         IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
                 Lists.newArrayList(), Lists.newArrayList());
         job.setOriginIndexId(tbl.getBaseIndexId());
         job.setPartitionName(tbl.getPartitionNames().iterator().next());
-        job.setAlterInvertedIndexInfo(true, alterIndexes);
-        handler.addIndexChangeJob(job);
+        job.setAlterInvertedIndexInfo(true, Lists.newArrayList(index));
+        handler.getIndexChangeJobs().put(jobId, job);
         try {
-            DdlException e = Assertions.assertThrows(DdlException.class,
-                    () -> handler.checkNoIndexChangeJobOnPartitions(db, tbl, alterIndexes, tbl.getPartitionNames()));
-            Assertions.assertTrue(e.getMessage().contains("has been built specified index"));
+            String dropIndexStmt = "ALTER TABLE test." + tableName + " DROP INDEX idx_v1";
+            Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(dropIndexStmt, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("has been built specified index"), e.getMessage());
+            Assertions.assertTrue(tbl.getIndexes().stream().anyMatch(idx -> idx.getIndexName().equals("idx_v1")));
+            Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
+
+            // The check must run before DROP COLUMN updates the bloom filter columns in place.
+            String dropColumnAndIndexStmt = "ALTER TABLE test." + tableName + " DROP COLUMN v2, DROP INDEX idx_v1";
+            e = Assertions.assertThrows(Exception.class, () -> alterTable(dropColumnAndIndexStmt, connectContext));
+            Assertions.assertTrue(e.getMessage().contains("has been built specified index"), e.getMessage());
+            Assertions.assertEquals(Sets.newHashSet("v2"), tbl.getCopiedBfColumns());
+            Assertions.assertNotNull(tbl.getColumn("v2"));
 
             job.setJobState(IndexChangeJob.JobState.FINISHED);
-            handler.checkNoIndexChangeJobOnPartitions(db, tbl, alterIndexes, tbl.getPartitionNames());
+            alterTable(dropIndexStmt, connectContext);
+            jobSize++;
+            Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
         } finally {
             handler.getIndexChangeJobs().remove(jobId);
-            handler.runnableIndexChangeJob.remove(jobId);
         }
     }
 
