@@ -395,6 +395,41 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testShareBatchSchedulingAndRenewal() throws UserException {
+        RoutineLoadManager manager = Mockito.mock(RoutineLoadManager.class);
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(manager);
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "share_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            Mockito.when(manager.getJob(1L)).thenReturn(job);
+            KafkaTaskInfo task = new KafkaTaskInfo(new UUID(1, 1), 1L, 20000,
+                    Maps.newHashMap(), false, 1000, false);
+            for (boolean share : new boolean[] {false, true}) {
+                Deencapsulation.setField(job, "useShareConsumer", share);
+                for (String field : new String[] {"loadedRows", "filteredRows", "unselectedRows", "receivedBytes"}) {
+                    RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+                    Deencapsulation.setField(attachment, field, 1L);
+                    task.handleTaskByTxnCommitAttachment(attachment);
+                    Assertions.assertEquals(!share, task.getIsEof(), field);
+                    Assertions.assertEquals(!share, task.needDedalySchedule(), field);
+                    KafkaTaskInfo renewed = new KafkaTaskInfo(task, Maps.newHashMap(), false);
+                    Assertions.assertEquals(!share, renewed.needDedalySchedule(), field);
+                }
+            }
+            Deencapsulation.setField(job, "useShareConsumer", true);
+            for (long elapsed : new long[] {1L, job.getMaxBatchIntervalS() * 1000}) {
+                RLTaskTxnCommitAttachment empty = new RLTaskTxnCommitAttachment();
+                Deencapsulation.setField(empty, "taskExecutionTimeMs", elapsed);
+                task.handleTaskByTxnCommitAttachment(empty);
+                Assertions.assertTrue(task.needDedalySchedule());
+                Assertions.assertTrue(new KafkaTaskInfo(task, Maps.newHashMap(), false).needDedalySchedule());
+            }
+        }
+    }
+
+    @Test
     public void testReadCommittedZeroRowsWithLagDelaysNextTask() throws UserException {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);

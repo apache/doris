@@ -174,6 +174,15 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     @Override
+    protected boolean isSourceExhausted(RLTaskTxnCommitAttachment attachment) {
+        KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
+        if (routineLoadJob.isUseShareConsumer()) {
+            return attachment.getTotalRows() == 0 && attachment.getReceivedBytes() == 0;
+        }
+        return super.isSourceExhausted(attachment);
+    }
+
+    @Override
     protected boolean shouldDelaySchedule(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
         KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
         return routineLoadJob.shouldDelayScheduleForReadCommittedZeroRowsWithLag(rlTaskTxnCommitAttachment);
