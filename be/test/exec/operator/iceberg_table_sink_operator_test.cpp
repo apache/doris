@@ -208,7 +208,7 @@ TEST_F(IcebergTableSinkOperatorTest, SyncWritersUseBlockingSchedulerWithoutDepen
     EXPECT_EQ(spill_sink.finishdependency(), nullptr);
 }
 
-TEST_F(IcebergTableSinkOperatorTest, NormalSinkWritesDataAndClosesAfterEmptyEos) {
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkFinalizesEmptyEosAfterData) {
     MockRuntimeState state;
     std::vector<TExpr> thrift_exprs;
     IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
@@ -219,17 +219,125 @@ TEST_F(IcebergTableSinkOperatorTest, NormalSinkWritesDataAndClosesAfterEmptyEos)
     Block data = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
     Block empty = ColumnHelper::create_block<DataTypeInt32>({});
     ASSERT_TRUE(local_state.sink(&state, &data, false).ok());
+    EXPECT_EQ(fake_state->close_count, 0);
+    // The pipeline task releases the EOS reservation as soon as sink() returns, so the writer
+    // must already be closed, with its buffered files flushed, when the EOS call returns.
     ASSERT_TRUE(local_state.sink(&state, &empty, true).ok());
     EXPECT_EQ(fake_state->write_count, 1);
     EXPECT_EQ(fake_state->written_rows, 3);
-    EXPECT_EQ(fake_state->close_count, 0);
-
-    ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
     EXPECT_EQ(fake_state->close_count, 1);
     ASSERT_EQ(fake_state->close_inputs.size(), 1);
     EXPECT_TRUE(fake_state->close_inputs.front().ok());
+    EXPECT_EQ(fake_state->cleanup_count, 0);
+
+    ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
+    EXPECT_EQ(fake_state->close_count, 1);
     EXPECT_EQ(fake_state->cleanup_count, 1);
     EXPECT_TRUE(fake_state->cleanup_status.ok());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkFinalizesNonEmptyEos) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    IcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+
+    Block data = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    ASSERT_TRUE(local_state.sink(&state, &data, true).ok());
+    EXPECT_EQ(fake_state->write_count, 1);
+    EXPECT_EQ(fake_state->close_count, 1);
+    ASSERT_TRUE(local_state.close(&state, Status::OK()).ok());
+    EXPECT_EQ(fake_state->close_count, 1);
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.ok());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkEosObservesCancellation) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    IcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+
+    state.cancel(Status::Cancelled("cancel normal Iceberg sink before EOS"));
+    Block empty = ColumnHelper::create_block<DataTypeInt32>({});
+    Status sink_status = local_state.sink(&state, &empty, true);
+    EXPECT_TRUE(sink_status.is<ErrorCode::CANCELLED>()) << sink_status.to_string();
+    ASSERT_EQ(fake_state->close_inputs.size(), 1);
+    EXPECT_TRUE(fake_state->close_inputs.front().is<ErrorCode::CANCELLED>());
+
+    Status close_status = local_state.close(&state, sink_status);
+    EXPECT_TRUE(close_status.is<ErrorCode::CANCELLED>()) << close_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::CANCELLED>());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkWriteErrorClosesWithError) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    IcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+    fake_state->write_result = Status::InternalError("injected write failure");
+
+    Block data = ColumnHelper::create_block<DataTypeInt32>({1});
+    Status sink_status = local_state.sink(&state, &data, true);
+    EXPECT_TRUE(sink_status.is<ErrorCode::INTERNAL_ERROR>()) << sink_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 0);
+
+    Status close_status = local_state.close(&state, sink_status);
+    EXPECT_TRUE(close_status.is<ErrorCode::INTERNAL_ERROR>()) << close_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
+    ASSERT_EQ(fake_state->close_inputs.size(), 1);
+    EXPECT_TRUE(fake_state->close_inputs.front().is<ErrorCode::INTERNAL_ERROR>());
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::INTERNAL_ERROR>());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkCloseErrorPropagatesAndCleansUp) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    IcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+    fake_state->close_result = Status::InternalError("injected close failure");
+
+    Block empty = ColumnHelper::create_block<DataTypeInt32>({});
+    Status sink_status = local_state.sink(&state, &empty, true);
+    EXPECT_TRUE(sink_status.is<ErrorCode::INTERNAL_ERROR>()) << sink_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
+
+    Status close_status = local_state.close(&state, sink_status);
+    EXPECT_TRUE(close_status.is<ErrorCode::INTERNAL_ERROR>()) << close_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::INTERNAL_ERROR>());
+}
+
+TEST_F(IcebergTableSinkOperatorTest, NormalSinkCancellationAfterEosDeletesDeferredFiles) {
+    MockRuntimeState state;
+    std::vector<TExpr> thrift_exprs;
+    IcebergTableSinkOperatorX parent(&_pool, 1, _row_desc, thrift_exprs);
+    IcebergTableSinkLocalState local_state(&parent, &state);
+    std::shared_ptr<FakeWriterState> fake_state;
+    initialize_local_state(&parent, &local_state, &state, &fake_state);
+
+    Block empty = ColumnHelper::create_block<DataTypeInt32>({});
+    ASSERT_TRUE(local_state.sink(&state, &empty, true).ok());
+    EXPECT_EQ(fake_state->close_count, 1);
+
+    state.cancel(Status::Cancelled("cancel normal Iceberg sink after EOS"));
+    Status close_status = local_state.close(&state, Status::OK());
+    EXPECT_TRUE(close_status.is<ErrorCode::CANCELLED>()) << close_status.to_string();
+    EXPECT_EQ(fake_state->close_count, 1);
+    EXPECT_EQ(fake_state->cleanup_count, 1);
+    EXPECT_TRUE(fake_state->cleanup_status.is<ErrorCode::CANCELLED>());
 }
 
 TEST_F(IcebergTableSinkOperatorTest, NormalSinkConvertsOkCloseToCancellation) {

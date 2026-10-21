@@ -42,11 +42,14 @@ public:
     [[nodiscard]] bool is_blockable() const override { return true; }
 
 private:
+    Status _close_writer(Status close_status);
     friend class IcebergTableSinkOperatorX;
     friend class IcebergTableSinkOperatorTest;
 
     VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<VIcebergTableWriter> _writer;
+    bool _writer_closed = false;
+    Status _writer_close_status;
 };
 
 class IcebergTableSinkOperatorX final : public DataSinkOperatorX<IcebergTableSinkLocalState> {

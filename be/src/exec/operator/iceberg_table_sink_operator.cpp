@@ -44,12 +44,36 @@ Status IcebergTableSinkLocalState::open(RuntimeState* state) {
     return _writer->open(state, operator_profile());
 }
 
-Status IcebergTableSinkLocalState::sink(RuntimeState* state, Block* block, bool /*eos*/) {
-    if (block->rows() == 0) {
+Status IcebergTableSinkLocalState::sink(RuntimeState* state, Block* block, bool eos) {
+    if (block->rows() > 0) {
+        DCHECK(_writer);
+        RETURN_IF_ERROR(_writer->write(state, *block));
+    }
+    if (!eos) {
         return Status::OK();
     }
+
+    // The pipeline task holds the sink reservation only while sink() runs. Closing the writer
+    // flushes what each partition file still buffers, e.g. the last half-filled Parquet row group,
+    // whose final pages grow the page and compression buffers. Done in close(), that flush would
+    // run after the EOS reservation was released, so close the writer here.
+    Status close_status = Status::OK();
+    if (state->is_cancelled()) {
+        close_status = state->cancel_reason();
+    }
+    return _close_writer(close_status);
+}
+
+Status IcebergTableSinkLocalState::_close_writer(Status close_status) {
     DCHECK(_writer);
-    return _writer->write(state, *block);
+    if (!_writer_closed) {
+        _writer_close_status = _writer->close(close_status);
+        _writer_closed = true;
+    }
+    if (close_status.ok() && !_writer_close_status.ok()) {
+        close_status = _writer_close_status;
+    }
+    return close_status;
 }
 
 Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
@@ -66,10 +90,9 @@ Status IcebergTableSinkLocalState::close(RuntimeState* state, Status exec_status
     if (final_status.ok() && state->is_cancelled()) {
         final_status = state->cancel_reason();
     }
-    Status writer_status = _writer->close(final_status);
-    if (final_status.ok() && !writer_status.ok()) {
-        final_status = writer_status;
-    }
+    // A task that reached EOS already closed the writer in sink(); an error or cancellation before
+    // EOS closes it here with that status.
+    final_status = _close_writer(final_status);
     // close() may block on sort/merge/file I/O, so cancellation can arrive while it is running.
     if (final_status.ok() && state->is_cancelled()) {
         final_status = state->cancel_reason();
