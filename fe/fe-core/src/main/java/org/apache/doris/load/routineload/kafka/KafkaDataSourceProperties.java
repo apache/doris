@@ -267,7 +267,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             // Only zero is safe: it prevents the default kinit command from executing.
             if (key.equals("sasl.kerberos.min.time.before.relogin") && !property.getValue().equals("0")) {
                 throw new AnalysisException("Kafka property '" + key + "' is not allowed in Routine Load"
-                        + " with a nonzero value; Kerberos tickets must be managed externally");
+                        + " with a nonzero value; Doris manages keytab login and renewal without shell commands");
             }
             if (BackendServiceConstants.KAFKA_FILE_PROPERTIES.contains(key)) {
                 if (!property.getValue().startsWith("FILE:") || property.getValue().length() == 5) {

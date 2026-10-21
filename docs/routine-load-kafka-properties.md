@@ -29,17 +29,43 @@ use `FILE:`.
 
 ## Kerberos
 
-Routine Load no longer runs librdkafka's internal `kinit` command. The
-`sasl.kerberos.kinit.cmd` and `sasl.kerberos.keytab` properties are rejected.
-`sasl.kerberos.min.time.before.relogin` accepts only the literal value `0` and
-is also forced to `0` by Doris. This disables both initial ticket acquisition
-and periodic renewal by librdkafka, including its default command.
+Routine Load supports automatic Kerberos login and ticket refresh with a
+per-job principal and a Doris-managed keytab:
 
-For GSSAPI authentication, operators must provision and renew a Kerberos ticket
-cache accessible to the BE process on every BE eligible to run the job. The
-principal and service-name properties remain available. Jobs relying on
-per-job keytabs or shell commands must migrate to operator-managed tickets
-before upgrading.
+```sql
+"property.security.protocol" = "SASL_SSL",
+"property.sasl.mechanism" = "GSSAPI",
+"property.sasl.kerberos.service.name" = "kafka",
+"property.sasl.kerberos.principal" = "loader@EXAMPLE.COM",
+"property.sasl.kerberos.keytab" = "FILE:loader.keytab"
+```
+
+Register `loader.keytab` with `CREATE FILE` in the job's database and `kafka`
+catalog first. An explicit, nonempty principal and a SASL protocol are required
+when a keytab is supplied. Raw BE keytab paths are rejected. The BE still needs
+operator-configured Kerberos realm/KDC settings and network access to the KDC.
+
+After resolving the managed file, Doris's native Kerberos ticket manager calls
+libkrb5 to acquire tickets. It maintains separate caches for different
+principal/keytab pairs and refreshes tickets at half their lifetime or the
+configured refresh interval, whichever is shorter. A refresh failure is logged
+and retried on the next poll. Consumers retain the cache while they are alive.
+
+Doris's librdkafka patch binds each GSSAPI connection to credentials acquired
+from that consumer's cache using `gss_acquire_cred_from` and `SASL_GSS_CREDS`.
+Connections acquire fresh credential handles on reconnect, picking up renewed
+tickets. No process-wide `KRB5CCNAME` switching is used. Cache acquisition or
+binding failure fails authentication instead of selecting another job's identity.
+The internal `sasl.kerberos.ticket.cache` property cannot be set through SQL.
+
+`sasl.kerberos.kinit.cmd` remains forbidden. The librdkafka
+`sasl.kerberos.min.time.before.relogin` option accepts only the literal `0` and
+is forced to `0` by Doris: it disables librdkafka's shell command, **not** Doris's
+native renewal worker. No SQL property is interpolated into a shell command.
+Users who explicitly configured this interval must remove it or set it to `0`.
+
+Without a keytab, GSSAPI can continue using an operator-managed default ticket
+cache; in that mode the operator remains responsible for ticket renewal.
 
 ## Upgrade behavior
 
@@ -49,11 +75,17 @@ before upgrading.
   identifying the property; remove the incompatible configuration and recreate
   the job. ALTER merges properties and cannot remove an existing rejected key.
 - FE explicitly sends the zero Kerberos refresh interval to protect requests
-  sent to older BEs during a rolling upgrade.
+  sent to older BEs during a rolling upgrade. Native automatic login requires
+  upgraded BEs; an older BE cannot consume the new per-job ticket cache. Upgrade
+  eligible BEs before relying on managed keytab login.
 - Upgraded BEs validate the complete property map before applying any custom
   setting, covering metadata probes and tasks from older FEs. They disable
   internal Kerberos commands even when the FE did not send the interval.
 - Both sides should be upgraded. An old FE sending work to an old BE retains
   its previous behavior until one of those components is upgraded.
+
+Rebuild the `librdkafka-2.16.0` third-party dependency with the updated Doris patch
+before building BE. An unpatched library fails the mandatory cache-binding
+configuration; it does not silently fall back to the process cache.
 
 No Thrift field IDs, enum values, or persisted data formats change.

@@ -18,11 +18,14 @@
 #include "load/routine_load/kafka_properties.h"
 
 #include <gen_cpp/BackendService_constants.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <librdkafka/rdkafkacpp.h>
 
+#include <filesystem>
 #include <memory>
 
+#include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/status.h"
 #include "load/routine_load/data_consumer.h"
 
@@ -31,7 +34,7 @@ namespace doris {
 TEST(KafkaPropertiesTest, RejectExecutableAndUnknownProperties) {
     std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
     for (const auto* key :
-         {"sasl.kerberos.kinit.cmd", "sasl.kerberos.keytab",
+         {"sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.cache",
           "sasl.kerberos.min.time.before.relogin", "plugin.library.paths", "ssl.engine.location",
           "ssl.engine.id", "ssl.providers", "unknown.future.property", "sasl.jaas.config"}) {
         auto status = configure_kafka_security(*conf, {{key, "sensitive-value"}});
@@ -50,13 +53,17 @@ TEST(KafkaPropertiesTest, RejectKerberosRefreshReenable) {
     }
 }
 
-TEST(KafkaPropertiesTest, RequireManagedCertificateFiles) {
+TEST(KafkaPropertiesTest, RequireManagedFiles) {
     std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
     for (const auto& key : g_BackendService_constants.KAFKA_FILE_PROPERTIES) {
         for (const auto* value : {"/etc/ssl/private/key.pem", "relative.pem", "", "FILE:"}) {
             EXPECT_FALSE(configure_kafka_security(*conf, {{key, value}}).ok()) << key;
         }
-        EXPECT_TRUE(configure_kafka_security(*conf, {{key, "FILE:123:checksum"}}).ok()) << key;
+        EXPECT_TRUE(configure_kafka_security(*conf, {{key, "FILE:123:checksum"},
+                                                     {"sasl.kerberos.principal", "user@REALM"},
+                                                     {"security.protocol", "SASL_SSL"}})
+                            .ok())
+                << key;
     }
 }
 
@@ -100,6 +107,104 @@ TEST(KafkaPropertiesTest, ConsumerRejectsBeforeResolvingFilesOrCreatingClient) {
     auto status = consumer.init(ctx);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("plugin.library.paths"), std::string::npos);
+}
+
+TEST(KafkaPropertiesTest, KeytabRequiresExplicitIdentityAndGssapi) {
+    std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    std::map<std::string, std::string> properties = {{"sasl.kerberos.keytab", "FILE:123:checksum"}};
+    EXPECT_FALSE(configure_kafka_security(*conf, properties).ok());
+    properties["sasl.kerberos.principal"] = "user@REALM";
+    EXPECT_FALSE(configure_kafka_security(*conf, properties).ok());
+    properties["security.protocol"] = "SASL_SSL";
+    EXPECT_TRUE(configure_kafka_security(*conf, properties).ok());
+    for (const auto* mechanism : {"sasl.mechanism", "sasl.mechanisms"}) {
+        properties[mechanism] = "PLAIN";
+        EXPECT_FALSE(configure_kafka_security(*conf, properties).ok());
+        properties[mechanism] = "GSSAPI";
+        EXPECT_TRUE(configure_kafka_security(*conf, properties).ok());
+    }
+    properties["sasl.kerberos.principal"] = std::string("user\0suffix", 11);
+    EXPECT_FALSE(configure_kafka_security(*conf, properties).ok());
+}
+
+namespace {
+class KafkaMockTicketCache : public kerberos::KerberosTicketCache {
+public:
+    using KerberosTicketCache::KerberosTicketCache;
+    MOCK_METHOD(Status, initialize, (), (override));
+    MOCK_METHOD(Status, login, (), (override));
+    MOCK_METHOD(Status, write_ticket_cache, (), (override));
+    MOCK_METHOD(void, start_periodic_refresh, (), (override));
+};
+
+class KafkaMockTicketMgr : public kerberos::KerberosTicketMgr {
+public:
+    KafkaMockTicketMgr()
+            : KerberosTicketMgr((std::filesystem::temp_directory_path() /
+                                 ("kafka-kerberos-" + UniqueId::gen_uid().to_string()))
+                                        .string()) {}
+    bool fail_login = false;
+
+protected:
+    std::shared_ptr<kerberos::KerberosTicketCache> _make_new_ticket_cache(
+            const kerberos::KerberosConfig& config) override {
+        auto cache =
+                std::make_shared<testing::StrictMock<KafkaMockTicketCache>>(config, _root_path);
+        cache->set_ticket_cache_path(_root_path + "/" + config.get_hash_code());
+        testing::InSequence sequence;
+        EXPECT_CALL(*cache, initialize()).WillOnce(testing::Return(Status::OK()));
+        if (fail_login) {
+            EXPECT_CALL(*cache, login())
+                    .WillOnce(testing::Return(Status::InternalError("KDC unavailable")));
+        } else {
+            EXPECT_CALL(*cache, login()).WillOnce(testing::Return(Status::OK()));
+            EXPECT_CALL(*cache, write_ticket_cache()).WillOnce(testing::Return(Status::OK()));
+            EXPECT_CALL(*cache, start_periodic_refresh()).Times(1);
+        }
+        return cache;
+    }
+};
+} // namespace
+
+TEST(KafkaPropertiesTest, ManagedLoginStartsRefreshAndBindsDistinctCaches) {
+    KafkaMockTicketMgr manager;
+    std::shared_ptr<kerberos::KerberosTicketCache> first, second, shared;
+    std::unique_ptr<RdKafka::Conf> a(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    std::unique_ptr<RdKafka::Conf> b(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    ASSERT_TRUE(configure_kafka_security(*a, {}).ok());
+    ASSERT_TRUE(configure_kafka_security(*b, {}).ok());
+    ASSERT_TRUE(
+            configure_kafka_kerberos(*a, "alice@REALM", "/managed/1.keytab", manager, &first).ok());
+    ASSERT_TRUE(
+            configure_kafka_kerberos(*b, "bob@REALM", "/managed/2.keytab", manager, &second).ok());
+    ASSERT_NE(first, second);
+    std::string a_path, b_path, principal, interval;
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, a->get("sasl.kerberos.ticket.cache", a_path));
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, b->get("sasl.kerberos.ticket.cache", b_path));
+    EXPECT_EQ("FILE:" + first->get_ticket_cache_path(), a_path);
+    EXPECT_EQ("FILE:" + second->get_ticket_cache_path(), b_path);
+    EXPECT_NE(a_path, b_path);
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, a->get("sasl.kerberos.principal", principal));
+    EXPECT_EQ("alice@REALM", principal);
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, a->get("sasl.kerberos.min.time.before.relogin", interval));
+    EXPECT_EQ("0", interval);
+    // Reusing an identity must retain the same cache and its renewal worker.
+    ASSERT_TRUE(configure_kafka_kerberos(*a, "alice@REALM", "/managed/1.keytab", manager, &shared)
+                        .ok());
+    EXPECT_EQ(first, shared);
+}
+
+TEST(KafkaPropertiesTest, FailedManagedLoginDoesNotBindOrPublishCache) {
+    KafkaMockTicketMgr manager;
+    manager.fail_login = true;
+    std::shared_ptr<kerberos::KerberosTicketCache> cache;
+    std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    auto status =
+            configure_kafka_kerberos(*conf, "user@REALM", "/managed/1.keytab", manager, &cache);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("KDC unavailable"), std::string::npos);
+    EXPECT_EQ(nullptr, cache);
+    EXPECT_EQ(nullptr, manager.get_ticket_cache("user@REALM", "/managed/1.keytab"));
 }
 
 } // namespace doris

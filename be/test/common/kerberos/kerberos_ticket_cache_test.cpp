@@ -106,14 +106,21 @@ protected:
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    void ExpectForLogin(const std::string& cache_path) {
+    void ExpectForLogin(const std::string& cache_path, int lifetime_seconds = 3600) {
         // Setup expectations for login
         EXPECT_CALL(*_mock_krb5_ptr, kt_resolve(_, _, _)).WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, cc_resolve(_, _, _)).WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, get_init_creds_opt_alloc(_, _))
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, get_init_creds_keytab(_, _, _, _, _, _, _))
-                .WillOnce(testing::Return(Status::OK()));
+                .WillOnce(
+                        testing::Invoke([lifetime_seconds](krb5_context, krb5_creds* creds,
+                                                           krb5_principal, krb5_keytab, krb5_deltat,
+                                                           const char*, krb5_get_init_creds_opt*) {
+                            creds->times.starttime = 100;
+                            creds->times.endtime = 100 + lifetime_seconds;
+                            return Status::OK();
+                        }));
         EXPECT_CALL(*_mock_krb5_ptr, cc_initialize(_, _, _))
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, cc_store_cred(_, _, _))
@@ -206,6 +213,21 @@ TEST_F(KerberosTicketCacheTest, RefreshTickets) {
     // Verify that the cache file has been updated
     auto new_write_time = GetFileLastWriteTime(cache_path);
     ASSERT_GT(new_write_time, initial_write_time);
+}
+
+TEST_F(KerberosTicketCacheTest, RefreshIntervalTracksTicketLifetime) {
+    SetupBasicInitExpectations();
+    ASSERT_TRUE(_cache->initialize().ok());
+    EXPECT_EQ(std::chrono::seconds(2), _cache->get_refresh_interval());
+    ExpectForLogin(_cache->get_ticket_cache_path(), 2);
+    ASSERT_TRUE(_cache->login().ok());
+    EXPECT_EQ(std::chrono::seconds(1), _cache->get_refresh_interval());
+    ExpectForLogin(_cache->get_ticket_cache_path(), 1);
+    ASSERT_TRUE(_cache->login().ok());
+    EXPECT_EQ(std::chrono::milliseconds(500), _cache->get_refresh_interval());
+    ExpectForLogin(_cache->get_ticket_cache_path(), 3600);
+    ASSERT_TRUE(_cache->login().ok());
+    EXPECT_EQ(std::chrono::seconds(2), _cache->get_refresh_interval());
 }
 
 TEST_F(KerberosTicketCacheTest, PeriodicRefresh) {

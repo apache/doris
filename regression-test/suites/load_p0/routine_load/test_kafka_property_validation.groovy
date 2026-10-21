@@ -25,7 +25,7 @@ suite("test_kafka_property_validation", "p0") {
     """
 
     // All failures must happen during analysis, without contacting a Kafka broker.
-    def rejected = ["sasl.kerberos.kinit.cmd", "sasl.kerberos.keytab",
+    def rejected = ["sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.cache",
                     "sasl.kerberos.min.time.before.relogin", "plugin.library.paths",
                     "ssl.engine.location", "ssl.engine.id", "ssl.providers", "unknown.future.property"]
     rejected.each { key ->
@@ -41,7 +41,7 @@ suite("test_kafka_property_validation", "p0") {
             exception "Kafka property '${key}' is not allowed in Routine Load"
         }
     }
-    ["ssl.ca.location", "ssl.certificate.location", "ssl.key.location"].each { key ->
+    ["ssl.ca.location", "ssl.certificate.location", "ssl.key.location", "sasl.kerberos.keytab"].each { key ->
         test {
             sql """
                 CREATE ROUTINE LOAD test_kafka_property_validation_job ON test_kafka_property_validation

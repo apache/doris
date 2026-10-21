@@ -20,6 +20,9 @@
 #include <gen_cpp/BackendService_constants.h>
 #include <librdkafka/rdkafkacpp.h>
 
+#include <utility>
+
+#include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/status.h"
 #include "util/string_util.h"
 
@@ -34,10 +37,10 @@ Status configure_kafka_security(RdKafka::Conf& conf,
             return Status::InvalidArgument(
                     "PAUSE: Kafka property '{}' is not allowed in Routine Load with a nonzero "
                     "value; "
-                    "Kerberos tickets must be managed externally",
+                    "Doris manages keytab login and renewal without shell commands",
                     key);
         }
-        // Certificate paths supplied by SQL users must be Doris-managed files.
+        // Certificate and keytab paths supplied by SQL users must be Doris-managed files.
         if (g_BackendService_constants.KAFKA_FILE_PROPERTIES.contains(key)) {
             if (!starts_with(value, "FILE:") || value.size() == 5) {
                 return Status::InvalidArgument(
@@ -54,15 +57,59 @@ Status configure_kafka_security(RdKafka::Conf& conf,
         }
     }
 
+    // A keytab without a principal or GSSAPI would otherwise silently use the
+    // process identity or be ignored by a different SASL mechanism.
+    if (properties.contains("sasl.kerberos.keytab")) {
+        auto principal = properties.find("sasl.kerberos.principal");
+        auto protocol = properties.find("security.protocol");
+        if (principal == properties.end() || principal->second.empty() ||
+            principal->second.find('\0') != std::string::npos || protocol == properties.end() ||
+            (protocol->second != "SASL_SSL" && protocol->second != "SASL_PLAINTEXT")) {
+            return Status::InvalidArgument(
+                    "PAUSE: Kafka keytab requires an explicit Kerberos principal and SASL "
+                    "protocol");
+        }
+        for (const auto* mechanism : {"sasl.mechanism", "sasl.mechanisms"}) {
+            auto it = properties.find(mechanism);
+            if (it != properties.end() && it->second != "GSSAPI") {
+                return Status::InvalidArgument("PAUSE: Kafka keytab requires GSSAPI");
+            }
+        }
+    }
+
     // Rejecting kinit.cmd alone is insufficient: the default command interpolates
     // the principal/keytab. Setting the interval to zero disables both the initial
-    // command and the refresh timer. Operators must maintain the ticket cache.
+    // command and the refresh timer. Doris handles managed keytabs through libkrb5.
     // This is mandatory, so do not use init's best-effort set_conf wrapper here.
     std::string error;
     if (conf.set("sasl.kerberos.min.time.before.relogin", "0", error) != RdKafka::Conf::CONF_OK) {
         return Status::InternalError(
                 "PAUSE: failed to disable Kafka Kerberos command execution: {}", error);
     }
+    return Status::OK();
+}
+
+Status configure_kafka_kerberos(RdKafka::Conf& conf, const std::string& principal,
+                                const std::string& keytab_path,
+                                kerberos::KerberosTicketMgr& manager,
+                                std::shared_ptr<kerberos::KerberosTicketCache>* ticket_cache) {
+    kerberos::KerberosConfig config;
+    config.set_principal_and_keytab(principal, keytab_path);
+    std::shared_ptr<kerberos::KerberosTicketCache> cache;
+    RETURN_IF_ERROR(manager.get_or_set_ticket_cache(config, &cache));
+    // This internal property is deliberately absent from the SQL allowlist.
+    // The patched Cyrus provider acquires credentials from this cache for each
+    // connection, so two consumers never change each other's default identity.
+    std::string error;
+    if (conf.set("sasl.kerberos.principal", principal, error) != RdKafka::Conf::CONF_OK) {
+        return Status::InternalError("PAUSE: failed to set Kafka Kerberos principal: {}", error);
+    }
+    if (conf.set("sasl.kerberos.ticket.cache", "FILE:" + cache->get_ticket_cache_path(), error) !=
+        RdKafka::Conf::CONF_OK) {
+        return Status::InternalError("PAUSE: failed to bind Kafka Kerberos ticket cache: {}",
+                                     error);
+    }
+    *ticket_cache = std::move(cache);
     return Status::OK();
 }
 

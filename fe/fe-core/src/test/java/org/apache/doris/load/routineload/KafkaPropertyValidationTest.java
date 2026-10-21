@@ -49,7 +49,7 @@ public class KafkaPropertyValidationTest {
     @Test
     public void testCreateAndAlterRejectExecutableAndUnknownProperties() {
         for (boolean alter : new boolean[] {false, true}) {
-            for (String key : List.of("sasl.kerberos.kinit.cmd", "sasl.kerberos.keytab",
+            for (String key : List.of("sasl.kerberos.kinit.cmd", "sasl.kerberos.ticket.cache",
                     "sasl.kerberos.min.time.before.relogin", "plugin.library.paths", "ssl.engine.location",
                     "ssl.engine.id", "ssl.providers", "unknown.future.property", "sasl.jaas.config",
                     "security.protocol\0suffix")) {
@@ -72,7 +72,7 @@ public class KafkaPropertyValidationTest {
     }
 
     @Test
-    public void testCertificateFilesRequireManagedReferences() throws Exception {
+    public void testCertificateAndKeytabFilesRequireManagedReferences() throws Exception {
         for (boolean alter : new boolean[] {false, true}) {
             for (String key : BackendServiceConstants.KAFKA_FILE_PROPERTIES) {
                 for (String value : List.of("/etc/ssl/private/key.pem", "relative.pem", "", "FILE:")) {

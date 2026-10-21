@@ -106,6 +106,10 @@ public:
 
     int64_t get_ticket_lifetime_sec() const { return _ticket_lifetime_sec; }
 
+    // Cap the configured interval at half the ticket lifetime, e.g. a 10-minute
+    // TGT must refresh after 5 minutes even when the configured interval is 1 hour.
+    std::chrono::milliseconds get_refresh_interval();
+
 private:
     // Initialize the ticket cache file path using principal and keytab information
     Status _init_ticket_cache_path();
@@ -128,7 +132,7 @@ private:
     // Principal handle
     krb5_principal _principal {nullptr};
     // Ticket lifetime in second
-    int64_t _ticket_lifetime_sec;
+    int64_t _ticket_lifetime_sec = 0;
 
     // Thread for periodic ticket refresh
     std::unique_ptr<std::thread> _refresh_thread;
