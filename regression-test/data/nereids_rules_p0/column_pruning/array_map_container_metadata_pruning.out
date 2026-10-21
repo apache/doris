@@ -35,3 +35,15 @@
 3	\N
 4	2
 
+-- !array_map_result_element_cardinality --
+1	1
+2	\N
+3	\N
+4	1
+
+-- !array_map_result_element_is_null --
+1	false
+2	true
+3	true
+4	false
+

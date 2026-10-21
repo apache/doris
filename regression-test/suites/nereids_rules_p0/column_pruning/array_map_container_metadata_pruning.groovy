@@ -88,6 +88,38 @@ suite("array_map_container_metadata_pruning") {
         FROM array_map_container_metadata_pruning_tbl ORDER BY id
     """
 
+    // A metadata request that addresses an element of the ARRAY_MAP result instead of its own
+    // container (cardinality of a selected result element) is produced by the lambda. It must not
+    // be routed to the input array: that emitted `a.*.OFFSET` on the struct element and failed
+    // with E-3110. Only the lambda payload is read and the query keeps working.
+    order_qt_array_map_result_element_cardinality """
+        SELECT id, cardinality(element_at(array_map(x -> array(x.v), a), 1)) AS c
+        FROM array_map_container_metadata_pruning_tbl ORDER BY id
+    """
+
+    order_qt_array_map_result_element_is_null """
+        SELECT id, element_at(array_map(x -> array(x.v), a), 1) IS NULL AS n
+        FROM array_map_container_metadata_pruning_tbl ORDER BY id
+    """
+
+    explain {
+        sql """
+            SELECT cardinality(element_at(array_map(x -> array(x.v), a), 1))
+            FROM array_map_container_metadata_pruning_tbl
+        """
+        contains "a.*.v"
+        notContains "a.*.OFFSET"
+    }
+
+    explain {
+        sql """
+            SELECT element_at(array_map(x -> array(x.v), a), 1) IS NULL
+            FROM array_map_container_metadata_pruning_tbl
+        """
+        contains "a.*.v"
+        notContains "a.*.NULL"
+    }
+
     explain {
         sql """
             SELECT cardinality(array_map(x -> x, a))

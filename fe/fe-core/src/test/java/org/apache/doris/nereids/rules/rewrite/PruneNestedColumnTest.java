@@ -308,6 +308,25 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testArrayMapResultElementMetadataKeepsLambdaPayloadOnly() throws Exception {
+        // cardinality() of a selected ARRAY_MAP element addresses an element of the ARRAY_MAP
+        // result, whose shape is produced by the lambda, not the input array container. That
+        // metadata cannot be routed to the input array's element: doing so emitted the invalid
+        // `a.*.OFFSET` on a struct element, so only the element data the lambda reads is kept.
+        assertColumn("select cardinality(element_at(array_map(x -> array(x.v), a), 1)) "
+                        + "from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*", "v")),
+                ImmutableList.of());
+
+        assertColumn("select element_at(array_map(x -> array(x.v), a), 1) is null "
+                        + "from array_map_meta_tbl",
+                "array<struct<v:int>>",
+                ImmutableList.of(path("a", "*", "v")),
+                ImmutableList.of());
+    }
+
+    @Test
     public void testComparatorArraySortKeepsPayloadPath() throws Exception {
         assertColumn("select array_sort((x, y) -> if(cardinality(x) < cardinality(y), -1, "
                         + "if(cardinality(x) = cardinality(y), 0, 1)), a) from nested_array_tbl",

@@ -583,23 +583,45 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     }
 
     private Void collectArrayMapPathInLambda(Lambda lambda, CollectorContext context) {
-        if (context.getType() == ColumnAccessPathType.META) {
-            // A metadata requirement on the ARRAY_MAP result (OFFSET for cardinality(), NULL for
-            // IS NULL) describes the output ARRAY container, not the lambda elements. The output
-            // container is shaped by the input arrays: array_map copies the first input's offsets
-            // and its null map is the union of all inputs' null maps. Pushing that context into
-            // the lambda body would attach the metadata to the element layer instead, producing
-            // e.g. `arr.*.OFFSET`, which the BE rejects for a struct element (OFFSET metadata is
-            // only supported at array/map/string level). Route the container metadata to the
-            // input arrays, and collect the element paths the lambda actually reads with a fresh
-            // data context so that the elements stay available to the lambda body.
+        if (isRootContainerMetadata(context)) {
+            // A metadata requirement on the ARRAY_MAP result itself (OFFSET for cardinality(arr),
+            // NULL for arr IS NULL) describes the output ARRAY container, not the lambda elements.
+            // The output container is shaped by the input arrays: array_map copies the first
+            // input's offsets and its null map is the union of all inputs' null maps. Pushing that
+            // context into the lambda body would attach the metadata to the element layer instead,
+            // producing e.g. `arr.*.OFFSET`, which the BE rejects for a struct element (OFFSET
+            // metadata is only supported at array/map/string level). Route the container metadata
+            // to the input arrays, and collect the element paths the lambda actually reads with a
+            // fresh data context so that the elements stay available to the lambda body.
             for (ArrayItemReference lambdaArgument : lambda.getLambdaArguments()) {
                 continueCollectAccessPath(lambdaArgument.getArrayExpression(), copyContext(context));
             }
             return collectArrayPathInLambda(lambda,
                     new CollectorContext(context.statementContext, context.bottomFilter));
         }
+        // Only a root request is routed to the input containers. A prefixed request such as the
+        // `[*, OFFSET]` of cardinality(element_at(array_map(...), 1)) addresses an element of the
+        // ARRAY_MAP result, whose shape is produced by the lambda and is unrelated to the input
+        // array's containers. Keep the lambda traversal for it: the unrepresentable metadata is
+        // dropped and the element data the lambda reads is preserved.
         return collectArrayPathInLambda(lambda, context);
+    }
+
+    /**
+     * Whether the pending metadata requirement addresses the current expression's own container,
+     * i.e. an unprefixed OFFSET / NULL suffix, rather than one of its descendants such as the
+     * `[*, OFFSET]` produced by cardinality(element_at(&lt;array&gt;, 1)).
+     */
+    private static boolean isRootContainerMetadata(CollectorContext context) {
+        if (context.getType() != ColumnAccessPathType.META) {
+            return false;
+        }
+        List<String> path = context.getAccessPathBuilder().getPathList();
+        if (path.size() != 1) {
+            return false;
+        }
+        String suffix = path.get(0);
+        return AccessPathInfo.ACCESS_OFFSET.equals(suffix) || AccessPathInfo.ACCESS_NULL.equals(suffix);
     }
 
     @Override
