@@ -34,6 +34,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "load/memtable/memtable_flush_executor.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -89,12 +90,18 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
 }
 
 BaseDeltaWriter::~BaseDeltaWriter() {
+    // Initialization may have created bitmap tokens before memtable init failed.
+    // Stop producers and drain both bitmap phases before any builder cleanup.
+    // A derived constructor can fail before it installs its builder.
+    if (_rowset_builder != nullptr) {
+        auto st = _get_load_cancel_status();
+        WARN_IF_ERROR(BaseDeltaWriter::cancel_with_status(
+                              st.ok() ? Status::Cancelled("delta writer destroyed") : st),
+                      "failed to cancel work while destroying delta writer");
+    }
     if (!_is_init) {
         return;
     }
-
-    // cancel and wait all memtables in flush queue to be finished
-    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder->tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -132,15 +139,24 @@ int64_t BaseDeltaWriter::table_id() const {
 
 DeltaWriter::~DeltaWriter() = default;
 
+Status BaseDeltaWriter::_get_load_cancel_status() const {
+    return _req.load_cancel_status && !_req.load_cancel_status->ok()
+                   ? _req.load_cancel_status->status()
+                   : Status::OK();
+}
+
 Status BaseDeltaWriter::init() {
     if (_is_init) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_get_load_cancel_status());
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
     if (doris::thread_context()->is_attach_task()) {
         wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("BaseDeltaWriter::init:before_memtable_init", Status::OK(),
+                                      this);
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
             _rowset_builder->get_partial_update_info(), wg_sptr,
@@ -162,7 +178,7 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
                 [this]() {
                     std::lock_guard<std::mutex> l(_lock);
-                    return _is_cancelled;
+                    return _is_cancelled || !_get_load_cancel_status().ok();
                 },
                 table_id());
     }
@@ -176,6 +192,7 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
         SCOPED_TIMER(_wait_flush_limit_timer);
         while (_memtable_writer->flush_running_count() >=
                config::memtable_flush_running_count_limit) {
+            RETURN_IF_ERROR(_get_load_cancel_status());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -215,6 +232,7 @@ Status DeltaWriter::close() {
 Status BaseDeltaWriter::build_rowset() {
     SCOPED_TIMER(_close_wait_timer);
     RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->build_rowset();
 }
 
@@ -226,6 +244,7 @@ Status DeltaWriter::build_rowset() {
 }
 
 Status BaseDeltaWriter::submit_calc_delete_bitmap_task() {
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->submit_calc_delete_bitmap_task();
 }
 
@@ -240,6 +259,7 @@ RowsetBuilder* DeltaWriter::rowset_builder() {
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
+    RETURN_IF_ERROR(_get_load_cancel_status());
     RETURN_IF_ERROR(rowset_builder()->commit_txn());
 
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
@@ -273,6 +293,7 @@ Status BaseDeltaWriter::cancel_with_status(const Status& st) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
+    RETURN_IF_ERROR(_rowset_builder->cancel(st));
     _is_cancelled = true;
     return Status::OK();
 }

@@ -83,6 +83,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/delta_writer/delta_writer.h"
@@ -145,6 +146,11 @@ using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_max_threads, MetricUnit::NOUNIT);
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
@@ -165,6 +171,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
 
 static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
+
+static int32_t resolved_brpc_load_light_work_pool_max_queue_size() {
+    return config::brpc_load_light_work_pool_max_queue_size != -1
+                   ? config::brpc_load_light_work_pool_max_queue_size
+                   : std::max(1024, CpuInfo::num_cores() * 32);
+}
 
 static int32_t resolved_brpc_peer_fetch_pool_threads() {
     return config::brpc_peer_fetch_pool_threads != -1 ? config::brpc_peer_fetch_pool_threads
@@ -230,6 +242,10 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+          // Keep cancellation dispatch independent of potentially blocking opens and writes.
+          _load_light_work_pool(config::brpc_load_light_work_pool_threads,
+                                resolved_brpc_load_light_work_pool_max_queue_size(),
+                                "brpc_load_light"),
           // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
           _peer_fetch_pool(resolved_brpc_peer_fetch_pool_threads(),
                            resolved_brpc_peer_fetch_pool_max_queue_size(), "brpc_peer_fetch"),
@@ -249,6 +265,15 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                           ? config::brpc_arrow_flight_work_pool_max_queue_size
                                           : std::max(20480, CpuInfo::num_cores() * 640),
                                   "brpc_arrow_flight") {
+    REGISTER_HOOK_METRIC(load_light_work_pool_queue_size,
+                         [this]() { return _load_light_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(load_light_work_active_threads,
+                         [this]() { return _load_light_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(load_light_work_pool_max_queue_size,
+                         []() { return resolved_brpc_load_light_work_pool_max_queue_size(); });
+    REGISTER_HOOK_METRIC(load_light_work_max_threads,
+                         []() { return config::brpc_load_light_work_pool_threads; });
+
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size,
@@ -295,6 +320,11 @@ PInternalServiceImpl::PInternalServiceImpl(StorageEngine& engine, ExecEnv* exec_
 PInternalServiceImpl::~PInternalServiceImpl() = default;
 
 PInternalService::~PInternalService() {
+    DEREGISTER_HOOK_METRIC(load_light_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(load_light_work_active_threads);
+    DEREGISTER_HOOK_METRIC(load_light_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(load_light_work_max_threads);
+
     DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
@@ -519,10 +549,11 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
+        std::shared_ptr<EosCompletion> eos_completion;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             signal::SignalTaskIdKeeper keeper(request->id());
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response, &eos_completion);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -533,6 +564,17 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         }
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
+        if (eos_completion && response->status().status_code() == TStatusCode::OK) {
+            // Transfer done before publishing the callback: a completed barrier
+            // can invoke it inline. All request/response access above must end
+            // first, including profiling, timers and SignalTaskIdKeeper.
+            auto* deferred_done = closure_guard.release();
+            eos_completion->add_waiter([response, deferred_done](const Status& status) {
+                status.to_protobuf(response->mutable_status());
+                deferred_done->Run();
+                // The RPC objects (including HTTP's request wrapper) are gone.
+            });
+        }
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
@@ -544,7 +586,7 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
                                             const PTabletWriterCancelRequest* request,
                                             PTabletWriterCancelResult* response,
                                             google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, done]() {
+    bool ret = _load_light_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
         signal::SignalTaskIdKeeper keeper(request->id());
@@ -557,7 +599,7 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
         }
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _load_light_work_pool);
         return;
     }
 }

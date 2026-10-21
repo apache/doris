@@ -62,7 +62,7 @@ public:
 
     Status wait_calc_delete_bitmap();
 
-    Status cancel();
+    virtual Status cancel(const Status& st = Status::Cancelled("rowset builder cancelled"));
 
     const std::shared_ptr<RowsetWriter>& rowset_writer() const { return _rowset_writer; }
 

@@ -220,6 +220,7 @@ Status RowsetBuilder::init() {
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
@@ -235,7 +236,8 @@ Status RowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     _is_init = true;
     return Status::OK();
@@ -356,13 +358,17 @@ Status RowsetBuilder::commit_txn() {
     return Status::OK();
 }
 
-Status BaseRowsetBuilder::cancel() {
+Status BaseRowsetBuilder::cancel(const Status& st) {
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
     if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
+        _calc_delete_bitmap_token->cancel(st);
+    }
+    // Flush-time bitmap work belongs to the rowset writer, not the builder token.
+    if (_rowset_writer != nullptr) {
+        _rowset_writer->cancel_calc_delete_bitmap(st);
     }
     _is_cancelled = true;
     return Status::OK();

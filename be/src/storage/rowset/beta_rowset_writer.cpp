@@ -326,7 +326,13 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
-    if (!_already_built && _rowset_meta->is_local()) {
+    // Finish callbacks before removing files they can still read on cancellation.
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
+    if (!_already_built && _rowset_meta && _rowset_meta->is_local()) {
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::~BaseBetaRowsetWriter:before_file_cleanup",
+                                 this);
         // abnormal exit, remove all files generated
         auto& fs = io::global_local_filesystem();
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -339,17 +345,24 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
-    if (_calc_delete_bitmap_token) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
+    // Bitmap callbacks capture this and can call virtual methods using derived state.
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
     /* Note that segcompaction is async and in parallel with load job. So we should handle carefully
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
+}
+
+void BaseBetaRowsetWriter::cancel_calc_delete_bitmap(const Status& st) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel(st);
+    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -432,6 +445,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:before_build_tmp",
+                                 this);
         RowsetSharedPtr rowset_ptr;
         st = _build_tmp(rowset_ptr);
         if (!st.ok()) {
@@ -473,6 +488,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                   << _context.mow_context->delete_bitmap->cardinality()
                   << ", queue_time_us: " << queue_time_us
                   << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        TEST_SYNC_POINT_CALLBACK("BaseBetaRowsetWriter::_generate_delete_bitmap:finished", this);
         return Status::OK();
     });
 }
@@ -483,7 +499,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+                _context.load_cancel_status);
     }
     return Status::OK();
 }
