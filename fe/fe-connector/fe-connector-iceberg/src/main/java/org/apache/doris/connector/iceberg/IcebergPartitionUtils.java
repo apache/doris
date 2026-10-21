@@ -191,12 +191,8 @@ final class IcebergPartitionUtils {
      * mistaken for the top-level column {@code id}: the engine can only materialize a top-level column.
      */
     static String topLevelSourceColumnName(Schema schema, int sourceId) {
-        for (NestedField column : schema.columns()) {
-            if (column.fieldId() == sourceId) {
-                return column.name();
-            }
-        }
-        return null;
+        NestedField column = schema.asStruct().field(sourceId);
+        return column == null ? null : column.name();
     }
 
     /** The spec's <em>identity</em> partition over the top-level column {@code name}, or null. */
