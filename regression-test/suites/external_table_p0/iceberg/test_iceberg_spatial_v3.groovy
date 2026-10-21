@@ -316,6 +316,31 @@ public class CreateIcebergSpatialV3Table {
     // These factories do not implement scalar spatial values. Fail in FE, including
     // analytic DISTINCT, which is rewritten to multi_distinct_count after binding.
     for (String column : ["geom", "geog"]) {
+        // Compare only implemented types; MAP_CONTAINS_KEY must not inspect spatial values.
+        for (String expression : [
+                "map_contains_value(map(id, ${column}), ${column})",
+                "map_contains_value(map(id, ${column}), NULL)",
+                "map_contains_value(map(id, id), ${column})",
+                "map_contains_value(map(id, array(${column})), array(${column}))",
+                "map_contains_key(map(${column}, id), ${column})",
+                "map_contains_key(map(${column}, id), NULL)",
+                "map_contains_key(map(id, ${column}), ${column})",
+                "map_contains_entry(map(id, ${column}), id, ${column})",
+                "map_contains_entry(map(id, ${column}), id, NULL)",
+                "map_contains_entry(map(id, id), id, ${column})",
+                "map_contains_entry(map(id, id), ${column}, id)",
+                "map_contains_entry(map(${column}, id), NULL, id)",
+                "map_contains_entry(map(id, array(${column})), id, array(${column}))"]) {
+            test {
+                sql """select ${expression} from geometry_values"""
+                exception "does not support spatial comparison"
+            }
+        }
+        "order_qt_spatial_map_key_lookup_${column}"("""select id,
+            map_contains_key(map(id, ${column}), id),
+            map_contains_key(map(id, ${column}), id + 1),
+            map_contains_key(map(id, ${column}), CAST(NULL AS INT)),
+            hex(ST_AsBinary(element_at(map(id, ${column}), id))) from geometry_values""")
         // Distinct imported slots must fail in FE, before BE's unsupported scalar dispatch.
         for (String function : ["greatest", "least"]) {
             for (String arguments : ["l.${column}, r.${column}", "NULL, r.${column}",
@@ -453,6 +478,10 @@ public class CreateIcebergSpatialV3Table {
         element_at(count_map(map(1, id)), 1), element_at(sum_map(map(1, id)), 1),
         element_at(avg_map(map(1, id)), 1), element_at(min_map(map(1, id)), 1),
         element_at(max_map(map(1, id)), 1) from geometry_values"""
+    order_qt_ordinary_map_contains """select id,
+        map_contains_key(map(id, id), id), map_contains_value(map(id, id), id),
+        map_contains_entry(map(id, id), id, id), map_contains_value(map(id, id), id + 1),
+        map_contains_entry(map(id, id), id, id + 1) from geometry_values"""
     for (String spatialColumn : ["geom", "geog"]) {
         "qt_spatial_multikey_${spatialColumn}"("""select id from geometry_values
             order by ${spatialColumn} asc nulls last, id""")

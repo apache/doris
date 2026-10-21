@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -61,6 +62,17 @@ public class MapContainsKey extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private MapContainsKey(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // The value type is not compared: ordinary keys with spatial values remain supported.
+        if (getArgument(1).getDataType().toCatalogDataType().typeContainsSpatialType()
+                || (getArgument(0).getDataType() instanceof MapType
+                && ((MapType) getArgument(0).getDataType()).getKeyType()
+                        .toCatalogDataType().typeContainsSpatialType())) {
+            throw new AnalysisException(getName() + " does not support spatial comparison");
+        }
     }
 
     /**
