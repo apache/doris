@@ -141,7 +141,12 @@ void check_aux_map(const uint8_t* bytes, size_t size, size_t offset, uint8_t lg_
     DorisVector<uint8_t> seen(registers / 8, 0);
     for (size_t i = 0; i < items; ++i) {
         const auto pair = read_uint32(bytes + offset + i * sizeof(uint32_t));
-        if (!compact && pair == EMPTY) {
+        if (pair == EMPTY) {
+            // Compact maps contain only real entries. Treating EMPTY as slot 0 would let
+            // an AUX_TOKEN at register 0 pass this check, but mustFindValueFor(0) still fails.
+            if (compact) {
+                throw std::invalid_argument("HLL_4 compact auxiliary map contains an EMPTY entry");
+            }
             continue;
         }
         const auto slot = datasketches::HllUtil<Alloc>::getLow26(pair) & (registers - 1);
@@ -163,7 +168,7 @@ void check_aux_map(const uint8_t* bytes, size_t size, size_t offset, uint8_t lg_
     }
 }
 
-void check_hll_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compact) {
+bool check_hll_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compact) {
     datasketches::HllUtil<Alloc>::checkMemSize(HLL_BYTE_ARR_START, size);
     const auto type = HeaderReader::extractTgtHllType(bytes[MODE_BYTE]);
     const size_t offset =
@@ -176,11 +181,11 @@ void check_hll_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compac
         if (aux_count != 0) {
             throw std::invalid_argument("HLL_6/HLL_8 cannot contain an auxiliary map");
         }
-        return;
+        return false;
     }
     if (aux_count != 0) {
         check_aux_map(bytes, size, offset, lg_k, aux_count, compact);
-        return;
+        return true;
     }
     // HLL_4 uses nibble 0xf to reference its auxiliary map. The library accepts auxCount=0
     // with such a nibble, then dereferences a null map during union/conversion, even on a no-op.
@@ -190,6 +195,7 @@ void check_hll_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compac
             throw std::invalid_argument("HLL_4 contains AUX_TOKEN without an auxiliary map");
         }
     }
+    return false;
 }
 
 } // namespace
@@ -369,10 +375,20 @@ Sketch deserialize(const StringRef& value, std::string_view action) {
         const auto lg_k = datasketches::HllUtil<Alloc>::checkLgK(bytes[LG_K_BYTE]);
         const auto mode = HeaderReader::extractCurMode(bytes[MODE_BYTE]);
         const bool compact = (bytes[FLAGS_BYTE] & COMPACT_FLAG_MASK) != 0;
+        bool has_aux_map = false;
         if (mode == datasketches::SET) {
             check_set_size(bytes, value.size, lg_k, compact);
         } else if (mode == datasketches::HLL) {
-            check_hll_size(bytes, value.size, lg_k, compact);
+            has_aux_map = check_hll_size(bytes, value.size, lg_k, compact);
+        }
+        // AuxHashMap::deserialize reads uint32_t directly. STRING rows have no alignment
+        // guarantee: a 233-byte HLL_6 before this HLL_4 leaves its auxiliary entries unaligned.
+        // Only this library reader needs an aligned copy; the other payloads use memcpy.
+        if (has_aux_map && reinterpret_cast<uintptr_t>(value.data) % alignof(uint32_t) != 0) {
+            DorisVector<uint32_t> aligned(value.size / sizeof(uint32_t) +
+                                          (value.size % sizeof(uint32_t) != 0));
+            std::memcpy(aligned.data(), value.data, value.size);
+            return Sketch::deserialize(aligned.data(), value.size, Alloc());
         }
         return Sketch::deserialize(value.data, value.size, Alloc());
     } catch (const doris::Exception& e) {

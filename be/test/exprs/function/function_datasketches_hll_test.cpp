@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/string_buffer.hpp"
 #include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
 #include "exprs/datasketches_hll_util.h"
 #include "exprs/function/function.h"
@@ -110,6 +111,36 @@ protected:
         // Registers 1 and 3 are AUX_TOKEN, but only register 3 has an auxiliary record.
         put_uint32(bytes, offset, datasketches::HllUtil<>::pair(3, 21));
         return bytes;
+    }
+
+    static std::string empty_compact_aux_entry() {
+        using namespace datasketches::hll_constants;
+        datasketches::Hll4Array<std::allocator<uint8_t>> sketch(8, true, {});
+        sketch.couponUpdate(datasketches::HllUtil<>::pair(0, 20));
+        auto serialized = sketch.serialize(true, 0);
+        std::string bytes(reinterpret_cast<const char*>(serialized.data()), serialized.size());
+        put_uint32(bytes, HLL_BYTE_ARR_START + (1 << 7), EMPTY);
+        return bytes;
+    }
+
+    static void verify_unaligned_conversion(const std::string& prefix, const std::string& bytes,
+                                            PrimitiveType primitive, int target,
+                                            datasketches::target_hll_type type,
+                                            const std::string& name) {
+        auto block = input({prefix, bytes}, target, name, primitive);
+        const auto raw = block.get_by_position(0).column->get_data_at(1);
+        ASSERT_NE(reinterpret_cast<uintptr_t>(raw.data) % alignof(uint32_t), 0);
+        ASSERT_TRUE(execute(block).ok());
+        if (target >= 8 && type == datasketches::HLL_4) {
+            EXPECT_EQ(result(block, 1), bytes);
+            return;
+        }
+        const auto reference = datasketches::hll_sketch::deserialize(bytes.data(), bytes.size());
+        datasketches::hll_union expected_union(std::min(target, 8));
+        expected_union.update(reference);
+        const auto expected = expected_union.get_result(type).serialize_compact();
+        EXPECT_EQ(result(block, 1),
+                  std::string(reinterpret_cast<const char*>(expected.data()), expected.size()));
     }
 
     static void verify_conversion_allocation_failure(const std::string& bytes,
@@ -513,6 +544,130 @@ TEST_F(FunctionDataSketchesHllDownsampleTest, RejectMissingAuxiliarySlotsWithout
         thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
         EXPECT_EQ(tracker->consumption(), baseline);
     }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, UnalignedAuxiliaryMapsKeepSketchContents) {
+    for (int lg_k : {4, 8, 12}) {
+        for (bool compact : {false, true}) {
+            const auto bytes = aux_sketch_bytes(lg_k, compact);
+            const auto reference =
+                    datasketches::hll_sketch::deserialize(bytes.data(), bytes.size());
+            const auto expected = reference.serialize_updatable();
+            for (size_t offset = 0; offset < alignof(uint32_t); ++offset) {
+                SCOPED_TRACE(testing::Message() << lg_k << '/' << compact << '/' << offset);
+                DorisVector<uint32_t> storage((bytes.size() + offset + 3) / sizeof(uint32_t));
+                auto* start = reinterpret_cast<char*>(storage.data()) + offset;
+                std::memcpy(start, bytes.data(), bytes.size());
+                const auto sketch =
+                        datasketches_hll::deserialize(StringRef(start, bytes.size()), "test");
+                const auto actual = sketch.serialize_updatable();
+                EXPECT_EQ(std::string(reinterpret_cast<const char*>(actual.data()), actual.size()),
+                          std::string(reinterpret_cast<const char*>(expected.data()),
+                                      expected.size()));
+                EXPECT_DOUBLE_EQ(sketch.get_composite_estimate(),
+                                 reference.get_composite_estimate());
+            }
+        }
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, MixedRowsKeepUnalignedConversionResults) {
+    const auto prefix = sketch_bytes(8, datasketches::HLL_6, 1000, true, true);
+    ASSERT_EQ(prefix.size(), 233);
+    for (bool compact : {false, true}) {
+        const auto bytes = aux_sketch_bytes(8, compact);
+        for (auto primitive : {TYPE_STRING, TYPE_VARCHAR, TYPE_VARBINARY}) {
+            for (int target : {4, 8, 21}) {
+                for (const auto& [type, name] : {std::pair {datasketches::HLL_4, "HLL_4"},
+                                                 std::pair {datasketches::HLL_6, "HLL_6"},
+                                                 std::pair {datasketches::HLL_8, "HLL_8"}}) {
+                    verify_unaligned_conversion(prefix, bytes, primitive, target, type, name);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, UnalignedAggregateStateKeepsEstimate) {
+    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
+    for (bool compact : {false, true}) {
+        const auto bytes = aux_sketch_bytes(8, compact);
+        const auto source = datasketches_hll::deserialize(StringRef(bytes), "test");
+        Data expected;
+        expected.merge(source);
+        auto buffer = ColumnString::create();
+        BufferWritable writer(*buffer);
+        writer.write_binary(StringRef(bytes));
+        writer.commit();
+        BufferReadable inspect(buffer->get_data_at(0));
+        StringRef payload;
+        inspect.read_binary(payload);
+        ASSERT_NE(reinterpret_cast<uintptr_t>(payload.data) % alignof(uint32_t), 0);
+        BufferReadable reader(buffer->get_data_at(0));
+        Data actual;
+        actual.read(reader);
+        EXPECT_DOUBLE_EQ(actual.get_result(), expected.get_result());
+        const auto actual_bytes = actual.hll_union_data->get_result().serialize_compact();
+        const auto expected_bytes = expected.hll_union_data->get_result().serialize_compact();
+        EXPECT_EQ(std::string(reinterpret_cast<const char*>(actual_bytes.data()),
+                              actual_bytes.size()),
+                  std::string(reinterpret_cast<const char*>(expected_bytes.data()),
+                              expected_bytes.size()));
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, UnalignedDeserializationFailuresAreBalanced) {
+    const auto bytes = aux_sketch_bytes(8, true);
+    DorisVector<uint32_t> storage((bytes.size() + 4) / sizeof(uint32_t));
+    auto* start = reinterpret_cast<char*>(storage.data()) + 1;
+    std::memcpy(start, bytes.data(), bytes.size());
+    const StringRef input(start, bytes.size());
+    size_t allocations = 0;
+    {
+        ScopedSketchAllocationFailure count_only(0);
+        const auto sketch = datasketches_hll::deserialize(input, "test");
+        allocations = count_only.calls;
+    }
+    ASSERT_GT(allocations, 1);
+    for (size_t fail_at = 1; fail_at <= allocations; ++fail_at) {
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "HllUnalignedAllocationFailure");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        ScopedSketchAllocationFailure failure(fail_at);
+        try {
+            static_cast<void>(datasketches_hll::deserialize(input, "test"));
+            ADD_FAILURE() << "Expected allocation failure";
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+        }
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(tracker->consumption(), baseline);
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, RejectCompactEmptyAuxiliaryEntry) {
+    const auto bytes = empty_compact_aux_entry();
+    for (const auto& type : {"HLL_4", "HLL_6", "HLL_8"}) {
+        expect_corruption(bytes, "compact auxiliary map contains an EMPTY entry", type);
+    }
+    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
+    auto buffer = ColumnString::create();
+    BufferWritable writer(*buffer);
+    writer.write_binary(StringRef(bytes));
+    writer.commit();
+    BufferReadable reader(buffer->get_data_at(0));
+    Data data;
+    try {
+        data.read(reader);
+        ADD_FAILURE() << "Expected compact EMPTY auxiliary entry to fail";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+        EXPECT_NE(e.to_string().find("compact auxiliary map contains an EMPTY entry"),
+                  std::string::npos);
+    }
+    EXPECT_FALSE(data.hll_union_data.has_value());
 }
 
 TEST_F(FunctionDataSketchesHllDownsampleTest, EveryDeserializationAllocationFailureIsBalanced) {
