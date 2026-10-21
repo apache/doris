@@ -78,13 +78,16 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
 
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
+    auto create_file = [&]() {
+        return _fs->create_file(file_description.path, &_file_writer, &file_writer_options);
+    };
 
     // Create file format transformer based on format type
     switch (_file_format) {
     case TFileFormatType::FORMAT_PARQUET: {
         TParquetCompressionType::type parquet_compression_type =
                 DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
+        RETURN_IF_ERROR(create_file());
 
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, false};
@@ -94,6 +97,7 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(create_file());
         _file_format_transformer.reset(new VOrcTransformer(state, _file_writer.get(), output_exprs,
                                                            "", column_names, false, _compress_type,
                                                            _position_delete_schema.get()));
