@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -151,13 +153,24 @@ public class BindScoreToOlapScan implements CustomRewriter {
     // alias is not.
     private static boolean startsSelect(Plan parent, int childIndex) {
         if (parent instanceof LogicalSubQueryAlias) {
-            return !(parent.child(0) instanceof LogicalRelation);
+            return !isTable(parent.child(0));
         }
         return parent instanceof LogicalView || parent instanceof LogicalCTEProducer
                 || parent instanceof LogicalSetOperation || parent instanceof LogicalRecursiveUnionAnchor
                 || parent instanceof LogicalRecursiveUnionProducer
                 || parent instanceof LogicalCTEAnchor && childIndex == 0
                 || parent instanceof LogicalApply && childIndex == 1;
+    }
+
+    // A relation, also under the delete sign filter that analysis adds to a UNIQUE table.
+    private static boolean isTable(Plan plan) {
+        if (plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan) {
+            Set<Expression> conjuncts = ((LogicalFilter<?>) plan).getConjuncts();
+            Expression conjunct = conjuncts.iterator().next();
+            return conjuncts.size() == 1 && conjunct instanceof EqualTo && conjunct.child(0) instanceof Slot
+                    && ((Slot) conjunct.child(0)).getName().equals(Column.DELETE_SIGN);
+        }
+        return plan instanceof LogicalRelation;
     }
 
     private static boolean selectCallsScore(Plan plan) {
@@ -203,14 +216,14 @@ public class BindScoreToOlapScan implements CustomRewriter {
     }
 
     private static void check(List<Plan> path, boolean outermost) {
-        // The WHERE clause is the filters right above the scan and its table alias.
+        // The WHERE clause is the filters right above the scan, around its table alias.
         int clause = path.size() - 2;
-        if (path.get(clause) instanceof LogicalSubQueryAlias) {
-            clause--;
-        }
         List<Expression> where = new ArrayList<>();
-        for (; clause >= 0 && path.get(clause) instanceof LogicalFilter; clause--) {
-            where.addAll(((LogicalFilter<?>) path.get(clause)).getConjuncts());
+        for (; clause >= 0 && (path.get(clause) instanceof LogicalFilter
+                || path.get(clause) instanceof LogicalSubQueryAlias); clause--) {
+            if (path.get(clause) instanceof LogicalFilter) {
+                where.addAll(((LogicalFilter<?>) path.get(clause)).getConjuncts());
+            }
         }
         if (where.stream().noneMatch(conjunct -> conjunct.containsType(Match.class, Search.class))) {
             throw new AnalysisException(UNSUPPORTED_SELECT_ERROR);

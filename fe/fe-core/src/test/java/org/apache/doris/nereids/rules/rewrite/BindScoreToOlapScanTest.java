@@ -21,9 +21,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -69,6 +71,10 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 + "PROPERTIES ('replication_num' = '1', 'inverted_index_storage_format' = 'V3')");
         createView("CREATE VIEW score_usage_top AS SELECT id, score() AS s FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 2");
+        createTable("CREATE TABLE score_usage_mow (id INT, c1 TEXT, "
+                + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
+                + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')");
         originalEnableFeatureBinlog = Config.enable_feature_binlog;
         originalEnableTableStream = Config.enable_table_stream;
         Config.enable_feature_binlog = true;
@@ -219,14 +225,27 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 2, TExprOpcode.GT);
     }
 
-    @Test
-    void testTableAlias() {
-        assertScoreRange("SELECT a.id, score() AS s FROM score_usage_V2 a"
+    // Analysis puts the delete sign filter of a UNIQUE table between the table alias and the scan.
+    @ParameterizedTest
+    @ValueSource(strings = {"score_usage_V2", "score_usage_mow"})
+    void testTableAlias(String table) {
+        assertScoreRange("SELECT a.id, score() AS s FROM " + table + " a"
                 + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001", 2, TExprOpcode.GT);
         // ORDER BY score() reads the score although the select list does not.
-        LogicalOlapScan scan = rewrittenScan("SELECT a.id FROM score_usage_V2 a WHERE a.c1 MATCH 'apple'"
+        LogicalOlapScan scan = rewrittenScan("SELECT a.id FROM " + table + " a WHERE a.c1 MATCH 'apple'"
                 + " ORDER BY score() DESC LIMIT 10");
         Assertions.assertEquals(10L, scan.getScoreLimit().get().longValue());
+    }
+
+    @Test
+    void testMaterializedViewsDoNotReplaceTheScoredScan() {
+        // The scan applies the minimum score itself, which a view with the same MATCH does not.
+        for (String query : new String[] {"SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.6",
+                "SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple'"}) {
+            Plan plan = PlanChecker.from(connectContext).analyze(query).rewrite().getCascadesContext().getRewritePlan();
+            Assertions.assertEquals(query.contains("score()"),
+                    plan.accept(MaterializedViewUtils.TableQueryOperatorChecker.INSTANCE, null), query);
+        }
     }
 
     @ParameterizedTest

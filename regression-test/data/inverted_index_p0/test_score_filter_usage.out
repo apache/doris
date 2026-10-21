@@ -19,6 +19,16 @@
 1	0.4700036
 2	0.4700036
 
+-- !mow_alias_score_range --
+1	0.43445712
+2	0.43445712
+
+-- !mow_alias_score_topn --
+1	0.43445712
+2	0.43445712
+
+-- !mv_minimum_score --
+
 -- !score_without_range --
 1	0.4700036
 2	0.4700036

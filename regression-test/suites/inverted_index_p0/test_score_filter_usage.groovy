@@ -64,6 +64,32 @@ suite("test_score_filter_usage", "p0") {
         SELECT t.id, score() AS s FROM test_score_filter_usage t
         WHERE t.c1 MATCH 'apple' AND score() > 0.00001
     """
+    // A table alias of a UNIQUE table sits above the delete sign filter that analysis adds.
+    sql "DROP TABLE IF EXISTS test_score_filter_usage_mow"
+    sql """
+        CREATE TABLE test_score_filter_usage_mow (
+            id INT,
+            c1 TEXT,
+            INDEX idx_c1 (c1) USING INVERTED PROPERTIES ("parser" = "english")
+        ) UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
+    """
+    sql "INSERT INTO test_score_filter_usage_mow VALUES (1, 'apple red'), (2, 'apple green'), (3, 'banana')"
+    order_qt_mow_alias_score_range """
+        SELECT a.id, score() AS s FROM test_score_filter_usage_mow a
+        WHERE a.c1 MATCH 'apple' AND score() > 0.00001
+    """
+    order_qt_mow_alias_score_topn """
+        SELECT a.id, score() AS s FROM test_score_filter_usage_mow a
+        WHERE a.c1 MATCH 'apple' ORDER BY s DESC LIMIT 10
+    """
+    // The scan applies the minimum score itself, which a materialized view of the same MATCH does not.
+    async_mv_rewrite_fail(context.dbName, "SELECT id, c1 FROM test_score_filter_usage WHERE c1 MATCH 'apple'",
+            "SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.6",
+            "test_score_filter_usage_mv")
+    order_qt_mv_minimum_score """
+        SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.6
+    """
     explain {
         sql "SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() >= 0.5"
         contains "SCORE SORT LIMIT: 0"
