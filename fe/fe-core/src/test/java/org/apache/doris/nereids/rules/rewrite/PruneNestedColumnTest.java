@@ -149,6 +149,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  a array<struct<v: int>>\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table array_map_map_producer_tbl(\n"
+                + "  id int,\n"
+                + "  m map<string, struct<v: int>>\n"
+                + ") properties ('replication_num'='1')");
+
         createTable("create table map_array_value_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<\n"
@@ -323,6 +328,25 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         + "from array_map_meta_tbl",
                 "array<struct<v:int>>",
                 ImmutableList.of(path("a", "*", "v")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testArrayMapOnMapProducerUsesMapContainerMetadata() throws Exception {
+        // map_values / map_keys produce an array whose container is the map itself: its length is
+        // the map's entry count. The OFFSET requirement must be collected on the map column, as
+        // cardinality(map_values(m)) does, instead of the VALUES / KEYS sub-column, which has no
+        // offsets of its own when the value is a struct (`m.VALUES.OFFSET` fails in the BE).
+        assertColumn("select cardinality(array_map(x -> x.v + 1, map_values(m))) "
+                        + "from array_map_map_producer_tbl",
+                "map<text,struct<v:int>>",
+                ImmutableList.of(path("m", "VALUES", "v"), metaPath("m", "OFFSET")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(array_map(x -> 1, map_keys(m))) "
+                        + "from array_map_map_producer_tbl",
+                "map<text,struct<v:int>>",
+                ImmutableList.of(path("m", "KEYS"), metaPath("m", "OFFSET")),
                 ImmutableList.of());
     }
 

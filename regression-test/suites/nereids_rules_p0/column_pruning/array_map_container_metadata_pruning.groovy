@@ -120,6 +120,57 @@ suite("array_map_container_metadata_pruning") {
         notContains "a.*.NULL"
     }
 
+    // map_values / map_keys produce an array whose container is the map itself: its length is the
+    // map's entry count. Cardinality over ARRAY_MAP of such an input must collect the map column's
+    // OFFSET, not `m.VALUES.OFFSET` / `m.KEYS.OFFSET`: the KEYS / VALUES sub-column has no offsets
+    // of its own when the value is a struct, and the BE rejects that metadata path.
+    sql """ DROP TABLE IF EXISTS array_map_map_producer_pruning_tbl """
+    sql """
+        CREATE TABLE array_map_map_producer_pruning_tbl (
+            id INT,
+            m  MAP<STRING, STRUCT<v: INT>>
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO array_map_map_producer_pruning_tbl VALUES
+            (1, map('a', named_struct('v', 1), 'b', named_struct('v', 3))),
+            (2, map('c', named_struct('v', 10)))
+    """
+
+    order_qt_map_values_array_map """
+        SELECT id,
+               map_values(m) AS vals,
+               array_map(x -> x.v + 1, map_values(m)) AS mapped,
+               cardinality(array_map(x -> x.v + 1, map_values(m))) AS len
+        FROM array_map_map_producer_pruning_tbl ORDER BY id
+    """
+
+    order_qt_map_keys_array_map """
+        SELECT id, cardinality(array_map(x -> 1, map_keys(m))) AS len
+        FROM array_map_map_producer_pruning_tbl ORDER BY id
+    """
+
+    explain {
+        sql """
+            SELECT cardinality(array_map(x -> x.v + 1, map_values(m)))
+            FROM array_map_map_producer_pruning_tbl
+        """
+        contains "m.OFFSET"
+        notContains "m.VALUES.OFFSET"
+    }
+
+    explain {
+        sql """
+            SELECT cardinality(array_map(x -> 1, map_keys(m)))
+            FROM array_map_map_producer_pruning_tbl
+        """
+        contains "m.OFFSET"
+        notContains "m.KEYS.OFFSET"
+    }
+
     explain {
         sql """
             SELECT cardinality(array_map(x -> x, a))

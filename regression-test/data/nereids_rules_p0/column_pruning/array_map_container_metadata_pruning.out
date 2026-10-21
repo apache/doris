@@ -47,3 +47,11 @@
 3	true
 4	false
 
+-- !map_values_array_map --
+1	[{"v":1}, {"v":3}]	[2, 4]	2
+2	[{"v":10}]	[11]	1
+
+-- !map_keys_array_map --
+1	2
+2	1
+

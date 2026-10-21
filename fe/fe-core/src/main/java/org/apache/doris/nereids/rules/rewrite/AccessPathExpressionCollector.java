@@ -292,12 +292,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             offsetContext.setType(ColumnAccessPathType.META);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
-            Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
-                    ? arg.child(0) : arg;
+            Expression effectiveArg = normalizeMapArrayProducer(arg);
             return effectiveArg.accept(this, offsetContext);
         }
         // fall through to default
         return visit(cardinality, context);
+    }
+
+    /**
+     * map_keys / map_values produce an array whose container shape (length and nullness) is the
+     * map's own: their metadata requirement belongs to the map column, not to the KEYS / VALUES
+     * sub-column, which has no offsets of its own (the BE rejects e.g. `m.VALUES.OFFSET` when the
+     * value is a struct). Returns the map expression for such an array producer, the expression
+     * itself otherwise.
+     */
+    private static Expression normalizeMapArrayProducer(Expression expression) {
+        return (expression instanceof MapKeys || expression instanceof MapValues)
+                ? expression.child(0) : expression;
     }
 
     @Override
@@ -593,8 +604,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             // metadata is only supported at array/map/string level). Route the container metadata
             // to the input arrays, and collect the element paths the lambda actually reads with a
             // fresh data context so that the elements stay available to the lambda body.
+            // A map_keys / map_values input is normalized to its map column: the produced array's
+            // container is the map itself, so the metadata must not be attached to the KEYS /
+            // VALUES sub-column (which has no offsets of its own, e.g. for a struct value).
             for (ArrayItemReference lambdaArgument : lambda.getLambdaArguments()) {
-                continueCollectAccessPath(lambdaArgument.getArrayExpression(), copyContext(context));
+                continueCollectAccessPath(
+                        normalizeMapArrayProducer(lambdaArgument.getArrayExpression()),
+                        copyContext(context));
             }
             return collectArrayPathInLambda(lambda,
                     new CollectorContext(context.statementContext, context.bottomFilter));
