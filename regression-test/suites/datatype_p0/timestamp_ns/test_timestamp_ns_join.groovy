@@ -383,4 +383,52 @@ suite("test_timestamp_ns_join") {
         match_condition(l.ts >= r.dt) on l.k = r.k
         order by l.id, r.id
     """
+
+    sql "drop table if exists timestamp_ns_asof_derived_probe"
+    sql """
+        create table timestamp_ns_asof_derived_probe (
+            id int, k int, ts timestamp_ns
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "drop table if exists timestamp_ns_asof_derived_build"
+    sql """
+        create table timestamp_ns_asof_derived_build (
+            id int, k int, dt datetimev2(6) not null
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_asof_derived_probe values
+        (1, 1, '2024-01-01'), (2, 1, '1801-01-01'), (3, 2, '2024-01-01'), (4, 1, null)
+    """
+    sql """
+        insert into timestamp_ns_asof_derived_build values
+        (11, 1, '2200-01-01'), (12, 1, '2201-01-01'), (13, 1, '2202-01-01')
+    """
+    // Real derived keys (1800..1802) fit TIMESTAMP_NS. The NOT NULL mock dt (1970)
+    // would produce 1570 and overflow if the match expression were evaluated on it.
+    for (def joinType : ["inner", "left"]) {
+        for (def comparison : [["ge", ">="], ["gt", ">"], ["le", "<="], ["lt", "<"]]) {
+            def name = comparison[0]
+            def op = comparison[1]
+            "order_qt_asof_not_null_derived_${joinType}_${name}" """
+                select l.id, r.id, r.dt
+                from timestamp_ns_asof_derived_probe l
+                asof ${joinType} join timestamp_ns_asof_derived_build r
+                match_condition(l.ts ${op} years_sub(r.dt, 400)) on l.k = r.k
+                order by l.id, r.id
+            """
+        }
+        "order_qt_asof_not_null_derived_empty_${joinType}" """
+            select l.id, r.id
+            from timestamp_ns_asof_derived_probe l
+            asof ${joinType} join
+                (select * from timestamp_ns_asof_derived_build where id < 0) r
+            match_condition(l.ts >= years_sub(r.dt, 400)) on l.k = r.k
+            order by l.id, r.id
+        """
+    }
 }

@@ -342,6 +342,8 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
         return Status::OK();
     }
 
+    // The index owns the extracted keys; the temporary materialized column is no longer needed.
+    Defer release_asof_key([&]() { block.erase(_asof_build_col_id); });
     SCOPED_TIMER(_asof_index_total_timer);
 
     DORIS_CHECK(block.rows() != 0);
@@ -379,15 +381,8 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     _shared_state->asof_inequality_is_strict =
             (p._asof_opcode == TExprOpcode::GT || p._asof_opcode == TExprOpcode::LT);
 
-    // Compute build ASOF column by executing build-side expression directly on build block.
-    // Expression is prepared against build child's row_desc, matching the build block layout.
-    DORIS_CHECK(p._asof_build_side_expr);
-    ColumnPtr asof_build_col;
-    {
-        SCOPED_TIMER(_asof_index_expr_timer);
-        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, asof_build_col));
-    }
-    asof_build_col = asof_build_col->convert_to_full_column_if_const();
+    // The ASOF key was materialized on real input rows before merging with the mock row.
+    auto asof_build_col = block.get_by_position(_asof_build_col_id).column;
 
     // Handle nullable: extract nested column for value access, keep nullable for null checks
     const ColumnNullable* nullable_col = nullptr;
@@ -506,7 +501,7 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
 
 Status HashJoinBuildSinkLocalState::_do_evaluate(Block& block, VExprContextSPtrs& exprs,
                                                  RuntimeProfile::Counter& expr_call_timer,
-                                                 std::vector<int>& res_col_ids) {
+                                                 std::vector<int>& res_col_ids, bool is_mock) {
     auto origin_size = block.allocated_bytes();
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
@@ -522,6 +517,30 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(Block& block, VExprContextSPtrs
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;
+    }
+
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (is_asof_join(p._join_op)) {
+        SCOPED_TIMER(_asof_index_total_timer);
+        SCOPED_TIMER(_asof_index_expr_timer);
+        DORIS_CHECK(p._asof_build_side_expr);
+        ColumnWithTypeAndName asof_key {nullptr, p._asof_build_side_expr->execute_type(&block),
+                                        p._asof_build_side_expr->expr_name()};
+        // The mock row only reserves hash-table index 0. Evaluating years_sub(dt, 400)
+        // on its default 1970 value would make a strict TIMESTAMP_NS cast overflow,
+        // even when every real input (e.g. dt = 2200, key = 1800) is in range.
+        if (is_mock) {
+            _asof_build_col_id = block.columns();
+            auto column = asof_key.type->create_column();
+            column->insert_default();
+            asof_key.column = std::move(column);
+        } else {
+            DCHECK_EQ(_asof_build_col_id, block.columns());
+            RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, asof_key.column));
+        }
+        // Match MutableBlock's row-aligned storage, including constant/nullable keys.
+        asof_key.column = asof_key.column->convert_to_full_column_if_const();
+        block.insert(std::move(asof_key));
     }
 
     _evaluate_mem_usage = block.allocated_bytes() - origin_size;
@@ -833,7 +852,7 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,
-                                                     local_state._build_col_ids));
+                                                     local_state._build_col_ids, true));
             local_state._build_side_mutable_block =
                     MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }

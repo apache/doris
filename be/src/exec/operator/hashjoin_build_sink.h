@@ -56,7 +56,8 @@ protected:
     Status _hash_table_init(RuntimeState* state, const ColumnRawPtrs& raw_ptrs);
     void _set_build_side_has_external_nullmap(Block& block, const std::vector<int>& res_col_ids);
     Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
+                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids,
+                        bool is_mock = false);
     std::vector<uint16_t> _convert_block_to_null(Block& block);
     Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,
                                 ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids);
@@ -86,6 +87,7 @@ protected:
      */
     bool _build_side_has_external_nullmap = false;
     std::vector<int> _build_col_ids;
+    int _asof_build_col_id = -1;
     std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
