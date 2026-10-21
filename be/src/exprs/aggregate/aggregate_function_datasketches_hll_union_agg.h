@@ -69,18 +69,23 @@ struct AggregateFunctionHllSketchData {
         if (sketch_data.is_empty()) {
             return;
         }
-        if (!hll_union_data.has_value()) {
-            hll_union_data.emplace(lg_max_k, Alloc());
-        }
         try {
+            if (!hll_union_data.has_value()) {
+                hll_union_data.emplace(lg_max_k, Alloc());
+            }
             hll_union_data->update(sketch_data);
         } catch (const doris::Exception& e) {
+            // A failed library update cannot be reused; the wrapper reclaims its allocations
+            // without dereferencing the possibly dangling library gadget.
+            hll_union_data.reset();
             throw Exception(e.code(), "Internal error happened when update HLL sketch: {}",
                             e.to_string());
         } catch (const std::exception& e) {
+            hll_union_data.reset();
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Internal error happened when update HLL sketch: {}", e.what());
         } catch (...) {
+            hll_union_data.reset();
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Internal error happened when update HLL sketch: unknown exception.");
         }
@@ -97,12 +102,15 @@ struct AggregateFunctionHllSketchData {
                 hll_union_data.emplace(lg_max_k, Alloc());
                 hll_union_data->update(current);
             } catch (const doris::Exception& e) {
+                hll_union_data.reset();
                 throw Exception(e.code(), "Internal error happened when update HLL sketch: {}",
                                 e.to_string());
             } catch (const std::exception& e) {
+                hll_union_data.reset();
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Internal error happened when update HLL sketch: {}", e.what());
             } catch (...) {
+                hll_union_data.reset();
                 throw Exception(
                         ErrorCode::INTERNAL_ERROR,
                         "Internal error happened when update HLL sketch: unknown exception.");

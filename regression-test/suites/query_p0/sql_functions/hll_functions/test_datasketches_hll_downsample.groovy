@@ -149,6 +149,17 @@ suite("test_datasketches_hll_downsample") {
             exception bad[1]
         }
     }
+    test {
+        // Keep only auxiliary slot 3, but leave the AUX_TOKEN at register 1 unchanged.
+        sql """SELECT datasketches_hll_downsample(unhex(
+            '0a01070402280002565d6e7f888800400000003000002c4000000000000000000e00000001000000f0f000000000000003000054'),21)"""
+        exception 'no matching auxiliary slot'
+    }
+    test {
+        sql """SELECT datasketches_hll_union_agg(unhex(
+            '0a01070402280002565d6e7f888800400000003000002c4000000000000000000e00000001000000f0f000000000000003000054'))"""
+        exception 'no matching auxiliary slot'
+    }
     for (String bad : ["''", "from_base64('AA==')", "'not a sketch'"]) {
         test {
             sql "SELECT datasketches_hll_downsample(${bad},21)"

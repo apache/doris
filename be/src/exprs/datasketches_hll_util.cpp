@@ -17,18 +17,65 @@
 
 #include "exprs/datasketches_hll_util.h"
 
+#include <bthread/bthread.h>
+
 #include <cstring>
 #include <exception>
+#include <mutex>
+#include <new>
 #include <stdexcept>
 
+#include "common/check.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "util/debug_points.h"
 
 namespace doris::datasketches_hll {
+
+struct alignas(std::max_align_t) AllocationHeader {
+    AllocationHeader* previous;
+    AllocationHeader* next;
+    detail::AllocationOwner* owner;
+    size_t count;
+};
 
 namespace {
 
 using namespace datasketches::hll_constants;
+
+thread_local detail::AllocationOwner* pthread_scope = nullptr;
+
+bthread_key_t scope_key() {
+    static bthread_key_t key;
+    static std::once_flag once;
+    std::call_once(once, [] { DORIS_CHECK(bthread_key_create(&key, nullptr) == 0); });
+    return key;
+}
+
+detail::AllocationOwner* current_scope() {
+    return bthread_self() == 0
+                   ? pthread_scope
+                   : static_cast<detail::AllocationOwner*>(bthread_getspecific(scope_key()));
+}
+
+void set_scope(detail::AllocationOwner* scope) {
+    if (bthread_self() == 0) {
+        pthread_scope = scope;
+    } else {
+        DORIS_CHECK(bthread_setspecific(scope_key(), scope) == 0);
+    }
+}
+
+class ActiveAllocationOwner {
+public:
+    explicit ActiveAllocationOwner(detail::AllocationOwner* owner) : _previous(current_scope()) {
+        set_scope(owner);
+    }
+    ~ActiveAllocationOwner() { set_scope(_previous); }
+
+private:
+    detail::AllocationOwner* _previous;
+};
 
 // Reuse the library's protected static header readers without constructing a sketch or
 // duplicating the mode/type bit decoding. This abstract adapter is never instantiated.
@@ -104,6 +151,16 @@ void check_aux_map(const uint8_t* bytes, size_t size, size_t offset, uint8_t lg_
         }
         seen[slot / 8] |= bit;
     }
+    // A nonempty map is insufficient: every AUX_TOKEN must refer to a slot in that map.
+    // For example, token at register 0 with only slot 3 in the map makes mergeHll() throw
+    // after allocating its target array. Reject that image even on the unchanged-byte path.
+    for (uint32_t slot = 0; slot < registers; ++slot) {
+        const auto byte = bytes[HLL_BYTE_ARR_START + slot / 2];
+        const auto value = static_cast<uint8_t>((byte >> ((slot % 2) * 4)) & loNibbleMask);
+        if (value == AUX_TOKEN && !(seen[slot / 8] & (1U << (slot % 8)))) {
+            throw std::invalid_argument("HLL_4 AUX_TOKEN has no matching auxiliary slot");
+        }
+    }
 }
 
 void check_hll_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compact) {
@@ -137,7 +194,168 @@ void check_hll_size(const uint8_t* bytes, size_t size, uint8_t lg_k, bool compac
 
 } // namespace
 
+AllocationScope::AllocationScope()
+        : _previous(current_scope()), _exceptions(std::uncaught_exceptions()) {
+    set_scope(&_owner);
+}
+
+AllocationScope::~AllocationScope() {
+    set_scope(_previous);
+    if (std::uncaught_exceptions() == _exceptions) {
+        _owner.release();
+    }
+}
+
+detail::AllocationOwner::~AllocationOwner() {
+    clear();
+}
+
+void detail::AllocationOwner::clear() noexcept {
+    while (_head != nullptr) {
+        auto* header = _head;
+        _head = header->next;
+        CustomStdAllocator<AllocationHeader>().deallocate(header, header->count);
+    }
+}
+
+void detail::AllocationOwner::release() noexcept {
+    while (_head != nullptr) {
+        auto* header = _head;
+        _head = header->next;
+        // Returned sketches keep normal library ownership after a successful call.
+        header->owner = nullptr;
+    }
+}
+
+void* allocate(size_t bytes) {
+    DBUG_EXECUTE_IF("datasketches_hll.before_allocate", { DBUG_RUN_CALLBACK(); });
+    auto* scope = current_scope();
+    const size_t count =
+            1 + bytes / sizeof(AllocationHeader) + (bytes % sizeof(AllocationHeader) != 0);
+    auto* header = CustomStdAllocator<AllocationHeader>().allocate(count);
+    *header = {.previous = nullptr,
+               .next = scope == nullptr ? nullptr : scope->_head,
+               .owner = scope,
+               .count = count};
+    if (scope != nullptr) {
+        if (header->next != nullptr) {
+            header->next->previous = header;
+        }
+        scope->_head = header;
+    }
+    return header + 1;
+}
+
+void deallocate(void* ptr) noexcept {
+    auto* header = static_cast<AllocationHeader*>(ptr) - 1;
+    if (header->owner != nullptr) {
+        if (header->previous != nullptr) {
+            header->previous->next = header->next;
+        } else {
+            header->owner->_head = header->next;
+        }
+        if (header->next != nullptr) {
+            header->next->previous = header->previous;
+        }
+    }
+    CustomStdAllocator<AllocationHeader>().deallocate(header, header->count);
+}
+
+struct Union::Impl {
+    using LibraryUnion = datasketches::hll_union_alloc<Alloc>;
+
+    detail::AllocationOwner allocations;
+    alignas(LibraryUnion) std::byte storage[sizeof(LibraryUnion)];
+    bool valid = false;
+
+    LibraryUnion* get() { return std::launder(reinterpret_cast<LibraryUnion*>(storage)); }
+    const LibraryUnion* get() const {
+        return std::launder(reinterpret_cast<const LibraryUnion*>(storage));
+    }
+
+    ~Impl() {
+        if (valid) {
+            get()->~LibraryUnion();
+        }
+        // Failed library updates can leave a dangling gadget pointer. AllocationOwner frees
+        // the remaining blocks directly, instead of dereferencing that invalid gadget.
+    }
+};
+
+void Union::Deleter::operator()(Impl* ptr) const noexcept {
+    ptr->~Impl();
+    datasketches_hll::deallocate(ptr);
+}
+
+Union::Union(uint8_t lg_k, const Alloc& allocator)
+        : _impl(new(datasketches_hll::allocate(sizeof(Impl))) Impl()) {
+    ActiveAllocationOwner scope(&_impl->allocations);
+    new (_impl->storage) Impl::LibraryUnion(lg_k, allocator);
+    _impl->valid = true;
+}
+
+Union::~Union() = default;
+Union::Union(Union&&) noexcept = default;
+Union& Union::operator=(Union&&) noexcept = default;
+
+Union::Union(const Union& other) : _impl(new(datasketches_hll::allocate(sizeof(Impl))) Impl()) {
+    DORIS_CHECK(other._impl->valid);
+    ActiveAllocationOwner scope(&_impl->allocations);
+    new (_impl->storage) Impl::LibraryUnion(*other._impl->get());
+    _impl->valid = true;
+}
+
+Union& Union::operator=(const Union& other) {
+    Union copy(other);
+    *this = std::move(copy);
+    return *this;
+}
+
+void Union::update(const Sketch& sketch) {
+    DORIS_CHECK(_impl->valid);
+    ActiveAllocationOwner scope(&_impl->allocations);
+    try {
+        _impl->get()->update(sketch);
+    } catch (...) {
+        // The library can free its gadget during promotion and then throw before replacing
+        // the pointer. This state must be discarded; its allocation owner remains intact.
+        _impl->valid = false;
+        throw;
+    }
+}
+
+Sketch Union::get_result(datasketches::target_hll_type type) const {
+    DORIS_CHECK(_impl->valid);
+    AllocationScope scope;
+    return _impl->get()->get_result(type);
+}
+
+double Union::get_estimate() const {
+    DORIS_CHECK(_impl->valid);
+    return _impl->get()->get_estimate();
+}
+
+double Union::get_lower_bound(uint8_t std_devs) const {
+    DORIS_CHECK(_impl->valid);
+    return _impl->get()->get_lower_bound(std_devs);
+}
+
+double Union::get_upper_bound(uint8_t std_devs) const {
+    DORIS_CHECK(_impl->valid);
+    return _impl->get()->get_upper_bound(std_devs);
+}
+
+uint8_t Union::get_lg_config_k() const {
+    DORIS_CHECK(_impl->valid);
+    return _impl->get()->get_lg_config_k();
+}
+
+double Union::get_rel_err(bool upper, bool unioned, uint8_t lg_k, uint8_t std_devs) {
+    return Impl::LibraryUnion::get_rel_err(upper, unioned, lg_k, std_devs);
+}
+
 Sketch deserialize(const StringRef& value, std::string_view action) {
+    AllocationScope allocations;
     // The library reads the preamble byte before it checks the length.
     if (value.size == 0) {
         throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when {}: empty input.",

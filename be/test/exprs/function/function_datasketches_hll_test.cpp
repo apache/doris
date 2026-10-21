@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <bthread/bthread.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <hll.hpp>
 #include <optional>
 #include <string>
@@ -38,6 +41,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
 #include "exprs/datasketches_hll_util.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
@@ -45,8 +49,39 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "testutil/function_utils.h"
+#include "util/debug_points.h"
 
 namespace doris {
+
+namespace {
+
+class ScopedSketchAllocationFailure {
+public:
+    explicit ScopedSketchAllocationFailure(size_t fail_at)
+            : _old_enabled(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(
+                "datasketches_hll.before_allocate", std::function<void()>([this, fail_at] {
+                    ++calls;
+                    if (calls == fail_at) {
+                        throw Exception(ErrorCode::MEM_ALLOC_FAILED,
+                                        "Injected HLL allocation failure");
+                    }
+                }));
+    }
+
+    ~ScopedSketchAllocationFailure() {
+        DebugPoints::instance()->remove("datasketches_hll.before_allocate");
+        config::enable_debug_points = _old_enabled;
+    }
+
+    size_t calls = 0;
+
+private:
+    bool _old_enabled;
+};
+
+} // namespace
 
 class FunctionDataSketchesHllDownsampleTest : public testing::Test {
 protected:
@@ -61,6 +96,38 @@ protected:
         sketch.couponUpdate(datasketches::HllUtil<>::pair(3, 21));
         auto bytes = sketch.serialize(compact, 0);
         return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+    }
+
+    static std::string missing_aux_slot(bool compact) {
+        using namespace datasketches::hll_constants;
+        auto bytes = aux_sketch_bytes(8, compact);
+        const size_t offset = HLL_BYTE_ARR_START + (1 << 7);
+        if (compact) {
+            bytes.resize(offset + sizeof(uint32_t));
+        }
+        std::fill(bytes.begin() + offset, bytes.end(), '\0');
+        put_uint32(bytes, AUX_COUNT_INT, 1);
+        // Registers 1 and 3 are AUX_TOKEN, but only register 3 has an auxiliary record.
+        put_uint32(bytes, offset, datasketches::HllUtil<>::pair(3, 21));
+        return bytes;
+    }
+
+    static void verify_conversion_allocation_failure(const std::string& bytes,
+                                                     const std::string& type, size_t fail_at) {
+        SCOPED_TRACE(testing::Message() << type << '/' << fail_at);
+        ScopedSketchAllocationFailure failure(fail_at);
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "HllConversionAllocationFailure");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        {
+            auto block = input({bytes}, 8, type);
+            EXPECT_EQ(execute(block).code(), ErrorCode::MEM_ALLOC_FAILED);
+        }
+        EXPECT_EQ(failure.calls, fail_at);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(tracker->consumption(), baseline);
     }
 
     static void expect_corruption(const std::string& bytes, const std::string& message,
@@ -420,6 +487,217 @@ TEST_F(FunctionDataSketchesHllDownsampleTest, ValidAuxiliaryMapsAndLegacyArrayEx
         bytes[LG_ARR_BYTE] = compact ? static_cast<char>(255) : 0;
         verify_conversion(bytes, 8, datasketches::HLL_4, 10, 4, datasketches::HLL_4, "HLL_4");
         verify_conversion(bytes, 8, datasketches::HLL_4, 10, 21, datasketches::HLL_4, "HLL_4");
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, RejectMissingAuxiliarySlotsWithoutLeaks) {
+    for (bool compact : {false, true}) {
+        const auto bytes = missing_aux_slot(compact);
+        expect_corruption(bytes, "no matching auxiliary slot");
+        for (const auto& type : {"HLL_6", "HLL_8"}) {
+            expect_corruption(bytes, "no matching auxiliary slot", type);
+        }
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "HllMissingAuxiliarySlot");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        for (int i = 0; i < 32; ++i) {
+            try {
+                static_cast<void>(datasketches_hll::deserialize(StringRef(bytes), "test"));
+                ADD_FAILURE() << "Expected missing auxiliary slot to fail";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::CORRUPTION);
+            }
+        }
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(tracker->consumption(), baseline);
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, EveryDeserializationAllocationFailureIsBalanced) {
+    for (const auto& bytes : {sketch_bytes(8, datasketches::HLL_8, 1, true, true),
+                              sketch_bytes(8, datasketches::HLL_4, 10, false),
+                              aux_sketch_bytes(8, true), aux_sketch_bytes(8, false)}) {
+        size_t allocations = 0;
+        {
+            ScopedSketchAllocationFailure count_only(0);
+            auto sketch = datasketches_hll::deserialize(StringRef(bytes), "test");
+            EXPECT_FALSE(sketch.is_empty());
+            allocations = count_only.calls;
+        }
+        ASSERT_GT(allocations, 1);
+        for (size_t fail_at = 1; fail_at <= allocations; ++fail_at) {
+            SCOPED_TRACE(fail_at);
+            ScopedSketchAllocationFailure failure(fail_at);
+            auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            "HllDeserializeAllocationFailure");
+            auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+            thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            const auto baseline = tracker->consumption();
+            try {
+                static_cast<void>(datasketches_hll::deserialize(StringRef(bytes), "test"));
+                ADD_FAILURE() << "Expected allocation failure";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+            }
+            EXPECT_EQ(failure.calls, fail_at);
+            thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            EXPECT_EQ(tracker->consumption(), baseline);
+        }
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, EveryConversionAllocationFailureIsBalanced) {
+    for (const auto& bytes :
+         {aux_sketch_bytes(12, true), sketch_bytes(12, datasketches::HLL_4, 200, true)}) {
+        for (const auto& type : {"HLL_4", "HLL_6", "HLL_8"}) {
+            size_t allocations = 0;
+            {
+                auto block = input({bytes}, 8, type);
+                ScopedSketchAllocationFailure count_only(0);
+                ASSERT_TRUE(execute(block).ok());
+                allocations = count_only.calls;
+            }
+            ASSERT_GT(allocations, 1);
+            for (size_t fail_at = 1; fail_at <= allocations; ++fail_at) {
+                verify_conversion_allocation_failure(bytes, type, fail_at);
+            }
+        }
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, AggregateUpdateFailureResetsStateAndMemory) {
+    using Data = AggregateFunctionHllSketchData<TYPE_STRING>;
+    const auto large_bytes = sketch_bytes(12, datasketches::HLL_8, 1000, true, true);
+    const auto small_bytes = sketch_bytes(8, datasketches::HLL_8, 1000, true, true);
+    auto large = datasketches_hll::deserialize(StringRef(large_bytes), "test");
+    auto small = datasketches_hll::deserialize(StringRef(small_bytes), "test");
+    size_t allocations = 0;
+    {
+        Data data;
+        data.merge(large);
+        ScopedSketchAllocationFailure count_only(0);
+        data.merge(small);
+        allocations = count_only.calls;
+    }
+    ASSERT_GT(allocations, 1);
+    for (size_t fail_at = 1; fail_at <= allocations; ++fail_at) {
+        SCOPED_TRACE(fail_at);
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "HllAggregateAllocationFailure");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        {
+            Data data;
+            data.merge(large);
+            ScopedSketchAllocationFailure failure(fail_at);
+            try {
+                data.merge(small);
+                ADD_FAILURE() << "Expected aggregate allocation failure";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+            }
+            EXPECT_FALSE(data.hll_union_data.has_value());
+        }
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(tracker->consumption(), baseline);
+    }
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, SuccessfulAllocationScopeTransfersOwnership) {
+    const auto bytes = aux_sketch_bytes(8, true);
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "HllAllocationScopeOwnership");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    {
+        // A successful deserialize returns a sketch whose allocations outlive its scope.
+        auto sketch = datasketches_hll::deserialize(StringRef(bytes), "test");
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GT(tracker->consumption(), baseline);
+        EXPECT_EQ(sketch.get_target_type(), datasketches::HLL_4);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, UnionCopyAndMoveKeepIndependentOwnership) {
+    const auto bytes = aux_sketch_bytes(8, true);
+    auto sketch = datasketches_hll::deserialize(StringRef(bytes), "test");
+    auto tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "HllUnionCopyMove");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    {
+        datasketches_hll::Union source(8);
+        source.update(sketch);
+        const auto estimate = source.get_estimate();
+        datasketches_hll::Union copy(source);
+        datasketches_hll::Union moved(std::move(copy));
+        EXPECT_DOUBLE_EQ(moved.get_estimate(), estimate);
+        moved = source;
+        EXPECT_DOUBLE_EQ(moved.get_estimate(), estimate);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, NestedAllocationScopesReleaseOnlyTheirOwnMemory) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "HllNestedAllocationScope");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    {
+        datasketches_hll::AllocationScope outer;
+        auto* parent = datasketches_hll::Alloc().allocate(32);
+        try {
+            datasketches_hll::AllocationScope inner;
+            static_cast<void>(datasketches_hll::Alloc().allocate(64));
+            throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Simulated orphan in nested call");
+        } catch (const Exception&) {
+        }
+        parent[0] = 42;
+        EXPECT_EQ(parent[0], 42);
+        datasketches_hll::Alloc().deallocate(parent, 32);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
+}
+
+TEST_F(FunctionDataSketchesHllDownsampleTest, AllocationScopesAreIsolatedAcrossBthreads) {
+    const auto work = +[](void*) -> void* {
+        ScopedInitThreadContext thread;
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "HllBthreadAllocationScope");
+        auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const auto baseline = tracker->consumption();
+        for (int i = 0; i < 8; ++i) {
+            try {
+                datasketches_hll::AllocationScope scope;
+                static_cast<void>(datasketches_hll::Alloc().allocate(64));
+                // Yield while the call owns allocations, so another bthread can enter its
+                // own scope on the same worker. A pthread-local scope alone is insufficient.
+                bthread_usleep(1000);
+                throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Simulated bthread orphan");
+            } catch (const Exception&) {
+            }
+        }
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(tracker->consumption(), baseline);
+        return nullptr;
+    };
+    std::array<bthread_t, 2> threads;
+    for (auto& thread : threads) {
+        ASSERT_EQ(bthread_start_background(&thread, nullptr, work, nullptr), 0);
+    }
+    for (auto thread : threads) {
+        EXPECT_EQ(bthread_join(thread, nullptr), 0);
     }
 }
 
