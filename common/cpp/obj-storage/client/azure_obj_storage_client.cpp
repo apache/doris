@@ -554,7 +554,11 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         if (opts.delimiter.empty()) {
             return make_page(container.ListBlobs(request));
         }
-        return make_page(container.ListBlobsByHierarchy(opts.delimiter, request));
+        auto response = container.ListBlobsByHierarchy(opts.delimiter, request);
+        auto prefixes = std::move(response.BlobPrefixes);
+        auto page = make_page(std::move(response));
+        page.common_prefixes = std::move(prefixes);
+        return page;
     } catch (Azure::Core::RequestFailedException& e) {
         record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
