@@ -80,14 +80,6 @@ public class ComplexTypeDefaultValue {
         return canonicalize(type, defaultValue, false);
     }
 
-    /**
-     * Validate a transient load mapping value. Unlike a persisted column default, its text does not
-     * have to survive SHOW CREATE TABLE replay, so nested quotes and backslashes can be escaped.
-     */
-    public static String canonicalizeForLoad(DataType type, String value) throws AnalysisException {
-        return canonicalize(type, value, true);
-    }
-
     private static String canonicalize(DataType type, String defaultValue, boolean forLoad)
             throws AnalysisException {
         Preconditions.checkArgument(type.isArrayType() || type.isMapType() || type.isStructType(),
@@ -107,6 +99,14 @@ public class ComplexTypeDefaultValue {
             throw new AnalysisException(String.format("Invalid default value '%s' for %s column: %s",
                     defaultValue, type.toSql(), e.getMessage()), e);
         }
+    }
+
+    /**
+     * Validate a transient load mapping value. Unlike a persisted column default, its text does not
+     * have to survive SHOW CREATE TABLE replay, so nested quotes and backslashes can be escaped.
+     */
+    public static String canonicalizeForLoad(DataType type, String value) throws AnalysisException {
+        return canonicalize(type, value, true);
     }
 
     private static boolean hasLiteralShape(Expression expression, DataType type) {

@@ -18,11 +18,17 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -62,6 +68,47 @@ public class ComplexEquals extends ScalarFunction
     public ComplexEquals withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new ComplexEquals(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkComparableArguments();
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkComparableArguments();
+    }
+
+    private void checkComparableArguments() {
+        for (Expression argument : getArguments()) {
+            DataType type = argument.getDataType();
+            if (!supportsColumnComparison(type)) {
+                throw new AnalysisException(getName() + " does not support argument type " + type.toSql());
+            }
+        }
+    }
+
+    /** The BE implementation calls Column::compare_at on every non-NULL leaf. */
+    private static boolean supportsColumnComparison(DataType type) {
+        if (type.isArrayType()) {
+            return supportsColumnComparison(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType map = (MapType) type;
+            return supportsColumnComparison(map.getKeyType())
+                    && supportsColumnComparison(map.getValueType());
+        }
+        if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                if (!supportsColumnComparison(field.getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return type.isNullType() || (type.isPrimitive() && !type.isJsonType()
+                && !type.isObjectOrVariantType() && !type.isAggStateType());
     }
 
     @Override

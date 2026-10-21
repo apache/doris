@@ -34,4 +34,13 @@ suite("test_complex_search_comparison") {
                complex_equals(CAST(NULL AS STRUCT<v:INT>), named_struct('v', CAST(NULL AS INT))),
                complex_equals(named_struct('v', CAST(NULL AS INT)), named_struct('v', CAST(NULL AS INT)))
     """
+
+    test {
+        sql "SELECT complex_equals(to_bitmap(1), to_bitmap(1))"
+        exception "complex_equals does not support argument type BITMAP"
+    }
+    test {
+        sql "SELECT complex_equals(named_struct('v', to_bitmap(1)), named_struct('v', to_bitmap(1)))"
+        exception "complex_equals does not support argument type"
+    }
 }
