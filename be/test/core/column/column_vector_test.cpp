@@ -239,6 +239,9 @@ TEST_F(ColumnVectorTest, insert_data) {
 TEST_F(ColumnVectorTest, insert_many_vals) {
     _column_vector_common_test(assert_column_vector_insert_many_vals_callback);
 }
+TEST_F(ColumnVectorTest, insert_duplicate_fields) {
+    _column_vector_common_test(assert_column_vector_insert_duplicate_fields_callback);
+}
 TEST_F(ColumnVectorTest, insert_many_from) {
     _column_vector_common_test(assert_column_vector_insert_many_from_callback);
 }
