@@ -28,8 +28,10 @@ import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.catalog.TableQueryAuthResult;
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -44,6 +46,7 @@ import org.apache.paimon.table.TableSnapshot;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
@@ -505,12 +508,12 @@ public class PaimonBackendBoundTableTest {
     @Test
     public void pinsEverySystemTableThatResolvesItsSnapshotOnTheBackend(@TempDir Path warehouse)
             throws Exception {
-        // $files / $partitions re-plan the base table inside the BE reader; $manifests /
+        // $files / $file_indexes / $partitions re-plan the base table inside the BE reader; $manifests /
         // $table_indexes / $statistics resolve their snapshot directly there (TimeTravelUtil
-        // #tryTravelOrLatest). All five honor scan.snapshot-id and have a fixed row type, so all five
+        // #tryTravelOrLatest). All six honor scan.snapshot-id and have a fixed row type, so all six
         // must be bound to what the catalog sees before they leave the FE.
         for (String sysTableType : Arrays.asList("files", "partitions", "manifests", "statistics",
-                "table_indexes")) {
+                "table_indexes", "file_indexes")) {
             VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, true);
             FileStoreTable onDisk = commit(newRealTable(warehouse, "t_" + sysTableType), 1);
             catalog.pointAt(onDisk, 1L);
@@ -522,6 +525,30 @@ public class PaimonBackendBoundTableTest {
             Assertions.assertTrue(catalog.loadSnapshotCalls > 0,
                     "$" + sysTableType + " must be bound to the catalog's snapshot on the FE");
         }
+    }
+
+    @Test
+    public void fileIndexesReadOnlyTheCatalogPublishedSnapshot(@TempDir Path warehouse) throws Exception {
+        FileStoreTable onDisk = commit(newRealTable(warehouse, "indexed")
+                .copy(Collections.singletonMap("file-index.bitmap.columns", "c1")), 2);
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, true);
+        catalog.pointAt(onDisk, 1L);
+        FileStoreTable versionManaged = withCatalogEnvironment(onDisk, catalogEnvironment(catalog));
+        Table systemTable = SystemTableLoader.load("file_indexes", versionManaged);
+        List<Split> splits = systemTable.newReadBuilder().newScan().plan().splits();
+        Table backendTable = provider().tableForBackend(sysHandle("file_indexes", versionManaged), systemTable);
+        backendTable = InstantiationUtil.deserializeObject(InstantiationUtil.serializeObject(backendTable),
+                getClass().getClassLoader());
+
+        List<String> files = new ArrayList<>();
+        for (Split split : splits) {
+            try (RecordReader<InternalRow> reader = backendTable.newReadBuilder().newRead().createReader(split)) {
+                reader.forEachRemaining(row -> files.add(row.getString(2).toString()));
+            }
+        }
+        Assertions.assertEquals(1, files.size(),
+                "$file_indexes must not enumerate snapshot 2 before the catalog publishes it");
+        Assertions.assertEquals(2L, onDisk.snapshotManager().latestSnapshotIdFromFileSystem());
     }
 
     @Test
