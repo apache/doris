@@ -300,7 +300,8 @@ public abstract class Type {
         variantSubTypes.add(DATEV2);
         variantSubTypes.add(DATETIMEV2);
         variantSubTypes.add(TIMESTAMP_NS);
-        variantSubTypes.add(TIMESTAMP_TZ);
+        // TIMESTAMP_TZ is deliberately absent. This list is only checked when a column or
+        // function type is defined, so tables that already declare a TIMESTAMPTZ path keep working.
         variantSubTypes.add(IPV4);
         variantSubTypes.add(IPV6);
         variantSubTypes.add(UUID);
@@ -1105,6 +1106,7 @@ public abstract class Type {
             case VARCHAR:
             case STRING:
             case HLL:
+            case VARBINARY:
                 return t.getLength();
             default:
                 return null;

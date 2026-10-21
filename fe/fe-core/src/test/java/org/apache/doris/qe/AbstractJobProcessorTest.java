@@ -23,6 +23,7 @@ import org.apache.doris.qe.runtime.BackendFragmentId;
 import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
+import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -96,13 +97,13 @@ class AbstractJobProcessorTest {
         Assertions.assertEquals(Arrays.asList("publish:" + trackingUrl, "cancel", "final"), events);
     }
 
-    @Test
-    void opaqueConnectorDataRequiresARegisteredFragmentHandler() {
+    void paimonCommitDataRequiresARegisteredFragmentHandler() {
         TestJobProcessor processor = new TestJobProcessor(Mockito.mock(CoordinatorContext.class));
         processor.setBackendFragmentTasks(Collections.emptyMap());
         TReportExecStatusParams params = new TReportExecStatusParams()
                 .setStatus(new TStatus(TStatusCode.OK))
-                .setConnectorCommitData(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
+                .setPaimonCommitMessages(Collections.singletonList(
+                        new TPaimonCommitMessage().setPayload(new byte[] {1})));
 
         Assertions.assertThrows(IllegalStateException.class,
                 () -> processor.updateFragmentExecStatus(params));

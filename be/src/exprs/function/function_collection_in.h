@@ -94,7 +94,7 @@ public:
 
     // make data in context into a set
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         int num_args = context->get_num_args();
@@ -136,7 +136,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto* in_state = reinterpret_cast<CollectionInState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (!in_state) {
             return Status::RuntimeError("function context for function '{}' must have Set;",
                                         get_name());

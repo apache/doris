@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -46,13 +47,12 @@ const static std::string INTERNAL_NORMAL_WG_NAME = "normal";
 const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
 PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double cache_ratio,
-                         int64_t reserve_size)
+                         int64_t reserve_size, int64_t enqueue_at_ms)
         : resource_ctx_(resource_ctx),
+          enqueue_at(enqueue_at_ms),
           cache_ratio_(cache_ratio),
           reserve_size_(reserve_size),
-          query_id_(print_id(resource_ctx->task_controller()->task_id())) {
-    enqueue_at = std::chrono::system_clock::now();
-}
+          query_id_(print_id(resource_ctx->task_controller()->task_id())) {}
 
 WorkloadGroupMgr::~WorkloadGroupMgr() = default;
 
@@ -288,18 +288,51 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
     resource_ctx->task_controller()->update_paused_reason(status);
     resource_ctx->task_controller()->set_low_memory_mode(true);
     resource_ctx->task_controller()->set_memory_sufficient(false);
+    // A query paused for process memory is resumed once its recorded reservation fits and every
+    // blocked task then retries its own request. A retry that fails again (another task took the
+    // memory first, or a sibling that fit on its own still does not fit next to the others)
+    // pauses the query again: it continues the wait it was resumed from, so that the wait stays
+    // bounded by spill_in_paused_queue_timeout_ms. The wait ends with the first reservation that
+    // succeeds, see PipelineTask::_try_to_reserve_memory().
+    const int64_t now_ms = MonotonicMillis();
+    const int64_t enqueue_at =
+            status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()
+                    ? resource_ctx->task_controller()->start_process_memory_wait(now_ms)
+                    : now_ms;
     std::lock_guard<std::mutex> lock(_paused_queries_lock);
     auto wg = resource_ctx->workload_group();
-    auto&& [it, inserted] = _paused_queries_list[wg].emplace(
+    auto& queries_list = _paused_queries_list[wg];
+    auto&& [it, inserted] = queries_list.emplace(
             resource_ctx,
             doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted,
-            reserve_size);
+            reserve_size, enqueue_at);
     // Check if this is an invalid reserve, for example, if the reserve size is too large, larger than the query limit
     // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
         LOG(INFO) << "Insert one new paused query: "
                   << resource_ctx->task_controller()->debug_string()
-                  << ", workload group: " << wg->debug_string();
+                  << ", workload group: " << wg->debug_string() << ", waited " << it->elapsed_time()
+                  << " ms";
+    } else if (reserve_size > it->reserve_size_) {
+        // Another task of the same query already failed a smaller reservation. The query is
+        // resumed as a whole and every blocked task then retries its own request, so record the
+        // largest pending one: the query is woken up once that one fits, which is when the
+        // tasks can reserve one after another (a task releases its reservation after each
+        // block, so the pending requests do not need to fit at the same time). Waking it up
+        // for a smaller one would fail the largest again right away.
+        LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+                  << " is already paused, raise the recorded reservation from "
+                  << PrettyPrinter::print_bytes(it->reserve_size_) << " to "
+                  << PrettyPrinter::print_bytes(reserve_size);
+        auto node = queries_list.extract(it);
+        node.value().reserve_size_ = reserve_size;
+        queries_list.insert(std::move(node));
+    } else {
+        LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+                  << " is already paused, keep the recorded reservation "
+                  << PrettyPrinter::print_bytes(it->reserve_size_)
+                  << " which is not smaller than the pending "
+                  << PrettyPrinter::print_bytes(reserve_size);
     }
 }
 
@@ -602,6 +635,16 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
         return false;
     }
 
+    // The process memory pressure may have been relieved by cache reclamation or by other
+    // queries that finished. Check it before routing the query below, otherwise a query in a
+    // workload group that uses less than its min memory limit has to wait for the timeout.
+    // Test the recorded reservation itself: this is the predicate the failed reservation used,
+    // so the query is resumed exactly when its request fits now.
+    if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(query_it->reserve_size_)) {
+        resume_process_paused_query_(wg, queries_list, query_it, resource_ctx);
+        return false;
+    }
+
     // If workload group's memory usage > min memory, then it means the workload group use too much memory
     // in memory contention state. Should just spill
     if (wg->total_mem_used() > wg->min_memory_limit()) {
@@ -609,8 +652,11 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
     }
 
     // Other workload groups many use a lot of memory, should revoke memory from other workload groups
-    // by cancelling their queries.
-    int64_t revoked_size = revoke_memory_from_other_groups_();
+    // by cancelling their queries. Only the memory actually revoked counts: a workload group that
+    // exceeds its min memory but has nothing cancellable releases nothing (the next exceeding
+    // workload group is tried instead), and waiting for it would resume this query without any
+    // memory being freed.
+    int64_t revoked_size = revoke_memory_from_other_groups_(query_it->reserve_size_);
     if (revoked_size > 0) {
         // Revoke memory from other workload groups will cancel some queries, wait them cancel finished
         // and then check it again.
@@ -618,17 +664,37 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
         return true;
     }
 
+    // While the other workload groups were scanned, other queries or the cache may have released
+    // enough memory for the recorded reservation (the walk stops as soon as it fits). Resume the
+    // query instead of cancelling it below from the stale observation.
+    if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(query_it->reserve_size_)) {
+        resume_process_paused_query_(wg, queries_list, query_it, resource_ctx);
+        return false;
+    }
+
     // TODO revoke from memtable
 
-    // Fallback: if we have waited too long and cannot revoke from anywhere,
-    // cancel the query or disable reserve memory to let it proceed.
-    if (query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms) {
-        // Cannot spill (no revocable memory), cannot revoke from other WGs,
-        // and process memory is still exceeded. Cancel the query to protect the system.
+    // Fallback: if the process reaches the hard limit or we have waited too long and cannot
+    // revoke from anywhere, let this query spill or cancel it to protect the process.
+    if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit() ||
+        query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms) {
+        // No other workload group can release memory, and process memory is still exceeded.
         return release_query_memory_(queries_list, query_it, resource_ctx, true);
     }
     ++query_it;
     return false;
+}
+
+void WorkloadGroupMgr::resume_process_paused_query_(
+        const WorkloadGroupPtr& wg, PausedQuerySet& queries_list, PausedQueryIterator& query_it,
+        const std::shared_ptr<ResourceContext>& resource_ctx) {
+    LOG(INFO) << "Query: " << print_id(resource_ctx->task_controller()->task_id())
+              << ", process limit not exceeded now, resume this query"
+              << ", process memory info: "
+              << GlobalMemoryArbitrator::process_memory_used_details_str()
+              << ", wg info: " << wg->debug_string();
+    resource_ctx->task_controller()->set_memory_sufficient(true);
+    query_it = queries_list.erase(query_it);
 }
 
 bool WorkloadGroupMgr::release_query_memory_(PausedQuerySet& queries_list,
@@ -655,19 +721,25 @@ bool WorkloadGroupMgr::release_query_memory_(PausedQuerySet& queries_list,
     return stop_after_release;
 }
 
-// Find the workload group that could revoke lot of memory:
-// 1. workload group = max(total used memory - min memory that should reserved for it)
+// Find the workload groups that could revoke lot of memory:
+// 1. order the workload groups by (total used memory - min memory that should reserved for it),
+//    starting with the one that exceeds most.
 // 2. revoke 10% memory of the workload group that exceeded. For example, if the workload group exceed 10g,
-//    then revoke 1g memory.
+//    then revoke 1g memory. A workload group may release nothing although it exceeds its min
+//    memory (for example, every query is too small to be cancelled), then try the next one.
 // 3. After revoke memory, go to the loop and wait for the query to be cancelled and check again.
-int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
+// `reserve_size` is the reservation of the paused query this walk serves: the walk stops once it
+// fits, nothing needs to be revoked for it any more.
+// Returns the memory actually revoked, which is 0 when no query of any of these workload groups
+// could be cancelled.
+int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_(int64_t reserve_size) {
     MonotonicStopWatch watch;
     watch.start();
     std::unique_ptr<RuntimeProfile> profile =
             std::make_unique<RuntimeProfile>("RevokeMemoryFromOtherGroups");
 
-    WorkloadGroupPtr max_wg = nullptr;
-    int64_t max_exceeded_memory = 0;
+    // (exceeded memory, workload group), the most exceeded first.
+    std::vector<std::pair<int64_t, WorkloadGroupPtr>> exceeded_wgs;
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
         for (auto& workload_group : _workload_groups) {
@@ -678,32 +750,76 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_groups_() {
                 // then not revoke memory from it.
                 continue;
             }
-            if (total_used_memory - min_memory_limit > max_exceeded_memory) {
-                max_wg = workload_group.second;
-                max_exceeded_memory = total_used_memory - min_memory_limit;
-            }
+            exceeded_wgs.emplace_back(total_used_memory - min_memory_limit, workload_group.second);
         }
     }
-    if (max_wg == nullptr) {
-        return 0;
+    std::sort(exceeded_wgs.begin(), exceeded_wgs.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.first > rhs.first; });
+
+    int64_t freed_mem = 0;
+    size_t tried_wgs = 0;
+    for (const auto& [snapshot_exceeded_memory, wg] : exceeded_wgs) {
+        if (snapshot_exceeded_memory < 1 << 27) {
+            // The remaining workload groups exceed even less.
+            LOG(INFO) << "The workload group that exceed most memory among the untried ones is :"
+                      << wg->memory_debug_string() << ", exceeded_memory: "
+                      << PrettyPrinter::print(snapshot_exceeded_memory, TUnit::BYTES)
+                      << " less than 128MB, no need to revoke memory";
+            break;
+        }
+        // Scanning the earlier workload groups took time (a cancellation in flight is waited for
+        // up to revoke_memory_max_tolerance_ms), during which other queries or the cache may have
+        // released memory. The caller checked the reservation before the walk only: stop as soon
+        // as it fits, so that no further query is cancelled for pressure that is gone.
+        if (tried_wgs > 0 && !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(reserve_size)) {
+            LOG(INFO) << "Process memory pressure is relieved after trying " << tried_wgs
+                      << " workload group(s), the reservation "
+                      << PrettyPrinter::print_bytes(reserve_size)
+                      << " fits now, stop revoking memory from other workload groups";
+            break;
+        }
+        // The snapshot above was taken before the earlier workload groups were scanned, during
+        // which this one may have released memory (its queries finished or were cancelled).
+        // total_mem_used() is the usage cached by the last maintenance refresh, so refresh it and
+        // decide from the current usage: the min memory stays reserved for a workload group that
+        // no longer exceeds it, and the amount to revoke is what it exceeds by now.
+        const int64_t exceeded_memory = wg->refresh_memory_usage() - wg->min_memory_limit();
+        if (exceeded_memory < 1 << 27) {
+            LOG(INFO) << "The workload group " << wg->memory_debug_string()
+                      << " exceeded its min memory by "
+                      << PrettyPrinter::print(snapshot_exceeded_memory, TUnit::BYTES)
+                      << " when the walk started, now by "
+                      << PrettyPrinter::print(exceeded_memory, TUnit::BYTES)
+                      << " less than 128MB, skip it";
+            continue;
+        }
+        auto need_free_mem = static_cast<int64_t>((double)exceeded_memory * 0.1);
+        // Revoke 10% of memory from the workload group that exceed most memory
+        freed_mem = wg->revoke_memory(need_free_mem, "exceed_memory", profile.get());
+        ++tried_wgs;
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] process memory not enough, revoke memory from workload_group: {}, "
+                "need free memory {}, freed memory {}. cost(us): {}",
+                wg->memory_debug_string(), PrettyPrinter::print_bytes(need_free_mem),
+                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000);
+        if (freed_mem > 0) {
+            break;
+        }
+        // Nothing could be cancelled in this workload group, try the next one that exceeds
+        // its min memory.
     }
-    if (max_exceeded_memory < 1 << 27) {
-        LOG(INFO) << "The workload group that exceed most memory is :"
-                  << max_wg->memory_debug_string() << ", max_exceeded_memory: "
-                  << PrettyPrinter::print(max_exceeded_memory, TUnit::BYTES)
-                  << " less than 128MB, no need to revoke memory";
-        return 0;
+    if (tried_wgs > 0) {
+        // Every tried workload group appended its own child to the profile, so print it once
+        // after the walk instead of once per group: this runs under _paused_queries_lock on
+        // every maintenance round while the pressure lasts.
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] process memory not enough, tried to revoke memory from {} workload "
+                "group(s), freed memory {}. cost(us): {}, details: {}",
+                tried_wgs, PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000,
+                ss.str());
     }
-    int64_t freed_mem = static_cast<int64_t>((double)max_exceeded_memory * 0.1);
-    // Revoke 10% of memory from the workload group that exceed most memory
-    max_wg->revoke_memory(freed_mem, "exceed_memory", profile.get());
-    std::stringstream ss;
-    profile->pretty_print(&ss);
-    LOG(INFO) << fmt::format(
-            "[MemoryGC] process memory not enough, revoke memory from workload_group: {}, "
-            "free memory {}. cost(us): {}, details: {}",
-            max_wg->memory_debug_string(), PrettyPrinter::print_bytes(freed_mem),
-            watch.elapsed_time() / 1000, ss.str());
     return freed_mem;
 }
 
@@ -726,20 +842,23 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
     const auto query_id = print_id(requestor->task_controller()->task_id());
     requestor->task_controller()->get_revocable_info(&revocable_size, &memory_usage,
                                                      &has_running_task);
+    if (!paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>() &&
+        !paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
+        // PROCESS_MEMORY_EXCEEDED is resolved separately: the process hard limit and the
+        // timeout must be enforced even when a running task prevents spilling, which the
+        // early exits below skip.
+        return resolve_process_memory_exceeded_query_(requestor, size_to_reserve, time_in_queue,
+                                                      memory_usage, has_running_task);
+    }
     if (has_running_task) {
-        LOG(INFO) << "Query: " << print_id(requestor->task_controller()->task_id())
-                  << " is paused, but still has running task, skip it.";
+        LOG(INFO) << "Query: " << query_id << " is paused, but still has running task, skip it.";
         return false;
     }
 
     const auto wg = requestor->workload_group();
     auto revocable_tasks = requestor->task_controller()->get_revocable_tasks();
     if (!revocable_tasks.empty()) {
-        SCOPED_ATTACH_TASK(requestor);
-        auto status = requestor->task_controller()->revoke_memory();
-        if (!status.ok()) {
-            requestor->task_controller()->cancel(status);
-        }
+        spill_query_(requestor);
         return true;
     }
     const auto limit = requestor->memory_context()->mem_limit();
@@ -781,7 +900,10 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
             requestor->task_controller()->set_memory_sufficient(true);
             return true;
         }
-    } else if (paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
+    }
+
+    DCHECK(paused_reason.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>());
+    {
         bool exceed_low_watermark = false;
         bool exceed_high_watermark = false;
         wg->check_mem_used(size_to_reserve, &exceed_low_watermark, &exceed_high_watermark);
@@ -823,40 +945,90 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<ResourceContex
             requestor->task_controller()->cancel(error_status);
             return true;
         }
-    } else {
-        // Should not consider about process memory. For example, the query's limit is 100g, workload
-        // group's memlimit is 10g, process memory is 20g. The query reserve will always failed in wg
-        // limit, and process is always have memory, so that it will resume and failed reserve again.
-        const size_t test_memory_size = std::max<size_t>(size_to_reserve, 32L * 1024 * 1024);
-        if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(test_memory_size)) {
-            LOG(INFO) << "Query: " << query_id
-                      << ", process limit not exceeded now, resume this query"
-                      << ", process memory info: "
-                      << GlobalMemoryArbitrator::process_memory_used_details_str()
-                      << ", wg info: " << wg->debug_string();
-            requestor->task_controller()->set_memory_sufficient(true);
-            return true;
-        } else {
-            // if cannot find any memory to release, then let the query continue to run as far as possible
-            // or cancelled by gc if memory is really not enough.
-            Status error_status = Status::MemoryLimitExceeded(
-                    "Query {} process memory is exceeded"
-                    ", and there is no cache now. And could not find task to spill, disable "
-                    "reserve memory and resume it. "
-                    "Query memory usage: {}, limit: {}, reserved "
-                    "size: {}, try to reserve: {}, wg info: {}."
-                    " Maybe you should set the workload group's limit to a lower value. {}",
-                    query_id, PrettyPrinter::print_bytes(memory_usage),
-                    PrettyPrinter::print_bytes(limit), PrettyPrinter::print_bytes(reserved_size),
-                    PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string(),
-                    doris::ProcessProfile::instance()
-                            ->memory_profile()
-                            ->process_memory_detail_str());
-            LOG_LONG_STRING(INFO, error_status.to_string());
-            requestor->task_controller()->cancel(error_status);
-            return true;
-        }
     }
+}
+
+void WorkloadGroupMgr::spill_query_(const std::shared_ptr<ResourceContext>& requestor) {
+    SCOPED_ATTACH_TASK(requestor);
+    auto status = requestor->task_controller()->revoke_memory();
+    if (!status.ok()) {
+        requestor->task_controller()->cancel(status);
+    }
+}
+
+bool WorkloadGroupMgr::resolve_process_memory_exceeded_query_(
+        const std::shared_ptr<ResourceContext>& requestor, size_t size_to_reserve,
+        int64_t time_in_queue, size_t memory_usage, bool has_running_task) {
+    const auto query_id = print_id(requestor->task_controller()->task_id());
+    const auto wg = requestor->workload_group();
+
+    // Spilling needs every task of the query to be idle, so the revocable tasks are only
+    // collected while none is running. A running task does not postpone the cancellation
+    // below: cancelling is safe while the task runs.
+    std::vector<PipelineTask*> revocable_tasks;
+    if (!has_running_task) {
+        revocable_tasks = requestor->task_controller()->get_revocable_tasks();
+    }
+
+    // The caller observed the pressure before it inspected the pipeline tasks and tried to
+    // revoke memory from other workload groups, during which other queries or the cache may have
+    // released memory. Re-check the recorded reservation after the last inspection and right
+    // before acting, so that the query is never spilled or cancelled from a stale observation.
+    if (!GlobalMemoryArbitrator::is_exceed_soft_mem_limit(size_to_reserve)) {
+        LOG(INFO) << "Query: " << query_id << ", process limit not exceeded now, resume this query"
+                  << ", process memory info: "
+                  << GlobalMemoryArbitrator::process_memory_used_details_str()
+                  << ", wg info: " << wg->debug_string();
+        requestor->task_controller()->set_memory_sufficient(true);
+        return true;
+    }
+
+    if (!revocable_tasks.empty()) {
+        // The query is resumed by the spill callback and reserves memory again. If that
+        // still fails, it comes back here without revocable memory.
+        spill_query_(requestor);
+        return true;
+    }
+
+    const bool exceed_hard_mem_limit = GlobalMemoryArbitrator::is_exceed_hard_mem_limit();
+    if (!exceed_hard_mem_limit && time_in_queue < config::spill_in_paused_queue_timeout_ms) {
+        // The query has no revocable memory (or a running task prevents spilling), cancelling
+        // it will not release much memory. Keep it paused so that it can be resumed once other
+        // queries release memory, and cancel it only after it has waited for
+        // `spill_in_paused_queue_timeout_ms`. Stop waiting once the process reaches the hard
+        // memory limit, so that the protection does not depend on memory gc, which may be
+        // disabled.
+        LOG_EVERY_T(INFO, 1) << "Query: " << query_id
+                             << " process memory is exceeded, and could not find task to "
+                                "spill, keep it paused. Waited "
+                             << time_in_queue
+                             << " ms, timeout: " << config::spill_in_paused_queue_timeout_ms
+                             << " ms, has running task: " << has_running_task
+                             << ", process memory info: "
+                             << GlobalMemoryArbitrator::process_memory_used_details_str()
+                             << ", wg info: " << wg->debug_string();
+        return false;
+    }
+
+    // Waited long enough or the process reached the hard memory limit, and still could not
+    // find any memory to release, cancel the query to protect the process.
+    Status error_status = Status::MemoryLimitExceeded(
+            "Query {} process memory is exceeded"
+            ", and there is no cache now. And could not find task to spill after "
+            "waiting {} ms in paused queue (timeout: {} ms, exceed hard limit: {}, has running "
+            "task: {}), try to cancel query. "
+            "Query memory usage: {}, limit: {}, reserved "
+            "size: {}, try to reserve: {}, wg info: {}."
+            " Maybe you should set the workload group's limit to a lower value. {}",
+            query_id, time_in_queue, config::spill_in_paused_queue_timeout_ms,
+            exceed_hard_mem_limit, has_running_task, PrettyPrinter::print_bytes(memory_usage),
+            PrettyPrinter::print_bytes(requestor->memory_context()->mem_limit()),
+            PrettyPrinter::print_bytes(requestor->memory_context()->reserved_consumption()),
+            PrettyPrinter::print_bytes(size_to_reserve), wg->memory_debug_string(),
+            doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str());
+    LOG_LONG_STRING(INFO, error_status.to_string());
+    requestor->task_controller()->cancel(error_status);
+    return true;
 }
 
 void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit) {

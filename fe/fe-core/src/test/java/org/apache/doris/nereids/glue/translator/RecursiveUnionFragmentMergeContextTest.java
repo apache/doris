@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.glue.translator;
 
-import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.BucketedAggregationNode;
+import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.RecursiveCteNode;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
@@ -40,18 +42,19 @@ import java.util.stream.Collectors;
  * A recursive union absorbs its children's fragments: visitPhysicalRecursiveUnion merges the child
  * fragments into its own fragment and setPlanRoot then rewrites the fragment ownership of the child
  * plan trees, stopping only at an exchange. It is therefore a fragment-merging node exactly like a
- * join or a set operation, and it has to translate its children inside
+ * join or a set operation, and it translates its children inside
  * PlanTranslatorContext#enterFragmentMergeChild / #exitFragmentMergeChild.
  *
  * <p>Bucketed aggregation fusion deletes the exchange between a one-phase GLOBAL aggregate and its
- * distribute -> olap scan child, and that exchange is the only thing that keeps the scan in a
- * fragment of its own. Fusing inside a fragment-merging child hands the scan over to the merging
- * parent, so two olap scans end up in the same fragment and the scan assignment rejects it with
- * "Not supported multiple scan multiple OlapTable but not contains colocate join or bucket shuffle
- * join". The recursive union is the only merging entry point that did not declare that context, so
- * its base case was fused anyway: the exchange that keeps the merge legal survived only because the
- * property enforcer happens to insert a gather exchange above that child. This test pins the
- * translator contract itself instead of relying on that non-local fact.
+ * distribute -> olap scan child. Fusing an aggregate that a merging node consumes directly would
+ * hand the scan over to the merging parent, so two olap scans could end up in the same fragment and
+ * the scan assignment would reject it with "Not supported multiple scan multiple OlapTable but not
+ * contains colocate join or bucket shuffle join". A distribute between the merging node and the
+ * aggregate is an exchange boundary, though: visitPhysicalDistribute clears the fragment-merge
+ * context below it, because its exchange keeps the fused fragment apart from the merging parent.
+ * The recursive union requests GATHER from its children, so its base case aggregate always sits
+ * below such a gather exchange: it is fused, the exchange survives, and the recursive union
+ * fragment keeps a single olap scan. This test pins that contract on the translator itself.
  */
 public class RecursiveUnionFragmentMergeContextTest extends TestWithFeService {
 
@@ -75,7 +78,7 @@ public class RecursiveUnionFragmentMergeContextTest extends TestWithFeService {
     }
 
     @Test
-    public void testRecursiveUnionChildIsNotFusedIntoBucketedAggregation() throws Exception {
+    public void testRecursiveUnionChildIsFusedBelowItsGatherExchange() throws Exception {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         int oldAggPhase = sessionVariable.aggPhase;
         int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
@@ -95,9 +98,9 @@ public class RecursiveUnionFragmentMergeContextTest extends TestWithFeService {
             sessionVariable.enableBucketShuffleJoin = false;
             sessionVariable.parallelPipelineTaskNum = 1;
 
-            // Positive control: the same aggregate outside a recursive union is still fused, which
-            // proves bucketed fusion is enabled here and keeps the assertion below from passing
-            // vacuously. Both queries go through EXPLAIN so that the test only exercises planning.
+            // Positive control: the same aggregate outside a recursive union is fused, which
+            // proves bucketed fusion is enabled here. Both queries go through EXPLAIN so that the
+            // test only exercises planning.
             Planner plainPlanner = getSQLPlanner("EXPLAIN SELECT k, SUM(v) AS sv"
                     + " FROM recursive_union_fragment_merge_test.base_table GROUP BY k");
             Assertions.assertFalse(collectNodes(plainPlanner, BucketedAggregationNode.class).isEmpty(),
@@ -105,13 +108,25 @@ public class RecursiveUnionFragmentMergeContextTest extends TestWithFeService {
                             + explain(plainPlanner));
 
             Planner planner = getSQLPlanner("EXPLAIN " + RECURSIVE_CTE_QUERY);
-            Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty(),
-                    "the base case of a recursive union is consumed by a fragment merging node, so the"
-                            + " exchange that keeps its olap scan in its own fragment must survive: "
-                            + explain(planner));
-            // Non-vacuity: the base case aggregate is still translated, just as a regular aggregate.
-            Assertions.assertFalse(collectNodes(planner, AggregationNode.class).isEmpty(),
-                    "base case aggregate should fall back to a regular aggregation: " + explain(planner));
+            String explain = explain(planner);
+            List<BucketedAggregationNode> bucketedNodes = collectNodes(planner, BucketedAggregationNode.class);
+            Assertions.assertEquals(1, bucketedNodes.size(),
+                    "the base case aggregate sits below the gather exchange the recursive union requests,"
+                            + " so it is fused: " + explain);
+            List<RecursiveCteNode> recursiveCteNodes = collectNodes(planner, RecursiveCteNode.class);
+            Assertions.assertEquals(1, recursiveCteNodes.size(), explain);
+            // The exchange survives, so the fused fragment is not absorbed by the recursive union.
+            Assertions.assertNotSame(recursiveCteNodes.get(0).getFragment(), bucketedNodes.get(0).getFragment(),
+                    "the fused aggregate must stay in a fragment of its own: " + explain);
+            Assertions.assertTrue(bucketedNodes.get(0).getFragment().getDestNode() instanceof ExchangeNode,
+                    "the fused fragment must feed the recursive union through an exchange: " + explain);
+            for (PlanFragment fragment : planner.getFragments()) {
+                PlanNode root = fragment.getPlanRoot();
+                if (root != null) {
+                    Assertions.assertTrue(countOlapScansInFragment(root) <= 1,
+                            "fragment " + fragment.getId() + " has more than one olap scan: " + explain);
+                }
+            }
         } finally {
             sessionVariable.aggPhase = oldAggPhase;
             sessionVariable.setBeNumberForTest(oldBeNumberForTest);
@@ -122,6 +137,18 @@ public class RecursiveUnionFragmentMergeContextTest extends TestWithFeService {
             sessionVariable.enableBucketShuffleJoin = oldEnableBucketShuffleJoin;
             sessionVariable.parallelPipelineTaskNum = oldParallelPipelineTaskNum;
         }
+    }
+
+    /** Exchange nodes are fragment boundaries and are not descended. */
+    private static int countOlapScansInFragment(PlanNode node) {
+        if (node instanceof ExchangeNode) {
+            return 0;
+        }
+        int count = node instanceof OlapScanNode ? 1 : 0;
+        for (PlanNode child : node.getChildren()) {
+            count += countOlapScansInFragment(child);
+        }
+        return count;
     }
 
     /**

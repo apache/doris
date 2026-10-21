@@ -99,13 +99,16 @@ class FlushToken : public std::enable_shared_from_this<FlushToken> {
     ENABLE_FACTORY_CREATOR(FlushToken);
 
 public:
-    FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr)
-            : _flush_status(Status::OK()), _thread_pool(thread_pool), _wg_wptr(wg_sptr) {}
+    FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr,
+               std::shared_ptr<AtomicStatus> load_cancel_status = nullptr)
+            : _flush_status(Status::OK()),
+              _load_cancel_status(std::move(load_cancel_status)),
+              _thread_pool(thread_pool),
+              _wg_wptr(wg_sptr) {}
 
     Status submit(std::shared_ptr<MemTable> mem_table);
 
-    // error has happens, so we cancel this token
-    // And remove all tasks in the queue.
+    // Stop flush work and wait for running tasks. Queued tasks skip flushing when dispatched.
     void cancel();
 
     // wait all tasks in token to be completed.
@@ -125,6 +128,8 @@ public:
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
 private:
+    Status _get_load_cancel_status() const;
+
     void _shutdown_flush_token() { _shutdown.store(true); }
     bool _is_shutdown() { return _shutdown.load(); }
     void _wait_submit_task_finish();
@@ -155,6 +160,7 @@ private:
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     std::shared_mutex _flush_status_lock;
     Status _flush_status;
+    const std::shared_ptr<AtomicStatus> _load_cancel_status;
 
     FlushStatistic _stats;
 
@@ -198,7 +204,8 @@ public:
     Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
                               std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority,
                               std::shared_ptr<WorkloadGroup> wg_sptr,
-                              std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr);
+                              std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr,
+                              std::shared_ptr<AtomicStatus> load_cancel_status = nullptr);
 
     // return true if it already has any flushing task
     bool check_and_inc_has_any_flushing_task() {

@@ -47,7 +47,7 @@ DEFAULT_HEADERS = [
     "storage/index/zone_map/zone_map_index.h",
     "exprs/expr_zonemap_filter.h",
     "storage/index/inverted/inverted_index_iterator.h",
-    "storage/index/inverted/inverted_index_parser.h",
+    "storage/index/inverted/analysis/inverted_index_parser.h",
     "storage/tablet/tablet_schema.h",
     "util/pretty_printer.h",
     "exprs/function/function.h",

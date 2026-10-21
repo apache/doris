@@ -41,8 +41,8 @@
 #include "core/extended_types.h"
 #include "io/io_common.h"
 #include "storage/field_type.h"
-#include "storage/index/inverted/inverted_index_stats.h"
-#include "storage/index/snii/snii_query_stats.h"
+#include "storage/index/inverted/common/inverted_index_stats.h"
+#include "storage/index/inverted/common/snii_query_stats.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset_id.h"
@@ -379,6 +379,8 @@ struct OlapReaderStatistics {
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
+    // number of condition cache lookups, including misses
+    int64_t condition_cache_lookup_count = 0;
     // number of segment with condition cache hit
     int64_t condition_cache_hit_seg_nums = 0;
     // number of rows filtered by condition cache hit

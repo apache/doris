@@ -170,6 +170,10 @@ public class StreamLoadHandler {
     }
 
     private UserIdentity resolveCloudLoadUserIdentity(String userName) throws UserException {
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, request.getUserIp()) != null) {
+            throw new UserException("Authentication-bound users must authenticate through their integration");
+        }
+
         CertificateAuthDecision certDecision = StreamLoadCertificateAuthHelper.authenticateForwarded(
                 CERT_RUNTIME_AUTH_SERVICE,
                 userName,
@@ -183,7 +187,8 @@ public class StreamLoadHandler {
 
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
-            if (certDecision.shouldSkipPasswordVerification()) {
+            if (certDecision.shouldSkipPasswordVerification()
+                    && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
                 return certDecision.getUserIdentity();
             }
             if (certDecision.isVerified()) {
@@ -243,13 +248,6 @@ public class StreamLoadHandler {
         if (tables.isEmpty()) {
             throw new MetaNotFoundException("table not found");
         }
-
-        if (result != null) {
-            OlapTable olapTable = tables.get(0);
-            result.setDbId(db.getId());
-            result.setTableId(olapTable.getId());
-            result.setBaseSchemaVersion(olapTable.getBaseSchemaVersion());
-        }
     }
 
     /**
@@ -295,6 +293,11 @@ public class StreamLoadHandler {
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
             result.setEnableTso(table.enableTso());
+            if (this.result != null && fragmentParams.isEmpty()) {
+                this.result.setDbId(db.getId());
+                this.result.setTableId(table.getId());
+                this.result.setBaseSchemaVersion(table.getBaseSchemaVersion());
+            }
             fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {

@@ -61,7 +61,6 @@ namespace doris {
 
 class VExpr;
 class VExprContext;
-struct RowLocation;
 
 namespace segment_v2 {
 
@@ -73,18 +72,13 @@ class SegmentIterator : public RowwiseIterator {
 public:
     // Within SegmentIterator, ColumnId means an ordinal in the read schema.
     // Storage UIDs and caller-visible Block positions are named explicitly.
-    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema,
+                    const StorageReadOptions& opts);
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();
     [[nodiscard]] Status init(const StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(Block* block) override;
-
-    // Get current block row locations. This function should be called
-    // after the `next_batch` function.
-    // Only vectorized version is supported.
-    [[nodiscard]] Status current_block_row_locations(
-            std::vector<RowLocation>* block_row_locations) override;
 
     const ReadSchema& schema() const override { return *_schema; }
     uint64_t data_id() const override { return _segment->id(); }
@@ -204,8 +198,6 @@ private:
 
     [[nodiscard]] Status _read_columns_by_index(const std::vector<ColumnId>& read_ordinals,
                                                 uint32_t nrows_read_limit, uint16_t& nrows_read);
-    void _replace_version_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
-    void _update_tso_col_if_needed(const std::vector<ColumnId>& ordinals, size_t num_rows);
     Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
@@ -445,8 +437,9 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    // used for compaction, record selectd rowids of current batch
+    // Number of selected rows in the current batch.
     uint16_t _selected_size;
+    // Positions of selected rows within the current batch.
     std::vector<uint16_t> _sel_rowid_idx;
 
     // Rows already produced by this iterator. Used together with

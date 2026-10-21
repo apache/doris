@@ -123,7 +123,7 @@ suite("test_mc_write_catalog_block_bytes", "p2,external") {
             sql """SWITCH ${catalogName}"""
             sql """DROP DATABASE IF EXISTS ${db}"""
             sql """CREATE DATABASE ${db}"""
-            sql """USE ${db}"""
+            retry(10, 1000) { sql """USE ${db}""" }
             sql """DROP TABLE IF EXISTS ${tb}"""
             sql """
             CREATE TABLE ${tb} (

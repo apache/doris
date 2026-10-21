@@ -56,21 +56,19 @@ namespace {
 
 constexpr size_t DECIMAL_SCALE_COUNT = DataTypeDecimal128::max_precision() + 1;
 
-enum GroupIndex : size_t {
-    INVALID_GROUP = 0,
-    BOOL_GROUP = INVALID_GROUP + 1,
-    INT_GROUP = BOOL_GROUP + 1,
-    FLOAT_GROUP = INT_GROUP + 1,
-    DOUBLE_GROUP = FLOAT_GROUP + 1,
-    DECIMAL_GROUP_BEGIN = DOUBLE_GROUP + 1,
-    DATE_GROUP = DECIMAL_GROUP_BEGIN + DECIMAL_SCALE_COUNT,
-    TIMESTAMP_NTZ_GROUP = DATE_GROUP + 1,
-    TIMESTAMP_NANOS_GROUP = TIMESTAMP_NTZ_GROUP + 1,
-    TIMESTAMP_TZ_GROUP = TIMESTAMP_NANOS_GROUP + 1,
-    STRING_GROUP = TIMESTAMP_TZ_GROUP + 1,
-    UUID_GROUP = STRING_GROUP + 1,
-    GROUP_COUNT = UUID_GROUP + 1,
-};
+constexpr size_t INVALID_GROUP = 0;
+constexpr size_t BOOL_GROUP = INVALID_GROUP + 1;
+constexpr size_t INT_GROUP = BOOL_GROUP + 1;
+constexpr size_t FLOAT_GROUP = INT_GROUP + 1;
+constexpr size_t DOUBLE_GROUP = FLOAT_GROUP + 1;
+constexpr size_t DECIMAL_GROUP_BEGIN = DOUBLE_GROUP + 1;
+constexpr size_t DATE_GROUP = DECIMAL_GROUP_BEGIN + DECIMAL_SCALE_COUNT;
+constexpr size_t TIMESTAMP_NTZ_GROUP = DATE_GROUP + 1;
+constexpr size_t TIMESTAMP_NANOS_GROUP = TIMESTAMP_NTZ_GROUP + 1;
+constexpr size_t TIMESTAMP_TZ_GROUP = TIMESTAMP_NANOS_GROUP + 1;
+constexpr size_t STRING_GROUP = TIMESTAMP_TZ_GROUP + 1;
+constexpr size_t UUID_GROUP = STRING_GROUP + 1;
+constexpr size_t GROUP_COUNT = UUID_GROUP + 1;
 
 struct ScalarGroup {
     DataTypePtr type;
@@ -502,7 +500,12 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
     }
     ColumnPtr null_map = std::move(nulls);
     ColumnPtr nullable = ColumnNullable::create(source, null_map);
-    *output = ColumnVariantV2::create_typed(std::move(nullable), source_type);
+    auto typed = ColumnVariantV2::create_typed(std::move(nullable), source_type);
+    // A scalar column can hold values Variant cannot, such as a string that is not UTF-8. Reject
+    // them here, as encoding would, so the typed state never compares or hashes a value that its
+    // encoded form could not hold. The CAST wrapper turns the exception into the statement error.
+    typed->validate_typed_rows();
+    *output = std::move(typed);
     return Status::OK();
 }
 

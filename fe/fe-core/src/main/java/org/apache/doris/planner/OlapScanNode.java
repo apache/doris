@@ -1154,9 +1154,8 @@ public class OlapScanNode extends ScanNode {
         return scanRangeLocations;
     }
 
-    @VisibleForTesting
-    static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
-            ComputeGroup computeGroup, String beTagName) {
+    public static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup,
+            boolean isNotCloudComputeGroup, ComputeGroup computeGroup, String beTagName) {
         return isInvalidComputeGroup
                 || (Config.enable_resource_tag_location_check
                         && isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName));
@@ -1528,6 +1527,7 @@ public class OlapScanNode extends ScanNode {
         if (hasRfDrivingBucketPruning()) {
             setRuntimeFilterBucketPruneParameters();
         }
+        setScanKeyBucketPruneParameters(msg.olap_scan_node);
         super.toThrift(msg);
     }
 
@@ -1585,6 +1585,35 @@ public class OlapScanNode extends ScanNode {
             }
         }
         return false;
+    }
+
+    @VisibleForTesting
+    synchronized void setScanKeyBucketPruneParameters(TOlapScanNode node) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null || !context.getSessionVariable().enableScanKeyBucketPrune
+                || isPointQuery() || tableSample != null || scanParams != null
+                || olapTable instanceof OlapTableWrapper
+                || selectedIndexId != olapTable.getBaseIndexId()
+                || olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                || !(olapTable.getDefaultDistributionInfo() instanceof HashDistributionInfo)
+                || olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            return;
+        }
+        List<Column> keys = olapTable.getKeyColumnsByIndexId(selectedIndexId);
+        List<Column> distributionColumns =
+                ((HashDistributionInfo) olapTable.getDefaultDistributionInfo()).getDistributionColumns();
+        if (keys.size() != 1 || distributionColumns.size() != 1
+                || !keys.get(0).equals(distributionColumns.get(0))
+                || !keys.get(0).getType().isVarchar() || keys.get(0).isAllowNull()) {
+            return;
+        }
+        setRuntimeFilterBucketPruneParameters();
+        // Missing metadata can deliberately disable attachment (e.g. the debug point).
+        // Do not attest eligibility unless every range has its full bucket ordinal/count.
+        if (scanRangeLocations.stream().allMatch(locations ->
+                locations.getScanRange().getPaloScanRange().isSetBucketNum())) {
+            node.setEnableScanKeyBucketPrune(true);
+        }
     }
 
     @VisibleForTesting

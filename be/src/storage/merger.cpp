@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -37,7 +38,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_string.h"
 #include "runtime/runtime_state.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/iterator/vertical_block_reader.h"
@@ -96,6 +99,30 @@ Status set_key_range(TabletReader::ReaderParams* reader_params, const TabletSche
     return Status::OK();
 }
 
+// Extract row locations from the rowid column and remove it from the output block.
+Block prepare_compaction_output_block(const Block& block, int32_t rowid_ordinal,
+                                      std::vector<RowLocation>* row_locations) {
+    DORIS_CHECK_GE(rowid_ordinal, 0);
+    auto ordinal = static_cast<size_t>(rowid_ordinal);
+    DORIS_CHECK_LT(ordinal, block.columns());
+    const auto& rowid_column =
+            assert_cast<const ColumnString&>(*block.get_by_position(ordinal).column);
+    DORIS_CHECK_EQ(rowid_column.size(), block.rows());
+    row_locations->clear();
+    row_locations->reserve(rowid_column.size());
+    for (size_t i = 0; i < rowid_column.size(); ++i) {
+        const auto rowid = rowid_column.get_data_at(i);
+        DORIS_CHECK_EQ(rowid.size, sizeof(RowLocation));
+        RowLocation location;
+        std::memcpy(&location, rowid.data, sizeof(RowLocation));
+        row_locations->emplace_back(location);
+    }
+
+    Block output_block = block;
+    output_block.erase(ordinal);
+    return output_block;
+}
+
 } // namespace
 
 Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
@@ -148,16 +175,24 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
-    if (stats_output && stats_output->rowid_conversion) {
-        reader_params.record_rowids = true;
+    const bool convert_rowids =
+            stats_output != nullptr && stats_output->rowid_conversion != nullptr;
+    if (convert_rowids) {
+        DORIS_CHECK_NE(cur_tablet_schema.keys_type(), KeysType::AGG_KEYS);
+        DORIS_CHECK(!cur_tablet_schema.has_seq_map());
         reader_params.rowid_conversion = stats_output->rowid_conversion;
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.read_schema = std::make_shared<ReadSchema>(cur_tablet_schema.columns());
+    if (convert_rowids) {
+        reader_params.read_schema->append_compaction_rowid_column();
+    }
     RETURN_IF_ERROR(reader.init(reader_params));
 
     Block block = reader_params.read_schema->create_read_block();
+    const auto rowid_ordinal = reader_params.read_schema->rowid_ordinal();
+    std::vector<RowLocation> row_locations;
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
@@ -175,15 +210,23 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
-        RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&block),
-                                       "failed to write block when merging rowsets of tablet " +
-                                               std::to_string(tablet->tablet_id()));
+        if (convert_rowids) {
+            Block output_block =
+                    prepare_compaction_output_block(block, rowid_ordinal, &row_locations);
+            RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&output_block),
+                                           "failed to write block when merging rowsets of tablet " +
+                                                   std::to_string(tablet->tablet_id()));
 
-        if (reader_params.record_rowids && block.rows() > 0) {
-            std::vector<uint32_t> segment_num_rows;
-            RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-            RETURN_IF_ERROR(stats_output->rowid_conversion->add(
-                    reader.current_block_row_locations(), segment_num_rows));
+            if (block.rows() > 0) {
+                std::vector<uint32_t> segment_num_rows;
+                RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+                RETURN_IF_ERROR(
+                        stats_output->rowid_conversion->add(row_locations, segment_num_rows));
+            }
+        } else {
+            RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&block),
+                                           "failed to write block when merging rowsets of tablet " +
+                                                   std::to_string(tablet->tablet_id()));
         }
 
         output_rows += block.rows();
@@ -344,18 +387,26 @@ Status Merger::vertical_compact_one_group(
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
-    if (is_key && stats_output && stats_output->rowid_conversion) {
-        reader_params.record_rowids = true;
+    const bool convert_rowids =
+            is_key && stats_output != nullptr && stats_output->rowid_conversion != nullptr;
+    if (convert_rowids) {
+        DORIS_CHECK_NE(tablet_schema.keys_type(), KeysType::AGG_KEYS);
+        DORIS_CHECK(!tablet_schema.has_seq_map());
         reader_params.rowid_conversion = stats_output->rowid_conversion;
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema.columns(), column_group));
+    if (convert_rowids) {
+        reader_params.read_schema->append_compaction_rowid_column();
+    }
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 
     Block block = reader_params.read_schema->create_read_block();
+    const auto rowid_ordinal = reader_params.read_schema->rowid_ordinal();
+    std::vector<RowLocation> row_locations;
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
@@ -372,17 +423,27 @@ Status Merger::vertical_compact_one_group(
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment,
-                                               has_cluster_key),
-                "failed to write block when merging rowsets of tablet " +
-                        std::to_string(tablet->tablet_id()));
+        if (convert_rowids) {
+            Block output_block =
+                    prepare_compaction_output_block(block, rowid_ordinal, &row_locations);
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    dst_rowset_writer->add_columns(&output_block, column_group, is_key,
+                                                   max_rows_per_segment, has_cluster_key),
+                    "failed to write block when merging rowsets of tablet " +
+                            std::to_string(tablet->tablet_id()));
 
-        if (is_key && reader_params.record_rowids && block.rows() > 0) {
-            std::vector<uint32_t> segment_num_rows;
-            RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
-            RETURN_IF_ERROR(stats_output->rowid_conversion->add(
-                    reader.current_block_row_locations(), segment_num_rows));
+            if (block.rows() > 0) {
+                std::vector<uint32_t> segment_num_rows;
+                RETURN_IF_ERROR(dst_rowset_writer->get_segment_num_rows(&segment_num_rows));
+                RETURN_IF_ERROR(
+                        stats_output->rowid_conversion->add(row_locations, segment_num_rows));
+            }
+        } else {
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    dst_rowset_writer->add_columns(&block, column_group, is_key,
+                                                   max_rows_per_segment, has_cluster_key),
+                    "failed to write block when merging rowsets of tablet " +
+                            std::to_string(tablet->tablet_id()));
         }
         output_rows += block.rows();
         block.clear_column_data();
@@ -420,8 +481,10 @@ Status Merger::vertical_compact_one_group(
         RowSourcesBuffer* row_source_buf, VerticalBlockReader& src_block_reader,
         segment_v2::VerticalSegmentWriter& dst_segment_writer, Statistics* stats_output,
         uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion) {
-    // TODO: record_rowids
     Block block = read_schema.create_read_block();
+    const auto rowid_ordinal = read_schema.rowid_ordinal();
+    const bool convert_rowids = is_key && rowid_conversion != nullptr;
+    std::vector<RowLocation> row_locations;
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
@@ -432,12 +495,18 @@ Status Merger::vertical_compact_one_group(
         if (!block.rows()) {
             break;
         }
-        RETURN_NOT_OK_STATUS_WITH_WARN(dst_segment_writer.append_block(&block, 0, block.rows()),
-                                       "failed to write block when merging rowsets of tablet " +
-                                               std::to_string(tablet_id));
-
-        if (is_key && rowid_conversion != nullptr) {
-            rowid_conversion->add(src_block_reader.current_block_row_locations());
+        if (convert_rowids) {
+            Block output_block =
+                    prepare_compaction_output_block(block, rowid_ordinal, &row_locations);
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    dst_segment_writer.append_block(&output_block, 0, output_block.rows()),
+                    "failed to write block when merging rowsets of tablet " +
+                            std::to_string(tablet_id));
+            rowid_conversion->add(row_locations);
+        } else {
+            RETURN_NOT_OK_STATUS_WITH_WARN(dst_segment_writer.append_block(&block, 0, block.rows()),
+                                           "failed to write block when merging rowsets of tablet " +
+                                                   std::to_string(tablet_id));
         }
         output_rows += block.rows();
         block.clear_column_data();
@@ -706,8 +775,9 @@ Status Merger::vertical_merge_rowsets(
             const auto& col = tablet_schema.column(col_ordinal);
             int32_t uid = col.unique_id();
 
-            // Variant columns (root or subcolumn): raw_data_bytes is 0 (TODO in writer),
-            // cannot estimate from footer, fallback to default for the entire group.
+            // Variant columns (root or subcolumn): subcolumns written as columns of their own
+            // (e.g. by compaction) are not counted in the root's raw_data_bytes, cannot estimate
+            // from footer, fallback to default for the entire group.
             if (uid < 0 || col.is_variant_type()) {
                 need_fallback = true;
                 break;

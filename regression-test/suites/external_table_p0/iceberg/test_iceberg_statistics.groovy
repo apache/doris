@@ -19,6 +19,8 @@ suite("test_iceberg_statistics", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
+            // Pin the display zone for TIMESTAMPTZ statistics.
+            sql """set time_zone = 'Asia/Shanghai'"""
             String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
             String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

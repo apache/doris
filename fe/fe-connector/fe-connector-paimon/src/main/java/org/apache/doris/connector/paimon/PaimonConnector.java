@@ -216,9 +216,11 @@ public class PaimonConnector implements Connector {
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageHadoopConfig) {
-        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
-            return HadoopAuthenticator.getHadoopAuthenticator(
-                    PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
+        // Storage bindings normalize hdfs.authentication.* and XML settings into Hadoop keys.
+        // Gating on the raw legacy key would leave FileIO using the plugin's unauthenticated UGI.
+        Configuration conf = PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+        if ("kerberos".equalsIgnoreCase(conf.get(HADOOP_SECURITY_AUTHENTICATION))) {
+            return HadoopAuthenticator.getHadoopAuthenticator(conf);
         }
         return null;
     }
@@ -566,7 +568,7 @@ public class PaimonConnector implements Connector {
                         metaCache.hasEnclosingWeightLimit());
             });
         } catch (Exception e) {
-            throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
+            throw PaimonExceptionUtils.catalogCreationFailure(failureMessage + " (flavor=" + flavor + ")", e);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }

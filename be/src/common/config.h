@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -1354,6 +1355,7 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
@@ -1618,15 +1620,14 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
-// Treat invalid json format str as string, instead of throwing exception if false
-DECLARE_mBool(variant_throw_exeception_on_invalid_json);
-// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
-DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 DECLARE_mInt32(variant_storage_parse_mode);

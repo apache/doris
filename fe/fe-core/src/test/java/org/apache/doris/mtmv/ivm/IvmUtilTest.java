@@ -26,12 +26,24 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
+import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -69,6 +81,12 @@ class IvmUtilTest {
         VarcharLiteral rowStore = (VarcharLiteral) IvmUtil.getCommonHiddenSlotDefault(
                 Column.ROW_STORE_COL, VarcharType.SYSTEM_DEFAULT);
         Expression skipBitmap = IvmUtil.getCommonHiddenSlotDefault(Column.SKIP_BITMAP_COL, BitmapType.INSTANCE);
+        // A base table's sequence column may be a date type. Its hidden slot must get a non-null
+        // zero value like every other hidden slot type, not fail the refresh rewrite.
+        DateTimeV2Literal dateTimeSequence = (DateTimeV2Literal) IvmUtil.getCommonHiddenSlotDefault(
+                Column.SEQUENCE_COL, DateTimeV2Type.of(6));
+        DateV2Literal dateSequence = (DateV2Literal) IvmUtil.getCommonHiddenSlotDefault(
+                Column.SEQUENCE_COL, DateV2Type.INSTANCE);
         Assertions.assertEquals((byte) 0, deleteSign.getValue());
         Assertions.assertEquals(0L, version.getValue());
         Assertions.assertEquals(0L, sequence.getValue());
@@ -76,6 +94,54 @@ class IvmUtilTest {
         Assertions.assertEquals(0L, commitTso.getValue());
         Assertions.assertEquals("", rowStore.getStringValue());
         Assertions.assertInstanceOf(BitmapEmpty.class, skipBitmap);
+        Assertions.assertEquals(DateTimeV2Type.of(6), dateTimeSequence.getDataType());
+        Assertions.assertEquals(0L, dateTimeSequence.getYear());
+        Assertions.assertEquals(1L, dateTimeSequence.getMonth());
+        Assertions.assertEquals(1L, dateTimeSequence.getDay());
+        Assertions.assertEquals(0L, dateTimeSequence.getHour());
+        Assertions.assertEquals(0L, dateTimeSequence.getMicroSecond());
+        Assertions.assertEquals(DateV2Type.INSTANCE, dateSequence.getDataType());
+        Assertions.assertEquals(0L, dateSequence.getYear());
+        Assertions.assertEquals(1L, dateSequence.getMonth());
+        Assertions.assertEquals(1L, dateSequence.getDay());
+    }
+
+    @Test
+    void testZeroValueForEveryType() {
+        // Every data type a hidden slot can have owns a non-null zero value.
+        Assertions.assertEquals(TinyIntType.INSTANCE, TinyIntType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, BigIntType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(LargeIntType.INSTANCE, LargeIntType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT,
+                VarcharType.SYSTEM_DEFAULT.zeroValue().get().getDataType());
+        Assertions.assertEquals(StringType.INSTANCE, StringType.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(DateV2Type.INSTANCE, DateV2Type.INSTANCE.zeroValue().get().getDataType());
+        Assertions.assertEquals(DateTimeV2Type.of(6), DateTimeV2Type.of(6).zeroValue().get().getDataType());
+        Assertions.assertInstanceOf(BitmapEmpty.class, BitmapType.INSTANCE.zeroValue().get());
+        Assertions.assertInstanceOf(IPv4Literal.class, IPv4Type.INSTANCE.zeroValue().get());
+        Assertions.assertInstanceOf(IPv6Literal.class, IPv6Type.INSTANCE.zeroValue().get());
+        JsonLiteral jsonZeroValue = (JsonLiteral) JsonType.INSTANCE.zeroValue().get();
+        Assertions.assertEquals("null", jsonZeroValue.getValue());
+        Assertions.assertFalse(jsonZeroValue.nullable());
+        // Zero must be legal even when it occupies no integer digit, e.g. DECIMAL(p, p).
+        DecimalV2Type decimalV2 = DecimalV2Type.createDecimalV2Type(9, 9);
+        Assertions.assertEquals(decimalV2, decimalV2.zeroValue().get().getDataType());
+        DecimalV3Type decimalV3 = DecimalV3Type.createDecimalV3Type(9, 9);
+        Assertions.assertEquals(decimalV3, decimalV3.zeroValue().get().getDataType());
+    }
+
+    @Test
+    void testBaseScanStorageColumnToMask() {
+        Assertions.assertTrue(IvmUtil.isBaseScanStorageColumnToMask(Column.SEQUENCE_COL));
+        Assertions.assertTrue(IvmUtil.isBaseScanStorageColumnToMask(Column.SEQUENCE_COL.toLowerCase()));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.DELETE_SIGN));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.VERSION_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.COMMIT_TSO_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.ROW_LSN_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.ROW_STORE_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(Column.IVM_ROW_ID_COL));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask("id"));
+        Assertions.assertFalse(IvmUtil.isBaseScanStorageColumnToMask(null));
     }
 
     private SlotReference intSlot(String name, boolean nullable) {

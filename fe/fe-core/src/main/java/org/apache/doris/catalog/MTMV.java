@@ -111,7 +111,7 @@ public class MTMV extends OlapTable {
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
     @SerializedName("ii")
-    private IvmInfo ivmInfo = new IvmInfo();
+    private volatile IvmInfo ivmInfo = new IvmInfo();
     /**
      * The refresh epoch of every MV partition, keyed by MV partition name.
      *
@@ -159,11 +159,15 @@ public class MTMV extends OlapTable {
         this.ivmInfo = new IvmInfo();
         this.ivmInfo.setEnableIvm(params.enableIvm);
         if (params.enableIvm) {
-            this.ivmInfo.setUseFullKeys(MTMVPropertyUtil.isIvmUseFullKeys(params.mvProperties));
-            if (params.ivmPlanSignature == null) {
-                throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+            // The unique-key model pins the layout its refresh reads down by a signature, so an MV of that
+            // model without one is a bug in the create path. An append-only detail MV publishes none: its
+            // refresh reads no layout, and it has no sequence column for a signature to order either.
+            if (params.keysType != KeysType.DUP_KEYS) {
+                if (params.ivmPlanSignature == null) {
+                    throw new IllegalArgumentException("IVM materialized view requires a plan signature");
+                }
+                this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
             }
-            this.ivmInfo.setPlanSignature(params.ivmPlanSignature);
         }
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;
@@ -219,13 +223,25 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
+    /**
+     * Applies an ALTER_REFRESH_INFO op and journals it under one MV write lock, so that the record
+     * order is the order the change took effect in (see {@link #submitAlterLog}). The journal write
+     * itself is awaited by the caller after the lock is released.
+     *
+     * @return the pending journal entry, or null on replay (which has nothing to record)
+     */
+    public EditLogItem alterRefreshInfo(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem = null;
         writeMvLock();
         try {
-            return refreshInfo.updateNotNull(newRefreshInfo);
+            refreshInfo.updateNotNull(alterMTMV.getRefreshInfo());
+            if (!isReplay) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
         } finally {
             writeMvUnlock();
         }
+        return editLogItem;
     }
 
     /**
@@ -234,37 +250,102 @@ public class MTMV extends OlapTable {
      * the transparent rewrite serving rows from it.
      *
      * <p>This is the step that <em>applies</em> a change, not the one that records it -- it takes the MV
-     * lock and moves all three, but nothing here is journaled. It is what {@code Alter#processAlterMTMV}
-     * calls for an {@code ALTER_STATUS} op, both live and on replay; a live caller reaches it through
+     * lock and moves all three, but nothing here is journaled. {@code Alter#processAlterMTMV} uses the
+     * overload that journals under the same lock; a live invalidation reaches it through
      * {@link #invalidateWholeMv}, which goes the journaled way round. A new invalidation belongs there:
-     * calling this directly would leave the MV in a state a restart forgets.
+     * calling this directly would leave the MV in a state a restart forgets. The one caller that goes
+     * direct is {@link #processBaseViewChange}, and it is not new: the alter or the drop of the view is
+     * journaled, and a replay runs that hook along with it.
+     *
+     * <p>An image that is loaded and turns out to be unusable sets the state on its own, see
+     * {@link #compatible} and {@link #gsonPostProcess}: there is no change behind it to record, and nothing
+     * a replay could apply it against.
      */
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            // only can update state, refresh state will be change by add task
-            this.schemaChangeVersion++;
-            this.refreshSnapshot = new MTMVRefreshSnapshot();
-            return this.status.updateStateAndDetail(newStatus);
+            return applyStatus(newStatus);
         } finally {
             writeMvUnlock();
         }
     }
 
-    public void processBaseViewChange(String schemaChangeDetail) {
+    /**
+     * Applies an ALTER_STATUS op and journals it under one MV write lock. An ALTER_STATUS is applied
+     * together with what it stands for -- the version bump and the snapshot drop -- and the record has
+     * to describe that same step, not a later one: a result journaled in between would be replayed on
+     * either side of it.
+     *
+     * @return the pending journal entry, or null on replay (which has nothing to record)
+     */
+    public EditLogItem alterStatus(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem = null;
         writeMvLock();
         try {
-            this.schemaChangeVersion++;
-            this.status.setState(MTMVState.SCHEMA_CHANGE);
-            this.status.setSchemaChangeDetail(schemaChangeDetail);
-            this.refreshSnapshot = new MTMVRefreshSnapshot();
+            applyStatus(alterMTMV.getStatus());
+            if (!isReplay) {
+                editLogItem = submitAlterLog(alterMTMV);
+            }
         } finally {
             writeMvUnlock();
         }
+        return editLogItem;
+    }
+
+    // Assumes the MV write lock is held.
+    private MTMVStatus applyStatus(MTMVStatus newStatus) {
+        // only can update state, refresh state will be change by add task
+        this.schemaChangeVersion++;
+        this.refreshSnapshot = new MTMVRefreshSnapshot();
+        return this.status.updateStateAndDetail(newStatus);
+    }
+
+    /**
+     * Invalidates the whole MV for a change to one of the base views it reads.
+     *
+     * <p>Applied through {@link #alterStatus}, so that the three things an invalidation moves are moved in
+     * one place whatever carried it: the state the refresh reads, the version that discards a task result
+     * computed against it, and the snapshot drop that stops the transparent rewrite serving rows from it.
+     *
+     * <p>It records nothing, and that is not an omission: what is journaled is the change to the view, and
+     * a replay re-runs this hook along with it. A record here would apply the invalidation a second time on
+     * a follower -- including the version bump, which the leader moved once.
+     */
+    public void processBaseViewChange(String schemaChangeDetail) {
+        alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, schemaChangeDetail));
     }
 
     public boolean isIvm() {
         return getIvmInfo().isEnableIvm();
+    }
+
+    /**
+     * Whether this MV is an IVM MV built as UNIQUE KEY + merge-on-write, which is one of the two table
+     * models: it is maintained through the hidden row-id, and the layout its refresh reads is pinned
+     * down by a plan signature. The MV's own key model is where the table model is recorded, and a key
+     * model cannot be altered, so this reads back what CREATE decided. A non-IVM MV is DUP, hence the
+     * {@link #isIvm()} conjunct.
+     */
+    public boolean isIvmUniqueKeysTable() {
+        return isIvm() && getKeysType() == KeysType.UNIQUE_KEYS;
+    }
+
+    /**
+     * Whether this MV is an IVM MV built as a plain DUP detail table, that is one whose table model
+     * is a detail table a refresh only ever appends to.
+     *
+     * <p>The model exists because a query that is append-only never needs what the unique-key model
+     * maintains for it: the rows of such an MV are the query's own, and a refresh only appends what its
+     * base tables appended, so there is nothing to retract or update. What it saves is the three costs of
+     * maintaining that possibility anyway -- the write path appends instead of upserting (no merge-on-write
+     * deduplication or delete-bitmap probing, and no per-row row-id to compute during the refresh), the
+     * table carries neither the IVM hidden columns (row-id, dml factor, agg count, aggregation state) nor
+     * the merge-on-write ones (delete sign, version, skip bitmap, primary-key index), and having no layout
+     * for a signature to pin down, its refresh cannot fail with PLAN_SIGNATURE_MISMATCH when another
+     * optimizer rule, or a newer version's rules, reshape the MV's query plan.
+     */
+    public boolean isIvmAppendOnlyDupTable() {
+        return isIvm() && getKeysType() == KeysType.DUP_KEYS;
     }
 
     public long getNextSequencePrefix() {
@@ -715,16 +796,21 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The MV's IVM metadata, readable without the MV lock.
+     *
+     * <p>{@code isIvm()} is on the query path, and what it reads is fixed for the MV's lifetime:
+     * {@code enableIvm} is decided at CREATE and no ALTER path changes it. The rest of the payload is
+     * touched only by the refresh of this MV -- the sequence prefix is read when a refresh plans and
+     * advanced when its transaction commits, and the plan signature is published by the same task's
+     * result -- and one MV's tasks run one at a time, under its job's write lock (see
+     * {@code MTMVTask#runTask}). So no reader here races a writer.
+     *
+     * <p>Never null: the field is created with the MV, and {@link #gsonPostProcess} covers an image
+     * that carries it as null.
+     */
     public IvmInfo getIvmInfo() {
-        writeMvLock();
-        try {
-            if (ivmInfo == null) {
-                ivmInfo = new IvmInfo();
-            }
-            return ivmInfo;
-        } finally {
-            writeMvUnlock();
-        }
+        return ivmInfo;
     }
 
     // ALTER_IVM_INFO replay applies a detached snapshot here. Live IVM changes submit their journal

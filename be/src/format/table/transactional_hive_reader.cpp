@@ -281,8 +281,7 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
 // ============================================================================
 Status TransactionalHiveReader::on_before_read_block(Block* block) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {
-        DataTypePtr data_type = get_data_type_with_default_argument(
-                DataTypeFactory::instance().create_data_type(i.type, false));
+        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(i.type, false);
         MutableColumnPtr data_column = data_type->create_column();
         (*col_name_to_block_idx_ref())[i.column_lower_case] = block->columns();
         block->insert(

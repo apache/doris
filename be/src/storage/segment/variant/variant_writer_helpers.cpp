@@ -25,7 +25,6 @@
 #include <utility>
 
 #include "common/cast_set.h"
-#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
@@ -86,7 +85,6 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
                     cast_set<uint32_t>(std::max(1, parent_column.variant_doc_hash_shard_count())),
             .doc_materialization_min_rows = cast_set<size_t>(
                     std::max<int64_t>(0, parent_column.variant_doc_materialization_min_rows())),
-            .check_duplicate_json_path = config::variant_enable_duplicate_json_path_check,
     };
     *options = std::move(result);
     return Status::OK();

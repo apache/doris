@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "storage/iterators.h"
 #include "storage/rowset/rowset_reader_context.h"
-#include "storage/utils.h"
 #ifdef USE_LIBCPP
 #include <queue>
 #else
@@ -75,12 +74,6 @@ public:
     Status next(Block* block);
 
     bool is_merge() const { return _merge; }
-
-    RowLocation current_row_location() { return _inner_iter->current_row_location(); }
-
-    Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-        return _inner_iter->current_block_row_locations(block_row_locations);
-    }
 
     void update_profile(RuntimeProfile* profile) {
         if (_inner_iter != nullptr) {
@@ -146,10 +139,6 @@ private:
         const ReadSchema& schema() const { return *_schema; }
 
         const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; }
-
-        virtual RowLocation current_row_location() = 0;
-
-        virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
 
         [[nodiscard]] virtual Status ensure_first_row_ref() = 0;
 
@@ -221,10 +210,6 @@ private:
 
         Status next(Block* block) override;
 
-        RowLocation current_row_location() override;
-
-        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
-
         void update_profile(RuntimeProfile* profile) override {
             if (_rs_reader != nullptr) {
                 _rs_reader->update_profile(profile);
@@ -286,7 +271,6 @@ private:
 
         int _current;
         BlockView _block_view;
-        std::vector<RowLocation> _block_row_locations;
         std::vector<bool> _row_is_same;
         bool _is_merge_iterator = false;
         bool _get_data_by_ref = false;
@@ -305,10 +289,6 @@ private:
         Status next(IteratorRowRef* ref) override;
 
         Status next(Block* block) override;
-
-        RowLocation current_row_location() override { return _cur_child->current_row_location(); }
-
-        Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
 
         [[nodiscard]] Status ensure_first_row_ref() override;
 
@@ -356,8 +336,6 @@ private:
         bool _skip_same;
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
-
-        std::vector<RowLocation> _block_row_locations;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

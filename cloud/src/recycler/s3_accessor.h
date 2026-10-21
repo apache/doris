@@ -157,16 +157,5 @@ protected:
     std::string _ca_cert_file_path;
 };
 
-class GcsAccessor final : public S3Accessor {
-public:
-    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
-    ~GcsAccessor() override = default;
-
-    int delete_files(const std::vector<std::string>& paths) override;
-
-private:
-    int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0) override;
-};
-
 } // namespace cloud
 } // namespace doris

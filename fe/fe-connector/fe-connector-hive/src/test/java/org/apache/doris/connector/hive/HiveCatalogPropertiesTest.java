@@ -61,8 +61,8 @@ class HiveCatalogPropertiesTest {
         Assertions.assertEquals(500, p.getHmsEventsBatchSizePerRpc());
         // The tolerant default: a partition whose location vanished is skipped with a warning.
         Assertions.assertTrue(p.isIgnoreAbsentPartitions());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
         Assertions.assertTrue(p.isRecursiveDirectories());
         Assertions.assertEquals("/tmp/.doris_staging", p.getStagingDir());
     }

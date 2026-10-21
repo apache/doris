@@ -614,7 +614,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     // set default value to 0, and match functions only need to set 1/true
     vec_res.resize_fill(input_rows_count);
     auto* state = reinterpret_cast<LikeState*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     const auto pattern_col = block.get_by_position(arguments[1]).column;
     if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
         RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
@@ -1013,7 +1013,7 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
 }
 
 Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::THREAD_LOCAL) {
+    if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         return Status::OK();
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
@@ -1044,7 +1044,7 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
 
 Status FunctionRegexpLike::open(FunctionContext* context,
                                 FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::THREAD_LOCAL) {
+    if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         return Status::OK();
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();

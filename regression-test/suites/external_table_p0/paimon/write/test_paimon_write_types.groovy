@@ -83,6 +83,11 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         CREATE TABLE paimon.${dbName}.t_types_ntz (
             id INT, event_time TIMESTAMP_NTZ
         ) USING paimon;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_types_fold;
+        CREATE TABLE paimon.${dbName}.t_types_fold (
+            id INT, event_time TIMESTAMP
+        ) USING paimon;
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -102,10 +107,16 @@ suite("test_paimon_write_types", "p0,external,paimon") {
     def originalTimeZone = sql """SELECT @@time_zone"""
 
     try {
-        def assertTableEquals = { String tableName, String columns, String orderBy ->
+        sql "SET time_zone = 'UTC'"
+        def assertTableEquals = { String tableName, String columns, String orderBy, String dorisColumns = columns ->
             def sparkRows = spark_paimon """SELECT ${columns} FROM paimon.${dbName}.${tableName} ${orderBy}"""
-            def dorisRows = sql """SELECT ${columns} FROM ${tableName} ${orderBy}"""
+            def dorisRows = sql """SELECT ${dorisColumns} FROM ${tableName} ${orderBy}"""
             assertSparkDorisResultEquals(sparkRows, dorisRows)
+        }
+        // Spark JDBC omits the zone while Doris TIMESTAMPTZ includes it. Compare signed UTC
+        // microseconds so display formatting cannot hide a shifted instant or lose subsecond precision.
+        def epochMicros = { String column ->
+            "microseconds_diff(CAST(${column} AS DATETIMEV2(6)), CAST('1970-01-01' AS DATETIMEV2(6)))"
         }
 
         // FT-020~027: Basic types with boundary values
@@ -127,12 +138,14 @@ suite("test_paimon_write_types", "p0,external,paimon") {
              DATE '2024-06-15', TIMESTAMP '2024-06-15 12:00:00.123456')
         """
         order_qt_types_basic """SELECT * FROM t_types ORDER BY c_int"""
-        assertTableEquals("t_types", """
+        String basicColumns = """
                 c_boolean, c_int, c_bigint,
                 c_float / 1.0E38,
                 c_double / 1.0E308,
-                c_decimal, c_string, c_varchar, c_date, c_datetime
-                """, "ORDER BY c_int")
+                c_decimal, c_string, c_varchar, c_date,
+                """
+        assertTableEquals("t_types", basicColumns + "unix_micros(c_datetime)", "ORDER BY c_int",
+                basicColumns + epochMicros("c_datetime"))
 
         // FT-040: NULL handling
         sql """INSERT INTO t_types_null VALUES (1, 100, 'data', 1.5, true)"""
@@ -165,7 +178,7 @@ suite("test_paimon_write_types", "p0,external,paimon") {
             (DATE '2099-12-31', TIMESTAMP '2099-12-31 23:59:59.999999')
         """
         order_qt_types_dt """SELECT d, dt FROM t_types_dt ORDER BY d"""
-        assertTableEquals("t_types_dt", "*", "ORDER BY d")
+        assertTableEquals("t_types_dt", "d, unix_micros(dt)", "ORDER BY d", "d, " + epochMicros("dt"))
 
         // FT-027: Spark TIMESTAMP maps to Paimon's local-zoned timestamp. Values
         // written in different Doris session timezones must represent the same instant
@@ -174,13 +187,19 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         sql """SET time_zone = 'Asia/Shanghai'"""
         sql """INSERT INTO t_types_timezone VALUES
             (1, TIMESTAMP '2024-01-15 10:30:00.123456')"""
+        // Shanghai's epoch midnight is a pre-epoch UTC instant.
+        sql """INSERT INTO t_types_timezone VALUES
+            (3, TIMESTAMP '1970-01-01 00:00:00')"""
         sql """SET time_zone = 'UTC'"""
         sql """INSERT INTO t_types_timezone VALUES
             (2, TIMESTAMP '2024-01-15 02:30:00.654321')"""
         order_qt_types_timezone_utc """SELECT id, event_time FROM t_types_timezone ORDER BY id"""
+        // Spark reads the instants independently of the Doris reader.
+        assertTableEquals("t_types_timezone", "id, unix_micros(event_time)", "ORDER BY id",
+                "id, " + epochMicros("event_time"))
 
         // Reading the same snapshot in Asia/Shanghai must apply the session offset
-        // to both rows without losing their microsecond fractions.
+        // to every row without losing their microsecond fractions.
         sql """SET time_zone = 'Asia/Shanghai'"""
         order_qt_types_timezone_shanghai """SELECT id, event_time FROM t_types_timezone ORDER BY id"""
 
@@ -196,8 +215,28 @@ suite("test_paimon_write_types", "p0,external,paimon") {
         sql """SET time_zone = 'UTC'"""
         order_qt_types_ntz """SELECT id, event_time FROM t_types_ntz ORDER BY id"""
         assertTableEquals("t_types_ntz", "*", "ORDER BY id")
+
+        // Both UTC instants render as 01:30 in Los Angeles. INSERT SELECT must reach the
+        // LTZ writer without a lossy intermediate civil-time cast.
+        sql """SET time_zone = 'America/Los_Angeles'"""
+        sql """INSERT INTO t_types_fold
+            SELECT 1, CAST('2023-11-05 08:30:00.123456+00:00' AS TIMESTAMPTZ(6))
+            UNION ALL
+            SELECT 2, CAST('2023-11-05 09:30:00.123456+00:00' AS TIMESTAMPTZ(6))"""
+        sql """SET time_zone = 'UTC'"""
+        order_qt_types_fold_micros """SELECT id, ${epochMicros("event_time")} FROM t_types_fold ORDER BY id"""
+        assertTableEquals("t_types_fold", "id, unix_micros(event_time)", "ORDER BY id",
+                "id, " + epochMicros("event_time"))
+        def originalJniScanner = sql """SELECT @@force_jni_scanner"""
+        try {
+            for (boolean jni : [false, true]) {
+                sql """SET force_jni_scanner = ${jni}"""
+                "order_qt_types_fold_jni_${jni}" """SELECT id, event_time FROM t_types_fold ORDER BY id"""
+            }
+        } finally {
+            sql """SET force_jni_scanner = ${originalJniScanner[0][0]}"""
+        }
     } finally {
         sql """SET time_zone = '${originalTimeZone[0][0]}'"""
-        sql """drop catalog if exists ${catalogName}"""
     }
 }

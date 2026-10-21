@@ -177,8 +177,7 @@ public:
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
-        // used for compaction to record row ids
-        bool record_rowids = false;
+        // Used by compaction to initialize source segment row-id mappings.
         RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
         // used for special optimization for query : ORDER BY key LIMIT n

@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmNormalizeUniqKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -178,9 +179,13 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
                 baseTable, Optional.of(resetPartitionIds(Lists.newArrayList(partitionId))));
         JobContext jobContext = newJobContext(scan, rewriteContext);
 
-        Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
+        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
-        Plan secondResult = new IvmNormalizeMTMV().rewriteRoot(result, jobContext);
+        // The normalize rule publishes what the normalizer built, and that is also what marks the
+        // statement normalized; this test drives the normalizer directly and publishes it the same way.
+        rewriteResult.setNormalizeRewritten(true);
+        rewriteResult.setNormalizedPlan(result);
+        Plan secondResult = new IvmNormalizeUniqKeysMTMV().normalize(result, jobContext);
         Plan fullRefreshResult = rewrite(result, rewriteContext);
 
         Assertions.assertTrue(rewriteResult.isNormalizeRewritten());

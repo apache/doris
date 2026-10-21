@@ -124,6 +124,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
 #include "exec/spill/spill_file.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/cluster_info.h"
@@ -1731,7 +1732,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         }
 
         // Create source operator (goes on the current / downstream pipeline).
-        op = std::make_shared<BucketedAggSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        auto bucketed_agg_source = std::make_shared<BucketedAggSourceOperatorX>(
+                pool, tnode, next_operator_id(), descs);
+        op = bucketed_agg_source;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
         // Create a new pipeline for the sink side.
@@ -1743,8 +1746,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         // Create sink operator.
-        sink_ops.push_back(std::make_shared<BucketedAggSinkOperatorX>(
-                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        auto bucketed_agg_sink = std::make_shared<BucketedAggSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs);
+        bucketed_agg_source->set_sink_operator(bucketed_agg_sink);
+        sink_ops.push_back(bucketed_agg_sink);
         RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
 
@@ -2602,7 +2607,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
     }
 
     const bool requires_external_file_ack =
-            params.__isset.iceberg_commit_datas || params.__isset.connector_commit_data;
+            params.__isset.iceberg_commit_datas || params.__isset.paimon_commit_messages;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {
@@ -2766,6 +2771,11 @@ PipelineFragmentContext::collect_realtime_profile() const {
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
     _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
+    if (auto statistics = _query_ctx->find_ai_statistics(_fragment_id)) {
+        // Copy into the fragment snapshot exactly once. Tasks never register the shared
+        // profile as a child, and the snapshot retains no pointers into QueryContext.
+        statistics->update_profile_snapshot(*fragment_profile, _runtime_state->profile_level());
+    }
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage

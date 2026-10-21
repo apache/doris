@@ -40,6 +40,8 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.VariantWritePlanValidator;
+import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -75,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -120,6 +123,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * bind an unbound logicalTableSink represent the target table of an insert command
@@ -310,10 +314,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
-        ConnectContext connCtx = ConnectContext.get();
-        final boolean truncateString = needTruncateStringWhenInsert
-                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
-                && !SessionVariable.enableStrictCast();
+        final boolean truncateString = needTruncateStringWhenInsert && truncatesStringOnInsert();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -357,6 +358,16 @@ public class BindSink implements AnalysisRuleFactory {
             fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
         }
         return fullOutputProject;
+    }
+
+    /**
+     * Whether the session lets an INSERT write a string into a shorter CHAR / VARCHAR column cut to the column
+     * length, counted in code points (the {@link Substring} above), instead of as is.
+     */
+    public static boolean truncatesStringOnInsert() {
+        ConnectContext connCtx = ConnectContext.get();
+        return (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
     }
 
     @VisibleForTesting
@@ -430,7 +441,8 @@ public class BindSink implements AnalysisRuleFactory {
             if (materializedColumnValues.containsKey(column.getName())) {
                 Expression value = materializedColumnValues.get(column.getName());
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        value, DataType.fromCatalogType(column.getType())), column.getName());
+                        ConnectorWriteValueConverter.convert(column, value),
+                        DataType.fromCatalogType(column.getType())), column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());
@@ -439,7 +451,8 @@ public class BindSink implements AnalysisRuleFactory {
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                        ConnectorWriteValueConverter.convert(column, columnToChildOutput.get(column)),
+                        DataType.fromCatalogType(column.getType())),
                         column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -468,8 +481,15 @@ public class BindSink implements AnalysisRuleFactory {
                         replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
                 } else if (isIncrementalIvmTable(table) && IvmUtil.isCommonHiddenSlot(column.getName())) {
-                    Alias output = new Alias(IvmUtil.getCommonHiddenSlotDefault(column.getName(),
-                            DataType.fromCatalogType(column.getType())), column.getName());
+                    // Which default applies follows from the table model: the unique-key model's row lsn
+                    // is the row identity its deletes reply on, while an append-only detail MV's is its own
+                    // binlog's bookkeeping. See IvmUtil#getAppendOnlyDupHiddenSlotDefault.
+                    Expression hiddenDefault = ((MTMV) table).isIvmAppendOnlyDupTable()
+                            ? IvmUtil.getAppendOnlyDupHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()))
+                            : IvmUtil.getCommonHiddenSlotDefault(column.getName(),
+                                    DataType.fromCatalogType(column.getType()));
+                    Alias output = new Alias(hiddenDefault, column.getName());
                     columnToOutput.put(column.getName(), output);
                     columnToReplaced.put(column.getName(), output.toSlot());
                     replaceMap.put(output.toSlot(), output.child());
@@ -864,6 +884,14 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> canonical = Sets.newLinkedHashSet();
         for (String name : staticPartitions.keySet()) {
             Column column = findColumn(schema, name);
+            // Text casts preserve raw bytes in the row, while partition metadata decodes hex.
+            // Require typed bytes so these two representations cannot silently disagree.
+            Expression value = staticPartitions.get(name);
+            if (column != null && column.getType().isVarbinaryType()
+                    && !(value instanceof VarBinaryLiteral) && !(value instanceof NullLiteral)) {
+                throw new AnalysisException("Static VARBINARY partition values must use a binary literal or NULL: "
+                        + name);
+            }
             if (!canonical.add(column != null ? column.getName() : name)) {
                 throw new AnalysisException("Duplicate partition column: " + name);
             }
@@ -897,6 +925,15 @@ public class BindSink implements AnalysisRuleFactory {
         // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
         // Deliberately fed the RAW (user-typed) names, so a connector message quotes what the user wrote.
         checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
+        if (staticPartitions != null) {
+            Map<String, Expression> normalized = Maps.newLinkedHashMap();
+            for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                Column column = findColumn(resolvedTargetSchema, entry.getKey());
+                normalized.put(entry.getKey(), column == null ? entry.getValue()
+                        : ConnectorWriteValueConverter.convert(column, entry.getValue()));
+            }
+            staticPartitions = normalized;
+        }
 
         // Resolve the user-typed static-partition names to their canonical schema names before they are used
         // to exclude / reject bound columns below. Runs AFTER the connector validated them.
@@ -926,6 +963,11 @@ public class BindSink implements AnalysisRuleFactory {
                 throw new AnalysisException("Connector changelog sink must produce an operation column and "
                         + targetWriteSchema.size() + " table columns, but got " + outputExpressions.size());
             }
+            // The operation column precedes one column per table column.
+            List<Integer> tableColumnOrdinals = IntStream.rangeClosed(1, targetWriteSchema.size()).boxed()
+                    .collect(ImmutableList.toImmutableList());
+            VariantWritePlanValidator.validateNoLossyCoercion(
+                    targetWriteSchema, child, tableColumnOrdinals, ctx.cascadesContext.getCteContext());
             return new LogicalConnectorTableSink<>(database, table, targetWriteSchema,
                     targetMetadata.getPartitionColumns(), targetMetadata.getWriteMetadataIdentity(),
                     targetWriteSchema, outputExpressions, sink.getDMLCommandType(), false,
@@ -963,6 +1005,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+        VariantWritePlanValidator.validateNoLossyCoercion(bindColumns, child, ctx.cascadesContext.getCteContext());
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
             // against the full table schema, so project the child to FULL-SCHEMA order with any
@@ -1125,7 +1168,8 @@ public class BindSink implements AnalysisRuleFactory {
             Column column = bindColumns.get(i);
             NamedExpression outputExpr = child.getOutput().get(i);
             Alias output = new Alias(
-                    TypeCoercionUtils.castIfNotSameType(outputExpr, DataType.fromCatalogType(column.getType())),
+                    TypeCoercionUtils.castIfNotSameType(ConnectorWriteValueConverter.convert(column, outputExpr),
+                            DataType.fromCatalogType(column.getType())),
                     column.getName());
             columnToOutput.put(column.getName(), output);
         }

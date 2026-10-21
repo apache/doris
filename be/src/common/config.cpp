@@ -339,9 +339,9 @@ DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
 DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
 
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
-DEFINE_Bool(enable_task_executor_in_external_table, "true");
+DEFINE_Bool(enable_task_executor_in_external_table, "false");
 
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
@@ -1208,8 +1208,6 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Int32(blocking_pipeline_executor_size, "0");
 DEFINE_mInt32(variant_max_json_key_length, "255");
-DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
-DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 // NestedGroup, deprecated flatten-nested, and persistent doc mode keep their required paths.
@@ -1228,7 +1226,7 @@ DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
 // Whether S3 storage write paths populate file cache while writing data to object storage.
 // Disable this for tests that need load and compaction output to bypass file cache while keeping
@@ -1300,7 +1298,10 @@ DEFINE_mInt64(file_cache_background_tablet_id_flush_interval_ms, "1000");
 DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
 // dump queue only if the queue update specific times through several dump intervals
 DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
-DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+// Disabled by default. The restored LRU order can be worse than no order at all: restored blocks
+// are put at the cold end while blocks missing from the dump are appended to the hot end, and the
+// restore itself can overflow the bounded LRU log queue and drop the hottest part of the dump.
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "0");
 DEFINE_mInt64(file_cache_background_lru_log_queue_max_size, "500000");
 DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1");
 DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
@@ -1570,6 +1571,19 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 // default max to 2048 connections
 DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DEFINE_mInt32(lookup_connection_cache_block_pool_size, "1");
+DEFINE_Validator(lookup_connection_cache_block_pool_size,
+                 [](int32_t value) -> bool { return value >= 1 && value <= 32; });
+static std::atomic<size_t> atomic_lookup_connection_cache_block_pool_size {1};
+DEFINE_ON_UPDATE(lookup_connection_cache_block_pool_size, [](int32_t, int32_t value) {
+    atomic_lookup_connection_cache_block_pool_size.store(static_cast<size_t>(value),
+                                                         std::memory_order_relaxed);
+});
+
+size_t get_lookup_connection_cache_block_pool_size() {
+    return atomic_lookup_connection_cache_block_pool_size.load(std::memory_order_relaxed);
+}
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
@@ -2408,6 +2422,9 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     }
     published_inverted_index_candidate_pushdown_ratio.store(
             inverted_index_candidate_pushdown_ratio);
+    atomic_lookup_connection_cache_block_pool_size.store(
+            static_cast<size_t>(lookup_connection_cache_block_pool_size),
+            std::memory_order_relaxed);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)

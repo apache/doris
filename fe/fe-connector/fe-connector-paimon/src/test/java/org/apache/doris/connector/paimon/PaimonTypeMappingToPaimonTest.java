@@ -20,9 +20,13 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.paimon.casting.CastExecutor;
+import org.apache.paimon.casting.CastExecutors;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BooleanType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DateType;
@@ -45,9 +49,8 @@ import java.util.Arrays;
 import java.util.Collections;
 
 /**
- * P5-T11 — pins the Doris-&gt;Paimon reverse type mapping in
- * {@link PaimonTypeMapping#toPaimonType} to byte-parity with the legacy fe-core
- * {@code DorisToPaimonTypeVisitor}.
+ * Pins the Doris-to-Paimon reverse type mapping, including declared string bounds and
+ * timestamp precision used by CREATE and ALTER TABLE.
  *
  * <p>The CREATE TABLE path produces these {@link ConnectorType} descriptors; this mapping is
  * what decides the on-disk Paimon column type, so any drift silently changes the physical schema
@@ -74,28 +77,57 @@ public class PaimonTypeMappingToPaimonTest {
     }
 
     @Test
-    public void charFamilyCollapsesToVarcharMaxDroppingLength() {
-        // WHY: legacy isCharFamily -> VarCharType(MAX_LENGTH) unconditionally; the declared length
-        // is intentionally dropped and CHAR is NOT mapped to paimon CharType. MUTATION: honoring
-        // the declared length (e.g. new VarCharType(10)) or mapping CHAR -> CharType makes these red.
-        DataType expected = new VarCharType(VarCharType.MAX_LENGTH);
-        Assertions.assertEquals(expected, PaimonTypeMapping.toPaimonType(ConnectorType.of("CHAR", 10, 0)));
-        Assertions.assertEquals(expected, PaimonTypeMapping.toPaimonType(ConnectorType.of("VARCHAR", 20, 0)));
-        Assertions.assertEquals(expected, PaimonTypeMapping.toPaimonType(ConnectorType.of("STRING")));
+    public void characterTypesKeepDeclaredBounds() {
+        // WHY: the declared length is part of the Paimon schema; Paimon truncates to it when it casts
+        // a historical data file to the current column type. MUTATION: collapsing CHAR/VARCHAR to
+        // VarChar(MAX), or mapping CHAR to VarCharType, makes these red.
+        Assertions.assertEquals(new CharType(3), PaimonTypeMapping.toPaimonType(ConnectorType.of("CHAR", 3, 0)));
+        Assertions.assertEquals(new VarCharType(3),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("VARCHAR", 3, 0)));
+        Assertions.assertEquals(new VarCharType(VarCharType.MAX_LENGTH),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("STRING")));
     }
 
     @Test
-    public void datetimeDropsScaleToNoArgTimestamp() {
-        // WHY: legacy maps DATETIME/DATETIMEV2 -> new TimestampType() (no-arg, precision 6); the
-        // requested datetime scale is intentionally dropped, and it is a plain timestamp not a
-        // zoned one. MUTATION: propagating the scale (new TimestampType(scale)) or using
-        // LocalZonedTimestampType makes this red.
-        TimestampType expected = new TimestampType();
-        Assertions.assertEquals(6, expected.getPrecision(), "no-arg TimestampType must default to precision 6");
-        Assertions.assertEquals(expected,
-                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", 3, 0)),
-                "DATETIMEV2(scale 3) must drop the scale -> TimestampType() precision 6");
-        Assertions.assertEquals(expected, PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIME")));
+    public void datetimePreservesPrecisionAndTimestampKind() {
+        for (int precision : new int[] {0, 3, 6}) {
+            Assertions.assertEquals(new TimestampType(precision),
+                    PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", precision, 0)));
+        }
+        // DATETIME (v1) has no fractional seconds.
+        Assertions.assertEquals(new TimestampType(0),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIME")));
+        Assertions.assertEquals(new org.apache.paimon.types.LocalZonedTimestampType(6),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("TIMESTAMPTZ", 6, 0)));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void mappedTypesDriveHistoricalCasts() {
+        // WHY: Paimon reads a data file written under an older schema by casting the file type to the
+        // current column type, so the mapped bounds decide the values a reader sees.
+        CastExecutor<BinaryString, ?> varcharCast = (CastExecutor<BinaryString, ?>) CastExecutors.resolve(
+                new VarCharType(10), PaimonTypeMapping.toPaimonType(ConnectorType.of("VARCHAR", 3, 0)));
+        Assertions.assertNotNull(varcharCast);
+        Assertions.assertEquals("abc", varcharCast.cast(BinaryString.fromString("abcdef")).toString());
+        CastExecutor<BinaryString, ?> timestampCast = (CastExecutor<BinaryString, ?>) CastExecutors.resolve(
+                new VarCharType(VarCharType.MAX_LENGTH),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", 3, 0)));
+        Assertions.assertNotNull(timestampCast);
+        Assertions.assertEquals("1970-01-01T00:00:00.042",
+                timestampCast.cast(BinaryString.fromString("42")).toString());
+    }
+
+    @Test
+    public void nestedTypesKeepBoundsAndPrecision() {
+        Assertions.assertEquals(new ArrayType(new VarCharType(3)),
+                PaimonTypeMapping.toPaimonType(ConnectorType.arrayOf(ConnectorType.of("VARCHAR", 3, 0))));
+        Assertions.assertEquals(new MapType(new CharType(false, 2), new TimestampType(3)),
+                PaimonTypeMapping.toPaimonType(ConnectorType.mapOf(
+                        ConnectorType.of("CHAR", 2, 0), ConnectorType.of("DATETIMEV2", 3, 0))));
+        Assertions.assertEquals(new RowType(Collections.singletonList(new DataField(0, "v", new CharType(4)))),
+                PaimonTypeMapping.toPaimonType(ConnectorType.structOf(Collections.singletonList("v"),
+                        Collections.singletonList(ConnectorType.of("CHAR", 4, 0)))));
     }
 
     @Test
@@ -223,8 +255,8 @@ public class PaimonTypeMappingToPaimonTest {
         // WHY: the legacy visitor had no branch for these and threw; the connector preserves that
         // gap by throwing DorisConnectorException rather than inventing a mapping. TINYINT and
         // SMALLINT are supported because Paimon schema evolution can expose both types. MUTATION:
-        // adding a LARGEINT/TIME/TIMESTAMPTZ branch would make the corresponding assertion red.
-        for (String unsupported : new String[] {"LARGEINT", "TIMEV2", "TIMESTAMPTZ"}) {
+        // adding a LARGEINT/TIME branch would make the corresponding assertion red.
+        for (String unsupported : new String[] {"LARGEINT", "TIMEV2"}) {
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> PaimonTypeMapping.toPaimonType(ConnectorType.of(unsupported)),
                     unsupported + " must throw (legacy gap preserved)");

@@ -42,6 +42,7 @@ namespace doris {
 
 class ReadSchema;
 class Block;
+class SlotDescriptor;
 using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 
 // Select columns by their ordinal in `columns`, preserving the requested order and duplicates.
@@ -70,6 +71,10 @@ public:
     static IColumn::MutablePtr get_predicate_column_ptr(const DataTypePtr& data_type,
                                                         const ReaderType reader_type);
 
+    // Builds the column `slot` reads from the slot's name, unique id, type and default value.
+    // For a column the tablet schema does not have yet, e.g. one a light schema change just added.
+    static TabletColumn tablet_column_from_slot(const SlotDescriptor& slot);
+
     const std::vector<TabletColumnPtr>& columns() const { return _read_columns; }
 
     DataTypePtr data_type(size_t ordinal) const {
@@ -79,6 +84,10 @@ public:
 
     // Append private historical delete-predicate columns without extending the Block prefix.
     void append_dropped_columns(std::vector<TabletColumn> columns);
+
+    // Append COMPACTION_ROWID_COL to the Block prefix before any historical delete columns.
+    // It carries each source row's physical location through compaction filtering and merge.
+    void append_compaction_rowid_column();
 
     // Create caller-visible Blocks from the FE-slot prefix.
     Block create_read_block() const;
@@ -138,7 +147,7 @@ public:
     int32_t delete_sign_ordinal() const { return _delete_sign_ordinal; }
     // Sequence column used to choose the winning row during merge.
     int32_t sequence_ordinal() const { return _sequence_ordinal; }
-    // Synthetic row identifier returned by rowid-producing scans.
+    // Synthetic row identifier returned by queries or carried by compaction reads.
     int32_t rowid_ordinal() const { return _rowid_ordinal; }
     // Rowset version synthesized for single-version reads.
     int32_t version_ordinal() const { return _version_ordinal; }
@@ -194,7 +203,8 @@ private:
             if (col.name() == SEQUENCE_COL) {
                 _sequence_ordinal = i;
             }
-            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            if (col.name().starts_with(BeConsts::GLOBAL_ROWID_COL) ||
+                col.name() == BeConsts::COMPACTION_ROWID_COL) {
                 _rowid_ordinal = i;
             }
             if (col.name() == VERSION_COL) {

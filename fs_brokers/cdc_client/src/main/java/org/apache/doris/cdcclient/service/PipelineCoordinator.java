@@ -31,6 +31,7 @@ import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.StreamingTaskStatus;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.TaskFailureRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 
@@ -43,6 +44,7 @@ import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.BufferedOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -511,7 +513,7 @@ public class PipelineCoordinator {
         int heartbeatCount = 0;
         int ddlCount = 0;
         SplitReadResult readResult = null;
-        boolean hasExecuteDDL = false;
+        boolean hasSchemaChanges = false;
         boolean isSnapshotSplit = false;
         boolean stillOwner = false;
         try {
@@ -642,6 +644,7 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
+                        validateUnsupportedSchemaChange(writeRecordRequest, result);
                         if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
                             ddlCount += result.getSchemaChanges().size();
                         }
@@ -651,7 +654,7 @@ public class PipelineCoordinator {
                                 token,
                                 writeRecordRequest.getJobId(),
                                 result.getSchemaChanges());
-                        hasExecuteDDL = true;
+                        hasSchemaChanges = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
                     }
@@ -714,12 +717,12 @@ public class PipelineCoordinator {
         batchStreamLoad.resetTaskId();
 
         // Serialize tableSchemas back to FE when:
-        // 1. A DDL was executed (in-memory schema was updated), OR
+        // 1. The source schema was updated, including ignored target DDL, OR
         // 2. It's a binlog split AND FE had no schema (FE tableSchemas was null) — this covers
         //    incremental-only startup and the first binlog round after snapshot completes.
         String tableSchemas = null;
         boolean feHadNoSchema = writeRecordRequest.getTableSchemas() == null;
-        if (hasExecuteDDL || (!isSnapshotSplit && feHadNoSchema)) {
+        if (hasSchemaChanges || (!isSnapshotSplit && feHadNoSchema)) {
             tableSchemas = sourceReader.serializeTableSchemas();
         }
         // own taskId, never the shared currentTaskId: FE rejects it if another task took over
@@ -730,6 +733,47 @@ public class PipelineCoordinator {
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
         taskProgressMap.remove(writeRecordRequest.getTaskId());
+    }
+
+    private void validateUnsupportedSchemaChange(
+            WriteRecordRequest request, DeserializeResult result) throws IOException {
+        if (result.getUnsupportedReason() == null) {
+            return;
+        }
+        if (!request.isTolerateSchemaChange()) {
+            throw new IOException(
+                    TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED
+                            + " "
+                            + result.getUnsupportedReason()
+                            + ". Review the target schema. RESUME confirms acceptance of unsupported"
+                            + " changes for this recovery round.");
+        }
+        try {
+            SchemaChangeManager.validateTargetSchemas(
+                    request.getFrontendAddress(),
+                    request.getTargetDb(),
+                    request.getToken(),
+                    request.getJobId(),
+                    result.getUpdatedSchemas(),
+                    request.getConfig());
+        } catch (IOException e) {
+            IOException failure =
+                    new IOException(
+                            TaskFailureRequest.SCHEMA_CHANGE_UNSUPPORTED
+                                    + " "
+                                    + result.getUnsupportedReason()
+                                    + ". Doris target: "
+                                    + e.getMessage()
+                                    + ". Fix the target schema, then RESUME the job.");
+            // The root message drives FE's pause classification.
+            failure.addSuppressed(e);
+            throw failure;
+        }
+        LOG.warn(
+                "[SCHEMA-CHANGE-TOLERATED] Job {}: target column names verified;"
+                        + " target types and keys are not checked. {}",
+                request.getJobId(),
+                result.getUnsupportedReason());
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {

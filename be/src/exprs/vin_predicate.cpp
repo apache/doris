@@ -138,13 +138,13 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
 
     _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
                                         [](const VExprSPtr& expr) { return expr->is_constant(); });
-    if (scope == FunctionContext::FRAGMENT_LOCAL && _is_args_all_constant &&
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL && _is_args_all_constant &&
         _zonemap_min_max == nullptr) {
         _prepare_zonemap_min_max(context);
     }
@@ -186,8 +186,8 @@ void VInPredicate::_prepare_zonemap_min_max(VExprContext* context) {
     DORIS_CHECK(context != nullptr);
     auto* fn_ctx = context->fn_context(_fn_context_index);
     DORIS_CHECK(fn_ctx != nullptr);
-    auto* in_state =
-            reinterpret_cast<InState*>(fn_ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    auto* in_state = reinterpret_cast<InState*>(
+            fn_ctx->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     DORIS_CHECK(in_state != nullptr);
     DORIS_CHECK(in_state->use_set);
     DORIS_CHECK(in_state->hybrid_set != nullptr);

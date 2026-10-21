@@ -24,9 +24,9 @@
 #include "common/status.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter, complete type for member calls
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
@@ -718,9 +718,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 continue;
             }
             // create iterator for each segment
-            StorageReadOptions read_options;
             OlapReaderStatistics stats;
-            read_options.stats = &stats;
+            StorageReadOptions read_options(stats);
             auto schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
@@ -953,9 +952,8 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
         group_writer_signs.push_back(std::move(signs));
     }
 
-    StorageReadOptions read_options;
     OlapReaderStatistics stats;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     auto schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;

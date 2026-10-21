@@ -37,6 +37,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
@@ -66,7 +67,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -213,11 +213,11 @@ public abstract class ExternalCatalog
         // set default value to true, no matter is replaying or not.
         // After 4.0, all external catalogs will use meta cache by default.
         catalogProperty.addProperty(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_VARBINARY, "").isEmpty()) {
-            catalogProperty.setEnableMappingVarbinary(false);
-        }
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "").isEmpty()) {
-            catalogProperty.setEnableMappingTimestampTz(false);
+        // New CREATE logs include the marker. Preserve old replayed values so master promotion
+        // can migrate them through a replicated ALTER log rather than a process-local rewrite.
+        if (!isReplay) {
+            catalogProperty.setEnableMappingVarbinary(true);
+            catalogProperty.setEnableMappingTimestampTz(true);
         }
     }
 
@@ -350,8 +350,13 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
-            LOG.warn("failed to init catalog {}:{}", name, id, e);
-            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            this.errorMsg = initErrorMessage(e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to init catalog {}:{}: {}", name, id, diagnosticTrace);
+            } else {
+                LOG.warn("failed to init catalog {}:{}", name, id, e);
+            }
             throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
@@ -368,7 +373,16 @@ public abstract class ExternalCatalog
      * {@code alter catalog ... set properties} triggers {@link #resetToUninitialized(boolean)}.
      */
     protected void recordDeferredInitError(Throwable t) {
-        this.errorMsg = ExceptionUtils.getRootCauseMessage(t);
+        this.errorMsg = initErrorMessage(t);
+    }
+
+    public static String initErrorMessage(Throwable error) {
+        return ExceptionDiagnosticUtils.message(error);
+    }
+
+    @Nullable
+    public static String initErrorStackTrace(Throwable error) {
+        return ExceptionDiagnosticUtils.sanitizedStackTrace(error);
     }
 
     protected final void initLocalObjects() {
@@ -740,7 +754,12 @@ public abstract class ExternalCatalog
             try {
                 return getDbNames();
             } catch (Exception e) {
-                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                String diagnosticTrace = initErrorStackTrace(e);
+                if (diagnosticTrace != null) {
+                    LOG.warn("failed to get db names in catalog {}: {}", getName(), diagnosticTrace);
+                } else {
+                    LOG.warn("failed to get db names in catalog {}", getName(), e);
+                }
                 return Lists.newArrayList();
             }
         } else {
@@ -763,7 +782,12 @@ public abstract class ExternalCatalog
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db {} in catalog {}: {}", dbName, name, diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
+            }
             return null;
         }
 
@@ -845,7 +869,12 @@ public abstract class ExternalCatalog
         try {
             makeSureInitialized();
         } catch (Exception e) {
-            LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            String diagnosticTrace = initErrorStackTrace(e);
+            if (diagnosticTrace != null) {
+                LOG.warn("failed to get db {} in catalog {}: {}", dbId, name, diagnosticTrace);
+            } else {
+                LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            }
             return null;
         }
 
@@ -1086,13 +1115,25 @@ public abstract class ExternalCatalog
                     throw e; // Rethrow to let the caller handle this critical issue
                 } else {
                     // Any errors other than name conflicts, we default to not finding the database
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                    String diagnosticTrace = initErrorStackTrace(e);
+                    if (diagnosticTrace != null) {
+                        LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
+                                localDbName, diagnosticTrace);
+                    } else {
+                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                    }
                     return null;
                 }
             } catch (Exception e) {
                 // If connection failed, it will throw exception.
                 // ignore it and treat it as not exist.
-                LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                String diagnosticTrace = initErrorStackTrace(e);
+                if (diagnosticTrace != null) {
+                    LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
+                            localDbName, diagnosticTrace);
+                } else {
+                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
+                }
                 return null;
             }
         }
@@ -1821,5 +1862,12 @@ public abstract class ExternalCatalog
         makeSureInitialized();
         Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
         throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
+    }
+
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        throw new DdlException("Update table properties operation is not supported for catalog: " + getName());
     }
 }

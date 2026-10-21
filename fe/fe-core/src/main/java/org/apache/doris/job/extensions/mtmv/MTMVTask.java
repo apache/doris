@@ -893,9 +893,12 @@ public class MTMVTask extends AbstractTask {
             return IvmIncrRefreshResult.success();
         }
         IvmIncrRefreshManager ivmIncrRefreshManager = new IvmIncrRefreshManager();
-        // Capture base table snapshots under read lock before execution, same as
-        // partition-based refresh. This ensures snapshot versions are consistent
-        // with the data the INSERT will read.
+        // Capture the base table snapshots before execution, same as the partition-based path. No
+        // base table read lock is held: what the record must guarantee is that it is no newer than
+        // the data the INSERT reads, and capturing first gives exactly that -- a version committed
+        // in between is simply missing from the record, which leaves the MV looking less fresh than
+        // it is. Partitions added or dropped in the same window are reconciled by the refresh's own
+        // partition sync, not by this record.
         Map<String, MTMVRefreshPartitionSnapshot> capturedSnapshots;
         try {
             capturedSnapshots = MTMVPartitionUtil.generatePartitionSnapshots(
@@ -1616,6 +1619,11 @@ public class MTMVTask extends AbstractTask {
             throw new JobException("task is CANCELED");
         }
         if (!rewriteContext.isPresent()) {
+            return null;
+        }
+        if (mtmv.isIvmAppendOnlyDupTable()) {
+            // An append-only detail MV publishes no layout signature: its refresh reads no layout, so a
+            // signature would be a fingerprint of a plan nothing downstream ever compares.
             return null;
         }
         return Objects.requireNonNull(signatureRef.get(),
