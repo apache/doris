@@ -521,6 +521,21 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAMarkJoinIsNotAPlainSemiJoin() {
+        // `t.k IN (SELECT k FROM u)` is a mark semi join (every t row survives, a marker column decides
+        // later), while a plain semi join drops the unmatched rows: the two keep a different number of
+        // rows with the same join type, condition and scans
+        GroupStructInfo mark = built("join_mark_semi");
+        GroupStructInfo plain = built("join_plain_semi");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(mark.getFingerprint(mode), plain.getFingerprint(mode),
+                    "a mark join and a plain semi join share a key in mode " + mode);
+        }
+        Assertions.assertTrue(mark.getCanonical(WITH_LITERAL).contains("LEFT_SEMI_JOIN,mark,"),
+                mark.getCanonical(WITH_LITERAL));
+    }
+
+    @Test
     void testAComputedProjectBelowAJoinIsNotSkippedByTheChain() {
         // the join chain flattens the projects it passes; a computed one is a leaf, so the definition of
         // its alias reaches the condition of the join above it and the two moduli differ
@@ -1152,6 +1167,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("join_over_another_computed_project",
                 "the same join over the same project with another modulo (a % 3): a different key",
                 GroupStructInfoGoldenTest::joinOverAnotherComputedProject));
+        cases.add(new PlanCase("join_mark_semi",
+                "a mark semi join: it preserves every left row and produces a marker column",
+                GroupStructInfoGoldenTest::joinMarkSemi));
+        cases.add(new PlanCase("join_plain_semi",
+                "the same semi join without the marker: it filters the unmatched left rows",
+                GroupStructInfoGoldenTest::joinPlainSemi));
         cases.add(new PlanCase("join_with_a_residual_constant",
                 "an inner join whose residual compares the two sides against a constant (t.b > u.b + 1000)",
                 GroupStructInfoGoldenTest::joinWithAResidualConstant));
@@ -1742,6 +1763,34 @@ public class GroupStructInfoGoldenTest {
         LogicalOlapScan t1 = scan(0, "t1");
         return describe(new LogicalFilter<>(ImmutableSet.of(new EqualTo(
                 t1.getOutput().get(1), new StringLiteral("null"))), t1));
+    }
+
+    private static GroupStructInfo joinMarkSemi() {
+        return semiJoin(true);
+    }
+
+    private static GroupStructInfo joinPlainSemi() {
+        return semiJoin(false);
+    }
+
+    /**
+     * A semi join with and without the marker: a mark join keeps every row of its left side and adds a
+     * marker column (the predicate above it decides later), the plain one drops the unmatched rows. Both
+     * have the same join type, the same condition and the same scans.
+     */
+    private static GroupStructInfo semiJoin(boolean mark) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        List<Expression> hash = ImmutableList.of(new EqualTo(t.getOutput().get(0), u.getOutput().get(0)));
+        if (mark) {
+            return describe(new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, hash,
+                    ImmutableList.<Expression>of(), new org.apache.doris.nereids.hint.DistributeHint(
+                            org.apache.doris.nereids.trees.plans.DistributeType.NONE),
+                    Optional.of(new org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference("m")),
+                    t, u, null));
+        }
+        return describe(new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, hash,
+                ImmutableList.<Expression>of(), t, u, null));
     }
 
     private static GroupStructInfo joinWithAResidualConstant() {
