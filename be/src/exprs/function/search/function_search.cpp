@@ -114,41 +114,33 @@ static std::string extract_segment_prefix(
 
 namespace {
 
-// A SEARCH result is cached as two entries: its TRUE rows, and its UNKNOWN rows under the
-// signature with a "__null" suffix.
+// Keep two-valued SEARCH results separate from older SQL UNKNOWN cache entries.
 InvertedIndexQueryCache::CacheKey dsl_cache_key(const std::string& seg_prefix,
                                                 const std::string& signature) {
-    return {seg_prefix, "__search_dsl__", InvertedIndexQueryType::SEARCH_DSL_QUERY, signature};
+    return {seg_prefix, "__search_dsl_2vl__", InvertedIndexQueryType::SEARCH_DSL_QUERY, signature};
 }
 
-// Either entry can be evicted, or not yet inserted, without the other, and TRUE rows found
-// without their UNKNOWN rows are no result.
 bool lookup_dsl_result(InvertedIndexQueryCache* cache, const std::string& seg_prefix,
                        const std::string& signature, InvertedIndexResultBitmap* result) {
     InvertedIndexQueryCacheHandle rows_handle;
-    InvertedIndexQueryCacheHandle nulls_handle;
-    if (!cache->lookup(dsl_cache_key(seg_prefix, signature), &rows_handle) ||
-        !cache->lookup(dsl_cache_key(seg_prefix, signature + "__null"), &nulls_handle)) {
+    if (!cache->lookup(dsl_cache_key(seg_prefix, signature), &rows_handle)) {
         return false;
     }
     auto rows = rows_handle.get_bitmap();
-    auto nulls = nulls_handle.get_bitmap();
-    if (rows == nullptr || nulls == nullptr) {
+    if (rows == nullptr) {
         return false;
     }
-    *result = InvertedIndexResultBitmap(std::move(rows), std::move(nulls));
+    // SQL bitmap composition can mutate its input. The cache owns an independent copy.
+    *result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(*rows),
+                                        std::make_shared<roaring::Roaring>());
     return true;
 }
 
-// The UNKNOWN rows go in first, so a search that finds the TRUE rows finds them as well.
 void insert_dsl_result(InvertedIndexQueryCache* cache, const std::string& seg_prefix,
                        const std::string& signature, const InvertedIndexResultBitmap& result) {
-    auto nulls = result.get_null_bitmap() != nullptr ? result.get_null_bitmap()
-                                                     : std::make_shared<roaring::Roaring>();
-    InvertedIndexQueryCacheHandle nulls_handle;
-    cache->insert(dsl_cache_key(seg_prefix, signature + "__null"), std::move(nulls), &nulls_handle);
     InvertedIndexQueryCacheHandle rows_handle;
-    cache->insert(dsl_cache_key(seg_prefix, signature), result.get_data_bitmap(), &rows_handle);
+    cache->insert(dsl_cache_key(seg_prefix, signature),
+                  std::make_shared<roaring::Roaring>(*result.get_data_bitmap()), &rows_handle);
 }
 
 bool is_nested_group_search_supported() {
@@ -172,7 +164,7 @@ public:
         if (!binding.is_bound()) {
             LOG(INFO) << "search: No inverted index for field '" << field
                       << "' in this segment, query_type=" << static_cast<int>(query_type)
-                      << ", returning UNKNOWN bitmap";
+                      << ", returning non-matching bitmap";
             *out = logical::FieldProps {};
             return Status::OK();
         }
@@ -244,28 +236,23 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out,
                     std::string* binding_key);
 
-// Marks the rows where the field is NULL as UNKNOWN for leaves that would misreport them: an array
-// index can list a NULL array's leftover values, and a term threshold counts its terms two-valued.
-Status mask_null_rows(const FieldReaderBinding& binding, const FieldReaderResolver& resolver,
-                      const std::string& field, bool threshold, query_v2::QueryPtr* query) {
-    const bool array = binding.column_type != nullptr &&
-                       remove_nullable(binding.column_type)->get_primitive_type() == TYPE_ARRAY;
-    if (!array && !threshold) {
-        return Status::OK();
-    }
+// Physical NULL postings can overlap a NULL ARRAY's leftover values. Exclude them
+// before Boolean composition without introducing SQL UNKNOWN or changing scores.
+Status mask_null_rows(const FieldReaderResolver& resolver, const std::string& field,
+                      query_v2::QueryPtr* query) {
     IndexIterator* iterator = resolver.get_iterator(field);
-    if (iterator == nullptr) {
-        return Status::OK();
-    }
-    auto has_null = iterator->has_null();
-    if (!has_null.has_value() || !has_null.value()) {
+    DORIS_CHECK(iterator != nullptr);
+    const bool has_null = DORIS_TRY(iterator->has_null());
+    if (!has_null) {
         return Status::OK();
     }
     InvertedIndexQueryCacheHandle handle;
     RETURN_IF_ERROR(iterator->read_null_bitmap(&handle));
     auto nulls = handle.get_bitmap();
-    if (nulls != nullptr && !nulls->isEmpty()) {
-        *query = std::make_shared<query_v2::NullMaskedQuery>(std::move(*query), std::move(nulls));
+    DORIS_CHECK(nulls != nullptr);
+    if (!nulls->isEmpty()) {
+        *query = std::make_shared<query_v2::NullMaskedQuery>(std::move(*query), std::move(nulls),
+                                                             /*nulls_are_false=*/true);
     }
     return Status::OK();
 }
@@ -277,8 +264,7 @@ bool has_required_clause(const Clauses& clauses) {
             clauses, [](const auto& clause) { return clause.first == logical::Occur::kMust; });
 }
 
-// Without scoring, optional clauses beside a required one change neither the rows nor their
-// UNKNOWN state, so they are left out.
+// Without scoring, optional clauses beside a required one do not change the match set.
 Clauses matching_clauses(const logical::Bool& boolean, bool scoring) {
     if (scoring || boolean.op != logical::BoolOp::kOccur || boolean.min_should_match != 0 ||
         !has_required_clause(boolean.clauses)) {
@@ -367,8 +353,8 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
     if (binding_key != nullptr) {
         *binding_key = field->binding;
     }
-    if (node.as<logical::Unknown>() != nullptr) {
-        *out = make_unknown_leaf_query(ctx.num_rows);
+    if (node.as<logical::Empty>() != nullptr) {
+        *out = std::make_shared<query_v2::BitSetQuery>(std::make_shared<roaring::Roaring>());
         return resolver.map_leaf_query(field->name, out);
     }
     const FieldReaderBinding* binding = resolver.find_binding(field->binding);
@@ -376,14 +362,21 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
         return Status::InternalError("search: field '{}' has no compiler for binding '{}'",
                                      field->name, field->binding);
     }
+    SearchLeafContext leaf_ctx = ctx;
+    RETURN_IF_ERROR(resolver.leaf_num_rows(field->name, &leaf_ctx.num_rows));
     const auto* set = node.as<logical::TermSet>();
     const bool threshold = set != nullptr && set->min_should_match > 0;
-    if (threshold) {
-        RETURN_IF_ERROR(compile_term_threshold(*set, ctx, *binding->leaf_compiler, out));
+    if (node.as<logical::Exists>() != nullptr) {
+        // Exists also works for BKD and uses the NestedGroup leaf's element domain.
+        auto matches = std::make_shared<roaring::Roaring>();
+        matches->addRange(0, leaf_ctx.num_rows);
+        *out = std::make_shared<query_v2::BitSetQuery>(std::move(matches));
+    } else if (threshold) {
+        RETURN_IF_ERROR(compile_term_threshold(*set, leaf_ctx, *binding->leaf_compiler, out));
     } else {
-        RETURN_IF_ERROR(binding->leaf_compiler->compile(node, ctx, out));
+        RETURN_IF_ERROR(binding->leaf_compiler->compile(node, leaf_ctx, out));
     }
-    RETURN_IF_ERROR(mask_null_rows(*binding, resolver, field->name, threshold, out));
+    RETURN_IF_ERROR(mask_null_rows(resolver, field->name, out));
     return resolver.map_leaf_query(field->name, out);
 }
 
@@ -455,14 +448,6 @@ Status FunctionSearch::_evaluate_search_param(
                 "NESTED query requires NestedGroup support, which is unavailable in this build");
     }
 
-    if (!is_nested_query && (iterators.empty() || data_type_with_names.empty())) {
-        LOG(INFO) << "No indexed columns or iterators available, returning empty result, dsl:"
-                  << search_param.original_dsl;
-        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
-                                                  std::make_shared<roaring::Roaring>());
-        return Status::OK();
-    }
-
     // Track overall query time (equivalent to inverted_index_query_timer in MATCH path).
     // Must be declared before the DSL cache lookup so that cache-hit fast paths are
     // also covered by the timer.
@@ -470,7 +455,7 @@ Status FunctionSearch::_evaluate_search_param(
     OlapReaderStatistics* outer_stats = index_query_context ? index_query_context->stats : nullptr;
     SCOPED_RAW_TIMER(outer_stats ? &outer_stats->inverted_index_query_timer : &query_timer_dummy);
 
-    // DSL result cache only stores bitmap/null bitmap. It does not store BM25 scores,
+    // DSL result cache only stores the two-valued match bitmap. It does not store BM25 scores,
     // so score() queries must execute scorers to populate CollectionSimilarity.
     const bool enable_scoring =
             index_query_context != nullptr && index_query_context->collection_similarity != nullptr;
@@ -562,7 +547,7 @@ Status FunctionSearch::_evaluate_search_param(
         return Status::OK();
     }
 
-    VariantSearchNullBitmapAdapter null_resolver(resolver);
+    SearchNullBitmapResolver null_resolver;
     query_v2::QueryExecutionContext exec_ctx =
             build_variant_search_query_execution_context(num_rows, resolver, &null_resolver);
 
@@ -582,13 +567,17 @@ Status FunctionSearch::_evaluate_search_param(
     }
 
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    // A three-valued root reports the rows it leaves UNKNOWN (TRUE OR NULL is TRUE, FALSE OR
-    // NULL is NULL); a lucene-style Boolean root is two-valued: every row it does not match is
-    // FALSE.
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    const bool three_valued =
-            exec_ctx.null_resolver != nullptr && search_param.root.clause_type != "OCCUR_BOOLEAN";
-    const bool top_k_path = enable_scoring && !is_asc && top_k > 0;
+    // Keyword readers can lack BM25 length statistics. Preserve their original
+    // scores and all matches for the SQL sort when pruning cannot order them.
+    const bool can_prune_scores = std::none_of(
+            resolver.binding_cache().begin(), resolver.binding_cache().end(),
+            [](const auto& entry) {
+                const auto& binding = entry.second;
+                DORIS_CHECK(binding.inverted_reader != nullptr);
+                return binding.inverted_reader->type() == InvertedIndexReaderType::STRING_TYPE;
+            });
+    const bool top_k_path = enable_scoring && !is_asc && top_k > 0 && top_k < num_rows &&
+                            top_k <= query_v2::TopKCollector::kMaxK && can_prune_scores;
     exec_ctx.top_k = top_k_path;
     {
         int64_t exec_dummy = 0;
@@ -597,33 +586,24 @@ Status FunctionSearch::_evaluate_search_param(
             bool use_wand = index_query_context->runtime_state != nullptr &&
                             index_query_context->runtime_state->query_options()
                                     .enable_inverted_index_wand_query;
-            query_v2::collect_multi_segment_top_k(
-                    weight, exec_ctx, root_binding_key, top_k, roaring,
-                    index_query_context->collection_similarity, use_wand,
-                    index_query_context->delete_bitmap, three_valued ? null_bitmap.get() : nullptr);
+            query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k,
+                                                  roaring,
+                                                  index_query_context->collection_similarity,
+                                                  use_wand, index_query_context->delete_bitmap);
         } else {
-            // The scorers listing the rows report the UNKNOWN ones as they go.
             query_v2::collect_multi_segment_doc_set(
                     weight, exec_ctx, root_binding_key, roaring,
                     index_query_context ? index_query_context->collection_similarity : nullptr,
-                    enable_scoring, three_valued ? null_bitmap.get() : nullptr);
+                    enable_scoring);
         }
     }
 
     VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
 
-    VLOG_TRACE << "search: Before mask - true_bitmap=" << roaring->cardinality()
-               << ", null_bitmap=" << null_bitmap->cardinality();
+    // SEARCH never returns UNKNOWN; outer SQL composes this non-nullable match set.
+    bitmap_result =
+            InvertedIndexResultBitmap(std::move(roaring), std::make_shared<roaring::Roaring>());
 
-    // Create result and mask out NULLs (SQL WHERE clause semantics: only TRUE rows)
-    bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
-    bitmap_result.mask_out_null();
-
-    VLOG_TRACE << "search: After mask - result_bitmap="
-               << bitmap_result.get_data_bitmap()->cardinality();
-
-    // The cached result keeps its UNKNOWN rows, so NOT, OR and AND over a cache hit stay
-    // three-valued.
     if (dsl_cache && cache_usable) {
         insert_dsl_result(dsl_cache, seg_prefix, dsl_sig, bitmap_result);
     }
