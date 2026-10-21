@@ -140,7 +140,7 @@ suite("test_show_data_warehouse") {
         long totalDataSize = -1
         int spillRows = 0
         for (row : result) {
-            // |DBName|DataSize|RecycleSize|BinlogSize|
+            // |DBName|DataSize|RecycleSize|ChangelogSize|
             assertEquals(4, row.size())
             if (row[0].toString().equalsIgnoreCase("total")) {
                 assertTrue(row[2].toInteger() > 0)
@@ -176,7 +176,7 @@ suite("test_show_data_warehouse") {
         long totalSize = -1
         spillRows = 0
         for (row : result) {
-            // |DbId|DbName|Size|RemoteSize|BinlogSize|RecycleSize|RecycleRemoteSize|
+            // |DbId|DbName|Size|RemoteSize|ChangelogSize|RecycleSize|RecycleRemoteSize|
             assertEquals(7, row.size())
             if (row[0].toString() == "Total") {
                 totalSize = row[2].toLong()
