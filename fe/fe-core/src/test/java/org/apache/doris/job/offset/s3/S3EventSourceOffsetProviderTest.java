@@ -33,6 +33,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.identity.spi.AwsCredentialsIdentity;
 import software.amazon.awssdk.identity.spi.IdentityProvider;
 import software.amazon.awssdk.regions.Region;
@@ -40,6 +41,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3ServiceClientConfiguration;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.SqsClientBuilder;
 import software.amazon.awssdk.services.sqs.model.BatchResultErrorEntry;
@@ -106,6 +109,9 @@ public class S3EventSourceOffsetProviderTest {
         sqsStatic = Mockito.mockStatic(SqsClient.class);
         sqsStatic.when(SqsClient::builder).thenReturn(sqsBuilder);
         s3Client = Mockito.mock(S3Client.class);
+        Mockito.when(s3Client.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenReturn(HeadObjectResponse.builder().contentLength(1L)
+                        .lastModified(Instant.parse("2026-01-01T00:00:00Z")).eTag("etag").build());
         s3Builder = Mockito.mock(S3ClientBuilder.class, Mockito.RETURNS_SELF);
         Mockito.when(s3Builder.build()).thenReturn(s3Client);
         Mockito.when(s3Builder.credentialsProvider(Mockito.any(AwsCredentialsProvider.class)))
@@ -250,6 +256,33 @@ public class S3EventSourceOffsetProviderTest {
     }
 
     @Test
+    public void testCloseDuringHeadDiscardsLateBatch() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                    .thenReturn(response(filesMessage("in-flight", "logs/a.csv")));
+            Mockito.when(s3Client.headObject(Mockito.any(HeadObjectRequest.class)))
+                    .thenAnswer(invocation -> {
+                        executor.submit(() -> provider.close()).get(5, TimeUnit.SECONDS);
+                        return HeadObjectResponse.builder().contentLength(170L)
+                                .lastModified(Instant.parse("2026-01-01T00:00:01Z")).eTag("new-etag").build();
+                    });
+
+            provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+
+            Mockito.verify(s3Client).headObject(HeadObjectRequest.builder().bucket("bucket").key("logs/a.csv").build());
+            Assertions.assertFalse(provider.hasMoreDataToConsume());
+            Assertions.assertNull(provider.getPersistInfo());
+            Mockito.verify(sqsClient).close();
+            Mockito.verify(s3Client).close();
+            Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
+            Mockito.verify(sqsClient, Mockito.never()).getQueueAttributes(Mockito.any(GetQueueAttributesRequest.class));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testClientCreationFailureReleasesFileSystemAndAllowsRetry() {
         Mockito.when(sqsBuilder.build()).thenThrow(new IllegalStateException("client creation failed"))
                 .thenReturn(sqsClient);
@@ -271,7 +304,11 @@ public class S3EventSourceOffsetProviderTest {
     }
 
     @Test
-    public void testNotificationMetadataDoesNotRequireHead() {
+    public void testNotificationUsesCurrentObjectMetadata() {
+        Mockito.when(s3Client.headObject(HeadObjectRequest.builder()
+                .bucket("bucket").key("logs/a,b[1].csv").build()))
+                .thenReturn(HeadObjectResponse.builder().contentLength(170L)
+                        .lastModified(Instant.parse("2026-01-01T00:00:01Z")).eTag("new-etag").build());
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(response(message("literal", record("bucket", "logs/a%2Cb%5B1%5D.csv", 123))));
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
@@ -279,10 +316,51 @@ public class S3EventSourceOffsetProviderTest {
         S3EventOffset offset = nextOffset();
         Assertions.assertEquals(Collections.singletonList("logs/a,b[1].csv"), offset.getFiles());
         Assertions.assertEquals("s3://bucket/logs/a,b[1].csv", offset.getFileStatuses().get(0).getPath());
-        Assertions.assertEquals(123, offset.getFileStatuses().get(0).getSize());
+        Assertions.assertEquals(170, offset.getFileStatuses().get(0).getSize());
+        Assertions.assertEquals(1767225601000L, offset.getFileStatuses().get(0).getModificationTime());
         Assertions.assertFalse(offset.toSerializedJson().contains("fileStatuses"));
-        Mockito.verify(s3Client, Mockito.never()).headObject(Mockito.any(HeadObjectRequest.class));
         Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
+    }
+
+    @Test
+    public void testMissingObjectIsSkippedWithoutAdvancingOffset() {
+        Mockito.when(s3Client.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenThrow(S3Exception.builder().statusCode(404).message("Not found").build());
+        Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                .thenReturn(response(filesMessage("missing", "logs/missing.csv")),
+                        ReceiveMessageResponse.builder().build());
+
+        provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
+
+        Assertions.assertFalse(provider.hasMoreDataToConsume());
+        Assertions.assertNull(provider.getPersistInfo());
+        ArgumentCaptor<DeleteMessageBatchRequest> deleted = ArgumentCaptor.forClass(DeleteMessageBatchRequest.class);
+        Mockito.verify(sqsClient).deleteMessageBatch(deleted.capture());
+        Assertions.assertEquals(Collections.singletonList("missing"), deleteHandles(deleted.getValue()));
+    }
+
+    @Test
+    public void testHeadFailureRetainsMessagesForRetry() {
+        for (RuntimeException error : List.of(
+                S3Exception.builder().statusCode(403).message("Access denied").build(),
+                SdkClientException.create("Connection timed out"))) {
+            Mockito.clearInvocations(sqsClient);
+            Mockito.doThrow(error).when(s3Client).headObject(Mockito.any(HeadObjectRequest.class));
+            Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
+                    .thenReturn(response(filesMessage("retry", "logs/a.csv")));
+
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> provider.fetchRemoteMeta(jobProperties(1), tvfProperties));
+
+            Assertions.assertFalse(provider.hasMoreDataToConsume());
+            Assertions.assertNull(provider.getPersistInfo());
+            Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
+            ArgumentCaptor<ChangeMessageVisibilityBatchRequest> released =
+                    ArgumentCaptor.forClass(ChangeMessageVisibilityBatchRequest.class);
+            Mockito.verify(sqsClient).changeMessageVisibilityBatch(released.capture());
+            Assertions.assertEquals("retry", released.getValue().entries().get(0).receiptHandle());
+            Assertions.assertEquals(0, released.getValue().entries().get(0).visibilityTimeout());
+        }
     }
 
     @Test
@@ -529,6 +607,9 @@ public class S3EventSourceOffsetProviderTest {
     public void testByteLimitAcceptsWholeReceive() {
         Map<String, String> properties = new HashMap<>();
         properties.put("s3.max_batch_bytes", "104857600");
+        Mockito.when(s3Client.headObject(HeadObjectRequest.builder().bucket("bucket").key("logs/a.csv").build()))
+                .thenReturn(HeadObjectResponse.builder().contentLength(104857600L)
+                        .lastModified(Instant.parse("2026-01-01T00:00:00Z")).eTag("etag").build());
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(response(message("first", record("bucket", "logs/a.csv", 104857600)),
                         message("overflow", record("bucket", "logs/b.csv", 1))));
@@ -621,6 +702,9 @@ public class S3EventSourceOffsetProviderTest {
     @Test
     public void testEventDecodingPreservesSizeTimeAndUnknownFields() {
         long size = (long) Integer.MAX_VALUE + 1;
+        Mockito.when(s3Client.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenReturn(HeadObjectResponse.builder().contentLength(size)
+                        .lastModified(Instant.parse("2026-01-01T00:00:00Z")).eTag("etag").build());
         String eventTime = "2026-01-01T08:00:00.987+08:00";
         String validRecord = record("bucket", "logs/a+b%2Bc%252F%E4%B8%AD.csv", size, eventTime)
                 .replace("\"size\":" + size, "\"size\":\"" + size + "\"")
@@ -685,9 +769,13 @@ public class S3EventSourceOffsetProviderTest {
     }
 
     @Test
-    public void testInvalidRecordsDoNotDiscardValidFilesAndDeletionWaitsForCommit() {
+    public void testSkippedRecordsDoNotDiscardValidFilesAndDeletionWaitsForCommit() {
+        Mockito.when(s3Client.headObject(HeadObjectRequest.builder()
+                .bucket("bucket").key("logs/missing.csv").build()))
+                .thenThrow(S3Exception.builder().statusCode(404).message("Not found").build());
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
-                .thenReturn(response(message("mixed", record("bucket", "logs/a.csv", 1), "null",
+                .thenReturn(response(message("mixed", record("bucket", "logs/missing.csv", 1),
+                        record("bucket", "logs/a.csv", 1), "null",
                         record("bucket", "logs/deleted.csv", 1).replace("ObjectCreated:Put", "ObjectRemoved:Delete"),
                         "{\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\"}",
                         record("bucket", "", 1), record("bucket", "logs/invalid.csv", -1),
@@ -698,6 +786,8 @@ public class S3EventSourceOffsetProviderTest {
 
         S3EventOffset offset = nextOffset();
         Assertions.assertEquals(Collections.singletonList("logs/a.csv"), offset.getFiles());
+        Assertions.assertEquals(1, offset.getFileStatuses().size());
+        Assertions.assertEquals("s3://bucket/logs/a.csv", offset.getFileStatuses().get(0).getPath());
         Mockito.verify(sqsClient, Mockito.never()).deleteMessageBatch(Mockito.any(DeleteMessageBatchRequest.class));
         provider.updateOffset(offset);
         provider.onTaskCommitted(1, 1);
@@ -828,6 +918,11 @@ public class S3EventSourceOffsetProviderTest {
     }
 
     private void assertResumeReceivesFreshReceipt(boolean running) {
+        Mockito.when(s3Client.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenReturn(HeadObjectResponse.builder().contentLength(19L)
+                                .lastModified(Instant.parse("2026-01-01T00:00:00Z")).eTag("old-etag").build(),
+                        HeadObjectResponse.builder().contentLength(170L)
+                                .lastModified(Instant.parse("2026-01-01T00:00:01Z")).eTag("new-etag").build());
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))
                 .thenReturn(response(filesMessage("old", "logs/a.csv")),
                         response(filesMessage("fresh", "logs/a.csv")));
@@ -839,6 +934,8 @@ public class S3EventSourceOffsetProviderTest {
         Assertions.assertFalse(provider.hasMoreDataToConsume());
         provider.fetchRemoteMeta(jobProperties(1), tvfProperties);
         Assertions.assertEquals(Collections.singletonList("logs/a.csv"), nextOffset().getFiles());
+        Assertions.assertEquals(170, nextOffset().getFileStatuses().get(0).getSize());
+        Assertions.assertEquals(1767225601000L, nextOffset().getFileStatuses().get(0).getModificationTime());
         provider.updateOffset(nextOffset());
         provider.onTaskCommitted(1, 1);
         Mockito.when(sqsClient.receiveMessage(Mockito.any(ReceiveMessageRequest.class)))

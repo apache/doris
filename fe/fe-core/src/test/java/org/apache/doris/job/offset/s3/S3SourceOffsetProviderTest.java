@@ -126,6 +126,31 @@ public class S3SourceOffsetProviderTest {
     }
 
     @Test
+    public void testListingRefreshesFileSizeAndModificationTime() throws Exception {
+        FileSystem fs = Mockito.mock(FileSystem.class);
+        try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            factory.when(() -> FileSystemFactory.getFileSystem(Mockito.any(StorageAdapter.class))).thenReturn(fs);
+            for (S3SourceOffsetProvider provider : List.of(
+                    new S3SourceOffsetProvider(), new S3SourceOffsetProvider(ONCE_PROPS))) {
+                Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.isNull(),
+                        Mockito.anyLong(), Mockito.anyLong())).thenReturn(
+                                new GlobListing(List.of(new FileEntry(Location.of("s3://bucket/data/a.csv"),
+                                        19, false, 1767225600000L, null)), "bucket", "data/", "data/a.csv"),
+                                new GlobListing(List.of(new FileEntry(Location.of("s3://bucket/data/a.csv"),
+                                        170, false, 1767225601000L, null)), "bucket", "data/", "data/a.csv"));
+
+                TBrokerFileStatus first = provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getFileStatuses().get(0);
+                Assertions.assertEquals(19, first.getSize());
+                Assertions.assertEquals(1767225600000L, first.getModificationTime());
+                // An uncommitted batch must pick up an overwrite on the next attempt.
+                TBrokerFileStatus retried = provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getFileStatuses().get(0);
+                Assertions.assertEquals(170, retried.getSize());
+                Assertions.assertEquals(1767225601000L, retried.getModificationTime());
+            }
+        }
+    }
+
+    @Test
     public void testEmptyAndListingErrorRemainDistinct() throws Exception {
         FileSystem fs = Mockito.mock(FileSystem.class);
         try (MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
