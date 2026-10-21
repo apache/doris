@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.DistinctWindowExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -53,8 +54,11 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCo
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -73,6 +77,80 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialAggregateLegalityTest {
+    @Test
+    public void declaredSpatialMapStatesRejectKeysWithoutAProducer() {
+        MemoTestUtils.createConnectContext();
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (boolean nullable : List.of(false, true)) {
+                for (String function : List.of("count_map", "sum_map", "avg_map", "min_map", "max_map")) {
+                    AggStateType state = new AggStateType(function,
+                            List.of(MapType.of(spatial, IntegerType.INSTANCE)), List.of(nullable), false);
+                    for (DataType type : List.of(state, ArrayType.of(state),
+                            MapType.of(IntegerType.INSTANCE, state),
+                            new StructType(List.of(new StructField("state", state, true, ""))))) {
+                        LogicalOneRowRelation plan = new LogicalOneRowRelation(
+                                StatementScopeIdGenerator.newRelationId(), List.of(new Alias(new NullLiteral(type))));
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                () -> new CheckDataTypes().rewriteRoot(plan, null));
+                        Assertions.assertEquals(function + " does not support spatial MAP keys", error.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void typedNullSpatialStatesAreCheckedThroughSqlRewrite() {
+        for (String spatial : List.of("GEOMETRY('EPSG:3857')", "GEOGRAPHY")) {
+            for (String function : List.of("count_map", "sum_map", "avg_map", "min_map", "max_map")) {
+                String type = "AGG_STATE<" + function + "(MAP<" + spatial + ", INT>)>";
+                String state = "CAST(NULL AS " + type + ")";
+                for (String sql : List.of("select " + state,
+                        "select s from (select " + state + " s) states",
+                        "select " + function + "_merge(s) from (select " + state + " s) states",
+                        "select TRY_CAST(NULL AS " + type + ")",
+                        "select CONVERT(NULL, " + type + ")")) {
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+                    Assertions.assertTrue(error.getMessage().contains(
+                            function + " does not support spatial MAP keys"), error.getMessage());
+                }
+            }
+            for (String signature : List.of("map_agg(" + spatial + ", INT)",
+                    "map_agg_v2(" + spatial + ", INT)", "linear_histogram(" + spatial + ", DOUBLE)",
+                    "linear_histogram(" + spatial + ", DOUBLE, DOUBLE)")) {
+                String sql = "select CAST(NULL AS AGG_STATE<" + signature + ">)";
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+                Assertions.assertTrue(error.getMessage().contains("does not support spatial"), error.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void declaredSupportedSpatialStatesRemainAdmitted() {
+        for (String spatial : List.of("GEOMETRY('EPSG:3857')", "GEOGRAPHY")) {
+            for (String signature : List.of("map_agg(INT, " + spatial + ")",
+                    "map_agg_v2(INT, " + spatial + ")", "count_map(MAP<INT, " + spatial + ">)",
+                    "min_map(MAP<INT, " + spatial + ">)", "max_map(MAP<INT, " + spatial + ">)",
+                    "any_value(" + spatial + ")", "min(" + spatial + ")", "max(" + spatial + ")",
+                    "count(" + spatial + ")", "array_agg(" + spatial + ")",
+                    "collect_list(" + spatial + ")", "collect_list(" + spatial + ", INT)")) {
+                String sql = "select CAST(NULL AS AGG_STATE<" + signature + ">)";
+                Assertions.assertDoesNotThrow(
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+            }
+        }
+        for (String signature : List.of("linear_histogram(INT, DOUBLE)", "map_agg(INT, INT)",
+                "count_map(MAP<INT, INT>)", "sum_map(MAP<INT, INT>)", "avg_map(MAP<INT, INT>)",
+                "min_map(MAP<INT, INT>)", "max_map(MAP<INT, INT>)")) {
+            String sql = "select CAST(NULL AS AGG_STATE<" + signature + ">)";
+            Assertions.assertDoesNotThrow(
+                    () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+        }
+    }
+
     @Test
     public void linearHistogramAndMapAggRejectUnsupportedSpatialArguments() {
         Expression integer = new SlotReference("id", IntegerType.INSTANCE);

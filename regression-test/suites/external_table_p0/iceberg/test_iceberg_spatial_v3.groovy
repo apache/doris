@@ -373,7 +373,56 @@ public class CreateIcebergSpatialV3Table {
             hex(ST_AsBinary(element_at(minimums, 1))), hex(ST_AsBinary(element_at(maximums, 1)))
             from (select count_map(map(1, ${column})) counts, min_map(map(1, ${column})) minimums,
                 max_map(map(1, ${column})) maximums from geometry_values) aggregates""")
+        "qt_spatial_map_state_values_${column}"("""select /*+ SET_VAR(enable_agg_state=true) */
+            hex(ST_AsBinary(element_at(map_agg_merge(primary_state), 1))),
+            hex(ST_AsBinary(element_at(map_agg_v2_merge(alias_state), 1))),
+            element_at(count_map_merge(count_state), 1),
+            hex(ST_AsBinary(element_at(min_map_merge(min_state), 1))),
+            hex(ST_AsBinary(element_at(max_map_merge(max_state), 1)))
+            from (select map_agg_state(id, ${column}) primary_state, map_agg_v2_state(id, ${column}) alias_state,
+                count_map_state(map(1, ${column})) count_state, min_map_state(map(1, ${column})) min_state,
+                max_map_state(map(1, ${column})) max_state from geometry_values) states""")
     }
+    // A typed NULL has no aggregate producer: validate its state descriptor before BE initialization.
+    for (String spatial : ["GEOMETRY", "GEOGRAPHY"]) {
+        for (String function : ["count_map", "sum_map", "avg_map", "min_map", "max_map"]) {
+            String stateType = "AGG_STATE<${function}(MAP<${spatial}, INT>)>"
+            String state = "CAST(NULL AS ${stateType})"
+            for (String query : [
+                    "select ${state} from numbers('number'='3')",
+                    "select TRY_CAST(NULL AS ${stateType}) from numbers('number'='3')",
+                    "select CONVERT(NULL, ${stateType}) from numbers('number'='3')",
+                    "select s from (select ${state} s from numbers('number'='3')) states",
+                    "select ${function}_merge(s) from (select ${state} s from numbers('number'='3')) states"]) {
+                test {
+                    sql query.replaceFirst("select", "select /*+ SET_VAR(enable_agg_state=true) */")
+                    exception "${function} does not support spatial MAP keys"
+                }
+            }
+        }
+        for (String signature : ["map_agg(${spatial}, INT)", "map_agg_v2(${spatial}, INT)",
+                "linear_histogram(${spatial}, DOUBLE)", "linear_histogram(${spatial}, DOUBLE, DOUBLE)"]) {
+            test {
+                sql """select /*+ SET_VAR(enable_agg_state=true) */ CAST(NULL AS AGG_STATE<${signature}>)
+                    from numbers('number'='3')"""
+                exception "does not support spatial"
+            }
+        }
+        List<String> supportedStates = ["map_agg(INT, ${spatial})", "map_agg_v2(INT, ${spatial})",
+                "count_map(MAP<INT, ${spatial}>)", "min_map(MAP<INT, ${spatial}>)",
+                "max_map(MAP<INT, ${spatial}>)", "any_value(${spatial})", "min(${spatial})", "max(${spatial})",
+                "count(${spatial})", "array_agg(${spatial})", "collect_list(${spatial})",
+                "collect_list(${spatial}, INT)"]
+        String projections = supportedStates.collect { "CAST(NULL AS AGG_STATE<${it}>)" }.join(", ")
+        "order_qt_spatial_declared_state_nulls_${spatial.toLowerCase()}"("""select
+            /*+ SET_VAR(enable_agg_state=true) */ number, ${projections}
+            from numbers('number'='3') order by number""")
+    }
+    order_qt_ordinary_declared_state_nulls """select /*+ SET_VAR(enable_agg_state=true) */ number,
+        CAST(NULL AS AGG_STATE<linear_histogram(INT, DOUBLE)>), CAST(NULL AS AGG_STATE<map_agg(INT, INT)>),
+        CAST(NULL AS AGG_STATE<count_map(MAP<INT, INT>)>), CAST(NULL AS AGG_STATE<sum_map(MAP<INT, INT>)>),
+        CAST(NULL AS AGG_STATE<avg_map(MAP<INT, INT>)>), CAST(NULL AS AGG_STATE<min_map(MAP<INT, INT>)>),
+        CAST(NULL AS AGG_STATE<max_map(MAP<INT, INT>)>) from numbers('number'='3') order by number"""
     // Imported nested columns must obey the same group-array admission rule.
     for (String function : ["group_array_union", "group_array_intersect"]) {
         test {
