@@ -609,19 +609,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     /**
      * Whether the pending metadata requirement addresses the current expression's own container,
-     * i.e. an unprefixed OFFSET / NULL suffix, rather than one of its descendants such as the
-     * `[*, OFFSET]` produced by cardinality(element_at(&lt;array&gt;, 1)).
+     * e.g. the `[OFFSET]` of cardinality(arr) or the `[NULL]` of arr IS NULL, rather than one of
+     * its descendants such as the `[*, OFFSET]` produced by cardinality(element_at(&lt;array&gt;, 1)).
+     * Every metadata request is created together with exactly one OFFSET / NULL suffix (see
+     * visitCardinality / visitLength / visitMapSize / visitIsNull), and the visitors only prepend
+     * the components they descend through, so a single-component metadata path is a root request.
      */
     private static boolean isRootContainerMetadata(CollectorContext context) {
-        if (context.getType() != ColumnAccessPathType.META) {
-            return false;
-        }
-        List<String> path = context.getAccessPathBuilder().getPathList();
-        if (path.size() != 1) {
-            return false;
-        }
-        String suffix = path.get(0);
-        return AccessPathInfo.ACCESS_OFFSET.equals(suffix) || AccessPathInfo.ACCESS_NULL.equals(suffix);
+        return context.getType() == ColumnAccessPathType.META
+                && context.getAccessPathBuilder().getPathList().size() == 1;
     }
 
     @Override
