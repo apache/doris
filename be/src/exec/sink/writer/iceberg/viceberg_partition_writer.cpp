@@ -94,23 +94,18 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
+    auto create_file = [&]() {
+        return _fs->create_file(file_description.path, &_file_writer, &file_writer_options);
+    };
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        auto parquet_compression_type =
-                ParquetBuildHelper::to_parquet_compression_type(_compress_type);
-        if (!parquet_compression_type.has_value()) {
-            Status delete_status = _fs->delete_file(_path);
-            if (!delete_status.ok()) {
-                LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", _path,
-                                            delete_status.to_string());
-            }
-            return parquet_compression_type.error();
-        }
+        TParquetCompressionType::type parquet_compression_type =
+                DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
+        RETURN_IF_ERROR(create_file());
         // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
         ParquetFileOptions parquet_options = {
-                .compression_type = parquet_compression_type.value(),
+                .compression_type = parquet_compression_type,
                 .parquet_version = contains_nanosecond_timestamp(_schema.root_struct())
                                            ? TParquetVersion::PARQUET_2_LATEST
                                            : TParquetVersion::PARQUET_1_0,
@@ -122,6 +117,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(create_file());
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _compress_type, &_schema, _fs);
