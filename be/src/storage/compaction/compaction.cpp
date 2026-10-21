@@ -753,16 +753,20 @@ bool CompactionMixin::handle_ordered_data_compaction() {
         }
     }
 
-    // A non-empty singleton rowset stores a placeholder for the hidden VERSION column.
-    // Linking [2-2] and [3-3] into [2-3] would make the reader expose that placeholder
-    // instead of synthesizing each row's publish version, so materialize it by merging.
-    if (_input_rowsets.front()->start_version() != _input_rowsets.back()->end_version() &&
-        std::ranges::any_of(_input_rowsets, [](const RowsetSharedPtr& rowset) {
-            return rowset->num_rows() > 0 && rowset->start_version() == rowset->end_version() &&
-                   rowset->tablet_schema()->version_col_idx() >= 0;
-        })) {
-        return false;
-    }
+    // A non-empty singleton stores placeholders for publish-time VERSION and TSO columns.
+    // Linking [2-2] and [3-3] into [2-3] would expose those placeholders rather than the
+    // synthesized values. Check only the rowsets actually linked: the tidy scan below can
+    // drop an unsafe tail [10-10] while retaining a safe range prefix [2-9].
+    auto links_unmaterialized_hidden_column = [this] {
+        return _input_rowsets.front()->start_version() != _input_rowsets.back()->end_version() &&
+               std::ranges::any_of(_input_rowsets, [](const RowsetSharedPtr& rowset) {
+                   const auto& schema = rowset->tablet_schema();
+                   return rowset->num_rows() > 0 &&
+                          rowset->start_version() == rowset->end_version() &&
+                          (schema->version_col_idx() >= 0 || schema->commit_tso_col_idx() >= 0 ||
+                           schema->binlog_tso_col_idx() >= 0);
+               });
+    };
 
     if (is_changelog_compaction) {
         DCHECK(!_input_rowsets.empty()) << "tablet=" << _tablet->tablet_id();
@@ -772,6 +776,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
                         ChangelogCumulativeCompactionPolicy::kChangelogCompactionMaxLevel - 1 &&
                 _input_rowsets.size() >= 2 && _input_rowsets[0]->start_version() == 0;
         if (!can_quick_merge_changelog) {
+            return false;
+        }
+        if (links_unmaterialized_hidden_column()) {
             return false;
         }
         _trigger_quick_merge_by_changelog = true;
@@ -801,6 +808,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
                     break;
                 }
             }
+        }
+        if (links_unmaterialized_hidden_column()) {
+            return false;
         }
     }
 

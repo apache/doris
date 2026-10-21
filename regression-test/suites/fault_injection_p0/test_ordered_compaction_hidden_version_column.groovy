@@ -98,5 +98,72 @@ suite("test_ordered_compaction_hidden_version_column", "nonConcurrent") {
                 WHERE __DORIS_VERSION_COL__ = ${v1}),
             (SELECT COUNT(*) FROM test_ordered_compaction_hidden_version_column
                 WHERE __DORIS_VERSION_COL__ = ${v2})"""
+
+        if (getSyncer().checkEnableFeatureBinlog()) {
+            sql "DROP TABLE IF EXISTS test_ordered_compaction_hidden_tso_column"
+            sql """
+                CREATE TABLE test_ordered_compaction_hidden_tso_column (
+                    k INT NOT NULL,
+                    v INT NOT NULL
+                ) DUPLICATE KEY(k)
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "binlog.enable" = "true",
+                    "binlog.format" = "ROW",
+                    "disable_auto_compaction" = "true")
+            """
+            sql "INSERT INTO test_ordered_compaction_hidden_tso_column VALUES (10, 10), (11, 11)"
+            sql "INSERT INTO test_ordered_compaction_hidden_tso_column VALUES (20, 20), (21, 21)"
+            def firstTsos = sql """SELECT __DORIS_COMMIT_TSO_COL__
+                FROM test_ordered_compaction_hidden_tso_column WHERE k < 20 ORDER BY k"""
+            def secondTsos = sql """SELECT __DORIS_COMMIT_TSO_COL__
+                FROM test_ordered_compaction_hidden_tso_column WHERE k >= 20 ORDER BY k"""
+            assert firstTsos.size() == 2 && secondTsos.size() == 2
+            long t1 = firstTsos[0][0].toString().toLong()
+            long t2 = secondTsos[0][0].toString().toLong()
+            assert t1 > 0 && t2 > t1
+            assert firstTsos.every { it[0].toString().toLong() == t1 }
+            assert secondTsos.every { it[0].toString().toLong() == t2 }
+
+            def tsoTabletInfo = sql_return_maparray(
+                    "SHOW TABLETS FROM test_ordered_compaction_hidden_tso_column").get(0)
+            def (tsoInputCode, tsoInputBody, tsoInputError) = curl("GET", tsoTabletInfo.MetaUrl)
+            assert tsoInputCode == 0 : tsoInputError
+            def tsoInputRowsets = parseJson(tsoInputBody.trim()).rs_metas.findAll {
+                it.start_version.toString().toLong() == it.end_version.toString().toLong() &&
+                        it.num_rows.toString().toLong() == 2 &&
+                        it.num_segments.toString().toLong() == 1
+            }.sort { it.start_version.toString().toLong() }
+            assert tsoInputRowsets.size() == 2
+            long firstVersion = tsoInputRowsets[0].start_version.toString().toLong()
+            long secondVersion = tsoInputRowsets[1].end_version.toString().toLong()
+            assert secondVersion == firstVersion + 1
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs(
+                        "SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+                        [tablet_id: "${tsoTabletInfo.TabletId}", start_version: "${firstVersion}",
+                         end_version: "${secondVersion}"])
+                trigger_and_wait_compaction("test_ordered_compaction_hidden_tso_column", "cumulative")
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs(
+                        "SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets")
+            }
+
+            def tsoMetaUrl = sql_return_maparray(
+                    "SHOW TABLETS FROM test_ordered_compaction_hidden_tso_column").get(0).MetaUrl
+            def (tsoCode, tsoBody, tsoError) = curl("GET", tsoMetaUrl)
+            assert tsoCode == 0 : tsoError
+            assert parseJson(tsoBody.trim()).rs_metas.count {
+                it.start_version.toString().toLong() == firstVersion &&
+                        it.end_version.toString().toLong() == secondVersion &&
+                        it.num_rows.toString().toLong() == 4
+            } == 1
+            order_qt_commit_tso """SELECT k,
+                (__DORIS_COMMIT_TSO_COL__ = CASE WHEN k < 20 THEN ${t1} ELSE ${t2} END) AS correct_tso
+                FROM test_ordered_compaction_hidden_tso_column ORDER BY k"""
+            order_qt_time_travel """SELECT k, v FROM test_ordered_compaction_hidden_tso_column
+                FOR VERSION AS OF ${t1} ORDER BY k"""
+        }
     }
 }
