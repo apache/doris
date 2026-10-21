@@ -18,6 +18,9 @@
 // Different rowsets have different doc paths. Unrelated doc values must not make a
 // proven-missing path unavailable, and NOT must complement the missing leaf before union.
 suite("test_variant_search_missing_doc_path", "p0") {
+    // V1 INSERT parses JSON with the table's properties; parse_to_variant returns Variant(0),
+    // which branch-4.2 cannot cast to the table's Variant(2048). V2 needs explicit JSON parsing.
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "DROP TABLE IF EXISTS test_variant_search_missing_doc_path"
     sql """
         CREATE TABLE test_variant_search_missing_doc_path (
@@ -36,9 +39,9 @@ suite("test_variant_search_missing_doc_path", "p0") {
         )
     """
     sql """INSERT INTO test_variant_search_missing_doc_path VALUES
-        (1, parse_to_variant('{"a":"hit"}')), (2, NULL), (3, parse_to_variant('{}'))"""
+        (1, ${variantV2Function}('{"a":"hit"}')), (2, NULL), (3, ${variantV2Function}('{}'))"""
     sql """INSERT INTO test_variant_search_missing_doc_path VALUES
-        (4, parse_to_variant('{"b":"hit"}'))"""
+        (4, ${variantV2Function}('{"b":"hit"}'))"""
 
     ["standard", "lucene"].each { mode ->
         [false, true].each { cache ->
@@ -96,7 +99,7 @@ suite("test_variant_search_missing_doc_path", "p0") {
         )
     """
     sql """INSERT INTO test_variant_search_unindexed_doc_path VALUES
-        (1, parse_to_variant('{"present":"hit"}'))"""
+        (1, ${variantV2Function}('{"present":"hit"}'))"""
     ["v.present:hit", "NOT v.present:hit"].each { dsl ->
         test {
             sql "SELECT id FROM test_variant_search_unindexed_doc_path WHERE SEARCH('${dsl}')"

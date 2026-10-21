@@ -21,6 +21,9 @@
 // This fixture only fixes Boolean/NULL semantics. It does not choose the
 // ignore_above contract or promise Elasticsearch indexed-value exists parity.
 suite("test_search_variant_two_valued_contract", "p0") {
+    // V1 INSERT parses JSON with the table's properties; parse_to_variant returns Variant(0),
+    // which branch-4.2 cannot cast to the table's Variant(2048). V2 needs explicit JSON parsing.
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def allIds = [1, 2, 3, 4]
     def variableNames = [
         "enable_inverted_index_query",
@@ -83,9 +86,9 @@ suite("test_search_variant_two_valued_contract", "p0") {
         // Values are short ASCII, with no analyzer or ignore_above ambiguity.
         sql """
             INSERT INTO test_search_variant_two_valued_contract VALUES
-                (1, 'hit',  NULL, parse_to_variant('{"present":"hit"}')),
-                (2, 'miss', 1,    parse_to_variant('{"present":"miss"}')),
-                (3, NULL,   1,    parse_to_variant('{}')),
+                (1, 'hit',  NULL, ${variantV2Function}('{"present":"hit"}')),
+                (2, 'miss', 1,    ${variantV2Function}('{"present":"miss"}')),
+                (3, NULL,   1,    ${variantV2Function}('{}')),
                 (4, 'hit',  2,    NULL)
         """
 

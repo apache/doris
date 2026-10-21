@@ -19,6 +19,9 @@
 // Write objects explicitly: an ordinary STRING-to-VARIANT cast remains a scalar string,
 // even when its displayed text looks like JSON, and cannot establish a subpath match.
 suite("test_variant_search_historical_rowset_index", "p0") {
+    // V1 INSERT parses JSON with the table's properties; parse_to_variant returns Variant(0),
+    // which branch-4.2 cannot cast to the table's Variant(2048). V2 needs explicit JSON parsing.
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     // Cloud requires this flag and a non-tokenized index for metadata-only creation.
     // A tokenized index uses full schema change and rebuilds the historical rowsets.
     sql "SET enable_add_index_for_new_data = true"
@@ -41,10 +44,10 @@ suite("test_variant_search_historical_rowset_index", "p0") {
         )
     """
     sql """INSERT INTO test_variant_search_historical_rowset_index VALUES
-        (1, 'miss', parse_to_variant('{"missing":"hit"}')),
-        (2, 'hit', parse_to_variant('{}')),
-        (3, 'miss', parse_to_variant('{"missing":"miss"}')),
-        (4, 'hit', parse_to_variant('{"missing":"hit"}'))"""
+        (1, 'miss', ${variantV2Function}('{"missing":"hit"}')),
+        (2, 'hit', ${variantV2Function}('{}')),
+        (3, 'miss', ${variantV2Function}('{"missing":"miss"}')),
+        (4, 'hit', ${variantV2Function}('{"missing":"hit"}'))"""
     sql "SYNC"
     sql """CREATE INDEX idx_v ON test_variant_search_historical_rowset_index(v)
         USING INVERTED PROPERTIES("parser"="none")"""
@@ -94,8 +97,8 @@ suite("test_variant_search_historical_rowset_index", "p0") {
     checkUnavailable()
 
     sql """INSERT INTO test_variant_search_historical_rowset_index VALUES
-        (5, 'miss', parse_to_variant('{"missing":"hit"}')),
-        (6, 'miss', parse_to_variant('{"missing":"miss"}'))"""
+        (5, 'miss', ${variantV2Function}('{"missing":"hit"}')),
+        (6, 'miss', ${variantV2Function}('{"missing":"miss"}'))"""
     sql "SYNC"
     qt_mixed_values """
         SELECT id, variant_type(v), CAST(v['missing'] AS STRING)
