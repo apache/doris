@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -26,20 +24,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -77,186 +69,138 @@ public class HboJoinConditions {
     }
 
     /**
-     * Canonical string of the equality conditions, empty when the join has no equality condition
-     * (e.g. a cross join). A null safe equality ({@code <=>}) is a hash conjunct as well, so it
-     * takes part in the canonical like a plain equality.
+     * Canonical string of the conditions of a join, empty when the join has no expansion key at all.
+     *
+     * <p>An expansion entry replaces the output of a join for every query which matches it, and its
+     * fingerprint carries no data state to guard it - so the operands have to name the columns of the
+     * tables themselves. An operand which is not a direct slot of a catalog table (a computed column, an
+     * aggregate output, a cast) cannot name its table; such a join has no key, so it is skipped instead
+     * of being given a key which two different table pairs with the same aliases would share. A null safe
+     * equality ({@code <=>}) is a hash conjunct as well and takes part like a plain equality.
      */
     public static Optional<String> canonicalOf(Join join) {
-        List<String> pairs = pairsOf(join);
-        if (pairs.isEmpty()) {
-            return Optional.empty();
-        }
-        // a residual predicate decides how many partner rows a row finds (`b > u.b + 1` is not
-        // `b > u.b + 2`), so its literals are part of the key and are never folded
-        List<String> residuals = residualsOf(join);
-        StringBuilder canonical = new StringBuilder(PREFIX).append(join.getJoinType());
-        pairs.forEach(pair -> canonical.append(SEP).append(pair));
-        residuals.forEach(residual -> canonical.append(SEP).append(residual));
-        // the operands of the join name the alias a query gave a relation (`t AS x, u AS y` against
-        // `u AS x, t AS y` render the same `x.a = y.a`), and the alias is bound to a table per plan: the
-        // table each relation names is part of the key. An inner join is commutative, so the bindings of
-        // both sides are one set for it; an outer join preserves a side, so each side keeps its own.
-        // a join node is a plan: the algebra interface only adds the join conditions
-        Plan joinPlan = (Plan) join;
-        if (join.getJoinType() == JoinType.INNER_JOIN) {
-            canonical.append(SEP).append("bindings:[").append(String.join(",",
-                    bindingsOf(joinPlan))).append(']');
-        } else {
-            canonical.append(SEP).append("sides:[").append(relationsOf(joinPlan.child(0))).append('|')
-                    .append(relationsOf(joinPlan.child(1))).append(']');
-        }
-        return Optional.of(canonical.append("}").toString());
+        return keyParts(join).map(parts -> PREFIX + String.join(SEP, parts) + "}");
     }
 
     /**
-     * The relations of one side of a join: the qualifiers its output carries and, for every relation
-     * below it, the table that relation's alias is bound to. The operands of the join name the alias the
-     * query gave a relation, and the same operands are produced by the other binding of the aliases
-     * (`t AS x, u AS y` against `u AS x, t AS y`), which keeps a different number of rows.
-     */
-    private static String relationsOf(Plan plan) {
-        Set<String> qualifiers = new TreeSet<>();
-        for (Slot slot : plan.getOutput()) {
-            if (slot instanceof SlotReference) {
-                qualifiers.add(String.join(".", ((SlotReference) slot).getQualifier()));
-            }
-        }
-        // only the qualifiers: the sub tree of a side differs between the form a group is estimated in
-        // and the chosen plan which is printed, so a key which named the relations below it could not be
-        // matched by the read side (the conditions themselves bind the operands of an inner join)
-        return String.join(",", qualifiers);
-    }
-
-    /** The alias a query gave a relation, empty when it has none. */
-    private static String aliasOf(CatalogRelation relation) {
-        if (relation instanceof LogicalCatalogRelation) {
-            return ((LogicalCatalogRelation) relation).getTableAlias();
-        }
-        if (relation instanceof PhysicalCatalogRelation) {
-            return ((PhysicalCatalogRelation) relation).getTableAlias();
-        }
-        return String.join(".", relation.getQualifier());
-    }
-
-    /** The table each relation of a plan is bound to, as the alias the plan names it by. */
-    private static Set<String> bindingsOf(Plan plan) {
-        Set<String> bindings = new TreeSet<>();
-        List<Plan> relations = plan.collectToList(planNode -> planNode instanceof CatalogRelation);
-        for (Plan node : relations) {
-            CatalogRelation relation = (CatalogRelation) node;
-            TableIf table = relation.getTable();
-            String identity = table instanceof OlapTable
-                    ? String.valueOf(((OlapTable) table).getId())
-                    : HboScanDescriptor.qualifiedNameOf(table);
-            bindings.add(aliasOf(relation) + '=' + identity);
-        }
-        return bindings;
-    }
-
-    /**
-     * The key of the expansion entry of a join: the sha256 of its structural identity, empty when there
-     * is no equality condition. The canonical string (see {@link #canonicalOf}) is the readable form of
-     * the same information: it is printed by EXPLAIN and stored as the struct of the entry, and the key is
-     * not derived from it, so an alias or a literal which carries a character of the printed grammar
-     * cannot stand for another field of the identity.
+     * The key of the expansion entry of a join: the sha256 of its structural identity, empty when the
+     * join has no expansion key (see {@link #canonicalOf}). The canonical string is the readable form of
+     * the same parts: it is printed by EXPLAIN and stored as the struct of the entry, and the key is not
+     * derived from the text.
      */
     public static Optional<String> fingerprintOf(Join join) {
-        return canonicalOf(join).map(canonical -> {
+        return keyParts(join).map(parts -> {
             ShapeKeyWriter key = new ShapeKeyWriter();
             key.tag(0);
-            key.text(String.valueOf(join.getJoinType()));
-            for (String pair : pairsOf(join)) {
-                key.text(pair);
-            }
-            for (String residual : residualsOf(join)) {
-                key.text(residual);
-            }
-            for (String side : sidesOf(join)) {
-                key.text(side);
+            for (String part : parts) {
+                key.text(part);
             }
             return Hashing.sha256().hashBytes(key.toByteArray()).toString();
         });
     }
 
-    /** The equality pairs of the key, sorted like the canonical string writes them. */
-    private static List<String> pairsOf(Join join) {
+    /**
+     * The identity of a join expansion: its type, the equality pairs, the residual conditions and the
+     * columns of the tables the join reads. The identity is the same while a group is estimated (its
+     * children are group references there) and while the chosen plan is printed, because the operands are
+     * read from the slots themselves.
+     */
+    private static Optional<List<String>> keyParts(Join join) {
+        Set<String> operands = new TreeSet<>();
         List<String> pairs = new ArrayList<>();
         for (Expression conjunct : join.getHashJoinConjuncts()) {
-            if (conjunct instanceof EqualTo || conjunct instanceof NullSafeEqual) {
-                pairs.add(GroupStructInfo.normalizeExpression(conjunct));
+            if (!(conjunct instanceof EqualTo) && !(conjunct instanceof NullSafeEqual)) {
+                return Optional.empty();
             }
+            Optional<String> left = operandIdentity(conjunct.child(0));
+            Optional<String> right = operandIdentity(conjunct.child(1));
+            if (!left.isPresent() || !right.isPresent()) {
+                return Optional.empty();
+            }
+            operands.add(left.get());
+            operands.add(right.get());
+            // equality is commutative: the operands are sorted so `a = b` and `b = a` collapse
+            String name = conjunct instanceof NullSafeEqual ? "NullSafeEqual" : "EqualTo";
+            pairs.add(left.get().compareTo(right.get()) <= 0
+                    ? name + "(col(" + left.get() + "),col(" + right.get() + "))"
+                    : name + "(col(" + right.get() + "),col(" + left.get() + "))");
+        }
+        if (pairs.isEmpty()) {
+            return Optional.empty();
         }
         pairs.sort(String::compareTo);
-        return pairs;
-    }
-
-    /** The residual conditions of the key, with their literals. */
-    private static List<String> residualsOf(Join join) {
         List<String> residuals = new ArrayList<>();
         for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            // a residual decides how many partner rows a row finds (`b > u.b + 1` is not `u.b + 2`), so
+            // its literals are part of the key and are never folded - and every slot it reads has to name
+            // its table like the equality operands do
+            Set<String> residualOperands = new TreeSet<>();
+            boolean supported = supportsResidual(conjunct, residualOperands);
+            if (!supported) {
+                return Optional.empty();
+            }
+            operands.addAll(residualOperands);
             residuals.add(GroupStructInfo.normalizeExpression(conjunct,
                     GroupStructInfo.LiteralMode.WITH_LITERAL));
         }
         residuals.sort(String::compareTo);
-        return residuals;
+        List<String> parts = new ArrayList<>(1 + pairs.size() + residuals.size() + 1);
+        parts.add(String.valueOf(join.getJoinType()));
+        parts.addAll(pairs);
+        parts.addAll(residuals);
+        parts.add("operands:[" + String.join(",", operands) + "]");
+        if (join.getJoinType() != JoinType.INNER_JOIN) {
+            // an outer join preserves one side, so the side a relation is on is part of the key: it names
+            // the columns each side produces, which are the same while a group is estimated and while the
+            // chosen plan is printed (the slots carry the tables they come from)
+            Plan joinPlan = (Plan) join;
+            parts.add("sides:[" + sideOperands(joinPlan.child(0)) + "|" + sideOperands(joinPlan.child(1)) + "]");
+        }
+        return Optional.of(parts);
     }
 
-    /** The side information of the key: the bindings of an inner join, the sides of an outer one. */
-    private static List<String> sidesOf(Join join) {
-        Plan joinPlan = (Plan) join;
-        if (join.getJoinType() == JoinType.INNER_JOIN) {
-            return ImmutableList.of(String.join(",", bindingsOfConditions(join)));
+    /** The columns one side of an outer join produces, sorted: which side a relation is on is identity. */
+    private static String sideOperands(Plan side) {
+        Set<String> identities = new TreeSet<>();
+        for (Slot slot : side.getOutput()) {
+            if (slot instanceof SlotReference) {
+                operandIdentity(slot).ifPresent(identities::add);
+            }
         }
-        return ImmutableList.of(relationsOf(joinPlan.child(0)), relationsOf(joinPlan.child(1)));
+        return String.join(",", identities);
+    }
+
+    /** Whether every slot of a residual condition names its table (collecting those identities). */
+    private static boolean supportsResidual(Expression residual, Set<String> operands) {
+        boolean[] supported = {true};
+        residual.foreachUp(child -> {
+            if (!(child instanceof SlotReference)) {
+                return;
+            }
+            Optional<String> identity = operandIdentity((Expression) child);
+            if (!identity.isPresent()) {
+                supported[0] = false;
+            } else {
+                operands.add(identity.get());
+            }
+        });
+        return supported[0];
     }
 
     /**
-     * The table each qualifier of the join conditions names. The qualifiers come from the conditions
-     * themselves, so the binding is the same wherever the join is described (estimating a group and
-     * printing the chosen plan see different sub trees, while the conditions are the join's own), and a
-     * relation which no condition names does not take part in the key.
+     * The stable identity of the column an operand reads: the table it belongs to and the name of the
+     * column. The slot carries both, so the identity does not depend on the alias a query gave the
+     * relation, on the shape of its qualifier or on where the join is described.
      */
-    private static Set<String> bindingsOfConditions(Join join) {
-        Set<String> qualifiers = new TreeSet<>();
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            collectQualifiers(conjunct, qualifiers);
+    private static Optional<String> operandIdentity(Expression operand) {
+        if (!(operand instanceof SlotReference)) {
+            return Optional.empty();
         }
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            collectQualifiers(conjunct, qualifiers);
+        SlotReference slot = (SlotReference) operand;
+        if (!slot.getOriginalTable().isPresent() || !slot.getOriginalColumn().isPresent()) {
+            return Optional.empty();
         }
-        Set<String> bindings = new TreeSet<>();
-        if (qualifiers.isEmpty()) {
-            return bindings;
-        }
-        Map<String, String> tables = new TreeMap<>();
-        Plan joinPlan = (Plan) join;
-        List<Plan> relations = joinPlan.collectToList(planNode -> planNode instanceof CatalogRelation);
-        for (Plan node : relations) {
-            CatalogRelation relation = (CatalogRelation) node;
-            String identity = relation.getTable() instanceof OlapTable
-                    ? String.valueOf(((OlapTable) relation.getTable()).getId())
-                    : HboScanDescriptor.qualifiedNameOf(relation.getTable());
-            String alias = aliasOf(relation);
-            if (!alias.isEmpty()) {
-                tables.putIfAbsent(alias, identity);
-            }
-            tables.putIfAbsent(String.join(".", relation.getQualifier()), identity);
-        }
-        for (String qualifier : qualifiers) {
-            String table = tables.get(qualifier);
-            if (table != null) {
-                bindings.add(qualifier + '=' + table);
-            }
-        }
-        return bindings;
-    }
-
-    /** The qualifiers of the slots a condition reads. */
-    private static void collectQualifiers(Expression expression, Set<String> qualifiers) {
-        expression.foreachUp(child -> {
-            if (child instanceof SlotReference) {
-                qualifiers.add(String.join(".", ((SlotReference) child).getQualifier()));
-            }
-        });
+        return Optional.of(HboScanDescriptor.qualifiedNameOf(slot.getOriginalTable().get()) + "."
+                + slot.getOriginalColumn().get().getName());
     }
 }
