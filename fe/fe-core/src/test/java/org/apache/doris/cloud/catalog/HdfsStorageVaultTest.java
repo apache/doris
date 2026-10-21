@@ -43,6 +43,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -283,6 +284,26 @@ public class HdfsStorageVaultTest {
                 }
             }
             adapter.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testKerberosValidationBeforeConnectivity() {
+        for (Map<String, String> credentials : List.<Map<String, String>>of(
+                ImmutableMap.of(),
+                ImmutableMap.of(HdfsStorageVault.PropertyKey.HADOOP_KERBEROS_PRINCIPAL, "hadoop/localhost@EXAMPLE.COM"),
+                ImmutableMap.of(HdfsStorageVault.PropertyKey.HADOOP_KERBEROS_KEYTAB, "/path/to/test.keytab"))) {
+            ImmutableMap<String, String> properties = ImmutableMap.<String, String>builder()
+                    .put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000")
+                    .put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testKerberosProperties")
+                    .put(HdfsStorageVault.PropertyKey.HADOOP_SECURITY_AUTHENTICATION, "kerberos")
+                    .putAll(credentials)
+                    .build();
+            HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> vault.modifyProperties(properties));
+            Assertions.assertEquals("HDFS authentication type is kerberos, but principal or keytab is not set.",
+                    exception.getMessage());
         }
     }
 

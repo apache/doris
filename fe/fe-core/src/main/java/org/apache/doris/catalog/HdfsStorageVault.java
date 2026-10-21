@@ -38,6 +38,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -105,7 +106,8 @@ public class HdfsStorageVault extends StorageVault {
         }
         // Reject object-storage properties before they can select a different filesystem
         // during the connectivity check, even when that check is disabled.
-        generateHdfsParam(this.properties);
+        // Leave Kerberos validation in filesystem binding to preserve its error message.
+        this.properties.keySet().forEach(HdfsStorageVault::checkForbiddenProperty);
         checkConnectivity(this.properties);
     }
 
@@ -195,23 +197,7 @@ public class HdfsStorageVault extends StorageVault {
             } else if (property.getKey().equalsIgnoreCase(StorageVault.PropertyKey.VAULT_NAME)) {
                 continue;
             } else {
-                // Get rid of copy and paste from create s3 vault stmt
-                Preconditions.checkArgument(
-                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.REGION),
-                        "Invalid argument %s", property.getKey());
-                Preconditions.checkArgument(
-                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.ENDPOINT),
-                        "Invalid argument %s", property.getKey());
-                Preconditions.checkArgument(
-                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.ROOT_PATH),
-                        "Invalid argument %s", property.getKey());
-                Preconditions.checkArgument(
-                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.PROVIDER),
-                        "Invalid argument %s", property.getKey());
-                Preconditions.checkArgument(
-                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.BUCKET),
-                        "Invalid argument %s", property.getKey());
-
+                checkForbiddenProperty(property.getKey());
                 if (!NON_HDFS_CONF_PROPERTY_KEYS.contains(property.getKey().toLowerCase())) {
                     Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
                     conf.setKey(property.getKey());
@@ -221,5 +207,20 @@ public class HdfsStorageVault extends StorageVault {
             }
         }
         return hdfsVaultInfoBuilder.setBuildConf(hdfsConfBuilder.build()).build();
+    }
+
+    private static void checkForbiddenProperty(String key) {
+        // Get rid of copy and paste from create s3 vault stmt.
+        String lowerCaseKey = key.toLowerCase(Locale.ROOT);
+        Preconditions.checkArgument(!lowerCaseKey.contains(S3StorageVault.PropertyKey.REGION),
+                "Invalid argument %s", key);
+        Preconditions.checkArgument(!lowerCaseKey.contains(S3StorageVault.PropertyKey.ENDPOINT),
+                "Invalid argument %s", key);
+        Preconditions.checkArgument(!lowerCaseKey.contains(S3StorageVault.PropertyKey.ROOT_PATH),
+                "Invalid argument %s", key);
+        Preconditions.checkArgument(!lowerCaseKey.contains(S3StorageVault.PropertyKey.PROVIDER),
+                "Invalid argument %s", key);
+        Preconditions.checkArgument(!lowerCaseKey.contains(S3StorageVault.PropertyKey.BUCKET),
+                "Invalid argument %s", key);
     }
 }
