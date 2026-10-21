@@ -518,8 +518,8 @@ Status BaseTablet::_lookup_row_data(const Slice& encoded_key, const RowLocation&
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
     if (segment != nullptr) {
-        RETURN_IF_ERROR(
-                _init_segment_column_iterator(rowset, *segment, column, &column_iterator, stats, io_ctx));
+        RETURN_IF_ERROR(_init_segment_column_iterator(rowset, *segment, column, &column_iterator,
+                                                      stats, io_ctx));
     } else {
         RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
                                                      &segment_cache_handle, &column_iterator,
