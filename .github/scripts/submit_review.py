@@ -179,7 +179,10 @@ def review_payload(submission, run, root, remaining):
             comment = comments.get(comment_id)
             if comment is None or comment.get("in_reply_to_id") is not None:
                 raise ValueError(f"Existing blocking finding {comment_id} is missing or a reply")
-            level = priority(comment["body"])
+            # Older reviews may bold the whole heading or only the priority.
+            # Normalize existing comments only; new findings keep their strict format.
+            body = re.sub(r"^\*\*(\[P[0-3]\])(?:\*\*)?", r"\1", comment["body"], count=1)
+            level = priority(body)
             if level > 1:
                 raise ValueError(f"Existing finding {comment_id} is not P0/P1")
             counts[level] += 1
