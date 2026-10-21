@@ -60,6 +60,8 @@ DEFINE_mInt64(compaction_txn_max_size_bytes, "7340032"); // 7MB
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
+// Retain recent completed attempts when warmup arrives before the target's metadata sync.
+DEFINE_mInt64(warm_up_rowset_state_gc_grace_period_seconds, "3600");
 DEFINE_mInt32(schedule_sync_tablets_interval_s, "600");
 
 DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
