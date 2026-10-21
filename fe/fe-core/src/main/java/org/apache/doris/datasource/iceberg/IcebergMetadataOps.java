@@ -56,6 +56,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
@@ -63,6 +65,8 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateProperties;
@@ -73,11 +77,15 @@ import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.rest.RESTSessionCatalog;
+import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -91,6 +99,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -107,6 +116,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
     private static final String PROP_LOCATION = "location";
+    private static final String REST_DROP_FENCE_PREFIX = "_doris_schema_drop_fence_";
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -950,13 +960,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            Table icebergTable = lease.getTable();
-            validateRowLineageColumnMutation(icebergTable, columnName, "drop");
-            ResolvedColumnPath columnPath = resolveColumnPath(icebergTable.schema(), ColumnPath.of(columnName), "drop");
-            UpdateSchema updateSchema = icebergTable.updateSchema();
-            updateSchema.deleteColumn(columnPath.getFullPath());
-            commitTableUpdate(lease, updateSchema::commit,
-                    "Failed to drop column: " + columnName + " from table: " + icebergTable.name());
+            dropColumnSafely(lease, ColumnPath.of(columnName));
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -968,16 +972,254 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return;
         }
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            Table icebergTable = lease.getTable();
-            ResolvedColumnPath resolvedPath = validateNestedStructFieldPath(icebergTable.schema(), columnPath, "drop");
-
-            UpdateSchema updateSchema = icebergTable.updateSchema();
-            updateSchema.deleteColumn(resolvedPath.getFullPath());
-            commitTableUpdate(lease, updateSchema::commit,
-                    "Failed to drop nested column: " + columnPath.getFullPath() + " from table: "
-                            + icebergTable.name());
+            dropColumnSafely(lease, columnPath);
         }
         refreshTable(dorisTable, updateTime);
+    }
+
+    private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease, ColumnPath path)
+            throws UserException {
+        try {
+            // A refresh can perform authenticated catalog IO just like the eventual commit. Keep target
+            // validation, refresh and commit inside the one catalog generation retained by this lease.
+            lease.getAuthenticator().execute(() -> {
+                Table table = lease.getTable();
+                if (!path.isNested()) {
+                    validateRowLineageColumnMutation(table, path.getTopLevelName(), "drop");
+                }
+                dropColumnSafely(table, path);
+                return null;
+            });
+        } catch (UserException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UserException("Failed to drop column: " + path.getFullPath() + ", error message is: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    private void dropColumnSafely(
+            Table table, ColumnPath path) throws UserException {
+        TableOperations operations = ((HasTableOperations) table).operations();
+        TableMetadata loaded = operations.current();
+        if (loaded == null) {
+            throw new UserException("Cannot drop column from an unloaded Iceberg table: " + table.name());
+        }
+        ResolvedColumnPath loadedPath = resolveDropPath(loaded.schema(), path);
+        Set<Integer> loadedSubtreeIds = fieldSubtreeIds(loadedPath);
+
+        TableMetadata base = operations.refresh();
+        ResolvedColumnPath resolvedPath = validatePinnedDropIdentity(
+                table.name(), path, loaded, loadedSubtreeIds, base);
+        validateNotUsedByRetainedPartitionSpec(base, resolvedPath);
+
+        // Stage the standard SDK update against exactly the validated base. Recapturing operations.current()
+        // here could instead delete a same-name replacement published on a shared handle after refresh.
+        CapturingTableOperations schemaCapture = new CapturingTableOperations(operations, base);
+        new BaseTable(schemaCapture, table.name()).updateSchema()
+                .deleteColumn(resolvedPath.getFullPath()).commit();
+        TableMetadata schemaUpdate = schemaCapture.committed();
+        if (isRestTableOperations(operations)) {
+            commitRestDropWithSpecFence(operations, table.name(), base, resolvedPath, schemaUpdate);
+            return;
+        }
+
+        // Direct catalogs atomically reject metadata changes after the validated refresh through their CAS.
+        operations.commit(base, schemaUpdate);
+    }
+
+    private static void commitRestDropWithSpecFence(
+            TableOperations operations, String tableName, TableMetadata base, ResolvedColumnPath resolvedPath,
+            TableMetadata schemaUpdate) throws UserException {
+        if (base.formatVersion() < 2) {
+            throw new UserException(
+                    "Cannot safely drop a column from a format-v1 Iceberg REST table: " + tableName);
+        }
+
+        Set<Integer> droppedFieldIds = fieldSubtreeIds(resolvedPath);
+        String fenceSource = findRestFenceSource(base, droppedFieldIds);
+        if (fenceSource == null) {
+            throw new UserException(
+                    "Cannot safely fence a column drop in Iceberg REST table: " + tableName);
+        }
+        String fenceName = newRestFenceName(base);
+
+        // Validation proved that no retained spec references the drop target, so any concurrent new reference
+        // must allocate a partition field ID. Adding a distinct void field makes REST assert that ID counter.
+        CapturingTableOperations fenceCapture = new CapturingTableOperations(operations, base);
+        new BaseTable(fenceCapture, tableName).updateSpec()
+                .addField(fenceName, Expressions.transform(fenceSource, Transforms.alwaysNull()))
+                .addNonDefaultSpec().commit();
+
+        TableMetadata.Builder combined = TableMetadata.buildFrom(base);
+        schemaUpdate.changes().forEach(update -> update.applyTo(combined));
+        fenceCapture.committed().changes().forEach(update -> update.applyTo(combined));
+        // The durable fence must stay in metadata: removing its client-predicted spec ID could delete a
+        // concurrently added spec after REST renumbers the fence during server-side rebase.
+        operations.commit(base, combined.build());
+    }
+
+    private static String findRestFenceSource(TableMetadata metadata, Set<Integer> droppedFieldIds) {
+        LinkedHashSet<Integer> candidates = new LinkedHashSet<>();
+        metadata.specs().forEach(spec -> spec.fields().forEach(field -> candidates.add(field.sourceId())));
+        candidates.addAll(metadata.schema().identifierFieldIds());
+        collectStructPrimitiveFieldIds(metadata.schema().asStruct(), droppedFieldIds, candidates);
+
+        return candidates.stream()
+                .filter(id -> !droppedFieldIds.contains(id))
+                .filter(id -> metadata.schema().findField(id) != null)
+                .filter(id -> metadata.spec().fields().stream()
+                        .noneMatch(field -> field.sourceId() == id && field.transform().isVoid()))
+                .map(metadata.schema()::findColumnName)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static void collectStructPrimitiveFieldIds(
+            Types.StructType struct, Set<Integer> droppedFieldIds, Set<Integer> candidates) {
+        for (NestedField field : struct.fields()) {
+            if (droppedFieldIds.contains(field.fieldId())) {
+                continue;
+            }
+            if (field.type().isPrimitiveType()) {
+                candidates.add(field.fieldId());
+            } else if (field.type().isStructType()) {
+                collectStructPrimitiveFieldIds(field.type().asStructType(), droppedFieldIds, candidates);
+            }
+        }
+    }
+
+    private static String newRestFenceName(TableMetadata metadata) {
+        int suffix = metadata.lastAssignedPartitionId() + 1;
+        String candidate = REST_DROP_FENCE_PREFIX + suffix;
+        while (hasFieldOrPartitionName(metadata, candidate)) {
+            candidate = REST_DROP_FENCE_PREFIX + ++suffix;
+        }
+        return candidate;
+    }
+
+    private static boolean hasFieldOrPartitionName(TableMetadata metadata, String candidate) {
+        boolean fieldNameExists = TypeUtil.indexById(metadata.schema().asStruct()).values().stream()
+                .anyMatch(field -> field.name().equalsIgnoreCase(candidate));
+        return fieldNameExists || metadata.specs().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.name().equalsIgnoreCase(candidate));
+    }
+
+    private ResolvedColumnPath validatePinnedDropIdentity(
+            String tableName, ColumnPath path, TableMetadata loaded,
+            Set<Integer> loadedSubtreeIds, TableMetadata refreshed) throws UserException {
+        if (!Objects.equals(loaded.uuid(), refreshed.uuid())
+                || (loaded.uuid() == null && loaded != refreshed)) {
+            // UUID-less legacy metadata has no generation identity, so only the exact refreshed object can be
+            // trusted; accepting a different object could retarget the DROP to a recreated table.
+            throw concurrentDropTargetChange(tableName, path);
+        }
+        try {
+            ResolvedColumnPath refreshedPath = resolveDropPath(refreshed.schema(), path);
+            // A parent DROP pins every descendant ID as well as the parent ID, preventing a same-path subtree
+            // replacement from turning an old request into deletion of a newly created object.
+            if (!loadedSubtreeIds.equals(fieldSubtreeIds(refreshedPath))) {
+                throw concurrentDropTargetChange(tableName, path);
+            }
+            return refreshedPath;
+        } catch (UserException e) {
+            throw concurrentDropTargetChange(tableName, path);
+        }
+    }
+
+    private ResolvedColumnPath resolveDropPath(
+            Schema schema, ColumnPath path) throws UserException {
+        return path.isNested()
+                ? validateNestedStructFieldPath(schema, path, "drop")
+                : resolveColumnPath(schema, path, "drop");
+    }
+
+    private static Set<Integer> fieldSubtreeIds(ResolvedColumnPath path) {
+        return new TreeSet<>(TypeUtil.indexById(Types.StructType.of(path.getField())).keySet());
+    }
+
+    private static UserException concurrentDropTargetChange(
+            String tableName, ColumnPath path) {
+        return new UserException("Iceberg table or drop target changed concurrently: "
+                + tableName + "." + path.getFullPath());
+    }
+
+    private static boolean isRestTableOperations(TableOperations operations) {
+        return "RESTTableOperations".equalsIgnoreCase(operations.getClass().getSimpleName());
+    }
+
+    private static void validateNotUsedByRetainedPartitionSpec(
+            TableMetadata metadata, ResolvedColumnPath columnPath) throws UserException {
+        Set<Integer> droppedFieldIds = TypeUtil.indexById(
+                Types.StructType.of(columnPath.getField())).keySet();
+        // Every retained spec resolves partition types by source field ID against the current schema. Checking
+        // the current spec too establishes that a later REST fence can detect any newly introduced reference.
+        boolean usedByRetainedSpec = metadata.specs().stream()
+                .anyMatch(spec -> spec.fields().stream().anyMatch(field ->
+                        droppedFieldIds.contains(field.sourceId())));
+        if (usedByRetainedSpec) {
+            throw new UserException(
+                    "Cannot drop column which is used by an old partition spec or current retained partition spec: "
+                            + columnPath.getFullPath());
+        }
+    }
+
+    private static final class CapturingTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private TableMetadata current;
+        private TableMetadata committed;
+
+        private CapturingTableOperations(TableOperations delegate, TableMetadata base) {
+            this.delegate = delegate;
+            this.current = base;
+        }
+
+        private TableMetadata committed() {
+            if (committed == null) {
+                throw new IllegalStateException("Iceberg metadata update did not commit to the capture");
+            }
+            return committed;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return current;
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return current;
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            if (base != current) {
+                throw new IllegalStateException("Iceberg metadata capture committed from an unexpected base");
+            }
+            current = metadata;
+            committed = metadata;
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
     }
 
     @Override

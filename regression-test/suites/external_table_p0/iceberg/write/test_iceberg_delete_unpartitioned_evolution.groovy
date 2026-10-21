@@ -130,6 +130,11 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         """
         spark_iceberg """insert into demo.${dbName}.${table} values (1, 7, 10), (2, 7, 20), (3, null, 30)"""
         spark_iceberg """alter table demo.${dbName}.${table} drop partition field partition_key"""
+        sql """refresh database ${dbName}"""
+        test {
+            sql """alter table ${table} drop column partition_key"""
+            exception "used by an old partition spec"
+        }
         spark_iceberg """alter table demo.${dbName}.${table} drop column partition_key"""
         spark_iceberg """insert into demo.${dbName}.${table} values (4, 40)"""
         sql """refresh database ${dbName}"""

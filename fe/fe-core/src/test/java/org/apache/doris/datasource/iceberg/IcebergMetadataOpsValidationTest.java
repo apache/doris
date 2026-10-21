@@ -1503,13 +1503,13 @@ public class IcebergMetadataOpsValidationTest {
             ops.modifyColumn(v3DorisTable, ColumnPath.fromDotName("s._row_id"),
                     new Column("_row_id", Type.BIGINT, true), null, 1L);
             ops.modifyColumnComment(v3DorisTable, ColumnPath.fromDotName("s._row_id"), "comment", 1L);
-            ops.dropColumn(v3DorisTable, ColumnPath.fromDotName("s._row_id"), 1L);
+            // DROP is covered with real TableOperations in IcebergColumnDropTest.
 
             ops.addColumn(v2DorisTable, new Column("_row_id", Type.BIGINT, true), null, 1L);
             ops.renameColumn(v2DorisTable, "id", "_last_updated_sequence_number", 1L);
         }
 
-        Mockito.verify(v3UpdateSchema, Mockito.times(5)).commit();
+        Mockito.verify(v3UpdateSchema, Mockito.times(4)).commit();
         Mockito.verify(v2UpdateSchema, Mockito.times(2)).commit();
     }
 
