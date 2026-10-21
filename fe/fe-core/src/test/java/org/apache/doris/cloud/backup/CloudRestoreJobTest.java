@@ -51,10 +51,10 @@ import org.apache.doris.thrift.TSortType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -90,7 +90,7 @@ public class CloudRestoreJobTest {
     private MockedStatic<MetaServiceProxy> mockedMetaServiceProxy;
     private MetaServiceProxy mockMetaServiceProxyInstance;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         Config.cloud_unique_id = "test_unique_id";
         Config.meta_service_endpoint = "127.0.0.1:11111";
@@ -108,8 +108,8 @@ public class CloudRestoreJobTest {
         ctx.setThreadLocalInfo();
         ctx.setCloudCluster("test_compute_group");
 
-        Assert.assertTrue(cloudEnv instanceof CloudEnv);
-        Assert.assertTrue(cloudSystemInfoService instanceof CloudSystemInfoService);
+        Assertions.assertTrue(cloudEnv instanceof CloudEnv);
+        Assertions.assertTrue(cloudSystemInfoService instanceof CloudSystemInfoService);
 
         Mockito.when(storageVaultMgr.getVaultNameById(Mockito.anyString())).thenReturn("test_vault");
 
@@ -198,7 +198,7 @@ public class CloudRestoreJobTest {
                 false, false, cloudEnv, repo.getId(), "test_vault");
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (fakeEditLog != null) {
             fakeEditLog.close();
@@ -218,7 +218,7 @@ public class CloudRestoreJobTest {
     public void testStorageVaultCheck() throws UserException {
         // Case 1: Storage vault exists
         job.checkStorageVault(expectedRestoreTbl);
-        Assert.assertTrue(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().ok());
 
         // Case 2: Storage vault does not exist
         Map<String, String> properties = Maps.newHashMap();
@@ -226,7 +226,7 @@ public class CloudRestoreJobTest {
         TableProperty tableProperty = new TableProperty(properties);
         expectedRestoreTbl.setTableProperty(tableProperty);
         job.checkStorageVault(expectedRestoreTbl);
-        Assert.assertFalse(job.getStatus().ok());
+        Assertions.assertFalse(job.getStatus().ok());
     }
 
     @Test
@@ -238,12 +238,12 @@ public class CloudRestoreJobTest {
         // Case 1: Cloud cluster exists
         Mockito.doReturn("test_cluster_id").when(spySysInfo).getCloudClusterIdByName(Mockito.anyString());
         job.checkIfNeedCancel();
-        Assert.assertTrue(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().ok());
 
         // Case 2: Cloud cluster not exists
         Mockito.doReturn(null).when(spySysInfo).getCloudClusterIdByName(Mockito.anyString());
         job.checkIfNeedCancel();
-        Assert.assertFalse(job.getStatus().ok());
+        Assertions.assertFalse(job.getStatus().ok());
     }
 
     @Test
@@ -251,9 +251,9 @@ public class CloudRestoreJobTest {
         for (Partition expectedRestorePart : expectedRestoreTbl.getPartitions()) {
             job.createReplicas(db, expectedRestoreTbl, expectedRestorePart, null);
         }
-        Assert.assertTrue(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().ok());
         job.doCreateReplicas();
-        Assert.assertTrue(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().ok());
     }
 
 }

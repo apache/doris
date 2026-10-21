@@ -18,7 +18,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <gen_cpp/Status_types.h>
 
 #include <exception>
 #include <memory>

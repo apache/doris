@@ -17,8 +17,6 @@
 
 package org.apache.doris.maxcompute;
 
-import org.apache.doris.common.maxcompute.MCProperties;
-
 import com.aliyun.auth.credentials.Credential;
 import com.aliyun.auth.credentials.provider.EcsRamRoleCredentialProvider;
 import com.aliyun.auth.credentials.provider.RamRoleArnCredentialProvider;

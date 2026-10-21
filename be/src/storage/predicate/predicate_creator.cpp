@@ -94,6 +94,10 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
         return BloomFilterColumnPredicate<TYPE_DATETIMEV2>::create_shared(cid, col_name,
                                                                           filter_olap);
     }
+    case TYPE_TIMESTAMP_NS: {
+        return BloomFilterColumnPredicate<TYPE_TIMESTAMP_NS>::create_shared(cid, col_name,
+                                                                            filter_olap);
+    }
     case TYPE_TIMESTAMPTZ: {
         return BloomFilterColumnPredicate<TYPE_TIMESTAMPTZ>::create_shared(cid, col_name,
                                                                            filter_olap);
@@ -106,6 +110,9 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
     }
     case TYPE_IPV6: {
         return BloomFilterColumnPredicate<TYPE_IPV6>::create_shared(cid, col_name, filter_olap);
+    }
+    case TYPE_UUID: {
+        return BloomFilterColumnPredicate<TYPE_UUID>::create_shared(cid, col_name, filter_olap);
     }
     default:
         throw Exception(ErrorCode::INVALID_ARGUMENT,

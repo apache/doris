@@ -28,6 +28,11 @@ list(APPEND SRC_FILES ${FORMAT_V2_SRC_FILES})
 
 add_library(Format STATIC ${SRC_FILES})
 
+# Read the pinned SDK timezone rules without changing SDK decoding or public interfaces.
+target_include_directories(Format PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../contrib/apache-orc/c++/src
+    ${BUILD_DIR}/apache-orc/c++/src)
+
 pch_reuse(Format)
 
 # Unity build scoped to format_v2/: the v2 readers are the maintained line and

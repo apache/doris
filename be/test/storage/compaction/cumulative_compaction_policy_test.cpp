@@ -2880,6 +2880,31 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, pick_input_rowsets_fallback_no_h
     EXPECT_EQ(3, compaction_score);
 }
 
+// The compaction policy name comes from the tablet meta. A name this build does not know falls
+// back to the size-based policy: the policy table lookup used to throw std::out_of_range from
+// unordered_map::at(), which aborted the BE on every scheduling round after a restart.
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, unknown_policy_falls_back_to_size_based) {
+    _engine._update_cumulative_compaction_policy();
+    EXPECT_EQ(CUMULATIVE_SIZE_BASED_POLICY,
+              _engine._get_cumulative_compaction_policy("unknown_policy", _tablet_meta->tablet_id())
+                      ->name());
+    EXPECT_EQ(CUMULATIVE_SIZE_BASED_POLICY,
+              CumulativeCompactionPolicyFactory::get_cumulative_compaction_policy(
+                      _engine._snapshot_cumulative_compaction_policy(), "unknown_policy",
+                      _tablet_meta->tablet_id())
+                      ->name());
+    EXPECT_EQ(
+            CUMULATIVE_SIZE_BASED_POLICY,
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy("unknown_policy")
+                    ->name());
+
+    // A known name still selects its own policy.
+    EXPECT_EQ(CUMULATIVE_CHANGELOG_POLICY,
+              _engine._get_cumulative_compaction_policy(CUMULATIVE_CHANGELOG_POLICY,
+                                                        _tablet_meta->tablet_id())
+                      ->name());
+}
+
 } // namespace doris
 
 // @brief Test Stub

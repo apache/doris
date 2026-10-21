@@ -21,8 +21,8 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
@@ -42,11 +42,11 @@ public class RootPathLoadStatisticTest {
 
         // low usage should be ahead
         Collections.sort(list);
-        Assert.assertTrue(list.get(0).getPathHash() == usage1.getPathHash());
+        Assertions.assertTrue(list.get(0).getPathHash() == usage1.getPathHash());
 
         usage1.incrCopingSizeB(2048L);
         Collections.sort(list);
-        Assert.assertTrue(list.get(1).getPathHash() == usage1.getPathHash());
+        Assertions.assertTrue(list.get(1).getPathHash() == usage1.getPathHash());
     }
 
 }

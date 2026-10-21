@@ -57,6 +57,13 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+ExternalFileReportReservation::~ExternalFileReportReservation() {
+    if (_state != nullptr) {
+        _state->release_external_file_report_reservation(_reserved_bytes);
+    }
+}
+
 using namespace ErrorCode;
 
 Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data) {
@@ -72,16 +79,66 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
     std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
     // Parallel task states share this budget because FE receives their vectors in one fragment report.
-    if (_external_file_report_state->iceberg_serialized_bytes + serialized_size + sizeof(uint32_t) >
+    if (_external_file_report_state->serialized_commit_bytes + serialized_size + sizeof(uint32_t) >
         commit_data_limit) {
         return Status::InternalError(
                 "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
                 "count");
     }
     std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
-    _external_file_report_state->iceberg_serialized_bytes += serialized_size + sizeof(uint32_t);
+    _external_file_report_state->serialized_commit_bytes += serialized_size + sizeof(uint32_t);
     _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
     return Status::OK();
+}
+
+Status RuntimeState::reserve_paimon_commit_messages(
+        const std::vector<TPaimonCommitMessage>& commit_messages,
+        ExternalFileReportReservation* reservation) {
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->_state == nullptr);
+    size_t serialized_bytes = 0;
+    ThriftSerializer serializer(false, 256);
+    for (const auto& commit_message : commit_messages) {
+        uint32_t serialized_size = 0;
+        uint8_t* buffer = nullptr;
+        RETURN_IF_ERROR(serializer.serialize(&commit_message, &serialized_size, &buffer));
+        serialized_bytes += serialized_size + sizeof(uint32_t);
+    }
+
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = coordinator_thrift_message_limit();
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    if (_external_file_report_state->serialized_commit_bytes + serialized_bytes >
+        commit_data_limit) {
+        return Status::InternalError(
+                "Paimon commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
+    }
+    _external_file_report_state->serialized_commit_bytes += serialized_bytes;
+    reservation->_state = this;
+    reservation->_reserved_bytes = serialized_bytes;
+    return Status::OK();
+}
+
+void RuntimeState::publish_reserved_paimon_commit_messages(
+        std::vector<TPaimonCommitMessage> commit_messages,
+        ExternalFileReportReservation* reservation) {
+    DORIS_CHECK(reservation != nullptr);
+    DORIS_CHECK(reservation->_state == this);
+    std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
+    for (auto& commit_message : commit_messages) {
+        _paimon_commit_messages.emplace_back(std::move(commit_message));
+    }
+    reservation->_state = nullptr;
+    reservation->_reserved_bytes = 0;
+}
+
+void RuntimeState::release_external_file_report_reservation(size_t reserved_bytes) {
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    DORIS_CHECK_GE(_external_file_report_state->serialized_commit_bytes, reserved_bytes);
+    _external_file_report_state->serialized_commit_bytes -= reserved_bytes;
 }
 
 size_t RuntimeState::coordinator_thrift_message_limit() const {
@@ -114,6 +171,10 @@ void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* par
         params->__isset.mc_commit_datas = true;
         params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
                                        commit_datas.end());
+    }
+    append_paimon_commit_messages(&params->paimon_commit_messages);
+    if (!params->paimon_commit_messages.empty()) {
+        params->__isset.paimon_commit_messages = true;
     }
 }
 

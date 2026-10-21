@@ -19,15 +19,15 @@ package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 
 public class FileFormatPropertiesTest {
 
     @Test
     public void testCreateFileFormatPropertiesInvalidFormat() {
-        Assert.assertThrows(AnalysisException.class, () -> {
+        Assertions.assertThrows(AnalysisException.class, () -> {
             FileFormatProperties.createFileFormatProperties("invalid_format");
         });
     }

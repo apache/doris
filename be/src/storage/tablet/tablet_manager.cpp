@@ -228,6 +228,7 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
+    _engine.register_changelog_tablet(tablet);
     _add_tablet_to_partition(tablet);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
@@ -265,9 +266,9 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
     bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
     bool has_base_tablet = request.__isset.base_tablet_id && request.base_tablet_id > 0;
-    bool is_colocated_row_binlog = has_base_tablet && request.__isset.tablet_role &&
-                                   request.tablet_role == TTabletRole::TABLET_ROLE_ROW_BINLOG;
-    bool is_schema_change_or_atomic_restore = has_base_tablet && !is_colocated_row_binlog;
+    bool is_colocated_changelog = has_base_tablet && request.__isset.tablet_role &&
+                                  request.tablet_role == TTabletRole::TABLET_ROLE_CHANGELOG;
+    bool is_schema_change_or_atomic_restore = has_base_tablet && !is_colocated_changelog;
     bool need_two_lock = has_base_tablet && ((_tablets_shards_mask & request.base_tablet_id) !=
                                              (_tablets_shards_mask & tablet_id));
     if (need_two_lock) {
@@ -288,16 +289,18 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // same) already exist, then just return true(an duplicate request). But if
     // tablet_id exist but with different schema_hash, return an error(report task will
     // eventually trigger its deletion).
+    bool tablet_exists = false;
     {
         SCOPED_TIMER(ADD_TIMER(profile, "GetTabletUnlocked"));
-        if (_get_tablet_unlocked(tablet_id) != nullptr) {
+        tablet_exists = _get_tablet_unlocked(tablet_id) != nullptr;
+        if (tablet_exists && !is_colocated_changelog) {
             LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
             return Status::OK();
         }
     }
 
     TabletSharedPtr base_tablet = nullptr;
-    // base_tablet_id is used by alter/restore and colocated row-binlog creation.
+    // base_tablet_id is used by alter/restore and colocated changelog creation.
     if (has_base_tablet) {
         // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
         if (need_two_lock) {
@@ -320,8 +323,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         // entering this method
         //
         // ATTN: Since all restored replicas will be saved to HDD, so no storage_medium check here.
-        // Row-binlog tablet must be on the same disk as its base tablet.
-        if (in_restore_mode || is_colocated_row_binlog ||
+        // Changelog tablet must be on the same disk as its base tablet.
+        if (in_restore_mode || is_colocated_changelog ||
             request.storage_medium == base_tablet->data_dir()->storage_medium()) {
             LOG(INFO) << "create tablet use the base tablet data dir. tablet_id=" << tablet_id
                       << ", base tablet_id=" << request.base_tablet_id
@@ -331,13 +334,34 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         }
     }
 
+    auto persist_changelog_pair = [&]() {
+        CHECK(is_colocated_changelog);
+        std::lock_guard base_tablet_wlock(base_tablet->get_header_lock());
+        CHECK(base_tablet->tablet_meta()->changelog_tablet_id() == 0 ||
+              base_tablet->tablet_meta()->changelog_tablet_id() == tablet_id)
+                << "base tablet " << base_tablet->tablet_id()
+                << " is already paired with changelog tablet "
+                << base_tablet->tablet_meta()->changelog_tablet_id() << ", new changelog tablet "
+                << tablet_id;
+        base_tablet->tablet_meta()->set_changelog_tablet_id(tablet_id);
+        base_tablet->save_meta();
+    };
+    if (tablet_exists) {
+        persist_changelog_pair();
+        LOG(INFO) << "success to create tablet. tablet already exist. tablet_id=" << tablet_id;
+        return Status::OK();
+    }
+
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
-            request, is_schema_change_or_atomic_restore, is_colocated_row_binlog, base_tablet.get(),
+            request, is_schema_change_or_atomic_restore, is_colocated_changelog, base_tablet.get(),
             stores, profile);
     if (tablet == nullptr) {
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>("fail to create tablet. tablet_id={}",
                                                   request.tablet_id);
+    }
+    if (is_colocated_changelog) {
+        persist_changelog_pair();
     }
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
@@ -347,10 +371,10 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
 
 TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         const TCreateTabletReq& request, const bool is_schema_change,
-        const bool is_colocated_row_binlog, const Tablet* base_tablet,
+        const bool is_colocated_changelog, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs, RuntimeProfile* profile) {
     DCHECK((is_schema_change && base_tablet) ||
-           (!is_schema_change && (base_tablet == nullptr || is_colocated_row_binlog)));
+           (!is_schema_change && (base_tablet == nullptr || is_colocated_changelog)));
 
     // NOTE: The existence of tablet_id and schema_hash has already been checked,
     // no need check again here.
@@ -741,8 +765,8 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
     score_stats->scanned = true;
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base"
-                                        : compaction_type == CompactionType::CUMU_BINLOG_COMPACTION
-                                                ? "binlog"
+                                        : compaction_type == CompactionType::CHANGELOG_COMPACTION
+                                                ? "changelog"
                                                 : "cumulative";
     uint32_t highest_score = 0;
     TabletScore best_tablet_context;
@@ -752,7 +776,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
     std::priority_queue<TabletScore, std::vector<TabletScore>, decltype(cmp)> top_tablets(cmp);
 
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
-        if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+        if (tablet_ptr->tablet_meta()->disable_auto_compaction()) {
             LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
                                    << " will be ignored by automatic compaction tasks since it's "
                                    << "set to disabled automatic compaction.";
@@ -801,7 +825,9 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
         }
         const auto& compaction_policy = tablet_ptr->tablet_meta()->compaction_policy();
         auto cumulative_compaction_policy =
-                all_cumulative_compaction_policies.at(compaction_policy);
+                CumulativeCompactionPolicyFactory::get_cumulative_compaction_policy(
+                        all_cumulative_compaction_policies, compaction_policy,
+                        tablet_ptr->tablet_id());
         uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(compaction_type);
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());

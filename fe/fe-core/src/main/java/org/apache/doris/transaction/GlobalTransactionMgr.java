@@ -501,8 +501,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         } else if (coordinator.sourceType == TransactionState.TxnSourceType.BE) {
             Backend be = Env.getCurrentSystemInfo().getBackend(coordinator.id);
             if (be != null) {
+                // Cloud backend registration is stable across pod IP changes and FQDN addressing.
+                boolean sameInstance = Config.isCloudMode() || be.getHost().equals(coordinator.ip);
                 offline = false;
-                if (be.getHost().equals(coordinator.ip) && (be.getLastStartTime() > coordinator.startTime
+                if (sameInstance && (be.getLastStartTime() > coordinator.startTime
                         || (!be.isAlive() && System.currentTimeMillis() - be.getLastUpdateMs()
                                     >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L))) {
                     return true;
@@ -515,6 +517,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public static List<TransactionState> checkFailedTxns(List<TransactionState> conflictTxns) {
         List<TransactionState> failedTxns = new ArrayList<>();
         for (TransactionState txn : conflictTxns) {
+            TransactionStatus status = txn.getTransactionStatus();
+            if (status == TransactionStatus.COMMITTED || status.isFinalStatus()) {
+                continue;
+            }
             if (checkFailedTxnsByCoordinator(txn)) {
                 failedTxns.add(txn);
             }
@@ -926,6 +932,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public Long getNextTransactionId() {
         return this.idGenerator.getNextTransactionId();
+    }
+
+    @Override
+    public long getTransactionIdWatermark() {
+        // The classic conflict check treats its upper bound as inclusive.
+        return this.idGenerator.getCurrentTransactionId();
     }
 
     @Override

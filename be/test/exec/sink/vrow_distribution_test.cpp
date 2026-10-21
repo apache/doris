@@ -20,6 +20,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -79,8 +80,8 @@ std::unique_ptr<VRowDistributionHarness> _build_vrow_distribution_harness(
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     h->location = std::make_unique<OlapTableLocationParam>(tlocation);
-    h->tablet_finder = std::make_unique<OlapTabletFinder>(h->vpartition.get(),
-                                                          OlapTabletFinder::FIND_TABLET_EVERY_ROW);
+    h->tablet_finder = std::make_unique<OlapTabletFinder>(
+            h->vpartition.get(), OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
     h->block_convertor = std::make_unique<OlapTableBlockConvertor>(h->schema->tuple_desc());
 
     h->output_row_desc = std::make_unique<RowDescriptor>(

@@ -55,7 +55,7 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
     const auto& mutable_block_desc = p.join_row_desc();
     for (const auto tuple_desc : mutable_block_desc.tuple_descriptors()) {
         for (const auto slot_desc : tuple_desc->slots()) {
-            auto type_ptr = slot_desc->get_data_type_ptr();
+            auto type_ptr = slot_desc->type();
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }

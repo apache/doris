@@ -22,8 +22,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -44,7 +44,7 @@ public class InsertStreamTxnExecutorTest {
 
             Backend selectedBackend = InsertStreamTxnExecutor.selectBackendForTxnLoad();
 
-            Assert.assertEquals(currentClusterBackend.getId(), selectedBackend.getId());
+            Assertions.assertEquals(currentClusterBackend.getId(), selectedBackend.getId());
         }
     }
 

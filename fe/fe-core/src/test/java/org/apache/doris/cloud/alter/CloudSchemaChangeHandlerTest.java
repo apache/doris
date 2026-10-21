@@ -17,6 +17,8 @@
 
 package org.apache.doris.cloud.alter;
 
+import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -24,6 +26,8 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
@@ -41,10 +45,10 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -61,7 +65,7 @@ public class CloudSchemaChangeHandlerTest {
     private String originalMetaServiceEndpoint;
     private boolean originalEnableDebugPoints;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalCloudTxnTabletBatchSize = Config.cloud_txn_tablet_batch_size;
         originalCloudUniqueId = Config.cloud_unique_id;
@@ -74,7 +78,7 @@ public class CloudSchemaChangeHandlerTest {
         DebugPointUtil.clearDebugPoints();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.cloud_txn_tablet_batch_size = originalCloudTxnTabletBatchSize;
         Config.cloud_unique_id = originalCloudUniqueId;
@@ -130,10 +134,10 @@ public class CloudSchemaChangeHandlerTest {
                 ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
         Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(updateCaptor.capture());
         List<Cloud.UpdateTabletRequest> updateRequests = updateCaptor.getAllValues();
-        Assert.assertEquals(Arrays.asList(101L, 102L),
+        Assertions.assertEquals(Arrays.asList(101L, 102L),
                 updateRequests.get(0).getTabletMetaInfosList().stream()
                         .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
-        Assert.assertEquals(Arrays.asList(103L),
+        Assertions.assertEquals(Arrays.asList(103L),
                 updateRequests.get(1).getTabletMetaInfosList().stream()
                         .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
 
@@ -144,15 +148,113 @@ public class CloudSchemaChangeHandlerTest {
                 .syncTabletMeta(addressCaptor.capture(), syncCaptor.capture());
 
         List<TNetworkAddress> addresses = addressCaptor.getAllValues();
-        Assert.assertFalse(addresses.stream().anyMatch(addr -> "be-dead".equals(addr.getHostname())));
-        Assert.assertEquals(2L, addresses.stream().filter(addr -> "be-1".equals(addr.getHostname())).count());
-        Assert.assertEquals(2L, addresses.stream().filter(addr -> "be-2".equals(addr.getHostname())).count());
+        Assertions.assertFalse(addresses.stream().anyMatch(addr -> "be-dead".equals(addr.getHostname())));
+        Assertions.assertEquals(2L, addresses.stream().filter(addr -> "be-1".equals(addr.getHostname())).count());
+        Assertions.assertEquals(2L, addresses.stream().filter(addr -> "be-2".equals(addr.getHostname())).count());
 
         List<InternalService.PSyncTabletMetaRequest> syncRequests = syncCaptor.getAllValues();
-        Assert.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(0).getTabletIdsList());
-        Assert.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(1).getTabletIdsList());
-        Assert.assertEquals(Arrays.asList(103L), syncRequests.get(2).getTabletIdsList());
-        Assert.assertEquals(Arrays.asList(103L), syncRequests.get(3).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(0).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(1).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(103L), syncRequests.get(2).getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(103L), syncRequests.get(3).getTabletIdsList());
+    }
+
+    @Test
+    public void testUpdateBinlogConfigUsesCloudTabletMeta() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(
+                new BinlogConfig(false, BinlogConfig.TTL_SECONDS, 4096L, 7L), new ChangelogConfig(true, 3600L, true));
+
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip");
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            handler.updatePartitionProperties(db, "tbl", "p1", -1, -1, binlogConfig,
+                    null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> updateCaptor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(updateCaptor.capture());
+        List<Cloud.TabletMetaInfoPB> tabletMetaInfos = updateCaptor.getAllValues().stream()
+                .flatMap(request -> request.getTabletMetaInfosList().stream())
+                .collect(Collectors.toList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L, 103L), tabletMetaInfos.stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+        for (Cloud.TabletMetaInfoPB tabletMetaInfo : tabletMetaInfos) {
+            Assertions.assertTrue(tabletMetaInfo.hasBinlogConfig());
+            Assertions.assertTrue(tabletMetaInfo.getBinlogConfig().getEnable());
+            Assertions.assertEquals(3600L, tabletMetaInfo.getBinlogConfig().getTtlSeconds());
+            Assertions.assertEquals(4096L, tabletMetaInfo.getBinlogConfig().getMaxBytes());
+            Assertions.assertEquals(7L, tabletMetaInfo.getBinlogConfig().getMaxHistoryNums());
+            Assertions.assertEquals(org.apache.doris.proto.OlapFile.BinlogFormatPB.CHANGELOG,
+                    tabletMetaInfo.getBinlogConfig().getBinlogFormat());
+            Assertions.assertTrue(tabletMetaInfo.getBinlogConfig().getNeedHistoricalValue());
+        }
+    }
+
+    @Test
+    public void testUpdateCompactionPolicyExcludesChangelogTablets() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithChangelogTablet();
+        Env env = Mockito.mock(Env.class);
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip");
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY,
+                    PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY);
+            handler.updateTableProperties(db, "tbl", properties);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> updateCaptor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy).updateTablet(updateCaptor.capture());
+        List<Cloud.TabletMetaInfoPB> tabletMetaInfos = updateCaptor.getValue().getTabletMetaInfosList();
+        Assertions.assertEquals(Arrays.asList(101L), tabletMetaInfos.stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+        Assertions.assertTrue(tabletMetaInfos.stream().allMatch(info ->
+                PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY.equals(info.getCompactionPolicy())));
+    }
+
+    @Test
+    public void testUpdateTtlIncludesChangelogTablets() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithChangelogTablet();
+        Env env = Mockito.mock(Env.class);
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip");
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "300");
+            handler.updateTableProperties(db, "tbl", properties);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> updateCaptor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy).updateTablet(updateCaptor.capture());
+        List<Cloud.TabletMetaInfoPB> tabletMetaInfos = updateCaptor.getValue().getTabletMetaInfosList();
+        Assertions.assertEquals(Arrays.asList(101L, 201L), tabletMetaInfos.stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+        Assertions.assertTrue(tabletMetaInfos.stream().allMatch(info -> info.getTtlSeconds() == 300));
     }
 
     @Test
@@ -169,9 +271,9 @@ public class CloudSchemaChangeHandlerTest {
 
             Map<String, String> properties = new HashMap<>();
             properties.put("compaction_policy", "time_series");
-            UserException exception = Assert.assertThrows(UserException.class,
+            UserException exception = Assertions.assertThrows(UserException.class,
                     () -> handler.updateTableProperties(db, "tbl", properties));
-            Assert.assertTrue(exception.getMessage().contains("update failed"));
+            Assertions.assertTrue(exception.getMessage().contains("update failed"));
         }
     }
 
@@ -193,10 +295,85 @@ public class CloudSchemaChangeHandlerTest {
 
             Map<String, String> properties = new HashMap<>();
             properties.put("compaction_policy", "time_series");
-            UserException exception = Assert.assertThrows(UserException.class,
+            UserException exception = Assertions.assertThrows(UserException.class,
                     () -> handler.updateTableProperties(db, "tbl", properties));
-            Assert.assertTrue(exception.getMessage().contains("meta service rejected"));
+            Assertions.assertTrue(exception.getMessage().contains("meta service rejected"));
         }
+    }
+
+    @Test
+    public void testUpdateBinlogConfigPersistsToCloudTabletMeta() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(
+                new BinlogConfig(false, BinlogConfig.TTL_SECONDS, 1024, 10), new ChangelogConfig(true, 60, false));
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+            Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            handler.updatePartitionProperties(db, "tbl", "p1", -1, -1, binlogConfig,
+                    null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> captor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(captor.capture());
+        captor.getAllValues().stream()
+                .flatMap(request -> request.getTabletMetaInfosList().stream())
+                .forEach(info -> {
+                    Assertions.assertTrue(info.hasBinlogConfig());
+                    Assertions.assertEquals(60, info.getBinlogConfig().getTtlSeconds());
+                });
+    }
+
+    @Test
+    public void testUpdateBinlogConfigIncludesBaseAndChangelogTablets() throws Exception {
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex baseIndex = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex changelogIndex = Mockito.mock(MaterializedIndex.class);
+        Tablet baseTablet = Mockito.mock(Tablet.class);
+        Tablet changelogTablet = Mockito.mock(Tablet.class);
+        Mockito.when(db.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getPartition("p1")).thenReturn(partition);
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(Arrays.asList(baseIndex, changelogIndex));
+        Mockito.when(baseIndex.getTablets()).thenReturn(Arrays.asList(baseTablet));
+        Mockito.when(changelogIndex.isChangelog()).thenReturn(true);
+        Mockito.when(changelogIndex.getTablets()).thenReturn(Arrays.asList(changelogTablet));
+        Mockito.when(baseTablet.getId()).thenReturn(101L);
+        Mockito.when(changelogTablet.getId()).thenReturn(102L);
+
+        TabletBinlogConfig binlogConfig = TabletBinlogConfig.of(
+                new BinlogConfig(false, BinlogConfig.TTL_SECONDS, 1024, 10), new ChangelogConfig(true, 60, false));
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            new CloudSchemaChangeHandler().updatePartitionProperties(db, "tbl", "p1",
+                    -1, -1, binlogConfig, null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> captor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy).updateTablet(captor.capture());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), captor.getValue().getTabletMetaInfosList().stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+        captor.getValue().getTabletMetaInfosList().forEach(info -> {
+            Assertions.assertTrue(info.hasBinlogConfig());
+            Assertions.assertEquals(60, info.getBinlogConfig().getTtlSeconds());
+        });
     }
 
     @Test
@@ -299,7 +476,7 @@ public class CloudSchemaChangeHandlerTest {
                 ArgumentCaptor.forClass(InternalService.PSyncTabletMetaRequest.class);
         Mockito.verify(backendServiceProxy, Mockito.times(1))
                 .syncTabletMeta(Mockito.argThat(addr -> "be-1".equals(addr.getHostname())), syncCaptor.capture());
-        Assert.assertEquals(Arrays.asList(101L, 102L), syncCaptor.getValue().getTabletIdsList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L), syncCaptor.getValue().getTabletIdsList());
     }
 
     @Test
@@ -493,7 +670,7 @@ public class CloudSchemaChangeHandlerTest {
             Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
             Mockito.verify(table).readLock();
             Mockito.verify(table).readUnlock();
-            Assert.assertEquals("v3", properties.get(
+            Assertions.assertEquals("v3", properties.get(
                     PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
@@ -521,7 +698,7 @@ public class CloudSchemaChangeHandlerTest {
 
             Mockito.verify(env, Mockito.never()).modifyTableProperties(database, table, properties);
             Mockito.verify(table, Mockito.never()).getPartitionInvertedIndexFileStorageFormat();
-            Assert.assertEquals("SNII", properties.get(
+            Assertions.assertEquals("SNII", properties.get(
                     PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT));
         } finally {
             Config.enable_partition_inverted_index_storage_format_rollout = previousRollout;
@@ -552,10 +729,39 @@ public class CloudSchemaChangeHandlerTest {
         Mockito.when(partition.getName()).thenReturn("p1");
         Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
                 .thenReturn(Arrays.asList(index));
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, false))
+                .thenReturn(Arrays.asList(index));
         Mockito.when(index.getTablets()).thenReturn(Arrays.asList(tablet1, tablet2, tablet3));
         Mockito.when(tablet1.getId()).thenReturn(101L);
         Mockito.when(tablet2.getId()).thenReturn(102L);
         Mockito.when(tablet3.getId()).thenReturn(103L);
+        return db;
+    }
+
+    private Database createMockDatabaseWithChangelogTablet() throws Exception {
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex baseIndex = Mockito.mock(MaterializedIndex.class);
+        MaterializedIndex changelogIndex = Mockito.mock(MaterializedIndex.class);
+        org.apache.doris.catalog.Tablet baseTablet = Mockito.mock(org.apache.doris.catalog.Tablet.class);
+        org.apache.doris.catalog.Tablet changelogTablet = Mockito.mock(org.apache.doris.catalog.Tablet.class);
+
+        Mockito.when(db.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.getCompactionPolicy()).thenReturn(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(table.getPartitions()).thenReturn(Arrays.asList(partition));
+        Mockito.when(table.getPartition("p1")).thenReturn(partition);
+        Mockito.when(partition.getName()).thenReturn("p1");
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
+                .thenReturn(Arrays.asList(baseIndex, changelogIndex));
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, false))
+                .thenReturn(Arrays.asList(baseIndex));
+        Mockito.when(baseIndex.getTablets()).thenReturn(Arrays.asList(baseTablet));
+        Mockito.when(changelogIndex.getTablets()).thenReturn(Arrays.asList(changelogTablet));
+        Mockito.when(baseTablet.getId()).thenReturn(101L);
+        Mockito.when(changelogTablet.getId()).thenReturn(201L);
         return db;
     }
 

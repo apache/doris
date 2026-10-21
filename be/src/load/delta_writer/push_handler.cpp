@@ -442,7 +442,7 @@ Status PushBrokerReader::_init_src_block() {
         auto it = _name_to_col_type.find(slot->col_name());
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
-            data_type = slot->get_data_type_ptr();
+            data_type = slot->type();
         } else {
             data_type = it->second;
         }
@@ -471,7 +471,7 @@ Status PushBrokerReader::_cast_to_input_block() {
             continue;
         }
         // remove nullable here, let the get_function decide whether nullable
-        auto return_type = slot_desc->get_data_type_ptr();
+        auto return_type = slot_desc->type();
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         auto& arg = _src_block_ptr->get_by_position(idx);
         // bitmap convert：src -> to_base64 -> bitmap_from_base64
@@ -536,8 +536,8 @@ Status PushBrokerReader::_convert_to_output_block(Block* block) {
         } else if (slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        block->insert(dest_index, ColumnWithTypeAndName(column_ptr, slot_desc->get_data_type_ptr(),
-                                                        slot_desc->col_name()));
+        block->insert(dest_index,
+                      ColumnWithTypeAndName(column_ptr, slot_desc->type(), slot_desc->col_name()));
     }
     _src_block.clear();
 

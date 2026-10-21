@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -107,6 +108,11 @@ public class PluginDrivenExternalTableTest {
      */
     private static PluginDrivenExternalTable capabilityTable(boolean handlePresent,
             Set<WriteOperation> ops, boolean branch) {
+        return capabilityTable(handlePresent, ops, branch, ConnectorRowChangeStyle.POSITION_DELETE);
+    }
+
+    private static PluginDrivenExternalTable capabilityTable(boolean handlePresent,
+            Set<WriteOperation> ops, boolean branch, ConnectorRowChangeStyle style) {
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
@@ -115,6 +121,7 @@ public class PluginDrivenExternalTableTest {
         // provider, so stub them where they are actually declared.
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
         Mockito.when(provider.supportedOperations()).thenReturn(ops);
+        Mockito.when(provider.getRowChangeStyle()).thenReturn(style);
         Mockito.when(provider.supportsWriteBranch()).thenReturn(branch);
         Mockito.when(provider.requiresPartitionHashWrite()).thenReturn(true);
         Mockito.when(provider.requiresMaterializeStaticPartitionValues()).thenReturn(true);
@@ -137,6 +144,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalTable table = capabilityTable(true, ops, true);
         Assertions.assertEquals(ops, table.connectorSupportedWriteOperations(),
                 "the write ops must come from the connector's per-handle overload (resolved via the handle)");
+        Assertions.assertEquals(ConnectorRowChangeStyle.POSITION_DELETE, table.getConnectorRowChangeStyle());
         Assertions.assertTrue(table.connectorSupportsWriteBranch(),
                 "the branch capability must come from the connector's per-handle overload");
         Assertions.assertTrue(table.requirePartitionHashOnWrite(),
@@ -152,6 +160,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalTable table = capabilityTable(false, EnumSet.of(WriteOperation.DELETE), true);
         Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
                 "an unresolvable handle degrades write ops to the empty set");
+        Assertions.assertEquals(ConnectorRowChangeStyle.NONE, table.getConnectorRowChangeStyle());
         Assertions.assertFalse(table.connectorSupportsWriteBranch(),
                 "an unresolvable handle degrades branch support to false");
         Assertions.assertFalse(table.requirePartitionHashOnWrite(),
@@ -170,7 +179,17 @@ public class PluginDrivenExternalTableTest {
         Deencapsulation.setField(table, "catalog", catalog);
         Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
                 "a null connector degrades write ops to the empty set");
+        Assertions.assertEquals(ConnectorRowChangeStyle.NONE, table.getConnectorRowChangeStyle());
         Assertions.assertFalse(table.connectorSupportsWriteBranch(), "a null connector degrades branch to false");
+    }
+
+    @Test
+    public void rowChangeStyleComesFromThePerHandleWriteProvider() {
+        PluginDrivenExternalTable table = capabilityTable(true,
+                EnumSet.of(WriteOperation.INSERT, WriteOperation.DELETE), false,
+                ConnectorRowChangeStyle.CHANGELOG);
+
+        Assertions.assertEquals(ConnectorRowChangeStyle.CHANGELOG, table.getConnectorRowChangeStyle());
     }
 
     // ==================== §4.4 W4: per-handle transaction write-target handle resolution ====================
@@ -422,7 +441,11 @@ public class PluginDrivenExternalTableTest {
         ConnectorSession session = noneScopedSession();
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
-        Mockito.when(connector.getWritePlanProvider(handle)).thenReturn(provider);
+        AtomicReference<ClassLoader> providerResolutionLoader = new AtomicReference<>();
+        Mockito.when(connector.getWritePlanProvider(handle)).thenAnswer(invocation -> {
+            providerResolutionLoader.set(Thread.currentThread().getContextClassLoader());
+            return provider;
+        });
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
@@ -439,6 +462,7 @@ public class PluginDrivenExternalTableTest {
         Thread.currentThread().setContextClassLoader(previous);
         try {
             Assertions.assertTrue(table.resolveWriteColumns(Optional.empty()).isPresent());
+            Assertions.assertSame(connector.getClass().getClassLoader(), providerResolutionLoader.get());
             Assertions.assertSame(provider.getClass().getClassLoader(), observed.get());
             Assertions.assertEquals("pinned-generation", ctx.getStatementContext()
                     .getConnectorWriteMetadataIdentity(99L).orElse(null));
@@ -646,6 +670,30 @@ public class PluginDrivenExternalTableTest {
                 EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsNestedColumnPrune());
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.noneOf(ConnectorCapability.class)).supportsNestedColumnPrune());
+    }
+
+    @Test
+    public void supportsStoragePredicatePruningReflectsConnectorCapability() {
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING))
+                .supportsStoragePredicatePruning());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class),
+                EnumSet.of(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING))
+                .supportsStoragePredicatePruning());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsStoragePredicatePruning());
+    }
+
+    @Test
+    public void fieldIdAccessPathIsIndependentOfNestedColumnPrune() {
+        // A connector that prunes by NAME (paimon, fluss) declares the prune capability alone. Rewriting
+        // its access paths to field ids would produce "-1" segments that match nothing in BE.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).usesFieldIdAccessPath());
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                        ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH)).usesFieldIdAccessPath());
     }
 
     @Test
@@ -975,6 +1023,70 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertEquals("id", result.get().getSchema().get(0).getName());
         Mockito.verify(metadata, Mockito.never())
                 .getViewDefinition(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void displaySchemaUsesSourceNullability() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db1"), Mockito.eq("t1")))
+                .thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle)))
+                .thenReturn(new ConnectorTableSchema("t1", ImmutableList.of(
+                        new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null, true)
+                                .withSourceNullable(false),
+                        new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null, true),
+                        // Required + WITH_TIMEZONE: the display copy must keep the marker Column's copy
+                        // constructor drops, otherwise DESC loses "Extra: WITH_TIMEZONE" for exactly the
+                        // required TZ columns this projection touches.
+                        new ConnectorColumn("ts", ConnectorType.of("TIMESTAMPTZ"), "", true, null, true)
+                                .withTimeZone().withSourceNullable(false)),
+                        "ICEBERG", Collections.emptyMap()));
+        Mockito.when(metadata.fromRemoteColumnName(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyString())).thenAnswer(inv -> inv.getArgument(3));
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "t1");
+        Mockito.doReturn(false).when(table).isView();
+        SchemaCacheValue cached = table.initSchema().get();
+        Mockito.doReturn(Optional.of(cached)).when(table).getSchemaCacheValue();
+        Mockito.doReturn(cached.getSchema()).when(table).getFullSchema();
+        // Count the schema-cache reads of the display call alone, not of the setup above.
+        Mockito.clearInvocations(table);
+
+        List<Column> display = table.getBaseSchemaForDisplay(false);
+
+        // Index-aligned with the read schema: same size, same names, same order.
+        List<Column> read = table.getBaseSchema(false);
+        Assertions.assertEquals(read.size(), display.size());
+        for (int i = 0; i < read.size(); i++) {
+            Assertions.assertEquals(read.get(i).getName(), display.get(i).getName());
+        }
+        // The source-required column is shown NOT NULL; the optional one keeps its nullable view.
+        Assertions.assertFalse(display.get(0).isAllowNull());
+        Assertions.assertTrue(display.get(1).isAllowNull());
+        Assertions.assertFalse(display.get(2).isAllowNull());
+        Assertions.assertTrue(read.get(2).getExtraInfo().contains("WITH_TIMEZONE"));
+        Assertions.assertTrue(display.get(2).getExtraInfo().contains("WITH_TIMEZONE"));
+        // The cached columns keep the nullable read semantics used by scans.
+        Assertions.assertTrue(read.stream().allMatch(Column::isAllowNull));
+        // A column the source does not diverge on is shared, not copied: no per-call projection is left.
+        Assertions.assertSame(read.get(1), display.get(1));
+        // One schema-cache read per display call (it must not re-read for the declared nullability, which
+        // would hit the connector twice under a bypassed cache such as a delegated credential).
+        Mockito.verify(table, Mockito.times(1)).getSchemaCacheValue();
     }
 
     @Test

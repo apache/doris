@@ -89,8 +89,10 @@ Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
     }
 
     auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->ensure_encoded();
+    });
     return build_from_encoded(encoded_batch->read_view(), 0);
 }
 
@@ -353,6 +355,19 @@ uint64_t VariantV2ColumnWriter::estimate_buffer_size() {
     }
     if (_binary_writer != nullptr) {
         size += _binary_writer->estimate_buffer_size();
+    }
+    return size;
+}
+
+uint64_t VariantV2ColumnWriter::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    DORIS_CHECK(_is_finalized);
+    uint64_t size = std::invoke(getter, _root_writer.get());
+    for (const auto& writer : _subcolumn_writers) {
+        size += std::invoke(getter, writer.get());
+    }
+    if (_binary_writer != nullptr) {
+        size += _binary_writer->get_total_data_pages_bytes(getter);
     }
     return size;
 }

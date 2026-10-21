@@ -20,7 +20,9 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.Job;
@@ -28,18 +30,27 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.job.offset.s3.S3EventSourceOffsetProvider;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.transaction.TransactionException;
 
+import com.google.common.base.Preconditions;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
@@ -49,6 +60,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 @Log4j2
 @Getter
@@ -61,6 +74,9 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     private String cloudCluster;
+    private String commitOffsetJson;
+    private String auditSql;
+    private final boolean auditEnabled;
     SourceOffsetProvider offsetProvider;
 
     public StreamingInsertTask(long jobId,
@@ -79,10 +95,14 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.jobProperties = jobProperties;
         this.originTvfProps = originTvfProps;
         this.cloudCluster = cloudCluster;
+        this.auditEnabled = S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
+        this.noRetry = CdcStreamTableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
     }
 
     @Override
     public void before() throws Exception {
+        commitOffsetJson = null;
+        auditSql = null;
         if (getIsCanceled().get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
             return;
@@ -102,15 +122,25 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
         baseCommand.setJobId(getTaskId());
-        StmtExecutor baseStmtExecutor =
-                new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
-        baseCommand.initPlan(ctx, baseStmtExecutor, false);
-        if (!baseCommand.getParsedPlan().isPresent()) {
-            throw new JobException("Can not get Parsed plan");
+        if (!S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType())) {
+            StmtExecutor baseStmtExecutor =
+                    new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
+            baseCommand.initPlan(ctx, baseStmtExecutor, false);
+            if (!baseCommand.getParsedPlan().isPresent()) {
+                throw new JobException("Can not get Parsed plan");
+            }
         }
         this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset, getTaskId());
         this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
+        if (auditEnabled) {
+            ctx.setExecutor(stmtExecutor);
+            try {
+                this.auditSql = buildAuditSql();
+            } catch (Exception e) {
+                log.warn("Failed to prepare audit SQL, label {}; skipping audit for this attempt", labelName, e);
+            }
+        }
     }
 
     @Override
@@ -121,6 +151,9 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         }
         log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
         String errMsg = null;
+        if (auditEnabled) {
+            ctx.setStartTime();
+        }
         try {
             taskCommand.run(ctx, stmtExecutor);
             if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
@@ -130,10 +163,35 @@ public class StreamingInsertTask extends AbstractStreamingTask {
             }
             throw new JobException(errMsg);
         } catch (Exception e) {
+            String errorMessage = Util.getRootCauseMessage(e);
+            if (auditEnabled && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+                ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, errorMessage);
+            }
             log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
                     runningOffset.toString(), e);
-            throw new JobException(Util.getRootCauseMessage(e));
+            throw new JobException(errorMessage);
+        } finally {
+            if (auditSql != null) {
+                AuditLogHelper.logAuditLog(ctx, auditSql, stmtExecutor.getParsedStmt(),
+                        stmtExecutor.getQueryStatisticsForAuditLog(), true);
+            }
         }
+    }
+
+    private String buildAuditSql() {
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        new NereidsParser().parseForEncryption(sql, replacements);
+        List<LogicalTVFRelation> tvfRelations = taskCommand.getLogicalQuery()
+                .collectToList(LogicalTVFRelation.class::isInstance);
+        Preconditions.checkState(replacements.size() == 1 && tvfRelations.size() == 1,
+                "S3 streaming insert must contain exactly one TVF");
+        String rewrittenProperties = tvfRelations.get(0).getFunction().getTVFProperties().getMap().entrySet().stream()
+                .map(entry -> SqlLiteralUtils.quoteStringLiteral(entry.getKey()) + " = "
+                        + SqlLiteralUtils.quoteStringLiteral(entry.getValue()))
+                .collect(Collectors.joining(", "));
+        Pair<Integer, Integer> tvfPropertiesRange = replacements.firstKey();
+        replacements.replace(tvfPropertiesRange, rewrittenProperties);
+        return BaseViewInfo.rewriteSql(replacements, sql);
     }
 
     @Override
@@ -142,6 +200,18 @@ public class StreamingInsertTask extends AbstractStreamingTask {
             return stmtExecutor.getCoord().getScanBackendIds();
         }
         return Collections.emptyList();
+    }
+
+    public String getCommitOffsetJson() throws TransactionException {
+        // Reuse offsets across retries, but revalidate notification batch receipts on every attempt.
+        if (commitOffsetJson == null || offsetProvider instanceof S3EventSourceOffsetProvider) {
+            String offsetJson = offsetProvider.getCommitOffsetJson(runningOffset, getTaskId(), getScanBackendIds());
+            if (StringUtils.isBlank(offsetJson)) {
+                throw new TransactionException("Cannot find offset for attachment, load job id is " + getTaskId());
+            }
+            commitOffsetJson = offsetJson;
+        }
+        return commitOffsetJson;
     }
 
     @Override
@@ -183,6 +253,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void closeOrReleaseResources() {
+        commitOffsetJson = null;
         if (null != stmtExecutor) {
             stmtExecutor = null;
         }

@@ -39,9 +39,9 @@
 #include "common/metrics/metrics.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
-#include "storage/binlog.h"
 #include "storage/binlog_config.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
+#include "storage/changelog.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -281,14 +281,16 @@ public:
 
     void check_tablet_path_exists();
 
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction(
+            std::optional<int64_t> changelog_ttl_cutoff_tso = std::nullopt);
     // MUST hold shared `_meta_lock`. Use this when the caller already holds the
     // header lock (e.g. the time-series cumulative score path under
     // suitable_for_compaction) to avoid recursive shared acquisition.
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_changelog_compaction(
+            std::optional<int64_t> changelog_ttl_cutoff_tso = std::nullopt);
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
             const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
@@ -349,7 +351,8 @@ public:
 
     std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
-    std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
+    // TTL requires a confirmed FE-visible version; ordinary compaction retains its legacy fallback.
+    std::tuple<int64_t, int64_t> get_visible_version_and_time(bool allow_unknown = true) const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
         _visible_version.store(visible_version);
@@ -479,14 +482,10 @@ public:
     bool enable_ccr_binlog() const {
         return enable_binlog() && _tablet_meta->binlog_config().is_ccr_binlog_format();
     }
-    bool enable_row_binlog() const {
-        return _tablet_meta->binlog_config().is_enable() &&
-               _tablet_meta->binlog_config().is_row_binlog_format();
-    }
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
-    void set_binlog_config(BinlogConfig binlog_config);
+    Status set_binlog_config(BinlogConfig binlog_config);
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
@@ -630,8 +629,8 @@ private:
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
 
-    bool _skip_binlog_compaction = false;
-    int64_t _skip_binlog_compaction_ts;
+    bool _skip_changelog_compaction = false;
+    int64_t _skip_changelog_compaction_ts;
 
     // cooldown related
     CooldownConf _cooldown_conf;

@@ -75,6 +75,34 @@ suite("eliminate_aggregate_casewhen") {
     qt_basic_4_5 """explain shape plan select count(case when t4.c4 > 100 then 10 end) from t4;"""
     qt_basic_4_6 """explain shape plan select t4.c4, count(case when t4.c4 > 100 then 10 end) from t4 group by t4.c4;"""
 
+    // NULL-preserving aggregates must keep the IF expression and all input rows.
+    qt_array_agg_no_eliminate """
+        explain shape plan
+        select array_size(array_agg(case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+
+    // Audited NULL-ignoring aggregates remain eligible for the rewrite.
+    qt_collect_list_eliminate """
+        explain shape plan
+        select array_size(collect_list(case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+    qt_collect_list_distinct_eliminate """
+        explain shape plan
+        select array_size(collect_list(distinct case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+    qt_bool_or_eliminate """
+        explain shape plan
+        select bool_or(case when t4.c4 = 102 then cast(t4.c4 as boolean) end) from t4;
+    """
+    qt_sum0_eliminate """
+        explain shape plan
+        select sum0(case when t4.c4 = 102 then t4.c4 end) from t4;
+    """
+    qt_bitmap_agg_eliminate """
+        explain shape plan
+        select bitmap_count(bitmap_agg(case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+
     /* ******** Output ******** */
 
     /* ******** with one row ******** */
@@ -108,4 +136,26 @@ suite("eliminate_aggregate_casewhen") {
     order_qt_basic_4_4 """select max(case when t4.c4 > 100 then 10 end) from t4;"""
     order_qt_basic_4_5 """select count(case when t4.c4 > 100 then 10 end) from t4;"""
     order_qt_basic_4_6 """select t4.c4, count(case when t4.c4 > 100 then 10 end) from t4 group by t4.c4;"""
+
+    order_qt_array_agg_preserves_null """
+        select array_size(array_agg(case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+    order_qt_array_agg_distinct_preserves_null """
+        select array_size(array_agg(distinct case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+    order_qt_collect_list_ignores_null """
+        select array_size(collect_list(case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+    order_qt_collect_list_distinct_ignores_null """
+        select array_size(collect_list(distinct case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
+    order_qt_bool_or_ignores_null """
+        select bool_or(case when t4.c4 = 102 then cast(t4.c4 as boolean) end) from t4;
+    """
+    order_qt_sum0_ignores_null """
+        select sum0(case when t4.c4 = 102 then t4.c4 end) from t4;
+    """
+    order_qt_bitmap_agg_ignores_null """
+        select bitmap_count(bitmap_agg(case when t4.c4 = 102 then t4.c4 end)) from t4;
+    """
 }

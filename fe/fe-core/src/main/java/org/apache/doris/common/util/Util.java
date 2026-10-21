@@ -23,6 +23,7 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.foundation.format.FileCompression;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -78,6 +79,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
         TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
+        TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMP_NS, "timestamp_ns");
         TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMPTZ, "timestamptz");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
@@ -430,9 +432,6 @@ public class Util {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
             return TFileFormatType.FORMAT_ARROW;
-        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_NATIVE)) {
-            // Doris Native binary columnar format
-            return TFileFormatType.FORMAT_NATIVE;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }
@@ -446,26 +445,7 @@ public class Util {
 
     @NotNull
     public static TFileCompressType inferFileCompressTypeByPath(String path) {
-        String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".gz")) {
-            return TFileCompressType.GZ;
-        } else if (lowerCasePath.endsWith(".bz2")) {
-            return TFileCompressType.BZ2;
-        } else if (lowerCasePath.endsWith(".lz4")) {
-            return TFileCompressType.LZ4FRAME;
-        } else if (lowerCasePath.endsWith(".lzo")) {
-            return TFileCompressType.LZOP;
-        } else if (lowerCasePath.endsWith(".lzo_deflate")) {
-            return TFileCompressType.LZO;
-        } else if (lowerCasePath.endsWith(".deflate")) {
-            return TFileCompressType.DEFLATE;
-        } else if (lowerCasePath.endsWith(".snappy")) {
-            return TFileCompressType.SNAPPYBLOCK;
-        } else if (lowerCasePath.endsWith(".zst") || lowerCasePath.endsWith(".zstd")) {
-            return TFileCompressType.ZSTD;
-        } else {
-            return TFileCompressType.PLAIN;
-        }
+        return TFileCompressType.valueOf(FileCompression.fromPath(path).name());
     }
 
     public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {

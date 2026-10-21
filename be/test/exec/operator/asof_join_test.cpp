@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "core/column/column_vector.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exec/common/join_utils.h"
 
@@ -290,6 +291,14 @@ TEST_F(AsofIndexGroupMatchTest, UInt64FindBestMatch) {
     EXPECT_EQ((group64.template find_best_match<false, true>(40000000004ULL)), 0U);
 }
 
+TEST_F(AsofIndexGroupMatchTest, TimestampNsKeyPreservesNanoseconds) {
+    auto group = make_group<int64_t>({{-1, 1}, {0, 2}, {1, 3}});
+    EXPECT_EQ((group.template find_best_match<true, false>(0)), 2U);
+    EXPECT_EQ((group.template find_best_match<true, true>(0)), 1U);
+    EXPECT_EQ((group.template find_best_match<false, false>(0)), 2U);
+    EXPECT_EQ((group.template find_best_match<false, true>(0)), 3U);
+}
+
 class AsofColumnDispatchTest : public ::testing::Test {};
 
 TEST_F(AsofColumnDispatchTest, DateV2Dispatch) {
@@ -329,6 +338,18 @@ TEST_F(AsofColumnDispatchTest, TimestampTZDispatch) {
         }
     });
     EXPECT_TRUE(dispatched_to_tstz);
+}
+
+TEST_F(AsofColumnDispatchTest, TimestampNsDispatch) {
+    auto col = ColumnTimeStampNs::create();
+    col->insert_value(TimeStampNsValue(1));
+    bool dispatched_to_timestamp_ns = false;
+    asof_column_dispatch(col.get(), [&](const auto* typed_col) {
+        if constexpr (std::is_same_v<std::decay_t<decltype(*typed_col)>, ColumnTimeStampNs>) {
+            dispatched_to_timestamp_ns = true;
+        }
+    });
+    EXPECT_TRUE(dispatched_to_timestamp_ns);
 }
 
 TEST_F(AsofColumnDispatchTest, FallbackDispatch) {
@@ -388,6 +409,17 @@ TEST_F(AsofIndexVariantTest, EmplaceUint64Groups) {
     EXPECT_TRUE(std::holds_alternative<std::vector<AsofIndexGroup<uint64_t>>>(variant));
     EXPECT_EQ(std::get<std::vector<AsofIndexGroup<uint64_t>>>(variant)[0].asof_values[0],
               99999999999ULL);
+}
+
+TEST_F(AsofIndexVariantTest, EmplaceInt64Groups) {
+    AsofIndexVariant variant;
+    auto& groups = variant.emplace<std::vector<AsofIndexGroup<int64_t>>>();
+    groups.emplace_back();
+    groups[0].add_row(-1, 1);
+    groups[0].add_row(0, 2);
+    groups[0].sort_and_finalize();
+    EXPECT_TRUE(std::holds_alternative<std::vector<AsofIndexGroup<int64_t>>>(variant));
+    EXPECT_EQ(std::get<std::vector<AsofIndexGroup<int64_t>>>(variant)[0].asof_values[0], -1);
 }
 
 } // namespace doris

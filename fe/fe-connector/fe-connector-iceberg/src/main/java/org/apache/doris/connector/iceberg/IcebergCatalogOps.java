@@ -34,12 +34,14 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdatePartitionSpec;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
@@ -137,6 +139,12 @@ public interface IcebergCatalogOps {
 
     /** Renames {@code dbName.oldName} to {@code dbName.newName} (same database). */
     void renameTable(String dbName, String oldName, String newName);
+
+    /**
+     * Sets {@code properties} on {@code dbName.tableName} in ONE {@code UpdateProperties} commit, so iceberg
+     * validates the whole map before any of it is written. Keys not in the map keep their current values.
+     */
+    void setTableProperties(String dbName, String tableName, Map<String, String> properties);
 
     /** The table's storage location, or empty when blank — read BEFORE a drop to prune empty dirs. */
     Optional<String> loadTableLocation(String dbName, String tableName);
@@ -323,9 +331,17 @@ public interface IcebergCatalogOps {
             SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
             if (restFlavor && nestedNamespaceEnabled) {
                 return nsCatalog.listNamespaces(parentNs).stream()
-                        .flatMap(childNs -> Stream.concat(
-                                Stream.of(childNs.toString()),
-                                listNestedNamespaces(childNs).stream()))
+                        .flatMap(childNs -> {
+                            try {
+                                List<String> descendants = listNestedNamespaces(childNs);
+                                return Stream.concat(Stream.of(childNs.toString()), descendants.stream());
+                            } catch (NoSuchNamespaceException e) {
+                                // A child can be dropped after its parent was listed. Skip that branch,
+                                // including the stale child name, without hiding failures to list the root.
+                                LOG.debug("Namespace {} was dropped during listing", childNs, e);
+                                return Stream.empty();
+                            }
+                        })
                         .collect(Collectors.toList());
             }
             return nsCatalog.listNamespaces(parentNs).stream()
@@ -468,6 +484,16 @@ public interface IcebergCatalogOps {
         }
 
         @Override
+        public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
+            withTable(dbName, tableName, table -> {
+                UpdateProperties updateProperties = table.updateProperties();
+                properties.forEach(updateProperties::set);
+                updateProperties.commit();
+                return null;
+            });
+        }
+
+        @Override
         public Optional<String> loadTableLocation(String dbName, String tableName) {
             return withTable(dbName, tableName, table -> {
                 String location = table.location();
@@ -486,6 +512,9 @@ public interface IcebergCatalogOps {
         public void addColumn(String dbName, String tableName, IcebergColumnChange column,
                 ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
+                if (column.getType().isVariantType()) {
+                    IcebergWriterHelper.validateVariantColumn(table, column.getName());
+                }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
                         table.schema().asStruct(), "", column.getName(), null, "add");
                 UpdateSchema updateSchema = table.updateSchema();
@@ -500,6 +529,11 @@ public interface IcebergCatalogOps {
         @Override
         public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
             withTable(dbName, tableName, table -> {
+                for (IcebergColumnChange column : columns) {
+                    if (column.getType().isVariantType()) {
+                        IcebergWriterHelper.validateVariantColumn(table, column.getName());
+                    }
+                }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
                 UpdateSchema updateSchema = table.updateSchema();
                 for (IcebergColumnChange column : columns) {
@@ -531,10 +565,14 @@ public interface IcebergCatalogOps {
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
                 boolean commentSpecified, ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
-                Types.NestedField current = table.schema().findField(column.getName());
+                Schema schema = table.schema();
+                Types.NestedField current = IcebergNestedColumnEvolution.findTopLevelField(
+                        schema, column.getName());
                 if (current == null) {
                     throw new DorisConnectorException("Column " + column.getName() + " does not exist");
                 }
+                // Iceberg update paths are case-sensitive, so stage every change with the persisted spelling.
+                String currentName = current.name();
                 // Iceberg can widen required -> optional but never optional -> required (existing data may hold
                 // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
                 // (IcebergMetadataOps.validateForModifyColumn / validateForModifyComplexColumn).
@@ -547,7 +585,17 @@ public interface IcebergCatalogOps {
                 // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
                 // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).
                 String targetComment = commentSpecified ? column.getComment() : current.doc();
-                if (newType.isPrimitiveType()) {
+                if (current.type().isVariantType() != newType.isVariantType()) {
+                    throw new DorisConnectorException("Cannot change column type involving Iceberg VARIANT: "
+                            + column.getName() + ": " + current.type() + " -> " + newType);
+                }
+                if (newType.isVariantType()) {
+                    // A VARIANT modify changes only metadata, so it does not check the file format: an existing
+                    // v3 ORC table can hold a VARIANT column although Doris writes VARIANT values only to Parquet.
+                    if (!Objects.equals(current.doc(), targetComment)) {
+                        updateSchema.updateColumnDoc(currentName, targetComment);
+                    }
+                } else if (newType.isPrimitiveType()) {
                     // Reject a complex -> primitive change with a clean message before iceberg's updateColumn leaks
                     // a raw type-diff error — parity with IcebergNestedColumnEvolution.modifyColumn / legacy
                     // IcebergMetadataOps (symmetric with the non-complex -> complex guard below).
@@ -555,7 +603,7 @@ public interface IcebergCatalogOps {
                         throw new DorisConnectorException("Modify column type from complex to primitive is not"
                                 + " supported: " + column.getName());
                     }
-                    updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), targetComment);
+                    updateSchema.updateColumn(currentName, newType.asPrimitiveType(), targetComment);
                 } else {
                     // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
                     // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
@@ -563,16 +611,17 @@ public interface IcebergCatalogOps {
                         throw new DorisConnectorException("Modify column type from non-complex to complex is not"
                                 + " supported: " + column.getName());
                     }
-                    IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType,
+                    IcebergComplexTypeDiff.apply(updateSchema, currentName, current.type(), newType,
                             column.getSourceType());
                     if (!Objects.equals(current.doc(), targetComment)) {
-                        updateSchema.updateColumnDoc(column.getName(), targetComment);
+                        updateSchema.updateColumnDoc(currentName, targetComment);
                     }
                 }
                 if (column.isNullable()) {
-                    updateSchema.makeColumnOptional(column.getName());
+                    updateSchema.makeColumnOptional(currentName);
                 }
-                applyPosition(updateSchema, position, column.getName());
+                IcebergNestedColumnEvolution.applyTopLevelPosition(
+                        updateSchema, position, currentName, schema, "modify");
                 updateSchema.commit();
                 return null;
             });

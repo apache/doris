@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
@@ -117,7 +118,17 @@ public:
     }
 
     void merge(const AggregateFunctionSequenceMatchData& other) {
-        if (other.events_list.empty()) return;
+        if (other.events_list.empty()) {
+            return;
+        }
+
+        if (events_list.empty()) {
+            reset();
+            init(other.pattern, other.arg_count);
+        } else if (UNLIKELY(pattern != other.pattern || arg_count != other.arg_count)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "sequence aggregate states have incompatible patterns or event counts");
+        }
 
         events_list.insert(std::end(events_list), std::begin(other.events_list),
                            std::end(other.events_list));
@@ -217,18 +228,10 @@ private:
         const char* end = pos + pattern.size();
         const size_t event_count = arg_count - 2;
 
-        // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
-        auto fail_parse = [&]() {
-            actions.clear();
-            dfa_states.clear();
-            conditions_in_pattern.reset();
-            pattern_has_time = false;
-        };
-
+        // FE checks a literal pattern, but a constant pattern only BE can evaluate is checked here.
         auto throw_exception = [&](const std::string& msg) {
-            LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
-                                    std::to_string(pos - begin);
-            fail_parse();
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "{} '{}' at position {} of pattern '{}'",
+                            msg, std::string(pos, end), pos - begin, pattern);
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -648,8 +651,6 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        const std::string pattern = this->data(rhs).get_pattern();
-        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
@@ -659,9 +660,13 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        this->data(place).read(buf);
-        const std::string pattern = this->data(place).get_pattern();
-        this->data(place).init(pattern, this->data(place).get_arg_count());
+        auto& state = AggregateFunctionSequenceBase::data(place);
+        state.read(buf);
+        // A serialized uninitialized state has no arguments and must stay uninitialized.
+        if (state.get_arg_count() == 0) {
+            return;
+        }
+        state.init(state.get_pattern(), state.get_arg_count());
     }
 
     void check_input_columns_type(const IColumn** columns) const override {
@@ -671,6 +676,24 @@ public:
         for (size_t i = 2; i < arg_count; ++i) {
             this->template check_argument_column_type<ColumnUInt8>(columns[i]);
         }
+    }
+
+    // the pattern is a constant checked in FE: either a literal or a value only BE can evaluate.
+    // A literal NULL pattern is rejected by FE; reject a BE-evaluated NULL here too, and validate
+    // the pattern syntax eagerly. Both checks are normally done lazily in add(), but the nullable
+    // wrapper above can skip every row (and so skip add() entirely) when any argument, including
+    // a non-constant one such as the timestamp, is NULL for every row.
+    void check_nullable_input_columns(const IColumn** columns) const {
+        if (columns[0]->empty()) {
+            return;
+        }
+        if (columns[0]->is_null_at(0)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the pattern argument of {} must not be null", this->get_name());
+        }
+        std::string pattern = columns[0]->get_data_at(0).to_string();
+        AggregateFunctionSequenceMatchData<T, Derived> validator;
+        validator.init(pattern, arg_count);
     }
 
 private:

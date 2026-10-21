@@ -54,6 +54,11 @@ public class TransactionIdGenerator {
         }
     }
 
+    /** Return the current transaction ID watermark without allocating a new ID. */
+    public synchronized long getCurrentTransactionId() {
+        return nextId;
+    }
+
     public synchronized void initTransactionId(long id) {
         if (id > batchEndId) {
             batchEndId = id;

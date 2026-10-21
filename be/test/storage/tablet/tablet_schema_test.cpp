@@ -32,6 +32,7 @@
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/tablet_info.h"
+#include "storage/utils.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -70,6 +71,46 @@ TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_current_index_schema) {
     EXPECT_EQ(1, current.commit_tso_col_idx());
 }
 
+TEST_F(TabletSchemaTest, test_changelog_col_idx_from_pb_column_names) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    for (const std::string& name :
+         {std::string("k1"), CHANGELOG_TSO_COL, CHANGELOG_LSN_COL, CHANGELOG_OP_COL}) {
+        ColumnPB* column = schema_pb.add_column();
+        column->set_unique_id(schema_pb.column_size() - 1);
+        column->set_name(name);
+        column->set_type("BIGINT");
+        column->set_is_key(name == "k1");
+        column->set_length(8);
+        column->set_aggregation("NONE");
+    }
+
+    // The changelog column cids are not stored in the PB, so they must come from the column names
+    // both for a new schema and after a round trip through the PB.
+    TabletSchema schema;
+    schema.init_from_pb(schema_pb);
+    EXPECT_EQ(1, schema.changelog_tso_col_idx());
+    EXPECT_EQ(2, schema.changelog_lsn_col_idx());
+    EXPECT_EQ(3, schema.changelog_op_col_idx());
+
+    TabletSchemaPB round_trip_pb;
+    schema.to_schema_pb(&round_trip_pb);
+    TabletSchema round_trip;
+    round_trip.init_from_pb(round_trip_pb);
+    EXPECT_EQ(1, round_trip.changelog_tso_col_idx());
+    EXPECT_EQ(2, round_trip.changelog_lsn_col_idx());
+    EXPECT_EQ(3, round_trip.changelog_op_col_idx());
+    EXPECT_TRUE(schema == round_trip);
+
+    TabletSchemaPB data_schema_pb;
+    data_schema_pb.add_column()->CopyFrom(schema_pb.column(0));
+    TabletSchema data_schema;
+    data_schema.init_from_pb(data_schema_pb);
+    EXPECT_EQ(-1, data_schema.changelog_tso_col_idx());
+    EXPECT_EQ(-1, data_schema.changelog_lsn_col_idx());
+    EXPECT_EQ(-1, data_schema.changelog_op_col_idx());
+}
+
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     ColumnPB column_pb;
     column_pb.set_unique_id(1001);
@@ -104,6 +145,25 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     EXPECT_EQ(100, tablet_column.variant_max_subcolumns_count());
     EXPECT_EQ(PatternTypePB::MATCH_NAME_GLOB, tablet_column.pattern_type());
     EXPECT_TRUE(tablet_column.variant_enable_typed_paths_to_sparse());
+}
+
+TEST_F(TabletSchemaTest, test_tablet_column_type_does_not_depend_on_frac) {
+    ColumnPB column_pb;
+    column_pb.set_name("datetime_v2_column");
+    column_pb.set_type("DATETIMEV2");
+    column_pb.set_frac(9);
+
+    TabletColumn tablet_column;
+    tablet_column.init_from_pb(column_pb);
+
+    // The protobuf type is authoritative. An invalid DATETIMEV2 scale must be rejected by type
+    // validation instead of silently changing the column's physical representation.
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_DATETIMEV2, tablet_column.type());
+    EXPECT_EQ(9, tablet_column.frac());
+
+    column_pb.set_type("TIMESTAMP_NS");
+    tablet_column.init_from_pb(column_pb);
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, tablet_column.type());
 }
 
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
@@ -668,148 +728,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_remove_and_clear_index) {
     EXPECT_FALSE(schema.has_inverted_index());
     auto indexes_after_clear = schema.inverted_indexes();
     EXPECT_EQ(0, indexes_after_clear.size());
-}
-
-TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_inverted_indexs) {
-    TabletSchema schema;
-
-    TabletColumn variant_col;
-    variant_col.set_unique_id(9001);
-    variant_col.set_name("variant_col");
-    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    schema.append_column(variant_col);
-
-    auto create_index = [](int64_t id, const std::string& name, int32_t col_uid) {
-        auto index = std::make_shared<TabletIndex>();
-        TabletIndexPB index_pb;
-        index_pb.set_index_id(id);
-        index_pb.set_index_name(name);
-        index_pb.set_index_type(IndexType::INVERTED);
-        index_pb.add_col_unique_id(col_uid);
-        index->init_from_pb(index_pb);
-        return index;
-    };
-
-    auto typed_index1 = create_index(1001, "typed_path_idx1", 9001);
-    auto typed_index2 = create_index(1002, "typed_path_idx2", 9001);
-
-    auto subcolumn_index1 = create_index(2001, "subcolumn_idx1", 9001);
-    auto subcolumn_index2 = create_index(2002, "subcolumn_idx2", 9001);
-
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletSchema::SubColumnInfo typed_sub_col1;
-    typed_sub_col1.column = variant_col;
-    typed_sub_col1.indexes.push_back(typed_index1);
-    path_set_info.typed_path_set["user.name"] = typed_sub_col1;
-
-    TabletSchema::SubColumnInfo typed_sub_col2;
-    typed_sub_col2.column = variant_col;
-    typed_sub_col2.indexes.push_back(typed_index2);
-    path_set_info.typed_path_set["user.age"] = typed_sub_col2;
-
-    TabletIndexes subcolumn_indexes1 = {subcolumn_index1};
-    TabletIndexes subcolumn_indexes2 = {subcolumn_index2};
-    path_set_info.subcolumn_indexes["product.id"] = subcolumn_indexes1;
-    path_set_info.subcolumn_indexes["product.price"] = subcolumn_indexes2;
-
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map[9001] = std::move(path_set_info);
-    schema.set_path_set_info(std::move(path_set_info_map));
-
-    TabletColumn typed_extracted_col1;
-    typed_extracted_col1.set_unique_id(-1);
-    typed_extracted_col1.set_name("variant_col.user.name");
-    typed_extracted_col1.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-    typed_extracted_col1.set_parent_unique_id(9001);
-
-    PathInData typed_path1("variant_col.user.name", true);
-    typed_extracted_col1.set_path_info(typed_path1);
-
-    auto typed_indexes = schema.inverted_indexs(typed_extracted_col1);
-    EXPECT_EQ(1, typed_indexes.size());
-    EXPECT_EQ("typed_path_idx1", typed_indexes[0]->index_name());
-    EXPECT_EQ(1001, typed_indexes[0]->index_id());
-
-    TabletColumn typed_extracted_col2;
-    typed_extracted_col2.set_unique_id(-1);
-    typed_extracted_col2.set_name("variant_col.user.age");
-    typed_extracted_col2.set_type(FieldType::OLAP_FIELD_TYPE_INT);
-    typed_extracted_col2.set_parent_unique_id(9001);
-
-    PathInData typed_path2("variant_col.user.age", true);
-    typed_extracted_col2.set_path_info(typed_path2);
-
-    auto typed_indexes2 = schema.inverted_indexs(typed_extracted_col2);
-    EXPECT_EQ(1, typed_indexes2.size());
-    EXPECT_EQ("typed_path_idx2", typed_indexes2[0]->index_name());
-    EXPECT_EQ(1002, typed_indexes2[0]->index_id());
-
-    // Test subcolumn path (non-typed)
-    TabletColumn subcolumn_extracted_col1;
-    subcolumn_extracted_col1.set_unique_id(-1);
-    subcolumn_extracted_col1.set_name("variant_col.product.id");
-    subcolumn_extracted_col1.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-    subcolumn_extracted_col1.set_parent_unique_id(9001);
-
-    PathInData subcolumn_path1("variant_col.product.id");
-    subcolumn_extracted_col1.set_path_info(subcolumn_path1);
-
-    auto subcolumn_indexes = schema.inverted_indexs(subcolumn_extracted_col1);
-    EXPECT_EQ(1, subcolumn_indexes.size());
-    EXPECT_EQ("subcolumn_idx1", subcolumn_indexes[0]->index_name());
-    EXPECT_EQ(2001, subcolumn_indexes[0]->index_id());
-
-    TabletColumn non_existing_col;
-    non_existing_col.set_unique_id(-1);
-    non_existing_col.set_name("non_existing");
-    non_existing_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-    non_existing_col.set_parent_unique_id(9001);
-
-    PathInData non_existing_path("variant_col.non.existing");
-    non_existing_col.set_path_info(non_existing_path);
-
-    auto no_indexes = schema.inverted_indexs(non_existing_col);
-    EXPECT_EQ(0, no_indexes.size());
-
-    TabletColumn wrong_parent_col;
-    wrong_parent_col.set_unique_id(-1);
-    wrong_parent_col.set_name("wrong_parent");
-    wrong_parent_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-    wrong_parent_col.set_parent_unique_id(9999); // Non-existing parent
-
-    PathInData wrong_parent_path("wrong_variant.some.path");
-    wrong_parent_col.set_path_info(wrong_parent_path);
-
-    auto no_indexes_wrong_parent = schema.inverted_indexs(wrong_parent_col);
-    EXPECT_EQ(0, no_indexes_wrong_parent.size());
-}
-
-TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_accessors) {
-    TabletSchema schema;
-
-    TabletColumn variant_col;
-    variant_col.set_unique_id(10001);
-    variant_col.set_name("json_data");
-    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    schema.append_column(variant_col);
-
-    TabletSchema::PathsSetInfo path_info;
-    path_info.sub_path_set.insert("extracted_path1");
-    path_info.sub_path_set.insert("extracted_path2");
-    path_info.sparse_path_set.insert("sparse_path1");
-    path_info.sparse_path_set.insert("sparse_path2");
-
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_map;
-    path_map[10001] = std::move(path_info);
-    schema.set_path_set_info(std::move(path_map));
-
-    const auto& retrieved_info = schema.path_set_info(10001);
-    EXPECT_EQ(2, retrieved_info.sub_path_set.size());
-    EXPECT_EQ(2, retrieved_info.sparse_path_set.size());
-    EXPECT_TRUE(retrieved_info.sub_path_set.count("extracted_path1") > 0);
-    EXPECT_TRUE(retrieved_info.sub_path_set.count("extracted_path2") > 0);
-    EXPECT_TRUE(retrieved_info.sparse_path_set.count("sparse_path1") > 0);
-    EXPECT_TRUE(retrieved_info.sparse_path_set.count("sparse_path2") > 0);
 }
 
 TEST_F(TabletSchemaTest, test_tablet_schema_inverted_index_by_field_pattern) {

@@ -32,11 +32,12 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -56,16 +57,88 @@ public class FederationBackendPolicyTest {
     private Env env = Mockito.mock(Env.class);
     private MockedStatic<Env> mockedEnvStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(org.apache.doris.persist.EditLog.class));
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         mockedEnvStatic.close();
+    }
+
+    @Test
+    public void testRoundRobinUsesCandidateOrderAcrossBatches() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend first = new Backend(10002L, "172.30.0.100", 9050);
+        Backend second = new Backend(10003L, "172.30.0.106", 9050);
+        Backend third = new Backend(10004L, "172.30.0.118", 9050);
+        for (Backend backend : List.of(first, second, third)) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+
+        // Test different query-local candidate orders. A Host map has one stable iteration order,
+        // so it cannot satisfy both first-split expectations.
+        for (List<Backend> order : List.of(List.of(first, second, third), List.of(third, first, second))) {
+            FederationBackendPolicy policy = new FederationBackendPolicy();
+            policy.init();
+            policy.replaceBackendOrder(order);
+            policy.setEnableSplitsRedistribution(false);
+            for (int i = 0; i < 4; i++) {
+                FileSplit split = new FileSplit(LocationPath.of("hdfs://example/test/part-" + i),
+                        0, 1, 1, 0, null, Collections.emptyList());
+                Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                        new ArrayList<>(List.of(split)));
+                Assertions.assertEquals(order.get(i % order.size()), assignment.keySet().iterator().next());
+            }
+
+            policy.replaceBackendOrder(List.of(first, second));
+            FileSplit excludedLocalSplit = new FileSplit(LocationPath.of("hdfs://example/excluded-local-part"),
+                    0, 1, 1, 0, new String[]{third.getHost()}, Collections.emptyList());
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                    new ArrayList<>(List.of(excludedLocalSplit)));
+            Assertions.assertTrue(assignment.keySet().stream()
+                    .allMatch(backend -> backend.equals(first) || backend.equals(second)));
+        }
+    }
+
+    @Test
+    public void testRoundRobinPreservesOrderForBackendsOnSameHost() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend first = new Backend(11002L, "172.30.0.100", 9050);
+        Backend second = new Backend(11003L, "172.30.0.100", 9051);
+        Backend third = new Backend(11004L, "172.30.0.100", 9052);
+        for (Backend backend : List.of(first, second, third)) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(new ComputeGroupMgr(service));
+
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        policy.init();
+        policy.replaceBackendOrder(List.of(second, third, first));
+        policy.setEnableSplitsRedistribution(false);
+        for (int i = 0; i < 3; i++) {
+            FileSplit split = new FileSplit(LocationPath.of("hdfs://example/same-host-part-" + i),
+                    0, 1, 1, 0, null, Collections.emptyList());
+            Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                    new ArrayList<>(List.of(split)));
+            Assertions.assertEquals(List.of(second, third, first).get(i),
+                    assignment.keySet().iterator().next());
+        }
+        Assertions.assertDoesNotThrow(() -> policy.replaceBackendOrder(List.of(first, second)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> policy.replaceBackendOrder(List.of(first, first, third)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> policy.replaceBackendOrder(List.of(new Backend(11005L, "172.30.0.101", 9050))));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> policy.replaceBackendOrder(Collections.emptyList()));
     }
 
     @Test
@@ -103,6 +176,9 @@ public class FederationBackendPolicyTest {
 
         Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
 
+        Assertions.assertEquals(splits.size(), assignment.values().size());
+        Assertions.assertTrue(assignment.keySet().stream()
+                .allMatch(backend -> backend.equals(backend1) || backend.equals(backend2) || backend.equals(backend3)));
         for (Backend backend : assignment.keySet()) {
             Collection<Split> assignedSplits = assignment.get(backend);
             long scanBytes = 0L;
@@ -155,16 +231,16 @@ public class FederationBackendPolicyTest {
                 FileSplit fileSplit = (FileSplit) split;
                 ++totalSplitNum;
                 if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00000-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
-                    Assert.assertEquals("172.30.0.100", backend.getHost());
+                    Assertions.assertEquals("172.30.0.100", backend.getHost());
                     checkedLocalSplit.add(true);
                 } else if (fileSplit.getPath().getNormalizedLocation().equals("hdfs://HDFS8000871/usr/hive/warehouse/clickbench.db/hits_orc/part-00003-3e24f7d5-f658-4a80-a168-7b215c5a35bf-c000.snappy.orc")) {
-                    Assert.assertEquals("172.30.0.106", backend.getHost());
+                    Assertions.assertEquals("172.30.0.106", backend.getHost());
                     checkedLocalSplit.add(true);
                 }
             }
         }
-        Assert.assertEquals(2, checkedLocalSplit.size());
-        Assert.assertEquals(8, totalSplitNum);
+        Assertions.assertEquals(2, checkedLocalSplit.size());
+        Assertions.assertEquals(8, totalSplitNum);
 
         int maxAssignedSplitNum = Integer.MIN_VALUE;
         int minAssignedSplitNum = Integer.MAX_VALUE;
@@ -183,7 +259,7 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
-        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+        Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
 
     }
 
@@ -222,6 +298,9 @@ public class FederationBackendPolicyTest {
 
         Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
 
+        Assertions.assertEquals(splits.size(), assignment.values().size());
+        Assertions.assertTrue(assignment.keySet().stream()
+                .allMatch(backend -> backend.equals(backend1) || backend.equals(backend2) || backend.equals(backend3)));
         int maxAssignedSplitNum = Integer.MIN_VALUE;
         int minAssignedSplitNum = Integer.MAX_VALUE;
         for (Backend backend : assignment.keySet()) {
@@ -239,8 +318,51 @@ public class FederationBackendPolicyTest {
             }
             System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
         }
-        Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+        Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
 
+    }
+
+    @Test
+    public void testConsistentHashSingleSplitTieIsStableAcrossPolicies() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+        Backend backend1 = new Backend(10002L, "172.30.0.100", 9050);
+        Backend backend2 = new Backend(10003L, "172.30.0.106", 9050);
+        Backend backend3 = new Backend(10004L, "172.30.0.118", 9050);
+        for (Backend backend : List.of(backend1, backend2, backend3)) {
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
+        Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
+
+        int originalCandidateNum = Config.split_assigner_min_consistent_hash_candidate_num;
+        Config.split_assigner_min_consistent_hash_candidate_num = 2;
+        try {
+            Backend assignedBackend = null;
+            for (int i = 0; i < 10; i++) {
+                FederationBackendPolicy policy = new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+                policy.init();
+                policy.setEnableSplitsRedistribution(false);
+                FileSplit split = new FileSplit(LocationPath.of("hdfs://example/cache-hotspot.csv"),
+                        0, 1024, 1024, 0, null, Collections.emptyList());
+                Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(
+                        new ArrayList<>(List.of(split)));
+                Backend currentBackend = assignment.keySet().iterator().next();
+                if (assignedBackend == null) {
+                    assignedBackend = currentBackend;
+                } else {
+                    Assertions.assertEquals(assignedBackend, currentBackend);
+                }
+            }
+            FederationBackendPolicy consistentHashPolicy =
+                    new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+            consistentHashPolicy.init();
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> consistentHashPolicy.replaceBackendOrder(List.of(backend1, backend2)));
+        } finally {
+            Config.split_assigner_min_consistent_hash_candidate_num = originalCandidateNum;
+        }
     }
 
     public static void sortSplits(List<Split> splits) {
@@ -258,15 +380,15 @@ public class FederationBackendPolicyTest {
         });
     }
 
-    @Test
-    public void testGenerateRandomly() throws UserException {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 99})
+    public void testGenerateRandomly(int backendNum) throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
         Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
-        int backendNum = random.nextInt(100 - 1) + 1;
 
         int minOctet3 = 0;
         int maxOctet3 = 250;
@@ -304,7 +426,8 @@ public class FederationBackendPolicyTest {
         int localSplitCount = random.nextInt(1000 - 100) + 100;
         Set<String> totalLocalHosts = new HashSet<>();
         for (int i = 0; i < localSplitCount; ++i) {
-            int localHostNum = random.nextInt(3 - 1) + 1;
+            // A single backend cannot supply two distinct local hosts.
+            int localHostNum = random.nextInt(Math.min(2, backendNum)) + 1;
             Set<String> localHosts = new HashSet<>();
             String localHost;
             List<Backend> backends = service.getAllBackendsByAllCluster().values().asList();
@@ -356,27 +479,27 @@ public class FederationBackendPolicyTest {
                     ++totalSplitNum;
                     if (fileSplit.getHosts() != null && fileSplit.getHosts().length > 0) {
                         for (String host : fileSplit.getHosts()) {
-                            Assert.assertTrue(totalLocalHosts.contains(host));
+                            Assertions.assertTrue(totalLocalHosts.contains(host));
                         }
                     }
                 }
                 System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
             }
-            Assert.assertEquals(totalSplits.size(), totalSplitNum);
+            Assertions.assertEquals(totalSplits.size(), totalSplitNum);
 
-            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+            Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
         }
     }
 
-    @Test
-    public void testNonAliveNodes() throws UserException {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 99})
+    public void testNonAliveNodes(int backendNum) throws UserException {
         SystemInfoService service = new SystemInfoService();
         ComputeGroupMgr cgmgr = new ComputeGroupMgr(service);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(service);
         Mockito.when(env.getComputeGroupMgr()).thenReturn(cgmgr);
 
         Random random = new Random();
-        int backendNum = random.nextInt(100 - 1) + 1;
 
         int minOctet3 = 0;
         int maxOctet3 = 250;
@@ -420,7 +543,8 @@ public class FederationBackendPolicyTest {
         int localSplitCount = random.nextInt(1000 - 100) + 100;
         Set<String> totalLocalHosts = new HashSet<>();
         for (int i = 0; i < localSplitCount; ++i) {
-            int localHostNum = random.nextInt(3 - 1) + 1;
+            // A single backend cannot supply two distinct local hosts.
+            int localHostNum = random.nextInt(Math.min(2, backendNum)) + 1;
             Set<String> localHosts = new HashSet<>();
             String localHost;
             List<Backend> backends = service.getAllBackendsByAllCluster().values().asList();
@@ -470,15 +594,15 @@ public class FederationBackendPolicyTest {
                     ++totalSplitNum;
                     if (fileSplit.getHosts() != null && fileSplit.getHosts().length > 0) {
                         for (String host : fileSplit.getHosts()) {
-                            Assert.assertTrue(totalLocalHosts.contains(host));
+                            Assertions.assertTrue(totalLocalHosts.contains(host));
                         }
                     }
                 }
                 System.out.printf("%s -> %d splits, %d bytes\n", backend, assignedSplits.size(), scanBytes);
             }
-            Assert.assertEquals(totalSplits.size(), totalSplitNum);
+            Assertions.assertEquals(totalSplits.size(), totalSplitNum);
 
-            Assert.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
+            Assertions.assertTrue(Math.abs(maxAssignedSplitNum - minAssignedSplitNum) <= Config.split_assigner_max_split_num_variance);
         }
     }
 
@@ -662,13 +786,13 @@ public class FederationBackendPolicyTest {
         fileSplit.setSelfSplitWeight(1000L);
 
         fileSplit.setTargetSplitSize(10L);
-        Assert.assertEquals(100L, fileSplit.getSplitWeight().getRawValue(), 100L);
+        Assertions.assertEquals(100L, fileSplit.getSplitWeight().getRawValue(), 100L);
 
         fileSplit.setTargetSplitSize(10000000L);
-        Assert.assertEquals(1L, fileSplit.getSplitWeight().getRawValue());
+        Assertions.assertEquals(1L, fileSplit.getSplitWeight().getRawValue());
 
         fileSplit.setTargetSplitSize(2000L);
-        Assert.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
+        Assertions.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
     }
 
     // Regression for the NPE in testGenerateRandomly: FileSplit is Lombok @Data, whose generated
@@ -682,9 +806,9 @@ public class FederationBackendPolicyTest {
         // proceeds past the identity short-circuit and exercises getSelfSplitWeight().
         FileSplit a = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
         FileSplit b = new FileSplit(path, 0, 1000, 1000, 0, null, Collections.emptyList());
-        Assert.assertEquals(-1L, a.getSelfSplitWeight());
-        Assert.assertEquals(a, b);
-        Assert.assertEquals(a.hashCode(), b.hashCode());
+        Assertions.assertEquals(-1L, a.getSelfSplitWeight());
+        Assertions.assertEquals(a, b);
+        Assertions.assertEquals(a.hashCode(), b.hashCode());
     }
 
     @Test
@@ -721,9 +845,9 @@ public class FederationBackendPolicyTest {
         Map<Backend, List<Split>> backendListMap = mergeAssignment(assignment);
         backendListMap.forEach((k, v) -> {
             if (k.getId() == 1) {
-                Assert.assertEquals(800000, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(800000, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 2) {
-                Assert.assertEquals(1600000, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(1600000, v.stream().mapToLong(Split::getLength).sum());
             }
         });
 
@@ -734,11 +858,11 @@ public class FederationBackendPolicyTest {
         Map<Backend, List<Split>> backendListMap2 = mergeAssignment(assignment2);
         backendListMap2.forEach((k, v) -> {
             if (k.getId() == 1) {
-                Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 2) {
-                Assert.assertEquals(400000L, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(400000L, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 3) {
-                Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
+                Assertions.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
             }
         });
     }

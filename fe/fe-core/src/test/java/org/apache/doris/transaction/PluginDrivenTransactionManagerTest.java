@@ -22,11 +22,14 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteBlockAllocatingConnectorTransaction;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Delegation tests for {@link PluginDrivenTransactionManager} and its internal
@@ -107,6 +110,37 @@ public class PluginDrivenTransactionManagerTest {
         }
     }
 
+    private static final class BlockingCommitDataTransaction extends RecordingConnectorTransaction {
+        private final CountDownLatch addEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseAdd = new CountDownLatch(1);
+        private final CountDownLatch commitEntered = new CountDownLatch(1);
+
+        private BlockingCommitDataTransaction(long txnId) {
+            super(txnId);
+        }
+
+        @Override
+        public void addCommitData(byte[] commitFragment) {
+            addEntered.countDown();
+            await(releaseAdd);
+            super.addCommitData(commitFragment);
+        }
+
+        @Override
+        public void commit() {
+            commitEntered.countDown();
+        }
+
+        private static void await(CountDownLatch latch) {
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     @Test
     public void addCommitDataIsDelegatedToConnectorTransaction() throws UserException {
         PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
@@ -116,8 +150,9 @@ public class PluginDrivenTransactionManagerTest {
         byte[] fragment = {1, 2, 3};
         manager.getTransaction(txnId).addCommitData(fragment);
 
-        Assert.assertEquals(1, connectorTx.commitFragments.size());
-        Assert.assertSame(fragment, connectorTx.commitFragments.get(0));
+        Assertions.assertEquals(1,
+                ((RecordingConnectorTransaction) connectorTx).commitFragments.size());
+        Assertions.assertSame(fragment, connectorTx.commitFragments.get(0));
     }
 
     @Test
@@ -128,7 +163,7 @@ public class PluginDrivenTransactionManagerTest {
         long txnId = manager.begin(connectorTx);
 
         // The narrow capability is exposed as a TYPE (instanceof gate), not a supports*() runtime flag.
-        Assert.assertTrue(manager.getTransaction(txnId) instanceof WriteBlockAllocatingTransaction);
+        Assertions.assertTrue(manager.getTransaction(txnId) instanceof WriteBlockAllocatingTransaction);
     }
 
     @Test
@@ -138,7 +173,7 @@ public class PluginDrivenTransactionManagerTest {
 
         // A connector without the narrow capability must NOT wrap into a WriteBlockAllocatingTransaction,
         // so the write-block RPC handler's instanceof gate rejects it.
-        Assert.assertFalse(manager.getTransaction(txnId) instanceof WriteBlockAllocatingTransaction);
+        Assertions.assertFalse(manager.getTransaction(txnId) instanceof WriteBlockAllocatingTransaction);
     }
 
     @Test
@@ -150,12 +185,12 @@ public class PluginDrivenTransactionManagerTest {
         long txnId = manager.begin(connectorTx);
 
         Transaction txn = manager.getTransaction(txnId);
-        Assert.assertTrue(txn instanceof WriteBlockAllocatingTransaction);
+        Assertions.assertTrue(txn instanceof WriteBlockAllocatingTransaction);
         long start = ((WriteBlockAllocatingTransaction) txn).allocateWriteBlockRange("write-session-x", 5L);
 
-        Assert.assertEquals(100L, start);
-        Assert.assertEquals("write-session-x", connectorTx.lastWriteSessionId);
-        Assert.assertEquals(5L, connectorTx.lastCount);
+        Assertions.assertEquals(100L, start);
+        Assertions.assertEquals("write-session-x", connectorTx.lastWriteSessionId);
+        Assertions.assertEquals(5L, connectorTx.lastCount);
     }
 
     @Test
@@ -165,7 +200,7 @@ public class PluginDrivenTransactionManagerTest {
         connectorTx.updateCnt = 42L;
         long txnId = manager.begin(connectorTx);
 
-        Assert.assertEquals(42L, manager.getTransaction(txnId).getUpdateCnt());
+        Assertions.assertEquals(42L, manager.getTransaction(txnId).getUpdateCnt());
     }
 
     @Test
@@ -178,8 +213,48 @@ public class PluginDrivenTransactionManagerTest {
         // no-op, the update count is zero, and it does not carry the write-block capability (so the RPC
         // handler's instanceof gate rejects it).
         txn.addCommitData(new byte[] {9});
-        Assert.assertEquals(0L, txn.getUpdateCnt());
-        Assert.assertFalse(txn instanceof WriteBlockAllocatingTransaction);
+        Assertions.assertEquals(0L, txn.getUpdateCnt());
+        Assertions.assertFalse(txn instanceof WriteBlockAllocatingTransaction);
+    }
+
+    @Test
+    public void commitWaitsForInFlightCommitDataAndRejectsLateReports() throws Exception {
+        PluginDrivenTransactionManager manager = new PluginDrivenTransactionManager();
+        BlockingCommitDataTransaction connectorTx = new BlockingCommitDataTransaction(90000L);
+        long txnId = manager.begin(connectorTx);
+        Transaction transaction = manager.getTransaction(txnId);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread reportThread = new Thread(() -> {
+            try {
+                transaction.addCommitData(new byte[] {1});
+            } catch (Throwable t) {
+                failure.compareAndSet(null, t);
+            }
+        });
+        Thread commitThread = new Thread(() -> {
+            try {
+                manager.commit(txnId);
+            } catch (Throwable t) {
+                failure.compareAndSet(null, t);
+            }
+        });
+
+        reportThread.start();
+        Assertions.assertTrue(connectorTx.addEntered.await(5, TimeUnit.SECONDS));
+        commitThread.start();
+        Assertions.assertFalse(connectorTx.commitEntered.await(100, TimeUnit.MILLISECONDS),
+                "commit must not overlap addCommitData on a connector transaction");
+        connectorTx.releaseAdd.countDown();
+        reportThread.join(5000);
+        commitThread.join(5000);
+
+        Assertions.assertFalse(reportThread.isAlive());
+        Assertions.assertFalse(commitThread.isAlive());
+        Assertions.assertNull(failure.get());
+        Assertions.assertEquals(1,
+                ((RecordingConnectorTransaction) connectorTx).commitFragments.size());
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> transaction.addCommitData(new byte[] {2}));
     }
 
     // ──────────── global registration (P4-T06a W-d / gap G3) ────────────
@@ -199,8 +274,8 @@ public class PluginDrivenTransactionManagerTest {
         try {
             Transaction registered =
                     Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
-            Assert.assertSame("global registry must hold the same wrapped transaction the "
-                    + "manager hands out", manager.getTransaction(txnId), registered);
+            Assertions.assertSame(manager.getTransaction(txnId), registered, "global registry must hold the same wrapped transaction the "
+                    + "manager hands out");
         } finally {
             // do not leak the id into the shared global registry
             manager.commit(txnId);
@@ -236,7 +311,7 @@ public class PluginDrivenTransactionManagerTest {
 
         try {
             manager.commit(txnId);
-            Assert.fail("commit must propagate the connector failure");
+            Assertions.fail("commit must propagate the connector failure");
         } catch (Exception expected) {
             // the connector's commit failure propagates to the caller
         }
@@ -249,7 +324,7 @@ public class PluginDrivenTransactionManagerTest {
     private static void assertNotRegistered(long txnId) {
         try {
             Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
-            Assert.fail("txn " + txnId + " should have been deregistered from the global registry");
+            Assertions.fail("txn " + txnId + " should have been deregistered from the global registry");
         } catch (RuntimeException expected) {
             // getTxnById throws "Can't find txn for <id>" once the entry is gone
         }

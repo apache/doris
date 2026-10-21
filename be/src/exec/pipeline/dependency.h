@@ -481,6 +481,15 @@ public:
     /// Per-bucket merge state. Indexed by bucket id [0, 256).
     std::array<BucketMergeState, BUCKETED_AGG_NUM_BUCKETS> bucket_states;
 
+    /// Arenas for memory allocated by aggregate function merges on the source side.
+    /// One per source instance, indexed by the source task idx and sized in init_instances().
+    /// Sink instance arenas cannot be used there because different buckets are merged
+    /// concurrently by different source instances and Arena is not thread-safe, while a
+    /// source instance runs on one thread at a time. Merged states may point into these
+    /// arenas and may be output by any source instance, so they live as long as the
+    /// shared state.
+    std::vector<std::unique_ptr<Arena>> source_merge_arenas;
+
     // Aggregate function metadata (shared, read-only after init).
     std::vector<AggFnEvaluator*> aggregate_evaluators;
     VExprContextSPtrs probe_expr_ctxs;
@@ -670,7 +679,8 @@ struct HashJoinSharedState : public JoinSharedState {
     bool asof_inequality_is_strict = false;
 
     // ASOF JOIN pre-sorted index with inline values for O(log K) branchless lookup
-    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for DateTimeV2/TimestampTZ)
+    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for
+    // DateTimeV2/TimestampTZ, int64_t for TimestampNs)
     AsofIndexVariant asof_index_groups;
     // build_row_index -> bucket_id for O(1) reverse lookup
     std::vector<uint32_t> asof_build_row_to_bucket;

@@ -30,6 +30,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
+#include "runtime/runtime_state.h"
 #include "storage/compaction/compaction.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/iterators.h"
@@ -101,8 +102,7 @@ Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof)
 
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
                                                    std::vector<RowwiseIteratorUPtr>* segment_iters,
-                                                   std::vector<bool>* iterator_init_flag,
-                                                   std::vector<RowsetId>* rowset_ids) {
+                                                   std::vector<bool>* iterator_init_flag) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -112,7 +112,11 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
+    RuntimeState* runtime_state = read_params.runtime_state;
     for (const auto& rs_split : read_params.rs_splits) {
+        if (runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(runtime_state);
+        }
         RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
         const auto rowset = rs_split.rs_reader->rowset();
         // segment iterator will be inited here
@@ -149,9 +153,6 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                 iterator_init_flag->push_back(false);
             }
         }
-        for (size_t i = 0; i < added_iterators; ++i) {
-            rowset_ids->push_back(rowset->rowset_id());
-        }
         rs_split.rs_reader->reset_read_options();
     }
     return Status::OK();
@@ -160,27 +161,22 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
 Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
                                                CompactionSampleInfo* sample_info) {
     std::vector<bool> iterator_init_flag;
-    std::vector<RowsetId> rowset_ids;
     std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = read_params.segment_iters_ptr;
     std::vector<RowwiseIteratorUPtr> iter_ptr_vector;
 
     if (!segment_iters_ptr) {
-        RETURN_IF_ERROR(_get_segment_iterators(read_params, &iter_ptr_vector, &iterator_init_flag,
-                                               &rowset_ids));
+        RETURN_IF_ERROR(_get_segment_iterators(read_params, &iter_ptr_vector, &iterator_init_flag));
         CHECK(iter_ptr_vector.size() == iterator_init_flag.size());
         segment_iters_ptr = &iter_ptr_vector;
     } else {
         for (int i = 0; i < segment_iters_ptr->size(); ++i) {
             iterator_init_flag.push_back(true);
-            RowsetId rowsetid;
-            rowset_ids.push_back(rowsetid); // TODO: _record_rowids need it
         }
         // TODO(zhangzhengyu): is it enough for a context?
         _reader_context.reader_type = read_params.reader_type;
         _reader_context.need_ordered_result = true; // TODO: should it be?
         _reader_context.is_unique = _tablet_schema->keys_type() == UNIQUE_KEYS;
         _reader_context.is_key_column_group = read_params.is_key_column_group;
-        _reader_context.record_rowids = read_params.record_rowids;
     }
 
     // build heap if key column iterator or build vertical merge iterator if value column
@@ -192,12 +188,12 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
         }
         if (_tablet_schema->num_key_columns() == 0) {
             _vcollect_iter = new_vertical_fifo_merge_iterator(
-                    std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
-                    _tablet_schema->keys_type(), seq_col_idx, _row_sources_buffer, _context_stats);
+                    std::move(*segment_iters_ptr), iterator_init_flag, _tablet_schema->keys_type(),
+                    seq_col_idx, _row_sources_buffer, _context_stats);
         } else {
             _vcollect_iter = new_vertical_heap_merge_iterator(
-                    std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
-                    _tablet_schema->keys_type(), seq_col_idx, _row_sources_buffer, _context_stats,
+                    std::move(*segment_iters_ptr), iterator_init_flag, _tablet_schema->keys_type(),
+                    seq_col_idx, _row_sources_buffer, _context_stats,
                     read_params.key_group_cluster_key_idxes);
         }
     } else {
@@ -205,8 +201,8 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
                                                           _row_sources_buffer, _context_stats);
     }
     // init collect iterator
-    StorageReadOptions opts;
-    opts.record_rowids = read_params.record_rowids;
+    StorageReadOptions opts(_stats);
+    opts.rowset_id = _reader_context.rowset_id;
     opts.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
     if (read_params.batch_size > 0) {
         opts.block_row_max = cast_set<int>(read_params.batch_size);
@@ -265,13 +261,17 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
 Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
-    StorageReadOptions opts;
+    StorageReadOptions opts(_stats);
     if (read_params.batch_size > 0) {
         _reader_context.batch_size = cast_set<int>(read_params.batch_size);
     } else {
         _reader_context.batch_size = opts.block_row_max;
     }
     RETURN_IF_ERROR(TabletReader::init(read_params));
+
+    RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(*_tablet_schema,
+                                                          /*merge_by_sequence_mapping=*/false,
+                                                          /*map_changelog_columns=*/false));
 
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {
@@ -322,13 +322,6 @@ Status VerticalBlockReader::_direct_next_block(Block* block, bool* eof) {
     }
     *eof = (res.is<END_OF_FILE>());
     _eof = *eof;
-    if (_reader_context.is_key_column_group && UNLIKELY(_reader_context.record_rowids)) {
-        res = _vcollect_iter->current_block_row_locations(&_block_row_locations);
-        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>(""))) {
-            return res;
-        }
-        DCHECK_EQ(_block_row_locations.size(), block->rows());
-    }
     return Status::OK();
 }
 
@@ -497,13 +490,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
             return res;
         }
-        if (UNLIKELY(_reader_context.record_rowids)) {
-            auto ret = _vcollect_iter->current_block_row_locations(&_block_row_locations);
-            if (UNLIKELY(!ret.ok() && !ret.is<END_OF_FILE>())) {
-                return res;
-            }
-            DCHECK_EQ(_block_row_locations.size(), block->rows());
-        }
 
         if (_row_sources_buffer->buffered_size() < row_buffer_size_start) {
             row_buffer_size_start = 0;
@@ -540,7 +526,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                             .data();
 
             int cur_row = 0;
-            int delete_count = 0;
             while (cur_row < block_rows) {
                 if (_row_sources_buffer->get_agg_flag(row_source_idx)) {
                     row_source_idx++;
@@ -550,10 +535,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 filter_data[cur_row] = sign;
                 if (UNLIKELY(!sign)) {
                     _row_sources_buffer->set_agg_flag(row_source_idx, true);
-                    if (UNLIKELY(_reader_context.record_rowids)) {
-                        _block_row_locations[cur_row].row_id = -1;
-                        delete_count++;
-                    }
                 }
                 cur_row++;
                 row_source_idx++;
@@ -571,9 +552,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             block->insert(column_with_type_and_name);
             RETURN_IF_ERROR(Block::filter_block(block, column_to_keep, column_to_keep));
             _stats.rows_del_filtered += block_rows - block->rows();
-            if (UNLIKELY(_reader_context.record_rowids)) {
-                DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
-            }
         }
 
         size_t filtered_rows_in_rs_buffer = 0;

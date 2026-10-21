@@ -35,9 +35,8 @@ namespace {
 using Segment = VariantElementV2PathSegment;
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
@@ -140,6 +139,18 @@ TEST(VariantElementV2EncodedTest, InterleavedMetadataAndCacheIsPerCall) {
     EXPECT_EQ(nullable_result(next_result).get_null_map_data()[0], 1);
     EXPECT_EQ(nullable_result(next_result).get_null_map_data()[1], 0);
     EXPECT_EQ(variant_result(next_result).get_value_ref(1).get_int(), 9);
+}
+
+TEST(VariantElementV2EncodedTest, EmptyObjectKeyIsAddressable) {
+    auto source = ColumnVariantV2::create();
+    append_json(*source, R"({"":42,"other":7})");
+    auto path = resolve({Segment::object_key(StringRef(""))});
+
+    ColumnPtr result = extract(*source, *path);
+    const auto& nullable = nullable_result(result);
+    ASSERT_EQ(nullable.size(), 1);
+    EXPECT_EQ(nullable.get_null_map_data()[0], 0);
+    EXPECT_EQ(variant_result(result).get_value_ref(0).get_int(), 42);
 }
 
 TEST(VariantElementV2EncodedTest, ResolvedPathRejectsInvalidInputAndOwnsKeys) {

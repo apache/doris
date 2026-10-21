@@ -22,9 +22,18 @@ import java.util.UUID
 // default Apache Doris CI pipeline, so the case can be skipped or may not run
 // end-to-end there. That is expected. The case still serves as a valuable
 // reference for manual validation of the schema refresh non-blocking behavior.
-suite("test_jdbc_refresh_catalog_schema_refresh_non_blocking", "p0,external") {
+// It is therefore opt-in: set enableJdbcRefreshNonBlockingTest=true in
+// regression-conf.groovy to run it. It is nonConcurrent because it injects FE
+// debug points.
+suite("test_jdbc_refresh_catalog_schema_refresh_non_blocking", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        return
+    }
+    // Manual validation only (see above): no regression pipeline sets this switch.
+    String manualEnabled = context.config.otherConfigs.get("enableJdbcRefreshNonBlockingTest")
+    if (manualEnabled == null || !manualEnabled.equalsIgnoreCase("true")) {
+        logger.info("skip: enableJdbcRefreshNonBlockingTest is not true (manual validation case)")
         return
     }
 

@@ -63,6 +63,14 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
+    // Iceberg data-file path metadata column `_file`.
+    ICEBERG_FILE_PATH = 4,
+    // Iceberg absolute physical row position metadata column `_pos`.
+    ICEBERG_ROW_POSITION = 5,
+    // Paimon RawFile path metadata column `__paimon_file_path`.
+    PAIMON_FILE_PATH = 6,
+    // Paimon absolute physical row position metadata column `__paimon_row_index`.
+    PAIMON_ROW_POSITION = 7,
 };
 
 enum class FilterConversionType {
@@ -148,6 +156,9 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
+    // Paimon TIMESTAMP precision narrowing uses truncation instead of the ordinary SQL CAST
+    // rounding behavior. This is carried recursively so nested timestamp children follow it too.
+    bool truncate_datetimev2_precision = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
@@ -164,6 +175,11 @@ struct TableColumnMapperOptions {
     bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
+    bool enable_iceberg_metadata_virtual_columns = false;
+    bool enable_paimon_metadata_virtual_columns = false;
+    // Paimon schema evolution truncates timestamp precision. This must not reuse the SQL CAST
+    // behavior, which rounds when reducing DATETIMEV2 scale.
+    bool truncate_datetimev2_precision_for_paimon = false;
 
     std::string debug_string() const;
 };
@@ -207,6 +223,10 @@ public:
             RuntimeState* runtime_state = nullptr,
             const std::map<LocalColumnId, LocalIndex>* fixed_local_positions = nullptr,
             const std::map<LocalColumnId, LocalIndex>* fixed_non_predicate_positions = nullptr);
+
+    // Table-format hooks may append hidden physical dependencies after the initial request is
+    // localized. Reconcile output mappings with that final layout before opening expressions.
+    Status reconcile_scan_request_after_customization(FileScanRequest* file_request);
 
     // Localize table-level filters to the file schema.
     // Trivial mappings can copy structured predicates directly. Type changes may be localized with

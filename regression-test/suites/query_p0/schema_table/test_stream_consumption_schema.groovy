@@ -30,8 +30,7 @@ suite("test_stream_consumption_schema") {
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 
@@ -67,8 +66,7 @@ suite("test_stream_consumption_schema") {
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 
@@ -107,8 +105,7 @@ suite("test_stream_consumption_schema") {
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 
@@ -133,5 +130,40 @@ suite("test_stream_consumption_schema") {
     """
 
     qt_sql "select DB_NAME,STREAM_NAME,UNIT,LAG,LAST_CONSUMPTION_TIME from information_schema.table_stream_consumption where DB_NAME = 'test_stream_consumption_db' order by STREAM_NAME, UNIT;"
+
+    def explain = sql """
+        EXPLAIN SELECT * FROM information_schema.table_stream_consumption
+        WHERE DB_NAME = 'test_stream_consumption_db'
+    """
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+
+    explain = sql """
+        EXPLAIN SELECT * FROM information_schema.table_stream_consumption
+        WHERE STREAM_ID = 1
+    """
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+
+    explain = sql """
+        EXPLAIN SELECT * FROM information_schema.table_stream_consumption
+        WHERE UNIT = 'p1'
+    """
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+
+    explain = sql """
+        EXPLAIN SELECT * FROM information_schema.table_stream_consumption
+        WHERE DB_NAME = '__missing__'
+          AND assert_true(false, 'frontend predicate pushdown must preserve assert_true')
+    """
+    assertFalse(explain.toString().contains("FRONTEND PREDICATES"))
+
+    test {
+        sql """
+            SELECT COUNT(*) FROM information_schema.table_stream_consumption
+            WHERE DB_NAME = '__missing__'
+              AND assert_true(false, 'frontend predicate pushdown must preserve assert_true')
+        """
+        exception "frontend predicate pushdown must preserve assert_true"
+    }
+
     sql "DROP DATABASE IF EXISTS test_stream_consumption_db"
 }

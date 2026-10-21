@@ -20,7 +20,9 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -32,6 +34,7 @@ import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Datetime type in Nereids.
@@ -138,6 +141,12 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         if (target instanceof DateTimeType) {
             return this.scale == 0;
         }
+        // Numeric datetime casts omit the fractional part. They are injective only when the source
+        // scale is zero; the resulting 14-digit integer fits in BIGINT and exactly in DOUBLE.
+        if (scale == 0 && (target instanceof BigIntType || target instanceof LargeIntType
+                || target instanceof DoubleType)) {
+            return true;
+        }
         return target instanceof CharacterType;
     }
 
@@ -191,5 +200,10 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         } catch (DateTimeException e) {
             return Double.POSITIVE_INFINITY;
         }
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new DateTimeV2Literal(this, 0, 1, 1, 0, 0, 0, 0));
     }
 }

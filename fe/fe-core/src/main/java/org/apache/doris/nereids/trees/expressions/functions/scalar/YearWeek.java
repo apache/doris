@@ -21,12 +21,14 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +45,9 @@ public class YearWeek extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE));
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeStampNsType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeStampNsType.INSTANCE, IntegerType.INSTANCE));
 
     /**
      * constructor with 1 argument.
@@ -85,10 +89,7 @@ public class YearWeek extends ScalarFunction
 
     @Override
     public boolean isMonotonic(Literal lower, Literal upper) {
-        if (arity() == 1) {
-            return true;
-        }
-        return child(1) instanceof Literal;
+        return MonotonicityUtils.hasConstantOtherArguments(this, 0);
     }
 
     @Override

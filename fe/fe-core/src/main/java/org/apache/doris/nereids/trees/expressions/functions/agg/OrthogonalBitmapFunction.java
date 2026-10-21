@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.types.BigIntType;
@@ -51,5 +52,13 @@ public interface OrthogonalBitmapFunction
     @Override
     default List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    /** Reject a formula that constant folding has proven to be NULL. */
+    default void checkExprCalculationFormulaNotNull() {
+        if (getArgument(2).isNullLiteral()) {
+            throw new AnalysisException("The third argument of " + getName()
+                    + " must not be null: " + toSql());
+        }
     }
 }

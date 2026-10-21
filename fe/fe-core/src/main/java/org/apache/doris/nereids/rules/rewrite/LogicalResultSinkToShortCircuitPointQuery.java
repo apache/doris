@@ -64,7 +64,16 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
 
     @VisibleForTesting
     boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
-        if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (!connectContext.getSessionVariable().isEnableShortCircuitQuery()) {
+            return false;
+        }
+        // A protocol whose client pulls the result from the backend has no result to pull for a
+        // short circuit (see FlightProtocolAdapter.supportsShortCircuitPointQuery). This has to be
+        // decided here at plan time rather than when picking the executor: OlapScanNode.computeTabletInfo
+        // and several rewrite and property rules read StatementContext.isShortCircuitQuery() while
+        // building the plan. See #67368.
+        if (!connectContext.getProtocolAdapter().supportsShortCircuitPointQuery()) {
             return false;
         }
         // Lazy point-query pruning does not preserve explicit PARTITION/TABLET restrictions.

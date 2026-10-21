@@ -59,21 +59,20 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import junit.framework.AssertionFailedError;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mockito;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -155,7 +154,7 @@ public abstract class DorisHttpTestCase {
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash,
-                TStorageMedium.HDD, false /* isRowBinlog */);
+                TStorageMedium.HDD, false /* isChangelog */);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -236,44 +235,32 @@ public abstract class DorisHttpTestCase {
         Env.getCurrentSystemInfo().addBackend(backend3);
     }
 
-    @BeforeClass
+    @BeforeAll
     public static void initHttpServer() throws IllegalArgException, InterruptedException {
-        ServerSocket socket = null;
-        try {
-            socket = new ServerSocket(0);
-            socket.setReuseAddress(true);
-            HTTP_PORT = socket.getLocalPort();
-            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
-            CloudURI = "http://localhost:" + HTTP_PORT;
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
-        } finally {
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (Exception e) {
-                    // CHECKSTYLE IGNORE THIS LINE
-                }
-            }
-        }
-
         FeConstants.runningUnitTest = true;
         httpServer = new HttpServer();
-        httpServer.setPort(HTTP_PORT);
+        // Let the actual server reserve its ephemeral port instead of closing a temporary reservation.
+        httpServer.setPort(0);
         httpServer.setMaxHttpPostSize(100 * 1024 * 1024);
         httpServer.setAcceptors(2);
         httpServer.setSelectors(4);
         httpServer.setWorkers(0);
         httpServer.start();
+        ServletWebServerApplicationContext applicationContext =
+                Deencapsulation.getField(httpServer, "applicationContext");
+        HTTP_PORT = applicationContext.getWebServer().getPort();
+        URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+        CloudURI = "http://localhost:" + HTTP_PORT;
     }
 
-    @AfterClass
+    @AfterAll
     public static void afterClass() {
+        httpServer.shutdown();
         File file = new File(DORIS_HOME);
         file.delete();
     }
 
-    @Before
+    @BeforeEach
     public void setUp() {
         Env env = newDelegateCatalog();
         SystemInfoService systemInfoService = new SystemInfoService();
@@ -296,7 +283,7 @@ public abstract class DorisHttpTestCase {
         doSetUp();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (originalEnvInstance != null) {
             try {
@@ -339,7 +326,7 @@ public abstract class DorisHttpTestCase {
         try {
             runnable.run();
         } catch (Throwable e) {
-            throw new AssertionFailedError(e.getMessage());
+            throw new AssertionError(e.getMessage());
         }
     }
 
@@ -360,10 +347,10 @@ public abstract class DorisHttpTestCase {
             if (expectedType.isInstance(e)) {
                 return expectedType.cast(e);
             }
-            AssertionFailedError assertion = new AssertionFailedError("Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
+            AssertionError assertion = new AssertionError("Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
             assertion.initCause(e);
             throw assertion;
         }
-        throw new AssertionFailedError(noExceptionMessage);
+        throw new AssertionError(noExceptionMessage);
     }
 }
