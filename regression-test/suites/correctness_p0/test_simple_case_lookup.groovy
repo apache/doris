@@ -45,8 +45,10 @@ suite("test_simple_case_lookup") {
                     }.join(" ")
                     def otherwise = resultKind == "no_else" ? "" :
                         resultKind == "string" ? " ELSE 'miss'" : " ELSE -id"
-                    def query = """SELECT id, CASE ${input} ${clauses}${otherwise} END AS result
-                        FROM simple_case_lookup ORDER BY id"""
+                    def query = """SELECT count(*), count(result),
+                            sum(crc32(concat(cast(id AS STRING), ':', cast(result AS STRING))))
+                        FROM (SELECT id, CASE ${input} ${clauses}${otherwise} END AS result
+                            FROM simple_case_lookup) t"""
                     quickTest("simple_${simpleCase}_${input}_${branches}_${resultKind}", query)
                     explain {
                         sql query
