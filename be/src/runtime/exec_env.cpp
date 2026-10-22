@@ -214,6 +214,9 @@ void ExecEnv::wait_for_all_tasks_done() {
     while (true) {
         int num_queries = _fragment_mgr->running_query_num();
         size_t num_channels = _load_channel_mgr->num_active_channels();
+        // TODO: Fix partial-open receiver cleanup (see LoadStream::on_closed()) so
+        // abandoned entries do not consume the full grace_shutdown_wait_seconds.
+        // Keep counting receivers until then to avoid exiting during active loads.
         size_t num_streams = _load_stream_mgr->get_load_stream_num();
         size_t num_loads = StreamLoadContext::num_active_contexts();
         if (num_queries == 0 && num_channels == 0 && num_streams == 0 && num_loads == 0) {
