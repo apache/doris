@@ -3,17 +3,17 @@
 A	b
 
 -- !state_initial --
-0	A	b	3	3	{"values":[{"value":"A", "count":1}, {"value":"a", "count":1}], "bound":"a"}	{"values":[{"value":"b", "count":1}, {"value":"a", "count":1}], "bound":"a"}	0	2	[regression-fake-sequence]
+0	A	b	3	3	[{"value":"A", "count":1}, {"value":"a", "count":1}]	[{"value":"b", "count":1}, {"value":"a", "count":1}]	a	a	0	2	[regression-fake-sequence]
 
 -- !after_delete --
 a	b
 
 -- !state_after_delete --
-0	a	b	2	2	{"values":[{"value":"a", "count":1}], "bound":"a"}	{"values":[{"value":"b", "count":1}, {"value":"a", "count":1}], "bound":"a"}	0	3	[regression-fake-sequence]
+0	a	b	2	2	[{"value":"a", "count":1}]	[{"value":"b", "count":1}, {"value":"a", "count":1}]	a	a	0	3	[regression-fake-sequence]
 
 -- !after_insert --
 a	b
 
 -- !state_after_insert --
-0	a	b	3	3	{"values":[{"value":"a", "count":1}], "bound":"a"}	{"values":[{"value":"b", "count":1}, {"value":"aa", "count":1}], "bound":"aa"}	0	4	[regression-fake-sequence]
+0	a	b	3	3	[{"value":"a", "count":1}]	[{"value":"b", "count":1}, {"value":"aa", "count":1}]	a	aa	0	4	[regression-fake-sequence]
 

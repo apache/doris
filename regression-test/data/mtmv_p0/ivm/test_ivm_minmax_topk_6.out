@@ -3,17 +3,17 @@
 10	30
 
 -- !state_initial --
-0	10	30	3	3	{"values":[{"value":10, "count":1}, {"value":20, "count":1}], "bound":20}	{"values":[{"value":30, "count":1}, {"value":20, "count":1}], "bound":20}	0	2	[regression-fake-sequence]
+0	10	30	3	3	[{"value":10, "count":1}, {"value":20, "count":1}]	[{"value":30, "count":1}, {"value":20, "count":1}]	20	20	0	2	[regression-fake-sequence]
 
 -- !after_truncating_insert --
 5	30
 
 -- !state_after_truncating_insert --
-0	5	30	6	6	{"values":[{"value":5, "count":1}, {"value":6, "count":1}], "bound":6}	{"values":[{"value":30, "count":1}, {"value":20, "count":1}], "bound":20}	0	3	[regression-fake-sequence]
+0	5	30	6	6	[{"value":5, "count":1}, {"value":6, "count":1}]	[{"value":30, "count":1}, {"value":20, "count":1}]	6	20	0	3	[regression-fake-sequence]
 
 -- !after_update --
 4	20
 
 -- !state_after_update --
-0	4	20	6	6	{"values":[{"value":4, "count":1}, {"value":5, "count":1}], "bound":5}	{"values":[{"value":20, "count":1}], "bound":20}	0	4	[regression-fake-sequence]
+0	4	20	6	6	[{"value":4, "count":1}, {"value":5, "count":1}]	[{"value":20, "count":1}]	5	20	0	4	[regression-fake-sequence]
 
