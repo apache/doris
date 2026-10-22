@@ -597,7 +597,7 @@ TEST_F(ScannerLateArrivalRfTest, parallel_scanner_factory_preserves_bucket_ident
                                    tablet_key_ranges, state, -1, true, true);
 
     auto scanner = builder._build_scanner(tablet, 1, {}, *scan_ranges.front(), TabletReadSource {},
-                                          io::FileCacheStatistics {});
+                                          io::FileCacheStatistics {}, nullptr);
     EXPECT_EQ(scanner->_bucket_seq, bucket_seq);
     EXPECT_EQ(scanner->_bucket_num, bucket_num);
     EXPECT_TRUE(scanner->is_pruned_by_runtime_filter());

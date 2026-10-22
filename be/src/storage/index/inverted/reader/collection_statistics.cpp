@@ -420,6 +420,33 @@ void CollectionStatistics::clear() {
     _idf_by_col_term.clear();
 }
 
+void CollectionStatistics::copy_collected_from(const CollectionStatistics& other) {
+    _total_num_docs = other._total_num_docs;
+    _total_num_tokens = other._total_num_tokens;
+    _term_doc_freqs = other._term_doc_freqs;
+    _avg_dl_by_col.clear();
+    _idf_by_col_term.clear();
+}
+
+Status TabletCollectionStatistics::copy_to(RuntimeState* state,
+                                           const TabletSchemaSPtr& tablet_schema,
+                                           const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                           io::IOContext* io_ctx,
+                                           CollectionStatistics* statistics) {
+    DORIS_CHECK(statistics != nullptr);
+    std::lock_guard lock(_mutex);
+    if (!_collected) {
+        _status = _statistics.collect_full_collection(state, _rowsets, tablet_schema,
+                                                      common_expr_ctxs_push_down, io_ctx);
+        _collected = true;
+        // Do not hold the rowsets any longer than needed.
+        _rowsets.clear();
+    }
+    RETURN_IF_ERROR(_status);
+    statistics->copy_collected_from(_statistics);
+    return Status::OK();
+}
+
 uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
                                                         const std::wstring& term) {
     const auto field = _term_doc_freqs.find(lucene_col_name);
