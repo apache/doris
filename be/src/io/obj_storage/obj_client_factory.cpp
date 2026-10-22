@@ -58,7 +58,7 @@ public:
 };
 
 // The rules every client request is checked against before anything is built or looked up;
-// they are the checks S3ClientFactory::create applied to the flat configuration.
+// they are the checks the former S3ClientFactory::create applied to the flat configuration.
 Status validate_obj_client_backend(const S3ClientConfig& s3) {
     if (s3.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
@@ -102,8 +102,8 @@ Status validate_obj_client_backend(const AzureClientConfig& azure) {
 ObjClientFactory::ObjClientFactory() {
     // Complete AWS SDK initialization before this singleton finishes construction. Function
     // local statics are destroyed in reverse order of construction, so the cached AWS
-    // clients held by the providers are released before S3ClientFactory shuts the SDK down.
-    S3ClientFactory::instance();
+    // clients held by the providers are released before AwsSdkManager shuts the SDK down.
+    AwsSdkManager::instance();
 }
 
 ObjClientFactory& ObjClientFactory::instance() {

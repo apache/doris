@@ -1539,9 +1539,7 @@ void OrcReader::_init_system_properties() {
         _system_properties.system_type = _scan_params.file_type;
     }
     _system_properties.properties = _scan_params.properties;
-    if (_scan_params.__isset.azure_client_config) {
-        _system_properties.azure_client_config = _scan_params.azure_client_config;
-    }
+    _system_properties.azure_client_config = io::azure_client_config_of(_scan_params);
     _system_properties.hdfs_params = _scan_params.hdfs_params;
     if (_scan_params.__isset.broker_addresses) {
         _system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),

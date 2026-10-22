@@ -54,13 +54,13 @@ Result<std::shared_ptr<ObjStorageClient>> S3ClientProvider::_build(
             "s3_client_factory::create",
             std::make_shared<S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
                                                  ObjStorageEndpointInfo {}));
-    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    Aws::Client::ClientConfiguration aws_config = AwsSdkManager::getClientConfiguration();
     if (s3.need_override_endpoint) {
         aws_config.endpointOverride = s3.endpoint;
     }
     aws_config.region = s3.region;
 
-    auto ca_cert_file_path = S3ClientFactory::instance().ca_cert_file_path();
+    auto ca_cert_file_path = AwsSdkManager::instance().ca_cert_file_path();
     if (!ca_cert_file_path.empty()) {
         aws_config.caFile = ca_cert_file_path;
     }
@@ -86,7 +86,7 @@ Result<std::shared_ptr<ObjStorageClient>> S3ClientProvider::_build(
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
 
-    auto credentials = S3ClientFactory::instance().create_aws_credentials_provider(s3.auth);
+    auto credentials = AwsSdkManager::instance().create_aws_credentials_provider(s3.auth);
     if (!credentials) {
         return ResultError(Status::InvalidArgument("failed to create AWS credential provider: {}",
                                                    credentials.error));

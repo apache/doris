@@ -33,7 +33,7 @@ namespace {
 
 std::shared_ptr<ObjStorageClient> cache_test_client() {
     // The AWS SDK must be initialized before an S3Client is constructed.
-    S3ClientFactory::instance();
+    AwsSdkManager::instance();
     return std::make_shared<S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
                                                 ObjStorageEndpointInfo {});
 }

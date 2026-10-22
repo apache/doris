@@ -49,6 +49,16 @@ struct FileSystemProperties {
     std::optional<TAzureClientConfig> azure_client_config {};
 };
 
+// The typed native Azure access a scan carries, if FE sent one
+// (TFileScanRangeParams.azure_client_config); every reader that builds FileSystemProperties from
+// scan parameters copies it through this.
+inline std::optional<TAzureClientConfig> azure_client_config_of(
+        const TFileScanRangeParams& params) {
+    return params.__isset.azure_client_config
+                   ? std::optional<TAzureClientConfig>(params.azure_client_config)
+                   : std::nullopt;
+}
+
 struct FSPropertiesRef {
     TFileType::type type;
     const std::map<std::string, std::string>* properties {nullptr};

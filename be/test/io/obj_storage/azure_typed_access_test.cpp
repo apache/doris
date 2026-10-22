@@ -20,11 +20,13 @@
 
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <variant>
 
 #include "common/config.h"
 #include "io/file_factory.h"
+#include "io/fs/file_system.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/fs/obj_storage_file_writer.h"
 #include "io/obj_storage/obj_storage_config.h"
@@ -56,6 +58,31 @@ Result<FileSystemSPtr> typed_access_create_fs(const TAzureClientConfig& config,
 }
 
 } // namespace
+
+TEST(AzureTypedAccessTest, ScanParametersCarryTypedAccessIntoFileSystemProperties) {
+    TFileScanRangeParams params;
+    EXPECT_FALSE(azure_client_config_of(params).has_value());
+
+    auto config = typed_access_shared_key_config();
+    params.__set_azure_client_config(config);
+    FileSystemProperties properties;
+    properties.system_type = TFileType::FILE_S3;
+    properties.azure_client_config = azure_client_config_of(params);
+    ASSERT_TRUE(properties.azure_client_config.has_value());
+    EXPECT_EQ(properties.azure_client_config->account_name, "acct");
+
+    // The reference view used by create_fs points at the same typed access.
+    FSPropertiesRef ref(properties);
+    EXPECT_EQ(ref.azure_client_config, &*properties.azure_client_config);
+    properties.azure_client_config.reset();
+    EXPECT_EQ(FSPropertiesRef(properties).azure_client_config, nullptr);
+}
+
+TEST(AzureTypedAccessTest, ObjectStorageFileSystemTypeIsNamedNeutrally) {
+    std::ostringstream out;
+    out << FileSystemType::OBJECT_STORAGE;
+    EXPECT_EQ(out.str(), "OBJECT_STORAGE");
+}
 
 TEST(AzureTypedAccessTest, CreateFsTakesContainerAndKeysFromNativeLocations) {
     auto config = typed_access_shared_key_config();

@@ -482,7 +482,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_simdjson_parser();
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    S3ClientFactory::instance();
+    AwsSdkManager::instance();
     return Status::OK();
 }
 

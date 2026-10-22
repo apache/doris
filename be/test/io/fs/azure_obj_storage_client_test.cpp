@@ -132,7 +132,7 @@ protected:
         std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
         // Initialize Azure SDK
-        [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
+        [[maybe_unused]] auto& s3ClientFactory = AwsSdkManager::instance();
 
         auto client_result = io::ObjClientFactory::instance().get_or_create(io::ObjClientConfig {
                 .connection = {},

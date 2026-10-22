@@ -173,7 +173,7 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(
     options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-    auto ca_cert_file_path = S3ClientFactory::instance().ca_cert_file_path();
+    auto ca_cert_file_path = AwsSdkManager::instance().ca_cert_file_path();
     if (!ca_cert_file_path.empty()) {
         Azure::Core::Http::CurlTransportOptions curl_options;
         curl_options.CAInfo = ca_cert_file_path;
