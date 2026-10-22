@@ -191,7 +191,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
     private String runtimeVersion;
     private int poolSize = 3;
-    private long autoSuspend = -1;
+    private long autoSuspend = Function.DEFAULT_AUTO_SUSPEND_SECONDS;
     private String functionCode;
 
     /**
@@ -393,6 +393,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     autoSuspend = Long.parseLong(properties.get(AUTO_SUSPEND));
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("Python UDF auto_suspend must be an integer number of seconds");
+                }
+                if (autoSuspend < -1) {
+                    throw new AnalysisException("Python UDF auto_suspend must be -1 or a non-negative integer");
                 }
             }
             if (properties.containsKey(POOL_SIZE)) {

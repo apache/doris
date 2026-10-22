@@ -24,7 +24,7 @@ suite("test_pythonudaf_auto_suspend", "nonConcurrent") {
     sql "INSERT INTO py_auto_suspend_input VALUES (1), (2), (3)"
     try {
         // Check results before/after idling; BE unit tests separately verify process termination.
-        ["0", "1", "-2", null].eachWithIndex { timeout, index ->
+        ["0", "1", "-1", null].eachWithIndex { timeout, index ->
             sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
             def property = timeout == null ? "" : ", \"auto_suspend\"=\"${timeout}\""
             sql """CREATE AGGREGATE FUNCTION py_auto_suspend(INT) RETURNS BIGINT
@@ -67,7 +67,36 @@ class SumAgg:
         qt_result_2("SELECT py_auto_suspend(v) FROM py_auto_suspend_input")
         Thread.sleep(2500)
         qt_result_3("SELECT py_auto_suspend(v) FROM py_auto_suspend_input")
+        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
+        sql """CREATE AGGREGATE FUNCTION py_auto_suspend_pid(INT) RETURNS BIGINT
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="PidAgg",
+                "runtime_version"="${runtime}", "pool_size"="1", "auto_suspend"="0")
+            AS \$\$
+import os
+class PidAgg:
+    def __init__(self):
+        self.total = 0
+    @property
+    def aggregate_state(self):
+        return self.total
+    def accumulate(self, v):
+        self.total += 1
+    def merge(self, other):
+        self.total += other
+    def finish(self):
+        return os.getpid()
+\$\$"""
+        def queryPid = { sql("SELECT py_auto_suspend_pid(v) FROM py_auto_suspend_input")[0][0] }
+        def firstPid = queryPid()
+        def nextPid = firstPid
+        def deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(120)
+        while (nextPid == firstPid && System.nanoTime() < deadline) {
+            Thread.sleep(2000)
+            nextPid = queryPid()
+        }
+        assertNotEquals(firstPid, nextPid)
     } finally {
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
+        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
     }
 }

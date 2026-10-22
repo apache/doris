@@ -107,7 +107,7 @@ private:
         std::shared_ptr<ProcessRegistry> process_registry;
         int64_t function_id = 0;
         int32_t pool_size = 3;
-        int64_t auto_suspend = -1;
+        int64_t auto_suspend = PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
         size_t active_clients = 0;
         std::chrono::steady_clock::time_point idle_since = std::chrono::steady_clock::now();
         std::shared_ptr<UserFunctionCacheEntry> package_cache_entry;
@@ -151,7 +151,7 @@ private:
     void _start_health_check_thread();
 
     // Only reclaim pools with no active clients: STOPPED pools on the next scan; other pools
-    // after auto_suspend seconds without a client (negative values disable idle reclamation).
+    // after auto_suspend seconds without a client (-1 disables idle reclamation).
     void _reclaim_idle_pools(std::chrono::steady_clock::time_point now);
 
     /**

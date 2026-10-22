@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+#include <algorithm>
 #include <boost/process.hpp>
 #include <chrono>
 #include <filesystem>
@@ -39,6 +40,7 @@
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udtf_client.h"
+#include "util/cpu_info.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -813,6 +815,53 @@ TEST_F(PythonServerTest, RejectsInvalidPoolSizeBeforeStartingProcesses) {
     mgr.shutdown();
 }
 
+TEST_F(PythonServerTest, CapsPoolSizeBeforeAllocatingProcessSlots) {
+    CpuInfo::init();
+    const int cores = CpuInfo::num_cores();
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    for (const int requested : {1, 3, cores, cores + 1, 10000}) {
+        PythonUDFMeta meta;
+        meta.id = requested;
+        meta.pool_size = requested;
+        auto result = mgr._get_or_create_process_pool(meta, version, nullptr);
+        ASSERT_TRUE(result.has_value()) << result.error().to_string();
+        EXPECT_EQ(std::min(requested, cores), result.value()->pool_size);
+        EXPECT_TRUE(result.value()->processes.empty());
+    }
+}
+
+TEST_F(PythonServerTest, DefaultAutoSuspendReclaimsAfterFourHoursWithoutClients) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    PythonUDFMeta meta;
+    ASSERT_EQ(14400, meta.auto_suspend);
+    std::shared_ptr<PythonUDFPoolLease> lease;
+    auto result = mgr._get_or_create_process_pool(meta, version, nullptr, &lease);
+    ASSERT_TRUE(result.has_value());
+    auto pool = result.value();
+    ASSERT_EQ(14400, pool->auto_suspend);
+    EXPECT_EQ(std::min(3, CpuInfo::num_cores()), pool->pool_size);
+    mgr._reclaim_idle_pools(pool->idle_since + std::chrono::hours(5));
+    EXPECT_EQ(pool, mgr._get_or_create_process_pool(meta, version, nullptr).value());
+    lease.reset();
+    mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(14399));
+    EXPECT_EQ(pool, mgr._get_or_create_process_pool(meta, version, nullptr).value());
+    mgr._reclaim_idle_pools(pool->idle_since + std::chrono::seconds(14400));
+    EXPECT_NE(pool, mgr._get_or_create_process_pool(meta, version, nullptr).value());
+}
+
+TEST_F(PythonServerTest, RejectsAutoSuspendBelowMinusOneBeforeStartingProcesses) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
+    PythonUDFMeta meta;
+    meta.auto_suspend = -2;
+    auto result = mgr._get_or_create_process_pool(meta, version, nullptr);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(result.error().to_string().find("auto_suspend must be -1 or a non-negative integer"),
+              std::string::npos);
+}
+
 TEST_F(PythonServerTest, GetProcessSelectsLeastLoadedProcess) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
@@ -1237,18 +1286,15 @@ TEST_F(PythonServerTest, AutoSuspendWaitsForTheConfiguredIdleDuration) {
     EXPECT_FALSE(process->is_alive());
 }
 
-TEST_F(PythonServerTest, NegativeAutoSuspendKeepsIdleProcessesAlive) {
+TEST_F(PythonServerTest, ExplicitMinusOneKeepsIdleProcessesAlive) {
     PythonServerManager mgr;
     PythonVersion version("3.9.16", test_dir_, test_dir_ + "/unused_python");
-    for (int64_t timeout : {-1, -2}) {
-        auto meta = test_meta(version);
-        meta.id = 2000 - timeout;
-        meta.auto_suspend = timeout;
-        auto process = create_sleep_process();
-        mgr.set_process_pool_for_test(meta, version, {process});
-        mgr._reclaim_idle_pools(std::chrono::steady_clock::now() + std::chrono::hours(24));
-        EXPECT_TRUE(process->is_alive());
-    }
+    auto meta = test_meta(version);
+    meta.auto_suspend = -1;
+    auto process = create_sleep_process();
+    mgr.set_process_pool_for_test(meta, version, {process});
+    mgr._reclaim_idle_pools(std::chrono::steady_clock::now() + std::chrono::hours(24));
+    EXPECT_TRUE(process->is_alive());
 }
 
 TEST_F(PythonServerTest, AutoSuspendWaitsForLastClientAndStartsANewIdlePeriod) {
