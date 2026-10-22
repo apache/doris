@@ -149,7 +149,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             Plan plan = doBindRelation(ctx);
-            ctx.root.getScoreColumn().ifPresent(scoreColumn -> BindScore.checkScoreColumn(plan, scoreColumn));
             if (!(plan instanceof Unbound) && plan instanceof Relation) {
                 // init output and allocate slot id immediately, so that the slot id increase
                 // in the order in which the table appears.
@@ -308,9 +307,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (!tabletIds.isEmpty()) {
             // This tabletIds is set manually, so need to set specifiedTabletIds
             scan = scan.withManuallySpecifiedTabletIds(tabletIds);
-        }
-        if (unboundRelation.getScoreColumn().isPresent()) {
-            scan = BindScore.addScoreColumn(scan, unboundRelation.getScoreColumn().get());
         }
         if (changeScanType != null) {
             if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {

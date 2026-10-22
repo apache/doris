@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -43,10 +42,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-class BindScoreTest extends TestWithFeService {
-    private boolean originalEnableFeatureChangelog;
-    private boolean originalEnableTableStream;
-
+class BindScoreToOlapScanTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("score_usage");
@@ -74,22 +70,6 @@ class BindScoreTest extends TestWithFeService {
                 + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
                 + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')");
-        originalEnableFeatureChangelog = Config.enable_feature_changelog;
-        originalEnableTableStream = Config.enable_table_stream;
-        Config.enable_feature_changelog = true;
-        Config.enable_table_stream = true;
-        createTable("CREATE TABLE score_usage_binlog (id INT, c1 TEXT, "
-                + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
-                + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
-                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
-        createTable("CREATE STREAM score_usage_stream ON TABLE score_usage_binlog "
-                + "PROPERTIES ('type' = 'append_only')");
-    }
-
-    @Override
-    protected void runAfterAll() {
-        Config.enable_feature_changelog = originalEnableFeatureChangelog;
-        Config.enable_table_stream = originalEnableTableStream;
     }
 
     static Stream<Arguments> scoringPredicates() {
@@ -161,13 +141,13 @@ class BindScoreTest extends TestWithFeService {
         for (String filter : new String[] {"CAST(score() AS INT) > 0", "CAST(score() AS DECIMAL(10, 6)) > 0",
                 "score() < 1", "score() <= 1", "score() = 1", "score() * score() > 0", "score() > id",
                 "score() + 1 > 1"}) {
-            assertScoreUsageError(from + filter, BindScore.RANGE_FORM_ERROR);
+            assertScoreUsageError(from + filter, BindScoreToOlapScan.RANGE_FORM_ERROR);
         }
-        assertScoreUsageError(from + "score() > 0.1 AND score() < 0.9", BindScore.ONE_RANGE_ERROR);
-        assertScoreUsageError(from + "(score() > 0 OR id = 1)", BindScore.TOP_LEVEL_RANGE_ERROR);
-        assertScoreUsageError(from + "score() > 'abc'", BindScore.NUMERIC_COMPARISON_ERROR);
+        assertScoreUsageError(from + "score() > 0.1 AND score() < 0.9", BindScoreToOlapScan.ONE_RANGE_ERROR);
+        assertScoreUsageError(from + "(score() > 0 OR id = 1)", BindScoreToOlapScan.TOP_LEVEL_RANGE_ERROR);
+        assertScoreUsageError(from + "score() > 'abc'", "score() function can only be compared with numeric types");
         assertScoreUsageError("SELECT id, 'abc' < score() FROM score_usage_" + format + " WHERE " + predicate,
-                BindScore.NUMERIC_COMPARISON_ERROR);
+                "score() function can only be compared with numeric types");
     }
 
     @ParameterizedTest
@@ -178,7 +158,7 @@ class BindScoreTest extends TestWithFeService {
                 "SELECT score()" + from + " GROUP BY score()", "SELECT DISTINCT score()" + from,
                 "SELECT c2, max(score())" + from + " GROUP BY c2",
                 "SELECT c2, max(score())" + from + " GROUP BY ROLLUP(c2)"}) {
-            assertScoreUsageError(query, BindScore.AGGREGATE_ERROR);
+            assertScoreUsageError(query, BindScoreToOlapScan.AGGREGATE_ERROR);
         }
     }
 
@@ -226,12 +206,11 @@ class BindScoreTest extends TestWithFeService {
         assertFullScoring("SELECT * REPLACE (score() AS c2) FROM score_usage_V2 WHERE c1 MATCH 'apple'", 3);
     }
 
-    // Analysis expands an alias function after BindScore, so its score() is not bound to a scan.
+    // Analysis expands an alias function, so its score() is bound like one in the select list.
     @Test
-    void testScoreInAliasFunctionIsRejected() throws Exception {
+    void testScoreInAliasFunction() throws Exception {
         createFunction("CREATE ALIAS FUNCTION score_usage_alias() WITH PARAMETER() AS score()");
-        assertScoreUsageError("SELECT id, score_usage_alias() FROM score_usage_V2 WHERE c1 MATCH 'apple'",
-                BindScore.UNSUPPORTED_SELECT_ERROR);
+        assertFullScoring("SELECT id, score_usage_alias() FROM score_usage_V2 WHERE c1 MATCH 'apple'", 2);
     }
 
     // With prefer_udf_over_builtin, a UDF named score is called instead of the builtin score().
@@ -242,7 +221,7 @@ class BindScoreTest extends TestWithFeService {
         connectContext.getSessionVariable().preferUdfOverBuiltin = true;
         try {
             LogicalOlapScan scan = rewrittenScan("SELECT id, score() FROM score_usage_V2 WHERE c1 MATCH 'apple'");
-            Assertions.assertFalse(BindScore.findScoreSlot(scan).isPresent());
+            Assertions.assertFalse(BindScoreToOlapScan.findScoreSlot(scan).isPresent());
         } finally {
             connectContext.getSessionVariable().preferUdfOverBuiltin = preferUdf;
             executeSql("DROP FUNCTION score()");
@@ -260,22 +239,14 @@ class BindScoreTest extends TestWithFeService {
     }
 
     @Test
-    void testScoreKeepsItsColumnName() {
-        List<Slot> output = PlanChecker.from(connectContext)
-                .analyze("SELECT id, score() FROM score_usage_V2 WHERE c1 MATCH 'apple'")
-                .getCascadesContext().getRewritePlan().getOutput();
-        Assertions.assertEquals("score()", output.get(1).getName());
-    }
-
-    @Test
     void testEachSelectScoresItsOwnTable() {
         String scored = "SELECT id, score() AS s FROM %s WHERE c1 MATCH '%s' ORDER BY s DESC LIMIT 2";
         Plan plan = PlanChecker.from(connectContext)
                 .analyze("SELECT * FROM (" + String.format(scored, "score_usage_V2", "apple") + ") x UNION ALL "
                         + "SELECT * FROM (" + String.format(scored, "score_usage_V3", "pear") + ") y")
-                .getCascadesContext().getRewritePlan();
+                .rewrite().getCascadesContext().getRewritePlan();
         Set<Slot> scoreSlots = plan.<LogicalOlapScan>collect(LogicalOlapScan.class::isInstance).stream()
-                .map(scan -> BindScore.findScoreSlot(scan).get())
+                .map(scan -> BindScoreToOlapScan.findScoreSlot(scan).get())
                 .collect(Collectors.toSet());
         Assertions.assertEquals(2, scoreSlots.size());
     }
@@ -289,8 +260,9 @@ class BindScoreTest extends TestWithFeService {
             "SELECT id FROM score_usage_V3 WHERE EXISTS (%s)"})
     void testNestedScoreRequiresTopN(String query) {
         String scored = "SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001";
-        assertScoreUsageError(String.format(query, scored), BindScore.NESTED_SELECT_ERROR);
-        assertScoreUsageError(String.format(query, scored + " ORDER BY 1 DESC LIMIT 2"), BindScore.NESTED_SELECT_ERROR);
+        assertScoreUsageError(String.format(query, scored), BindScoreToOlapScan.NESTED_SELECT_ERROR);
+        assertScoreUsageError(String.format(query, scored + " ORDER BY 1 DESC LIMIT 2"),
+                BindScoreToOlapScan.NESTED_SELECT_ERROR);
         for (String topN : new String[] {" ORDER BY s DESC LIMIT 2", " ORDER BY 2 DESC LIMIT 2"}) {
             Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(
                     String.format(query, scored + topN)), topN);
@@ -316,10 +288,10 @@ class BindScoreTest extends TestWithFeService {
             "SELECT id, (SELECT max(x.id) FROM (SELECT id, score() AS s FROM score_usage_V2"
                     + " WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 2) x WHERE x.id = b.id) FROM score_usage_V3 b"})
     void testCorrelatedSubqueryIsRejected(String query) {
-        assertScoreUsageError(query, BindScore.CORRELATED_SUBQUERY_ERROR);
+        assertScoreUsageError(query, BindScoreToOlapScan.CORRELATED_SUBQUERY_ERROR);
     }
 
-    // The main query of a WITH clause is the outermost SELECT, although analysis binds it on its own.
+    // The main query of a WITH clause is the outermost SELECT.
     @Test
     void testOutermostSelectUnderWith() {
         assertFullScoring("WITH c AS (SELECT 1 AS one) SELECT id, score() AS s FROM score_usage_V2"
@@ -346,32 +318,30 @@ class BindScoreTest extends TestWithFeService {
             "SELECT id, score() FROM score_usage_V2 WHERE c1 MATCH 'apple'"
                     + " AND id IN (SELECT id FROM score_usage_V3)",
             "SELECT id, e, score() FROM score_usage_V2 LATERAL VIEW explode(array(1, 2)) t AS e"
-                    + " WHERE c1 MATCH 'apple'",
-            // A table stream is read by separate scans of its table and of its changes.
-            "SELECT id, score() AS s FROM score_usage_stream WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 10"})
+                    + " WHERE c1 MATCH 'apple'"})
     void testUnsupportedSelectIsRejected(String query) {
-        assertScoreUsageError(query, BindScore.UNSUPPORTED_SELECT_ERROR);
+        assertScoreUsageError(query, BindScoreToOlapScan.UNSUPPORTED_SELECT_ERROR);
     }
 
     @Test
     void testHavingAndQualifyAreRejected() {
         assertScoreUsageError("SELECT c2, count(*) FROM score_usage_V2 WHERE c1 MATCH 'apple'"
                 + " AND score() > 0.00001 GROUP BY c2 HAVING c2 MATCH 'sweet'",
-                BindScore.HAVING_OR_QUALIFY_ERROR);
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' QUALIFY rn = 1 AND s > 0.5",
-                BindScore.HAVING_OR_QUALIFY_ERROR);
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
         // MATCH through an alias of the select list.
         assertScoreUsageError("SELECT id, score() AS s, c1 MATCH 'red' AS m,"
                 + " row_number() OVER (PARTITION BY c1 ORDER BY id) AS rn"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' QUALIFY m AND rn = 1",
-                BindScore.HAVING_OR_QUALIFY_ERROR);
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT id, score() AS s, c1 MATCH 'red' AS m"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' HAVING m",
-                BindScore.HAVING_OR_QUALIFY_ERROR);
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT c1 MATCH 'red' AS m, count(*) FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple' AND score() > 0.00001 GROUP BY m HAVING m",
-                BindScore.HAVING_OR_QUALIFY_ERROR);
+                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
     }
 
     @ParameterizedTest

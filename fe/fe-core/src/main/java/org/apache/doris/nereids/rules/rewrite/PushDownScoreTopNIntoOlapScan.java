@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.BindScore;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -56,7 +55,7 @@ import java.util.Set;
 /**
  * Limit the scoring of a scan to the rows that a TopN on its score keeps.
  *
- * <p>BindScore makes the scan score every row it returns. When a TopN orders the rows of
+ * <p>BindScoreToOlapScan makes the scan score every row it returns. When a TopN orders the rows of
  * the scan by the score alone, the scan can keep the best rows of each segment instead, and SEARCH
  * can skip documents that cannot reach them. The scan keeps the best rows only when no filter
  * follows it, so it also takes over a minimum score of the filter, as before score() could be used
@@ -83,7 +82,7 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
     private Optional<Plan> pushDown(LogicalTopN<?> topN, Optional<LogicalProject<?>> project,
             LogicalFilter<LogicalOlapScan> filter) {
         LogicalOlapScan scan = filter.child();
-        Optional<Slot> scoreSlot = BindScore.findScoreSlot(scan);
+        Optional<Slot> scoreSlot = BindScoreToOlapScan.findScoreSlot(scan);
         if (!scoreSlot.isPresent() || !scan.getScoreLimit().equals(Optional.of(0L))
                 || scan.getScoreRangeInfo().isPresent() || topN.getOrderKeys().size() != 1) {
             return Optional.empty();

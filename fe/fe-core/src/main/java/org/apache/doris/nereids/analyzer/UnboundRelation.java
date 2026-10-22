@@ -25,7 +25,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -62,8 +61,6 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
     private final Optional<TableSnapshot> tableSnapshot;
-    // the score column that a SELECT calling score() asks the table for, see BindScore
-    private final Optional<Alias> scoreColumn;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
@@ -120,16 +117,6 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             Optional<TableSample> tableSample, Optional<String> indexName, TableScanParams scanParams,
             Optional<Pair<Integer, Integer>> indexInSqlString,
             Optional<TableSnapshot> tableSnapshot) {
-        this(id, nameParts, groupExpression, logicalProperties, partNames, isTempPart, tabletIds, hints,
-                tableSample, indexName, scanParams, indexInSqlString, tableSnapshot, Optional.empty());
-    }
-
-    private UnboundRelation(RelationId id, List<String> nameParts,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<String> partNames, boolean isTempPart, List<Long> tabletIds, List<String> hints,
-            Optional<TableSample> tableSample, Optional<String> indexName, TableScanParams scanParams,
-            Optional<Pair<Integer, Integer>> indexInSqlString,
-            Optional<TableSnapshot> tableSnapshot, Optional<Alias> scoreColumn) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
@@ -141,7 +128,6 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         this.scanParams = scanParams;
         this.indexInSqlString = indexInSqlString;
         this.tableSnapshot = tableSnapshot;
-        this.scoreColumn = scoreColumn;
     }
 
     public List<String> getNameParts() {
@@ -163,7 +149,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         return new UnboundRelation(relationId, nameParts,
                 groupExpression, Optional.of(getLogicalProperties()),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
-                indexInSqlString, tableSnapshot, scoreColumn);
+                indexInSqlString, tableSnapshot);
     }
 
     @Override
@@ -171,20 +157,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(relationId, nameParts, groupExpression,
                 logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
-                indexInSqlString, tableSnapshot, scoreColumn);
+                indexInSqlString, tableSnapshot);
     }
 
     public UnboundRelation withIndexInSql(Pair<Integer, Integer> index) {
         // SQL source indexing annotates relation identity only; it must not erase scan semantics.
         return new UnboundRelation(relationId, nameParts, groupExpression,
                 Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints, tableSample, indexName,
-                scanParams, Optional.of(index), tableSnapshot, scoreColumn);
-    }
-
-    public UnboundRelation withScoreColumn(Alias scoreColumn) {
-        return new UnboundRelation(relationId, nameParts, groupExpression,
-                Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints, tableSample, indexName,
-                scanParams, indexInSqlString, tableSnapshot, Optional.of(scoreColumn));
+                scanParams, Optional.of(index), tableSnapshot);
     }
 
     @Override
@@ -246,7 +226,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
                 that.tabletIds) && Objects.equals(hints, that.hints) && Objects.equals(tableSample,
                 that.tableSample) && Objects.equals(indexName, that.indexName) && Objects.equals(
                 scanParams, that.scanParams) && Objects.equals(indexInSqlString, that.indexInSqlString)
-                && Objects.equals(tableSnapshot, that.tableSnapshot) && Objects.equals(scoreColumn, that.scoreColumn);
+                && Objects.equals(tableSnapshot, that.tableSnapshot);
     }
 
     @Override
@@ -293,9 +273,5 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
 
     public Optional<TableSnapshot> getTableSnapshot() {
         return tableSnapshot;
-    }
-
-    public Optional<Alias> getScoreColumn() {
-        return scoreColumn;
     }
 }
