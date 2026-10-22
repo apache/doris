@@ -34,6 +34,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/iterator/block_reader.h"
+#include "storage/iterator/direct_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/iterator/vertical_block_reader.h"
 #include "storage/iterator/vertical_merge_iterator.h"
@@ -169,8 +170,8 @@ void configure_reader(BlockReader* reader, const TabletSchemaSPtr& schema, bool 
     if (convert_rowids) {
         reader->_read_schema->append_compaction_rowid_column();
     }
-    reader->_next_block_func = &BlockReader::_direct_next_block;
     reader->_vcollect_iter._inner_iter = std::make_unique<FakeRowTtlIterator>(reader, fail);
+    reader->_block_iter = std::make_unique<DirectBlockIterator>(&reader->_vcollect_iter);
 }
 
 void check_surviving_keys(const Block& block) {

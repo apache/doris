@@ -139,11 +139,11 @@ TEST_F(BlockReaderMinDeltaTest, ChangelogOperationCodeLayoutGuard) {
     EXPECT_EQ(2, static_cast<int64_t>(ChangelogOp::DELETE));
 }
 
-// Contract test for the group-boundary rule in BlockReader::_min_delta_next_block. A MIN_DELTA
-// group is a run of consecutive rows sharing the same user key; the reader folds each group into
-// one net change via calculate_result(first_op, last_op). Exercising _min_delta_next_block end to
-// end needs a fully constructed BlockReader + VCollectIterator + rowset readers, which is far too
-// heavy for a unit test, so we pin the boundary rule itself.
+// Contract test for the group-boundary rule in ChangelogMinDeltaBlockIterator. A MIN_DELTA
+// group is a run of consecutive rows sharing the same user key; the iterator folds each group
+// into one net change via calculate_result(first_op, last_op). The iterator itself is driven end
+// to end by block_reader_change_next_block_test.cpp and block_reader_table_models_test.cpp; this
+// test pins the boundary rule itself.
 //
 // The subtle bug this guards against: the reader used to split groups on IteratorRowRef::is_same,
 // which the segment merge sets only for CROSS-segment same-key matches (it drives dedup). When a

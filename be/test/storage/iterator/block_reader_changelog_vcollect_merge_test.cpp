@@ -28,7 +28,7 @@
 // generates for the hidden changelog table. With DUP_KEYS, build_heap computes
 // _skip_same = false, so the merge keeps EVERY change event instead of deduplicating by
 // user key. The test verifies that the two rowsets are merged into one globally
-// (key, TSO)-ordered stream and that BlockReader folds it correctly:
+// (key, TSO)-ordered stream and that the changelog block iterators fold it correctly:
 //   * MIN_DELTA collapses each key's consecutive same-key changes into its net change,
 //   * DETAIL emits every change event verbatim in ascending-TSO order,
 // covering same-key/different-TSO events spread across two rowsets without dropping any.
@@ -38,6 +38,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 #include "storage/iterator/block_reader.h"
+#include "storage/iterator/changelog_block_iterator.h"
+#include "storage/iterator/tablet_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -125,7 +127,7 @@ std::shared_ptr<TabletSchema> make_changelog_schema() {
 // Minimal RowsetMeta carrying only num_rows (used by build_heap to pick the base rowset).
 class FakeRowsetMeta : public RowsetMeta {
 public:
-    FakeRowsetMeta() : RowsetMeta() { _fs = io::global_local_filesystem(); }
+    FakeRowsetMeta() { _fs = io::global_local_filesystem(); }
     io::FileSystemSPtr fs() override { return _fs; }
 
 private:
@@ -214,7 +216,7 @@ public:
     Status next_batch(BlockWithSameBit*) override { return Status::NotSupported(""); }
 
     bool delete_flag() override { return false; }
-    Version version() override { return Version(_version, _version); }
+    Version version() override { return {_version, _version}; }
     RowsetSharedPtr rowset() override { return _rowset; }
     const ReadSchema& read_schema() const override { return *_read_schema; }
     int64_t filtered_rows() override { return 0; }
@@ -273,9 +275,24 @@ void configure_two_rowset_merge(BlockReader& reader, std::vector<Row> rowset0_ro
         rs_readers.push_back(rs_reader);
     }
     ASSERT_TRUE(reader._vcollect_iter.build_heap(rs_readers).ok());
+}
 
-    auto st = reader._vcollect_iter.current_row(&reader._next_row);
-    reader._eof = st.is<END_OF_FILE>();
+// The changelog iterator of `scan_type` over the reader's merge, initialized on its first row.
+std::unique_ptr<TabletBlockIterator> make_changelog_iterator(BlockReader& reader,
+                                                             TChangelogScanType::type scan_type) {
+    const OutputBlockLimits limits {
+            .max_rows = reader.batch_max_rows(),
+            .preferred_bytes = reader._reader_context.preferred_block_size_bytes};
+    std::unique_ptr<TabletBlockIterator> iter;
+    if (scan_type == TChangelogScanType::MIN_DELTA) {
+        iter = std::make_unique<ChangelogMinDeltaBlockIterator>(&reader._vcollect_iter, limits,
+                                                                reader._read_schema);
+    } else {
+        iter = std::make_unique<ChangelogDetailBlockIterator>(&reader._vcollect_iter, limits,
+                                                              reader._read_schema);
+    }
+    EXPECT_TRUE(iter->init().ok());
+    return iter;
 }
 
 Block make_output_block() {
@@ -300,13 +317,14 @@ struct OutRow {
     int64_t op;
 };
 
-std::vector<OutRow> drain(BlockReader& reader, Status (BlockReader::*fn)(Block*, bool*)) {
+std::vector<OutRow> drain(BlockReader& reader, TChangelogScanType::type scan_type) {
     std::vector<OutRow> result;
+    auto iter = make_changelog_iterator(reader, scan_type);
     bool eof = false;
     int guard = 0;
     while (!eof) {
         Block block = make_output_block();
-        Status st = (reader.*fn)(&block, &eof);
+        Status st = iter->next_block(&block, &eof);
         EXPECT_TRUE(st.ok()) << st;
         for (size_t r = 0; r < block.rows(); ++r) {
             result.push_back({out_i64(block, KEY_IDX, r), out_i64(block, VAL_IDX, r),
@@ -342,7 +360,7 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaSameKeyAcrossRowsetsFoldsT
                                  static_cast<int64_t>(ChangelogOp::UPDATE)}},
                                /*batch_size=*/16);
 
-    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    auto out = drain(reader, TChangelogScanType::MIN_DELTA);
     ASSERT_EQ(out.size(), 1);
     EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].key, 1);
@@ -359,7 +377,7 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaSameKeyAcrossRowsetsFoldsT
             reader, {{5, 100, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)}},
             {{5, 100, 100, 3, 3, static_cast<int64_t>(ChangelogOp::DELETE)}}, 16);
 
-    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    auto out = drain(reader, TChangelogScanType::MIN_DELTA);
     EXPECT_TRUE(out.empty());
 }
 
@@ -378,7 +396,7 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, MinDeltaInterleavedKeysAcrossRowse
                                 {2, 25, 20, 4, 4, static_cast<int64_t>(ChangelogOp::DELETE)}},
                                16);
 
-    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    auto out = drain(reader, TChangelogScanType::MIN_DELTA);
     ASSERT_EQ(out.size(), 2);
     EXPECT_EQ(out[0].key, 1);
     EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
@@ -398,7 +416,7 @@ TEST_F(BlockReaderChangelogVCollectMergeTest, DetailSameKeyAcrossRowsetsOrderedB
                                {{1, 10, 0, 1, 1, static_cast<int64_t>(ChangelogOp::APPEND)}},
                                {{1, 20, 10, 2, 2, static_cast<int64_t>(ChangelogOp::UPDATE)}}, 16);
 
-    auto out = drain(reader, &BlockReader::_detail_change_next_block);
+    auto out = drain(reader, TChangelogScanType::DETAIL);
     ASSERT_EQ(out.size(), 3);
     EXPECT_EQ(out[0].op, static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
     EXPECT_EQ(out[0].val, 10); // rowset0 APPEND (tso=1) first
