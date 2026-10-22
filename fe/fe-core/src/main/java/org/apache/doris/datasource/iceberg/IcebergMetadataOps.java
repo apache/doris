@@ -77,6 +77,7 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
@@ -100,6 +101,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -2061,6 +2063,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return userSessionCatalog != null && userSessionCatalog.isNestedNamespaceEnabled();
     }
 
+    private <T> T probeViews(ViewCatalog viewCatalog, Supplier<T> probe, T noViews) {
+        try {
+            return probe.get();
+        } catch (UnsupportedOperationException e) {
+            // JdbcCatalog implements ViewCatalog even for V0, which cannot store views. The SDK
+            // rejects these probes before SQL; do not require a V1 migration merely to read tables.
+            if (viewCatalog instanceof JdbcCatalog) {
+                return noViews;
+            }
+            throw e;
+        }
+    }
+
     private boolean isViewCatalogEnabled() {
         return viewCatalogEnabled;
     }
@@ -2141,8 +2156,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private boolean viewExistsInternal(SessionContext ctx, String remoteDbName, String remoteViewName) {
-        return viewCatalog(ctx).map(activeCatalog ->
-                activeCatalog.viewExists(getTableIdentifier(remoteDbName, remoteViewName))).orElse(false);
+        return viewCatalog(ctx).map(activeCatalog -> probeViews(activeCatalog,
+                () -> activeCatalog.viewExists(getTableIdentifier(remoteDbName, remoteViewName)), false)).orElse(false);
     }
 
     private View loadViewInternal(String dbName, String tblName) {
@@ -2159,8 +2174,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private List<String> listViewNamesInternal(SessionContext ctx, String dbName) {
-        return viewCatalog(ctx).map(activeCatalog -> activeCatalog.listViews(getNamespace(dbName))
-                .stream().map(TableIdentifier::name).collect(Collectors.toList())).orElseGet(Collections::emptyList);
+        return viewCatalog(ctx).map(activeCatalog -> probeViews(activeCatalog,
+                () -> activeCatalog.listViews(getNamespace(dbName)).stream()
+                        .map(TableIdentifier::name).collect(Collectors.toList()), Collections.<String>emptyList()))
+                .orElseGet(Collections::emptyList);
     }
 
     private void performDropView(SessionContext ctx, String remoteDbName, String remoteViewName) throws DdlException {
