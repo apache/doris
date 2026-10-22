@@ -89,8 +89,28 @@ public class AdbcScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        return properties.getOrDefault(PARAM_PARTITION_DESCRIPTOR,
+                properties.getOrDefault(PARAM_QUERY_SQL, TABLE_FORMAT_TYPE));
+    }
+
+    @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    /**
+     * True for a partition, false for a statement.
+     *
+     * <p>A partition is a ticket for one result stream of a query the source executed while FE planned the
+     * scan, and BE reads it by draining that stream: a Doris source hands each batch out once, so a second
+     * read of the same ticket returns what the first one left, or nothing. Whether another source lets a
+     * ticket be read twice is its own business, which nothing here can ask, so every partition counts as
+     * single-use. A statement runs its query when it is read, so reading the range again runs it again.
+     */
+    @Override
+    public boolean isSingleUse() {
+        return properties.containsKey(PARAM_PARTITION_DESCRIPTOR);
     }
 
     /**

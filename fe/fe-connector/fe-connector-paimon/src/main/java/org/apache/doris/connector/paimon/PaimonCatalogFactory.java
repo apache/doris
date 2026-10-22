@@ -103,6 +103,19 @@ public final class PaimonCatalogFactory {
      * plus each flavor's {@code appendCustomCatalogOptions()}.
      */
     public static Options buildCatalogOptions(PaimonCatalogProperties catalogProperties) {
+        Options options = assembleCatalogOptions(catalogProperties);
+        // PaimonMetaCacheCatalog replaces the SDK CachingCatalog. The two cache layers cannot
+        // coexist because a Doris invalidation cannot evict a frozen Table from the SDK wrapper.
+        // Preserve the user's flag separately, but always disable the SDK wrapper itself.
+        options.set(CatalogOptions.CACHE_ENABLED, false);
+        return options;
+    }
+
+    static boolean isCatalogCacheEnabled(PaimonCatalogProperties catalogProperties) {
+        return assembleCatalogOptions(catalogProperties).get(CatalogOptions.CACHE_ENABLED);
+    }
+
+    private static Options assembleCatalogOptions(PaimonCatalogProperties catalogProperties) {
         Options options = new Options();
         Map<String, String> props = catalogProperties.getRaw();
         String flavor = catalogProperties.getFlavor();

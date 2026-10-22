@@ -118,11 +118,15 @@ public class OutFileClause {
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
     public static final String PROP_WITH_BOM = "with_bom";
+    public static final String PROP_FILE_NAME_PADDING = "file_name_padding";
 
     private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
+    // Upper bound on the zero-padding width for the per-file index in output file
+    // names. _file_idx on the BE is a 32-bit int, so 10 digits covers its full range.
+    private static final int MAX_FILE_NAME_PADDING = 10;
 
     private String filePath;
     private Map<String, String> properties;
@@ -131,6 +135,7 @@ public class OutFileClause {
     private boolean deleteExistingFiles = false;
     private String fileSuffix = "";
     private boolean withBom = false;
+    private int fileNamePadding = 0;
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -252,6 +257,7 @@ public class OutFileClause {
             case BITMAP:
             case QUANTILE_STATE:
             case VARBINARY:
+            case UUID:
                 orcType = "binary";
                 break;
             case DATEV2:
@@ -417,6 +423,7 @@ public class OutFileClause {
                 case BITMAP:
                 case QUANTILE_STATE:
                 case VARBINARY:
+                case UUID:
                     checkOrcType(schema.second, "binary", true, resultType.getPrimitiveType().toString());
                     break;
                 case STRUCT:
@@ -549,6 +556,20 @@ public class OutFileClause {
         if (copiedProps.containsKey(PROP_WITH_BOM)) {
             withBom = Boolean.valueOf(copiedProps.get(PROP_WITH_BOM)).booleanValue();
             copiedProps.remove(PROP_WITH_BOM);
+        }
+
+        if (copiedProps.containsKey(PROP_FILE_NAME_PADDING)) {
+            try {
+                fileNamePadding = Integer.parseInt(copiedProps.get(PROP_FILE_NAME_PADDING));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(PROP_FILE_NAME_PADDING + " must be an integer. Given: "
+                        + copiedProps.get(PROP_FILE_NAME_PADDING));
+            }
+            if (fileNamePadding < 0 || fileNamePadding > MAX_FILE_NAME_PADDING) {
+                throw new AnalysisException(PROP_FILE_NAME_PADDING + " must be between 0 and "
+                        + MAX_FILE_NAME_PADDING + ". Given: " + fileNamePadding);
+            }
+            copiedProps.remove(PROP_FILE_NAME_PADDING);
         }
 
         if (copiedProps.containsKey(PROP_SUCCESS_FILE_NAME)) {
@@ -756,6 +777,7 @@ public class OutFileClause {
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
         sinkOptions.setWithBom(withBom);
+        sinkOptions.setFileNamePadding(fileNamePadding);
 
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());

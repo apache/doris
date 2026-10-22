@@ -39,6 +39,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -53,6 +55,87 @@ import java.util.TimeZone;
 
 
 public class PropertyAnalyzerTest {
+    @Test
+    public void testBinlogTtlRejectsValuesBelowDisabledSentinel() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-1");
+        Assertions.assertEquals("-1", PropertyAnalyzer.analyzeBinlogConfig(properties)
+                .get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-2");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ROW", "row", "STATEMENT_AND_SNAPSHOT", "statement_and_snapshot", "rows"})
+    public void testReplacedBinlogKeysAreRejected(String value) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT, value);
+        AnalysisException format = Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+        Assertions.assertTrue(format.getMessage().contains("Property binlog.format is no longer supported, use "
+                + "\"changelog.enable\" = \"true\" to enable changelog, or remove it for CCR binlog"),
+                format.getMessage());
+
+        properties.remove(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT);
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE, value);
+        AnalysisException historical = Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+        Assertions.assertTrue(historical.getMessage().contains("Property binlog.need_historical_value is no longer "
+                + "supported, use changelog.need_historical_value instead"), historical.getMessage());
+    }
+
+    @Test
+    public void testAnalyzeChangelogConfig() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "TRUE");
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS, "-1");
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE, "False");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        Map<String, String> analyzed = PropertyAnalyzer.analyzeChangelogConfig(properties);
+        Assertions.assertEquals("true", analyzed.get(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE));
+        // The retention is checked against changelog.enable once the effective configuration is known.
+        Assertions.assertEquals("-1", analyzed.get(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS));
+        Assertions.assertEquals("false", analyzed.get(PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE));
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true"), properties);
+
+        for (Map.Entry<String, String> invalid : Map.of(
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "Invalid changelog.enable value: yes",
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS, "Invalid changelog.ttl_seconds value: yes",
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE,
+                "Invalid changelog.need_historical_value value: yes",
+                "changelog.format", "Unknown changelog property: changelog.format").entrySet()) {
+            Map<String, String> invalidProperties = new HashMap<>();
+            invalidProperties.put(invalid.getKey(), "yes");
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeChangelogConfig(invalidProperties));
+            Assertions.assertTrue(exception.getMessage().contains(invalid.getValue()), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testLegacyBinlogPropertiesOfPersistedMetadata() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT, "Row");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_CONFIG_VERSION, "2");
+        Assertions.assertTrue(PropertyAnalyzer.isLegacyChangelog(properties));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "false");
+        Assertions.assertFalse(PropertyAnalyzer.isLegacyChangelog(properties));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT, "STATEMENT_AND_SNAPSHOT");
+        Assertions.assertFalse(PropertyAnalyzer.isLegacyChangelog(properties));
+
+        PropertyAnalyzer.removeLegacyBinlogProperties(properties);
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true",
+                PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60"), properties);
+        Assertions.assertFalse(PropertyAnalyzer.isLegacyChangelog(properties));
+    }
+
     @Test
     public void testBfColumns() throws AnalysisException {
         List<Column> columns = Lists.newArrayList();
@@ -397,9 +480,14 @@ public class PropertyAnalyzerTest {
 
             Map<String, String> properties = new HashMap<>();
             Config.inverted_index_storage_format = "SNII";
-            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "default");
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V3");
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3,
                     PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            AnalysisException defaultException = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertTrue(defaultException.getMessage().contains("does not support 'default'"));
 
             properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V1");
             AnalysisException v1Exception = Assertions.assertThrows(AnalysisException.class,

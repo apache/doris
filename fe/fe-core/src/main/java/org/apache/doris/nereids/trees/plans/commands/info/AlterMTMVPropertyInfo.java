@@ -30,8 +30,10 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -41,6 +43,15 @@ import java.util.stream.Collectors;
  * rename
  */
 public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
+    /**
+     * Properties that settle something an MV cannot change afterwards -- which model it is built on, and
+     * which columns its unique keys cover -- so ALTER reports them instead of quietly applying something
+     * the next refresh would contradict.
+     */
+    private static final List<String> FIXED_AT_CREATION_PROPERTIES = ImmutableList.of(
+            PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS,
+            PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW);
+
     private final Map<String, String> properties;
 
     /**
@@ -63,9 +74,11 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
     }
 
     private void analyzeProperties() {
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS)) {
-            throw new AnalysisException("Property '" + PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS
-                    + "' cannot be altered. It is fixed at creation time.");
+        for (String fixedAtCreation : FIXED_AT_CREATION_PROPERTIES) {
+            if (properties.containsKey(fixedAtCreation)) {
+                throw new AnalysisException("Property '" + fixedAtCreation
+                        + "' cannot be altered. It is fixed at creation time.");
+            }
         }
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));

@@ -46,6 +46,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
+        Config.enable_feature_changelog = true;
 
         createDatabase("test_stream");
         connectContext.setDatabase("test_stream");
@@ -59,8 +60,8 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
                 + "(partition p1 values less than (\"100\"),\n"
                 + " partition p2 values less than (\"200\"))\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
-                + "\"binlog.format\"=\"ROW\",\"binlog.need_historical_value\"=\"true\")";
+                + "properties(\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
         String createTargetTable = "create table test_stream.tbl_target (\n"

@@ -22,12 +22,10 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -138,16 +136,13 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
     // isAddOrSub: true for extract only "+" or "-" sub expressions, false for extract only "*" or "/" sub expressions
     private static List<Operand> flatten(Expression expr, boolean isAddOrSub) {
         List<Operand> result = Lists.newArrayList();
-        doFlatten(true, expr, isAddOrSub, result, Optional.empty());
+        doFlatten(true, expr, isAddOrSub, result);
         return result;
     }
 
     // flag: true for '+' or '*', false for '-' or '/'
     // isAddOrSub: true for extract only "+" or "-" sub expressions, false for extract only "*" or "/" sub expressions
-    private static void doFlatten(boolean flag, Expression expr, boolean isAddOrSub, List<Operand> result,
-            Optional<DataType> castType) {
-        // cast (a * 10 as double)  *  (cast 20 as double)
-        // => cast(a as double) * (cast 10 as double) * (cast 20 as double)
+    private static void doFlatten(boolean flag, Expression expr, boolean isAddOrSub, List<Operand> result) {
         BinaryArithmetic arithmetic = null;
         Predicate<Expression> isPositiveArithmetic = isAddOrSub
                 ? TypeUtils::isAdd : TypeUtils::isMultiply;
@@ -156,52 +151,20 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
         Predicate<Expression> isPosNegArithmetic = isPositiveArithmetic.or(isNegativeArithmetic);
         if (isPosNegArithmetic.test(expr)) {
             arithmetic = (BinaryArithmetic) expr;
-        } else if (expr instanceof Cast && hasConstantOperand(expr, isAddOrSub)) {
-            Cast cast = (Cast) expr;
-            if (isPosNegArithmetic.test(cast.child())) {
-                arithmetic = (BinaryArithmetic) cast.child();
-                castType = Optional.of(cast.getDataType());
-            }
         }
         if (arithmetic != null) {
-            doFlatten(flag, arithmetic.left(), isAddOrSub, result, castType);
+            doFlatten(flag, arithmetic.left(), isAddOrSub, result);
             if (isNegativeArithmetic.test(arithmetic) && !flag) {
-                doFlatten(true, arithmetic.right(), isAddOrSub, result, castType);
+                doFlatten(true, arithmetic.right(), isAddOrSub, result);
             } else if (isPositiveArithmetic.test(arithmetic) && !flag) {
-                doFlatten(false, arithmetic.right(), isAddOrSub, result, castType);
+                doFlatten(false, arithmetic.right(), isAddOrSub, result);
             } else {
-                doFlatten(!isNegativeArithmetic.test(arithmetic), arithmetic.right(), isAddOrSub, result, castType);
+                doFlatten(!isNegativeArithmetic.test(arithmetic), arithmetic.right(), isAddOrSub, result);
             }
         } else {
-            if (castType.isPresent()) {
-                result.add(Operand.of(flag, TypeCoercionUtils.castIfNotSameType(expr, castType.get())));
-            } else {
-                result.add(Operand.of(flag, expr));
-            }
-        }
-    }
-
-    private static boolean hasConstantOperand(Expression expr, boolean isAddOrSub) {
-        if (expr.isConstant()) {
-            return true;
-        }
-
-        Predicate<Expression> checkArithmetic = isAddOrSub
-                ? TypeUtils::isAddOrSubtract : TypeUtils::isMultiplyOrDivide;
-        BinaryArithmetic arithmetic = null;
-        if (checkArithmetic.test(expr)) {
-            arithmetic = (BinaryArithmetic) expr;
-        } else if (expr instanceof Cast) {
-            Cast cast = (Cast) expr;
-            if (checkArithmetic.test(cast.child())) {
-                arithmetic = (BinaryArithmetic) cast.child();
-            }
-        }
-        if (arithmetic != null) {
-            return hasConstantOperand(arithmetic.left(), isAddOrSub)
-                    || hasConstantOperand(arithmetic.right(), isAddOrSub);
-        } else {
-            return false;
+            // Keep non-arithmetic expressions atomic. In particular, moving a cast to the
+            // operands can change rounding, overflow, error and null behavior.
+            result.add(Operand.of(flag, expr));
         }
     }
 
@@ -241,4 +204,3 @@ public class SimplifyArithmeticRule implements ExpressionPatternRuleFactory {
         }
     }
 }
-

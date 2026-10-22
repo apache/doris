@@ -18,6 +18,7 @@
 package org.apache.doris.sqlparser;
 
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.ErrorCapturingIdentifierContext;
 import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
@@ -123,6 +124,15 @@ class DorisSqlParserTest {
         Assertions.assertEquals(facadeException.getMessage(), generatedException.getMessage());
         Assertions.assertTrue(facadeException.getMessage().contains(
                 "Possibly unquoted identifier test-tbl detected"));
+    }
+
+    @Test
+    void doesNotBuildEmptyUnquotedIdentifierSuffixContext() {
+        DorisParser generatedParser = parser.newParser(parser.newLexer("ordinary"));
+        ErrorCapturingIdentifierContext ctx = generatedParser.errorCapturingIdentifier();
+
+        Assertions.assertNull(ctx.errorCapturingIdentifierExtra());
+        Assertions.assertEquals(Token.EOF, generatedParser.getCurrentToken().getType());
     }
 
     @Test

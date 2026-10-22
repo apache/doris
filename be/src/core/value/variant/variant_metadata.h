@@ -47,6 +47,7 @@ private:
     };
 
     Layout _layout() const;
+    StringRef _key_at(const Layout& layout, uint32_t id) const;
 };
 
 } // namespace doris

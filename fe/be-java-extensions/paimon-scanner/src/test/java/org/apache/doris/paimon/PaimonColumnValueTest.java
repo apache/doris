@@ -17,29 +17,36 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.DataGetters;
+import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.paimon.types.VariantType;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -63,8 +70,8 @@ public class PaimonColumnValueTest {
 
         structValue.unpackStruct(Collections.singletonList(2), values);
 
-        Assert.assertEquals(1, values.size());
-        Assert.assertEquals(100L, values.get(0).getLong());
+        Assertions.assertEquals(1, values.size());
+        Assertions.assertEquals(100L, values.get(0).getLong());
     }
 
     @Test
@@ -74,9 +81,9 @@ public class PaimonColumnValueTest {
 
         structValue.unpackStruct(Arrays.asList(0, 2), values);
 
-        Assert.assertEquals(2, values.size());
-        Assert.assertEquals(10, values.get(0).getInt());
-        Assert.assertEquals(100L, values.get(1).getLong());
+        Assertions.assertEquals(2, values.size());
+        Assertions.assertEquals(10, values.get(0).getInt());
+        Assertions.assertEquals(100L, values.get(1).getLong());
     }
 
     @Test
@@ -86,10 +93,23 @@ public class PaimonColumnValueTest {
 
         structValue.unpackStruct(Arrays.asList(0, 1, 2), values);
 
-        Assert.assertEquals(3, values.size());
-        Assert.assertEquals(10, values.get(0).getInt());
-        Assert.assertEquals("x", values.get(1).getString());
-        Assert.assertEquals(100L, values.get(2).getLong());
+        Assertions.assertEquals(3, values.size());
+        Assertions.assertEquals(10, values.get(0).getInt());
+        Assertions.assertEquals("x", values.get(1).getString());
+        Assertions.assertEquals(100L, values.get(2).getLong());
+    }
+
+    @Test
+    public void testGetVariantEncodedBytes() {
+        GenericVariant variant = GenericVariant.fromJson("{\"a\":[1,null]}");
+        PaimonColumnValue columnValue = new PaimonColumnValue(
+                GenericRow.of(variant), 0, ColumnType.parseType("v", "variant"), new VariantType(), "UTC");
+
+        Assertions.assertArrayEquals(variant.metadata(), columnValue.getVariantMetadata());
+        Assertions.assertArrayEquals(variant.value(), columnValue.getVariantValue());
+        Assertions.assertEquals(
+                ColumnType.Type.VARIANT,
+                PaimonTypeUtils.fromPaimonType("v", new VariantType()).getType());
     }
 
     @Test
@@ -106,15 +126,15 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondValues = new ArrayList<>();
         arrayValue.unpackArray(secondValues);
 
-        Assert.assertSame(firstValues.get(0), secondValues.get(0));
-        Assert.assertSame(firstValues.get(1), secondValues.get(1));
-        Assert.assertEquals(Arrays.asList(3, 4, 5), getInts(secondValues));
+        Assertions.assertSame(firstValues.get(0), secondValues.get(0));
+        Assertions.assertSame(firstValues.get(1), secondValues.get(1));
+        Assertions.assertEquals(Arrays.asList(3, 4, 5), getInts(secondValues));
 
         arrayValue.setOffsetRow(GenericRow.of(new GenericArray(new int[] {6})));
         List<ColumnValue> thirdValues = new ArrayList<>();
         arrayValue.unpackArray(thirdValues);
-        Assert.assertSame(firstValues.get(0), thirdValues.get(0));
-        Assert.assertEquals(Collections.singletonList(6), getInts(thirdValues));
+        Assertions.assertSame(firstValues.get(0), thirdValues.get(0));
+        Assertions.assertEquals(Collections.singletonList(6), getInts(thirdValues));
     }
 
     @Test
@@ -133,12 +153,12 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondValues = new ArrayList<>();
         mapValue.unpackMap(secondKeys, secondValues);
 
-        Assert.assertSame(firstKeys.get(0), secondKeys.get(0));
-        Assert.assertSame(firstKeys.get(1), secondKeys.get(1));
-        Assert.assertSame(firstValues.get(0), secondValues.get(0));
-        Assert.assertSame(firstValues.get(1), secondValues.get(1));
-        Assert.assertEquals(Arrays.asList(3, 4), getInts(secondKeys));
-        Assert.assertEquals(Arrays.asList(30L, 40L), getLongs(secondValues));
+        Assertions.assertSame(firstKeys.get(0), secondKeys.get(0));
+        Assertions.assertSame(firstKeys.get(1), secondKeys.get(1));
+        Assertions.assertSame(firstValues.get(0), secondValues.get(0));
+        Assertions.assertSame(firstValues.get(1), secondValues.get(1));
+        Assertions.assertEquals(Arrays.asList(3, 4), getInts(secondKeys));
+        Assertions.assertEquals(Arrays.asList(30L, 40L), getLongs(secondValues));
     }
 
     @Test
@@ -152,10 +172,10 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondValues = new ArrayList<>();
         structValue.unpackStruct(projectedFields, secondValues);
 
-        Assert.assertSame(firstValues.get(0), secondValues.get(0));
-        Assert.assertSame(firstValues.get(1), secondValues.get(1));
-        Assert.assertEquals(20, secondValues.get(0).getInt());
-        Assert.assertEquals(200L, secondValues.get(1).getLong());
+        Assertions.assertSame(firstValues.get(0), secondValues.get(0));
+        Assertions.assertSame(firstValues.get(1), secondValues.get(1));
+        Assertions.assertEquals(20, secondValues.get(0).getInt());
+        Assertions.assertEquals(200L, secondValues.get(1).getLong());
     }
 
     @Test
@@ -178,10 +198,10 @@ public class PaimonColumnValueTest {
         List<ColumnValue> secondInnerValues = new ArrayList<>();
         secondOuterValues.get(0).unpackArray(secondInnerValues);
 
-        Assert.assertSame(firstOuterValues.get(0), secondOuterValues.get(0));
-        Assert.assertSame(firstInnerValues.get(0), secondInnerValues.get(0));
-        Assert.assertSame(firstInnerValues.get(1), secondInnerValues.get(1));
-        Assert.assertEquals(Arrays.asList(3, 4), getInts(secondInnerValues));
+        Assertions.assertSame(firstOuterValues.get(0), secondOuterValues.get(0));
+        Assertions.assertSame(firstInnerValues.get(0), secondInnerValues.get(0));
+        Assertions.assertSame(firstInnerValues.get(1), secondInnerValues.get(1));
+        Assertions.assertEquals(Arrays.asList(3, 4), getInts(secondInnerValues));
     }
 
     @Test
@@ -195,17 +215,65 @@ public class PaimonColumnValueTest {
                 dorisNestedArrayType, paimonNestedArrayType, "UTC");
 
         consumeNestedArray(arrayValue);
-        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+        Assertions.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
 
         // Moving the large child to position 1 makes position 0 a smaller, non-null array.
         arrayValue.setOffsetRow(nestedArrayRow(outerSize, innerSize, 1, -1));
         consumeNestedArray(arrayValue);
-        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+        Assertions.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
 
         // Moving it again makes position 1 null, which must release that position's descendants.
         arrayValue.setOffsetRow(nestedArrayRow(outerSize, innerSize, 2, 1));
         consumeNestedArray(arrayValue);
-        Assert.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+        Assertions.assertEquals(outerSize + innerSize, retainedCachedValues(arrayValue));
+    }
+
+    @Test
+    public void testNanosecondPrecisionInNestedOutputLeaves() {
+        for (int precision : new int[] {7, 8}) {
+            TimestampType timestampType = new TimestampType(precision);
+            RowType current = RowType.of(new DataType[] {
+                    new ArrayType(timestampType), new MapType(new IntType(), timestampType),
+                    RowType.of(new DataType[] {timestampType}, new String[] {"ts"})},
+                    new String[] {"array", "map", "nested"});
+            ColumnType output = ColumnType.parseType("root", "struct<array:array<timestamp_ns>,"
+                    + "map:map<int,timestamp_ns>,nested:struct<ts:timestamp_ns>>");
+            PaimonJniScanner.resetTimestampPrecision(output, current);
+            LocalDateTime value = LocalDateTime.of(2025, 1, 1, 0, 0, 1, 123456789);
+            Timestamp timestamp = Timestamp.fromLocalDateTime(value);
+            GenericRow row = GenericRow.of(new GenericArray(new Object[] {timestamp}),
+                    new GenericMap(Collections.singletonMap(7, timestamp)), GenericRow.of(timestamp));
+            PaimonColumnValue root = new PaimonColumnValue(GenericRow.of(row), 0, output,
+                    PaimonJniScanner.createSafeTimestampReadType(current), "UTC");
+            List<ColumnValue> fields = new ArrayList<>();
+            root.unpackStruct(Arrays.asList(0, 1, 2), fields);
+            List<ColumnValue> array = new ArrayList<>();
+            fields.get(0).unpackArray(array);
+            List<ColumnValue> keys = new ArrayList<>();
+            List<ColumnValue> values = new ArrayList<>();
+            fields.get(1).unpackMap(keys, values);
+            List<ColumnValue> nested = new ArrayList<>();
+            fields.get(2).unpackStruct(Collections.singletonList(0), nested);
+            LocalDateTime expected = value.withNano(precision == 7 ? 123456700 : 123456780);
+            Assertions.assertEquals(expected, array.get(0).getDateTime());
+            Assertions.assertEquals(7, keys.get(0).getInt());
+            Assertions.assertEquals(expected, values.get(0).getDateTime());
+            Assertions.assertEquals(expected, nested.get(0).getDateTime());
+        }
+    }
+
+    @Test
+    public void testAlignedTimestampReusesOriginalValue() {
+        for (int precision : new int[] {0, 4, 6, 9}) {
+            int nano = precision == 0 ? 0 : 123_400_000;
+            Timestamp timestamp = Timestamp.fromLocalDateTime(
+                    LocalDateTime.of(1969, 12, 31, 23, 59, 59, nano));
+            for (DataType type : new DataType[] {new TimestampType(9), new LocalZonedTimestampType(9)}) {
+                PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(timestamp), 0,
+                        ColumnType.parseType("t", "datetimev2(" + precision + ")"), type, "UTC");
+                Assertions.assertSame(timestamp, value.truncateTimestampPrecision(timestamp));
+            }
+        }
     }
 
     @Test
@@ -215,29 +283,91 @@ public class PaimonColumnValueTest {
 
         PaimonColumnValue timestampValue = new PaimonColumnValue(
                 GenericRow.of(timestamp), 0, dorisTimestampType, new TimestampType(9), "UTC");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getDateTime());
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getTimeStampTz());
+
+        PaimonColumnValue secondsPrecisionValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromEpochMillis(1_735_689_601_600L)), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(0), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), secondsPrecisionValue.getDateTime());
+
+        PaimonColumnValue leadingZeroValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromLocalDateTime(
+                        LocalDateTime.of(2025, 1, 1, 0, 0, 1, 1_000))), 0,
+                ColumnType.parseType("t", "datetimev2(4)"), new TimestampType(6), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), leadingZeroValue.getDateTime());
+
+        PaimonColumnValue preEpochValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromLocalDateTime(
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600_000_000))), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(6), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59), preEpochValue.getDateTime());
 
         PaimonColumnValue localZonedValue = new PaimonColumnValue(
                 GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
                 dorisTimestampType, new LocalZonedTimestampType(9), "America/Los_Angeles");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 3, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
 
+        PaimonColumnValue narrowedLocalZonedValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new LocalZonedTimestampType(9),
+                "America/Los_Angeles");
+        Assertions.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 3, 30),
+                narrowedLocalZonedValue.getDateTime());
+        Assertions.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 10, 30),
+                narrowedLocalZonedValue.getTimeStampTz());
+
         localZonedValue.setTimeZone("Asia/Shanghai");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
 
         localZonedValue.setTimeZone("CST");
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+    }
+
+    @Test
+    public void testDecimalUsesPaimonScaleWhenSchemaEvolves() {
+        DataGetters record = (DataGetters) Proxy.newProxyInstance(
+                DataGetters.class.getClassLoader(), new Class<?>[] {DataGetters.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getDecimal")) {
+                        long unscaled = (int) args[2] == 2 ? 120 : 1234;
+                        return Decimal.fromUnscaledLong(unscaled, (int) args[1], (int) args[2]);
+                    }
+                    if (method.getReturnType() == boolean.class) {
+                        return false;
+                    }
+                    if (method.getReturnType() == byte.class || method.getReturnType() == short.class
+                            || method.getReturnType() == int.class || method.getReturnType() == long.class) {
+                        return 0;
+                    }
+                    if (method.getReturnType() == float.class || method.getReturnType() == double.class) {
+                        return 0.0;
+                    }
+                    return null;
+                });
+        PaimonColumnValue value = new PaimonColumnValue(
+                record, 0, ColumnType.parseType("d", "decimal(6,3)"), new DecimalType(5, 2), "UTC");
+
+        Assertions.assertEquals(new BigDecimal("1.20"), value.getDecimal());
+
+        PaimonColumnValue currentSchemaValue = new PaimonColumnValue(
+                record, 0, ColumnType.parseType("d", "decimal(6,3)"), new DecimalType(6, 3), "UTC");
+        Assertions.assertEquals(new BigDecimal("1.234"), currentSchemaValue.getDecimal());
     }
 
     private InternalRow nestedArrayRow(int outerSize, int innerSize, int populatedIndex, int nullIndex) {
@@ -316,4 +446,31 @@ public class PaimonColumnValueTest {
         result.put(key2, value2);
         return result;
     }
+
+    @Test
+    public void testJniUtcYearBounds() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(Timestamp.fromInstant(instant)),
+                    0, columnType, new LocalZonedTimestampType(6), "America/Los_Angeles");
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                // Doris accepts year zero; only the UTC instant outside years 0..9999 is invalid.
+                if (text.startsWith("0000")) {
+                    column.appendValue(value);
+                    Assertions.assertEquals(java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC),
+                            column.getTimeStampTzColumn(0, 1)[0]);
+                } else {
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+                }
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

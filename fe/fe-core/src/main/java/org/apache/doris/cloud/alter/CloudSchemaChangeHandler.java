@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -426,6 +427,18 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
     }
 
+    @Override
+    protected void updatePartitionProperties(Database db, OlapTable table, Partition partition,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
+            int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
+        Preconditions.checkNotNull(binlogConfig);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        param.binlogConfig = binlogConfig;
+        param.type = UpdatePartitionMetaParam.TabletMetaType.BINLOG_CONFIG;
+        updateCloudPartitionMeta(table, partition, param);
+    }
+
     private static class UpdatePartitionMetaParam {
         public enum TabletMetaType {
             INMEMORY,
@@ -443,6 +456,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             DISABLE_AUTO_COMPACTION,
             ENABLE_MOW_LIGHT_DELETE,
             VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+            BINLOG_CONFIG,
         }
 
         TabletMetaType type;
@@ -461,22 +475,36 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean disableAutoCompaction = false;
         boolean enableMowLightDelete = false;
         int verticalCompactionNumColumnsPerGroup = 5;
+        TabletBinlogConfig binlogConfig;
     }
 
     public void updateCloudPartitionMeta(Database db,
             String tableName,
             String partitionName,
             UpdatePartitionMetaParam param) throws UserException {
-        List<Long> tabletIds = new ArrayList<>();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Partition partition;
         olapTable.readLock();
         try {
-            Partition partition = olapTable.getPartition(partitionName);
+            partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+        } finally {
+            olapTable.readUnlock();
+        }
+        updateCloudPartitionMeta(olapTable, partition, param);
+    }
+
+    private void updateCloudPartitionMeta(OlapTable olapTable, Partition partition,
+            UpdatePartitionMetaParam param) throws UserException {
+        List<Long> tabletIds = new ArrayList<>();
+        olapTable.readLock();
+        try {
+            boolean includeChangelog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+            for (MaterializedIndex index
+                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeChangelog)) {
                 for (Tablet tablet : index.getTablets()) {
                     tabletIds.add(tablet.getId());
                 }
@@ -484,6 +512,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         } finally {
             olapTable.readUnlock();
         }
+        updateCloudTabletMeta(olapTable.getName(), tabletIds, param);
+    }
+
+    private void updateCloudTabletMeta(String tableName, List<Long> tabletIds,
+            UpdatePartitionMetaParam param) throws UserException {
         for (int index = 0; index < tabletIds.size();) {
             int nextIndex = tabletIds.size() - index > Config.cloud_txn_tablet_batch_size
                     ? index + Config.cloud_txn_tablet_batch_size
@@ -548,6 +581,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         infoBuilder.setVerticalCompactionNumColumnsPerGroup(
                                 param.verticalCompactionNumColumnsPerGroup);
                         break;
+                    case BINLOG_CONFIG:
+                        infoBuilder.setBinlogConfig(param.binlogConfig.toProtobuf());
+                        break;
                     default:
                         throw new UserException("Unknown TabletMetaType");
                 }
@@ -578,7 +614,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         }
     }
 
-    void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
+    public static void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
         if (tabletIds.isEmpty()) {
             return;
         }

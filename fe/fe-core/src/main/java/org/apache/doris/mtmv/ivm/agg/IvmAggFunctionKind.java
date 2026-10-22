@@ -29,6 +29,10 @@ public enum IvmAggFunctionKind {
     AVG,
     MIN,
     MAX,
+    MIN_COUNT,
+    MAX_COUNT,
     BITMAP_UNION,
-    BITMAP_UNION_COUNT
+    BITMAP_UNION_COUNT,
+    ARRAY_AGG,
+    COLLECT_LIST
 }

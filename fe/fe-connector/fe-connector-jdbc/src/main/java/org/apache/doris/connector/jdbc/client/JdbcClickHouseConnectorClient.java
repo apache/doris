@@ -19,7 +19,6 @@ package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.jdbc.JdbcDbType;
 import org.apache.doris.connector.spi.ConnectorType;
-import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,7 +80,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from ClickHouse", e);
+            throw jdbcException("Failed to get database name list from ClickHouse", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -105,7 +104,7 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             }
             consumer.accept(rs);
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -199,12 +198,13 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
 
         // DateTime64
         if (chType.startsWith("DateTime64(")) {
+            fieldInfo.setAllowNull(true);
             return parseDateTimeType(chType);
         }
 
         // DateTime('timezone') — DateTime with timezone parameter, second precision
         if (chType.startsWith("DateTime(")) {
-            return ConnectorType.of("DATETIMEV2", 0, -1);
+            return ConnectorType.of("TIMESTAMPTZ", 0, -1);
         }
 
         // Array
@@ -242,12 +242,13 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             case "Date32":
                 return ConnectorType.of("DATEV2");
             case "DateTime":
-                return ConnectorType.of("DATETIMEV2", 0, -1);
+                return ConnectorType.of("TIMESTAMPTZ", 0, -1);
             case "String":
-            case "UUID":
             case "IPv4":
             case "IPv6":
                 return ConnectorType.of("STRING");
+            case "UUID":
+                return ConnectorType.of("UUID");
             default:
                 if (chType.startsWith("FixedString(") || chType.startsWith("Enum8(")
                         || chType.startsWith("Enum16(")) {
@@ -293,6 +294,6 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
         String[] parts = inner.split(",");
         int scale = Integer.parseInt(parts[0].trim());
         scale = Math.min(scale, JDBC_DATETIME_SCALE);
-        return ConnectorType.of("DATETIMEV2", scale, -1);
+        return ConnectorType.of("TIMESTAMPTZ", scale, -1);
     }
 }

@@ -397,17 +397,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
-# snappy patch to fix sign-compare warning
-if [[ " ${TP_ARCHIVES[*]} " =~ " SNAPPY " ]]; then
-    cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/snappy-1.1.10-sign-compare.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${SNAPPY_SOURCE}"
-fi
-
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
@@ -510,10 +499,10 @@ fi
 
 # patch librdkafka to avoid crash
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
-    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then
+    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.16.0" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.11.0.patch"
+            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.16.0.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -537,10 +526,10 @@ fi
 # patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
 # without changing ordinary dl_iterate_phdr callers.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
-    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.8.3" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -763,19 +752,25 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Apply Doris lance-c patches.
+# Foyer remains a local patch until its cache interface is accepted upstream.
+# All search fixes are supplied by the immutable lance-c dependency revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.9" ]]; then
-        cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-73.patch"
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-pr-74.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
+    # A new local patch must also replace previously patched cached sources.
+    # Empty markers from older builds cannot identify the applied patch version.
+    if [[ -f "${foyer_patch_marker}" ]] &&
+        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
     fi
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
+    fi
+    cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 
@@ -803,6 +798,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
     fi
     cd -
     echo "Finished patching ${BOOST_SOURCE}"
+fi
+
+# Clang on AArch64 supports __int128. Enable phmap's multiply-based hash mixer
+# instead of falling back to the longer shift/xor implementation.
+if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
+    cd "${TP_SOURCE_DIR}/${PARALLEL_HASHMAP_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_aarch64_int128" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
+        touch "${PATCHED_MARK}_aarch64_int128"
+    fi
+    cd -
+    echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} for AArch64 int128"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

@@ -32,6 +32,8 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -42,6 +44,20 @@ public class LoadJobTest {
     @BeforeAll
     public static void start() {
         MetricRepo.init();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"LOADING,false,LOADING", "CANCELLED,false,CANCELLED", "LOADING,true,COMMITTED"})
+    public void testCommitCallbackPreservesFailureState(JobState initialState, boolean txnOperated,
+            JobState expectedState) throws Exception {
+        LoadJob job = new BrokerLoadJob();
+        job.state = JobState.LOADING;
+        job.beforeCommitted(null);
+        // An abort callback can cancel the job before the paired completion callback.
+        job.state = initialState;
+        job.afterCommitted(null, txnOperated);
+        Assertions.assertFalse(job.isCommitting);
+        Assertions.assertEquals(expectedState, job.getState());
     }
 
     @Test

@@ -72,8 +72,9 @@ Status HistoricalRowFetcher::read_columns(const TabletSchema& tablet_schema,
                                           bool force_read_old_delete_signs,
                                           const signed char* __restrict cur_delete_signs) const {
     return _fixed_plan.read_columns_by_plan(tablet_schema, std::move(cids_to_read), _rsid_to_rowset,
-                                            dst_block, read_index, force_read_old_delete_signs,
-                                            cur_delete_signs);
+                                            dst_block, read_index,
+                                            FixedReadPlan::ReadStrategy::PREFER_ROW_STORE,
+                                            force_read_old_delete_signs, cur_delete_signs);
 }
 
 } // namespace doris

@@ -36,7 +36,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/tablet_info.h"
 #include "util/uid_util.h"
 
@@ -194,22 +194,22 @@ inline TCreateTabletReq create_tablet_request(
     return request;
 }
 
-inline void enable_row_binlog(TCreateTabletReq* request) {
+inline void enable_changelog(TCreateTabletReq* request) {
     DCHECK(request != nullptr);
 
     TBinlogConfig binlog_config;
     binlog_config.__set_enable(true);
-    binlog_config.__set_binlog_format(TBinlogFormat::ROW);
+    binlog_config.__set_binlog_format(TBinlogFormat::CHANGELOG);
     request->__set_binlog_config(binlog_config);
 }
 
-inline TTabletSchema create_row_binlog_tablet_schema(const TTabletSchema& base_schema,
-                                                     int32_t row_binlog_schema_hash) {
-    TTabletSchema row_binlog_schema = base_schema;
-    row_binlog_schema.schema_hash = row_binlog_schema_hash;
-    row_binlog_schema.keys_type = TKeysType::DUP_KEYS;
+inline TTabletSchema create_changelog_tablet_schema(const TTabletSchema& base_schema,
+                                                    int32_t changelog_schema_hash) {
+    TTabletSchema changelog_schema = base_schema;
+    changelog_schema.schema_hash = changelog_schema_hash;
+    changelog_schema.keys_type = TKeysType::DUP_KEYS;
 
-    row_binlog_schema.columns.clear();
+    changelog_schema.columns.clear();
     for (const auto& base_col : base_schema.columns) {
         if (base_col.__isset.visible && !base_col.visible && !base_col.is_key) {
             continue;
@@ -218,19 +218,17 @@ inline TTabletSchema create_row_binlog_tablet_schema(const TTabletSchema& base_s
         if (!col.is_key) {
             col.__set_aggregation_type(TAggregationType::NONE);
         }
-        row_binlog_schema.columns.push_back(col);
+        changelog_schema.columns.push_back(col);
     }
 
-    row_binlog_schema.columns.push_back(create_tablet_column(
-            {BINLOG_TSO_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE, true}));
-    row_binlog_schema.__set_binlog_tso_idx(row_binlog_schema.columns.size() - 1);
-    row_binlog_schema.columns.push_back(create_tablet_column(
-            {BINLOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
-    row_binlog_schema.__set_binlog_lsn_idx(row_binlog_schema.columns.size() - 1);
-    row_binlog_schema.columns.push_back(create_tablet_column(
-            {BINLOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
-    row_binlog_schema.__set_binlog_op_idx(row_binlog_schema.columns.size() - 1);
-    return row_binlog_schema;
+    changelog_schema.columns.push_back(
+            create_tablet_column({CHANGELOG_TSO_COL, TPrimitiveType::BIGINT, false, true,
+                                  TAggregationType::NONE, true}));
+    changelog_schema.columns.push_back(create_tablet_column(
+            {CHANGELOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    changelog_schema.columns.push_back(create_tablet_column(
+            {CHANGELOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    return changelog_schema;
 }
 
 inline TDescriptorTable create_descriptor_table(
@@ -252,10 +250,9 @@ inline TDescriptorTable create_descriptor_table(
 
 inline std::shared_ptr<OlapTableSchemaParam> create_table_schema_param(
         const TDescriptorTable& tdesc_tbl, int64_t index_id, int32_t schema_hash,
-        const std::vector<TColumn>& columns, int64_t row_binlog_index_id = -1,
-        int32_t row_binlog_schema_hash = 0,
-        const std::vector<TColumn>* row_binlog_columns = nullptr, int64_t db_id = 1,
-        int64_t table_id = 2, int64_t version = 0) {
+        const std::vector<TColumn>& columns, int64_t changelog_index_id = -1,
+        int32_t changelog_schema_hash = 0, const std::vector<TColumn>* changelog_columns = nullptr,
+        int64_t db_id = 1, int64_t table_id = 2, int64_t version = 0) {
     auto param = std::make_shared<OlapTableSchemaParam>();
     TOlapTableSchemaParam tschema;
     tschema.db_id = db_id;
@@ -270,18 +267,18 @@ inline std::shared_ptr<OlapTableSchemaParam> create_table_schema_param(
     for (const auto& col : columns) {
         tschema.indexes[0].columns.push_back(col.column_name);
     }
-    if (row_binlog_index_id > 0) {
-        tschema.indexes[0].__set_row_binlog_id(row_binlog_index_id);
-        TOlapTableIndexSchema row_binlog_index_schema;
-        row_binlog_index_schema.id = row_binlog_index_id;
-        row_binlog_index_schema.schema_hash = row_binlog_schema_hash;
-        if (row_binlog_columns != nullptr) {
-            row_binlog_index_schema.columns_desc = *row_binlog_columns;
-            for (const auto& col : *row_binlog_columns) {
-                row_binlog_index_schema.columns.push_back(col.column_name);
+    if (changelog_index_id > 0) {
+        tschema.indexes[0].__set_changelog_index_id(changelog_index_id);
+        TOlapTableIndexSchema changelog_index_schema;
+        changelog_index_schema.id = changelog_index_id;
+        changelog_index_schema.schema_hash = changelog_schema_hash;
+        if (changelog_columns != nullptr) {
+            changelog_index_schema.columns_desc = *changelog_columns;
+            for (const auto& col : *changelog_columns) {
+                changelog_index_schema.columns.push_back(col.column_name);
             }
         }
-        tschema.__set_row_binlog_index_schemas({row_binlog_index_schema});
+        tschema.__set_changelog_index_schemas({changelog_index_schema});
     }
     Status st = param->init(tschema);
     EXPECT_TRUE(st.ok()) << st;

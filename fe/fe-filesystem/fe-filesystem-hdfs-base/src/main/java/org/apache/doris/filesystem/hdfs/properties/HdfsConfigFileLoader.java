@@ -46,7 +46,8 @@ public final class HdfsConfigFileLoader {
         String dir = configDir == null ? "" : configDir;
         Configuration conf = new Configuration();
         for (String resource : resourcesPath.split(",")) {
-            String path = dir + resource.trim();
+            String resourceName = resource.trim();
+            String path = new File(resourceName).isAbsolute() ? resourceName : dir + resourceName;
             File file = new File(path);
             if (file.exists() && file.isFile()) {
                 conf.addResource(new Path(file.toURI()));

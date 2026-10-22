@@ -20,15 +20,20 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/arena.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "service/http/http_client.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -66,7 +71,7 @@ public:
         _agg_function->set_query_context(_query_ctx.get());
     }
 
-    void TearDown() override {}
+    void TearDown() override { unsetenv("AI_TEST_RESULT"); }
 
 protected:
     std::unique_ptr<MockRuntimeState> _runtime_state;
@@ -516,6 +521,46 @@ TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     _agg_function->destroy(place);
 }
 
+TEST_F(AggregateFunctionAIAggTest, openai_responses_preserves_model_output_as_one_result) {
+    TAIResource ai_resource;
+    ai_resource.provider_type = "OPENAI";
+    ai_resource.model_name = "test_model";
+    ai_resource.endpoint = "https://api.openai.com/v1/responses";
+    _query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"openai_response", ai_resource}});
+
+    const std::vector<std::pair<std::string, std::string>> test_cases = {
+            {R"({"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"[\"north\",\"south\"]"}]}]})",
+             R"(["north","south"])"},
+            {R"({"object":"response","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"[]"}]}]})",
+             "[]"}};
+
+    for (const auto& [response, expected] : test_cases) {
+        setenv("AI_TEST_RESULT", response.c_str(), 1);
+
+        auto resource_col = ColumnString::create();
+        auto text_col = ColumnString::create();
+        auto task_col = ColumnString::create();
+        resource_col->insert_data("openai_response", 15);
+        text_col->insert_data("test input", 10);
+        task_col->insert_data("summarize", 9);
+
+        std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        _agg_function->create(place);
+
+        const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+        _agg_function->add(place, columns, 0, _arena);
+
+        ColumnString result_column;
+        _agg_function->insert_result_into(place, result_column);
+        StringRef result_ref = result_column.get_data_at(0);
+        EXPECT_EQ(std::string(result_ref.data, result_ref.size), expected);
+
+        _agg_function->destroy(place);
+    }
+}
+
 TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
     auto empty_query_ctx = MockQueryContext::create();
     _agg_function->set_query_context(empty_query_ctx.get());
@@ -542,6 +587,50 @@ TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
     }
 
     _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, NullableInputCountsUnionWithoutCountingMerge) {
+    for (bool null_v2 : {false, true}) {
+        AggregateFunctionSimpleFactory factory;
+        register_aggregate_function_ai_agg(factory);
+        auto string_type = std::make_shared<DataTypeString>();
+        auto nullable_type = make_nullable(string_type);
+        auto function = factory.get(
+                "ai_agg", {string_type, nullable_type, nullable_type}, nullable_type, true, -1,
+                {.enable_aggregate_function_null_v2 = null_v2, .column_names = {}});
+        ASSERT_NE(function, nullptr);
+        auto statistics = std::make_shared<AIExecutionStatistics>();
+        function->set_query_context(_query_ctx.get());
+        function->set_ai_statistics(statistics);
+        auto resource = ColumnHelper::create_column<DataTypeString>(
+                std::vector<std::string>(4, "mock_resource"));
+        auto text = ColumnHelper::create_nullable_column<DataTypeString>(
+                {"first", "", "", "last"}, std::vector<UInt8> {0, 1, 1, 0});
+        auto task = ColumnHelper::create_nullable_column<DataTypeString>(
+                std::vector<std::string>(4, "summarize"), std::vector<UInt8> {0, 1, 0, 0});
+        const IColumn* columns[] = {resource.get(), text.get(), task.get()};
+        std::vector<char> place(function->size_of_data());
+        function->create(place.data());
+        function->add_batch_single_place(4, place.data(), columns, _arena);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 2);
+
+        auto serialized = function->create_serialize_column();
+        function->serialize_without_key_to_column(place.data(), *serialized);
+        std::vector<char> merged(function->size_of_data());
+        function->create(merged.data());
+        function->deserialize_and_merge_from_column(merged.data(), *serialized, _arena);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 4);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
+
+        function->reset(place.data());
+        function->add(place.data(), columns, 1, _arena);
+        function->add(place.data(), columns, 3, _arena);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 6);
+        EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+        function->destroy(merged.data());
+        function->destroy(place.data());
+    }
 }
 
 } // namespace doris

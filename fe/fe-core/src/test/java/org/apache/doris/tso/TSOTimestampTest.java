@@ -59,6 +59,31 @@ public class TSOTimestampTest {
     }
 
     @Test
+    public void testComposePhysicalTimestampUsesZeroLogicalCounter() {
+        long physicalTime = 1625097600000L;
+
+        long composed = TSOTimestamp.composePhysicalTimestamp(physicalTime);
+
+        org.junit.jupiter.api.Assertions.assertEquals(physicalTime, TSOTimestamp.extractPhysicalTime(composed));
+        org.junit.jupiter.api.Assertions.assertEquals(0L, TSOTimestamp.extractLogicalCounter(composed));
+    }
+
+    @Test
+    public void testComposePhysicalTimestampRange() {
+        // Signed TSOs reserve 18 low bits for the logical counter.
+        long maxPhysicalTime = (1L << 45) - 1;
+        Assertions.assertEquals(0L, TSOTimestamp.composePhysicalTimestamp(0L));
+        Assertions.assertEquals(Long.MAX_VALUE - TSOTimestamp.MAX_LOGICAL_COUNTER,
+                TSOTimestamp.composePhysicalTimestamp(maxPhysicalTime));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TSOTimestamp.composePhysicalTimestamp(-1L));
+        Assertions.assertThrows(ArithmeticException.class,
+                () -> TSOTimestamp.composePhysicalTimestamp(maxPhysicalTime + 1));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TSOTimestamp.composePhysicalTimestamp(1L << 46));
+    }
+
+    @Test
     public void testBitWidthLimitations() {
         // Test that values are properly masked to fit in their respective bit widths
         long largePhysicalTime = (1L << 46) + 1000L; // Larger than 46 bits
@@ -158,5 +183,29 @@ public class TSOTimestampTest {
     public void testMaxLogicalCounter() {
         // Test the maximum logical counter value
         Assertions.assertEquals((1L << 18) - 1, TSOTimestamp.MAX_LOGICAL_COUNTER);
+    }
+
+    @Test
+    public void testCalculateCutoff() {
+        long referenceTso = TSOTimestamp.composeTimestamp(10_000L, 7L);
+        Assertions.assertEquals(TSOTimestamp.composeRealTso(7_000L, TSOTimestamp.MAX_LOGICAL_COUNTER),
+                TSOTimestamp.calculateCutoff(referenceTso, 3L));
+        Assertions.assertEquals(TSOTimestamp.composeRealTso(10_000L, TSOTimestamp.MAX_LOGICAL_COUNTER),
+                TSOTimestamp.calculateCutoff(referenceTso, 0L));
+        Assertions.assertEquals(0L, TSOTimestamp.calculateCutoff(referenceTso, 11L));
+        Assertions.assertEquals(TSOTimestamp.MAX_REAL_TSO,
+                TSOTimestamp.calculateCutoff(TSOTimestamp.MAX_REAL_TSO, 0L));
+    }
+
+    @Test
+    public void testCalculateCutoffRejectsNonPositiveReferenceTso() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TSOTimestamp.calculateCutoff(0L, 0L));
+    }
+
+    @Test
+    public void testCalculateCutoffRejectsNegativeTtl() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> TSOTimestamp.calculateCutoff(TSOTimestamp.composePhysicalTimestamp(1L), -1L));
     }
 }

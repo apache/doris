@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 import com.google.common.collect.ImmutableList;
@@ -86,6 +88,19 @@ public abstract class IvmAggFunctionProcessor {
     abstract void appendDeltaAggregateOutputs(IvmAggTarget target, Slot dmlFactorSlot, List<NamedExpression> outputs,
             IvmAggExpressionBuilder ctx);
 
+    /**
+     * Appends processor-owned derived (non-aggregate) delta columns on top of the delta aggregate.
+     *
+     * <p>Some processors pack every change row into one aggregate column and then derive the polarity
+     * columns (for example ARRAY_AGG's insert/delete views) with scalar functions over that packed
+     * aggregate output. Such derived columns cannot be aggregate outputs of the same node, so this
+     * hook appends them to the delta top project's output list, where {@code deltaAggOutputByName}
+     * exposes the delta aggregate's own output slots.
+     */
+    void appendDeltaTopProjectOutputs(IvmAggTarget target, Map<String, Slot> deltaAggOutputByName,
+            List<NamedExpression> topOutputs, IvmAggExpressionBuilder ctx) {
+    }
+
     /** Resolves delta output slots and registers the slots that apply expressions will read later. */
     void mapApplyDeltaSlots(IvmAggTarget target, Map<String, Slot> outputByName,
             Map<IvmAggDeltaSlotRef, Slot> applyDeltaSlots, Slot deltaGroupCountSlot, IvmAggExpressionBuilder ctx) {
@@ -111,6 +126,23 @@ public abstract class IvmAggFunctionProcessor {
         return ImmutableList.of();
     }
 
+    /**
+     * Returns true when the visible MV column carries this target's own aggregate value state.
+     *
+     * <p>Apply of such a target merges the old value read from the visible column (SUM, COUNT(expr),
+     * MIN/MAX, COLLECT_LIST/ARRAY_AGG, BITMAP_UNION). Returns false when the old value is derived
+     * from hidden state instead (AVG's SUM/COUNT, BITMAP_UNION_COUNT's bitmap) or from the group
+     * count (COUNT(*)), which are hidden-named columns and always survive to the MV schema.
+     *
+     * <p>The visible column is not guaranteed to survive: an upper expression may consume it without
+     * projecting it (for example {@code SELECT SUM(v) * 100}). Normalize keeps every slot apply reads
+     * alive by materializing a hidden carrier column for such targets
+     * ({@link IvmAggTarget#getValueStateColumnName()}).
+     */
+    boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        return true;
+    }
+
     /** Original aggregate arguments stored in {@link IvmAggTarget}; COUNT(*) stores an empty list. */
     protected List<Expression> targetArguments(AggregateFunction function) {
         return ImmutableList.of(function.child(0));
@@ -125,6 +157,10 @@ public abstract class IvmAggFunctionProcessor {
                 return new Sum(function.child(0));
             case BITMAP_UNION:
                 return new BitmapUnion(function.child(0));
+            case MIN_COUNT:
+                return new CountAtMin(function.child(0));
+            case MAX_COUNT:
+                return new CountAtMax(function.child(0));
             default:
                 throw new IllegalArgumentException("Unsupported IVM aggregate state: " + stateKey);
         }

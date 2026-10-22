@@ -30,13 +30,11 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
@@ -47,7 +45,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
@@ -60,6 +58,7 @@ import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
@@ -72,11 +71,8 @@ import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
-import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlEofPacket;
-import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
@@ -84,12 +80,9 @@ import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
@@ -127,12 +120,12 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.POutfileWriteSuccessRequest;
 import org.apache.doris.proto.InternalService.POutfileWriteSuccessResult;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -156,9 +149,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
-import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TSerializer;
@@ -166,13 +159,16 @@ import org.apache.thrift.TSerializer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -192,7 +188,6 @@ public class StmtExecutor {
     private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private StatementContext statementContext;
-    private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
     // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
@@ -200,18 +195,52 @@ public class StmtExecutor {
     // were actually in effect for this statement. Null when no SET_VAR hint was used.
     private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
+    // Whether this statement's profile is reported: decided once, the first time the profile is
+    // updated (see reportsProfile), and followed by every later update. Read again at the final
+    // update, the session variable may say otherwise -- a SET_VAR hint is reverted when execute()
+    // ends, before an Arrow Flight query is finalized, and a SetSessionOptions action may SET
+    // enable_profile while a deferred query waits -- and the profile published as RUNNING would
+    // never be finished. Null until decided.
+    private volatile Boolean profileEnabled;
 
-    @Setter
     private volatile Coordinator coord = null;
+    // A statement can be cancelled while it is still planning and has no coordinator yet.
+    // Keep this state scoped to the coordinator publication handoff: other execution targets
+    // retain their existing cancellation contracts.
+    private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     private volatile Coordinator externalDmlAuditCoordinator = null;
+    // The coordinator may be cleared after a post-dispatch exception or closed before audit.
+    // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
+    // stale BEs even when audit and query retry run on different threads.
+    private volatile AuditBackendSnapshot dispatchedAuditBackends;
+
+    private static final class AuditBackendSnapshot {
+        private final TUniqueId queryId;
+        private final Set<Long> backendIds;
+
+        private AuditBackendSnapshot(TUniqueId queryId, Set<Long> backendIds) {
+            this.queryId = queryId;
+            this.backendIds = backendIds;
+        }
+    }
+
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
-    // is skipped.
+    // is skipped. From that moment the executor is a closed object (see FlightProtocolAdapter): it
+    // is finalized after the session has moved on -- to a SET of the SetSessionOptions action, to a
+    // metadata request, to the next request -- and possibly from the timeout checker's thread, so
+    // everything finalizing it needs is captured below and nothing of the context is read later.
     private volatile boolean deferredForArrowFlight = false;
     // The execution timeout in effect when the coordinator was deferred. Captured at that moment
     // because per-statement SET_VAR values are reverted at the end of execute(), so reading
     // ConnectContext.getExecTimeoutS() later would report the session value instead.
     private volatile int deferredExecTimeoutS = -1;
+    // The query id and the start time of the deferred query, captured for the same reason: a
+    // statement the session runs before the query is finalized gives the context a new query id
+    // and start time, while the query is unregistered and its profile reported under its own id,
+    // the idle reaper's bound and the profile's times counted from its own start.
+    private volatile TUniqueId deferredQueryId;
+    private volatile long deferredStartTimeMs = -1;
     private MasterOpExecutor masterOpExecutor = null;
     // Optional forward target for cancellations issued on this executor: statements that
     // spawn a nested internal executor with its own query id (e.g. IVM dry-run delta
@@ -231,6 +260,10 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+    // Direct execute() calls finish their own profiles.
+    private boolean isInQueryRetry;
+    // queryRetry must finish the profile.
+    private boolean finishProfileInQueryRetry;
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
@@ -245,13 +278,11 @@ public class StmtExecutor {
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
-        Preconditions.checkState(context.getConnectType().equals(ConnectType.MYSQL));
         this.context = context;
         if (context != null) {
             context.setExecutor(this);
         }
         this.originStmt = originStmt;
-        this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
@@ -277,11 +308,6 @@ public class StmtExecutor {
         this.parsedStmt = parsedStmt;
         this.originStmt = parsedStmt.getOrigStmt();
         this.isComStmtExecute = isComStmtExecute;
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            this.serializer = context.getMysqlChannel().getSerializer();
-        } else {
-            this.serializer = null;
-        }
         this.isProxy = false;
         if (parsedStmt instanceof LogicalPlanAdapter) {
             this.statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
@@ -326,6 +352,9 @@ public class StmtExecutor {
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
+        if (deferredForArrowFlight) {
+            return getDeferredQuerySummaryInfo(currentTimestamp, isFinished);
+        }
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(context.queryId()));
         if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
@@ -341,14 +370,7 @@ public class StmtExecutor {
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            long executionCosts = currentTimestamp - context.getStartTime();
-            // Execution of parser could happen before StmtExecutor is involved.
-            if (getSummaryProfile().parsedByConnectionProcess) {
-                builder.totalTime(DebugUtil.getPrettyStringMs(
-                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
-            } else {
-                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
-            }
+            addTotalTime(builder, currentTimestamp - context.getStartTime());
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -453,6 +475,39 @@ public class StmtExecutor {
         return builder.build();
     }
 
+    /**
+     * The summary of a deferred Arrow Flight query at its finalization. The query was recorded as
+     * RUNNING when it was deferred, from the session as it was then; finished later, it adds only
+     * what ends it. The session may have moved on in between -- to a SET or USE of the
+     * SetSessionOptions action, to a metadata request -- so its current catalog, database, state
+     * and variables are not this query's any more, and what was recorded stays: the summary is
+     * merged by key. The times count from the query's own start, which the context has moved on
+     * from as well.
+     */
+    private Map<String, String> getDeferredQuerySummaryInfo(long currentTimestamp, boolean isFinished) {
+        // A deferred query's profile is updated once more, at its finalization: its RUNNING summary
+        // was taken before it was deferred (updateProfile(false) in executeAndSendResult), and a
+        // deferred executor is never retried.
+        Preconditions.checkState(isFinished, "the summary of a deferred query is taken only when it finishes");
+        SummaryBuilder builder = new SummaryBuilder();
+        builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
+        addTotalTime(builder, currentTimestamp - deferredStartTimeMs);
+        // A query is only deferred once its coordinator has run it (see deferForArrowFlight), and
+        // nothing drops the coordinator afterwards.
+        builder.taskState(coord.getExecStatus().getErrorCode().name());
+        return builder.build();
+    }
+
+    private void addTotalTime(SummaryBuilder builder, long executionCosts) {
+        // Execution of parser could happen before StmtExecutor is involved.
+        if (getSummaryProfile().parsedByConnectionProcess) {
+            builder.totalTime(DebugUtil.getPrettyStringMs(
+                    executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+        } else {
+            builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+        }
+    }
+
     public Planner planner() {
         return planner;
     }
@@ -528,6 +583,29 @@ public class StmtExecutor {
         }
         return externalDmlAuditCoordinator == null
                 ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
+    }
+
+    public Set<Long> getAuditStatisticsBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        AuditBackendSnapshot snapshot = dispatchedAuditBackends;
+        if (snapshot != null && Objects.equals(snapshot.queryId, context.queryId())) {
+            backendIds.addAll(snapshot.backendIds);
+        }
+        if (coord != null) {
+            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        }
+        return backendIds;
+    }
+
+    private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
+        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIdsForAudit();
+        if (!backendIds.isEmpty()) {
+            dispatchedAuditBackends = new AuditBackendSnapshot(context.queryId().deepCopy(),
+                    Set.copyOf(backendIds));
+        }
     }
 
     public ShowResultSet getProxyShowResultSet() {
@@ -629,6 +707,21 @@ public class StmtExecutor {
     }
 
     public void queryRetry(TUniqueId queryId) throws Exception {
+        isInQueryRetry = true;
+        try {
+            executeWithReplanRetries(queryId);
+        } finally {
+            isInQueryRetry = false;
+            // Finish after the last attempt, including planning failures.
+            if (finishProfileInQueryRetry && context.isReturnResultFromLocal()
+                    && profile.getQueryFinishTimestamp() == Long.MAX_VALUE) {
+                updateProfile(true);
+            }
+            finishProfileInQueryRetry = false;
+        }
+    }
+
+    private void executeWithReplanRetries(TUniqueId queryId) throws Exception {
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
@@ -639,6 +732,7 @@ public class StmtExecutor {
             retryTime = ((Queriable) parsedStmt).hasOutFileClause() ? 1 : retryTime;
         }
         for (int i = 1; i <= retryTime; i++) {
+            profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
             try {
                 if (disableCloudVersionCacheOnRetry) {
                     executeWithVersionCacheDisabled(queryId);
@@ -647,6 +741,7 @@ public class StmtExecutor {
                 }
                 return;
             } catch (UserException e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
                     // We have retried internally(in handleQueryWithRetry()) for other kinds of exceptions.
                     // And for error in SystemInfoService.NEED_REPLAN_ERRORS, they are not handled internally but here
@@ -671,7 +766,15 @@ public class StmtExecutor {
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
                 context.getState().reset();
+                if (finishProfileInQueryRetry) {
+                    profile.clearExecutionProfiles();
+                }
+                // Drop the old execution state before replanning.
+                planner = null;
+                setCoord(null);
+                profile.clearPlan();
             } catch (Exception e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 throw e;
             }
         }
@@ -706,35 +809,53 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
         externalDmlAuditCoordinator = null;
-        if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.setReturnResultFromLocal(true);
-        }
+        // Every attempt starts as the statement did. queryRetry() runs this again after a replan
+        // error without going back through the processor's beforeStatement, and the failed attempt
+        // may have moved the result to the backends (beforeQuery) and registered where.
+        context.getProtocolAdapter().beforeAttempt(context);
 
         try {
             try {
                 executeByNereids(queryId);
             } catch (NereidsException | ParseException e) {
-                if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
-                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
-                }
                 // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
+                    profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
                             context.getQueryIdentifier(), e);
                     throw new UserException(e.getMessage());
                 }
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                context.getState().setError(e.getMessage());
+                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Analyze failed. {}",
+                        context.getQueryIdentifier(), e);
+                // Planning wraps the window rejection in NereidsException/AnalysisException.
+                // NereidsException(Exception) keeps its wrapped exception outside Throwable.cause.
+                Throwable cause = e instanceof NereidsException
+                        ? Util.getRootCause(((NereidsException) e).getException()) : e;
+                if (cause instanceof IncrWindowNotReadyException) {
+                    context.getState().setError(((IncrWindowNotReadyException) cause).getMysqlErrorCode(),
+                            e.getMessage());
+                } else {
+                    context.getState().setError(e.getMessage());
+                }
                 return;
             } catch (Exception e) {
-                LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Nereids execute failed. {}",
+                        context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 throw e;
             }
         } finally {
+            if (context.getState().getStateType() == MysqlStateType.ERR) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
+            }
+            if (context.getSessionVariable().enableProfile() && !deferredForArrowFlight) {
+                profile.getSummaryProfile().recordQueryAttempt(context.queryId(),
+                        context.getState().getStateType() == MysqlStateType.ERR);
+            }
             // Preserve the effective per-query compute group before SET_VAR values are reverted.
             // Audit logging runs after this method returns and otherwise sees the session value.
             if (Config.isCloudMode()) {
@@ -751,15 +872,21 @@ public class StmtExecutor {
                             context.getQueryIdentifier(), t);
                 }
             }
+            // Record this attempt before restoring SET_VAR.
+            if (finishProfileInQueryRetry && parsedStmt instanceof LogicalPlanAdapter
+                    && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command
+                    && !DebugUtil.printId(context.queryId()).equals(profile.getId())) {
+                updateProfile(false);
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
-                // origin value init
-                sessionVariable.setIsSingleSetVar(false);
-                sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            } finally {
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
             }
         }
     }
@@ -775,6 +902,21 @@ public class StmtExecutor {
         }
         Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
+    }
+
+    // Whether a scan node of the current plan has ranges the BE could not read again if
+    // handleQueryWithRetry dispatched the same plan once more: released when the failed attempt was
+    // cancelled, or consumed by its reading them (ScanNode.cannotBeRedispatched).
+    private boolean planCannotBeRedispatched() {
+        if (planner == null) {
+            return false;
+        }
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            if (scanNode.cannotBeRedispatched()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
@@ -879,7 +1021,8 @@ public class StmtExecutor {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
+                    ExceptionDiagnosticUtils.log(LOG, Level.DEBUG, "Command({}) process failed.",
+                            getStmtForLogging(originStmt.originStmt), e);
                 }
                 context.setState(e.getQueryState());
                 throw new NereidsException("Command(" + getStmtForLogging(originStmt.originStmt)
@@ -888,7 +1031,8 @@ public class StmtExecutor {
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
+                    ExceptionDiagnosticUtils.log(LOG, Level.DEBUG, "Command({}) process failed.",
+                            getStmtForLogging(originStmt.originStmt), e);
                 }
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
@@ -901,7 +1045,8 @@ public class StmtExecutor {
                         new AnalysisException(e.getMessage(), e));
             } catch (Exception | Error e) {
                 // Maybe our bug
-                LOG.info("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.INFO, "Command({}) process failed.",
+                        getStmtForLogging(originStmt.originStmt), e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
                         + ") process failed.",
@@ -914,6 +1059,15 @@ public class StmtExecutor {
                 // so we need forward the query to master until the meta data is sync with master
                 if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                     throw new UserException("Forward master command is not supported for prepare statement");
+                }
+                if (!context.getProtocolAdapter().canReplayForwardedQueryResult()) {
+                    // The master returns a query result as MySQL wire packets in
+                    // TMasterOpResult.queryResultBufList, which only a MySQL connection can replay to
+                    // its client (MysqlProtocolAdapter.finishCommand). Refuse here, before the RPC,
+                    // rather than let the master build a result set this FE would discard and answer
+                    // the client with a synthesized empty success.
+                    throw new UserException("Forwarding a query to the master FE is not supported on an"
+                            + " Arrow Flight SQL connection. Connect to the master FE to run this query.");
                 }
                 if (isProxy) {
                     // This is already a stmt forwarded from other FE.
@@ -944,7 +1098,8 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Nereids plan query failed:\n{}",
+                        getStmtForLogging(originStmt.originStmt), e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
@@ -1077,11 +1232,24 @@ public class StmtExecutor {
     }
 
     public void finalizeQuery() {
-        // The final profile report occurs after be returns the query data, and the profile cannot be
-        // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
-        // for the profile before unregisterQuery().
-        updateProfile(true);
-        QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+        finalizeQuery(false);
+    }
+
+    void finalizeQuery(boolean willRetry) {
+        if (willRetry) {
+            // Discard the failed attempt; keep the statement open.
+            profile.clearExecutionProfiles();
+        } else {
+            // Update before unregistering to keep the final BE reports.
+            updateProfile(true);
+        }
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
+    }
+
+    // The id this query runs under: the context's, until the query is deferred for Arrow Flight and
+    // the context may move on to another statement before the query is finalized.
+    private TUniqueId queryId() {
+        return deferredForArrowFlight ? deferredQueryId : context.queryId();
     }
 
     public boolean isDeferredForArrowFlight() {
@@ -1093,19 +1261,38 @@ public class StmtExecutor {
         return deferredExecTimeoutS;
     }
 
+    // The query id the deferred query runs under; null when the query is not deferred.
+    public TUniqueId getDeferredQueryId() {
+        return deferredQueryId;
+    }
+
+    // When the deferred query started, in epoch milliseconds; -1 when the query is not deferred.
+    public long getDeferredStartTimeMs() {
+        return deferredStartTimeMs;
+    }
+
     // Keep this query's coordinator alive past GetFlightInfo (see the gate in executeAndSendResult)
     // and hand it to the ConnectContext, which finalizes it later. Records the execution timeout in
     // effect right now: it floors the idle reaper's bound and must be the value the query actually
-    // ran with, not the session value left behind after SET_VAR hints are reverted.
+    // ran with, not the session value left behind after SET_VAR hints are reverted. Records the
+    // query id and the start time for the same reason: a statement the session runs in the meantime
+    // replaces both on the context, and the query is finalized under its own. And settles whether
+    // the profile is reported, decided by now in any case (the RUNNING summary was published just
+    // before) and pinned here so that nothing of finalizing the query is left to be read from the
+    // session later: see the comment on deferredForArrowFlight.
     void deferForArrowFlight() {
         deferredForArrowFlight = true;
         deferredExecTimeoutS = context.getExecTimeoutS();
+        deferredQueryId = context.queryId();
+        deferredStartTimeMs = context.getStartTime();
+        reportsProfile();
         context.addFlightSqlDeferredExecutor(this);
     }
 
     // Finalize an Arrow Flight query whose coordinator was kept alive across the
-    // GetFlightInfo -> DoGet phases: close the coordinator (releasing external-table batch
-    // SplitSources and the query queue slot) and then unregister the query. See #62259.
+    // GetFlightInfo -> DoGet phases: close the coordinator (releasing what its scan nodes held for
+    // the BE - external-table batch SplitSources, a remote Doris scan's Flight SQL session - and
+    // the query queue slot) and then unregister the query. See #62259.
     public void finalizeArrowFlightQuery() {
         try {
             if (coord != null) {
@@ -1121,6 +1308,8 @@ public class StmtExecutor {
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 0; i < retryTime; i++) {
+            boolean willRetry = false;
+            boolean letQueryRetryFinishProfile = false;
             try {
                 // reset query id for each retry
                 if (i > 0) {
@@ -1154,16 +1343,19 @@ public class StmtExecutor {
                         }
                     }
                 }
-                if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-                    context.setReturnResultFromLocal(false);
+                if (i > 0) {
+                    profile.getSummaryProfile().setQueryScheduleStartTime(TimeUtils.getStartTimeMs());
                 }
+                profile.getSummaryProfile().startQueryAttempt(context.queryId(), TimeUtils.getStartTimeMs());
                 handleQueryStmt();
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
                     // throw exception directly to trigger a replan retry outside(in StmtExecutor.queryRetry())
+                    letQueryRetryFinishProfile = isInQueryRetry && e instanceof UserException;
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
@@ -1206,15 +1398,33 @@ public class StmtExecutor {
                         }
                     }
                 }
-                if (i != retryTime - 1 && isNeedRetry
-                        && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
-                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                if (isNeedRetry && planCannotBeRedispatched()) {
+                    // A scan node's ranges cannot be read again: the failed attempt's cancel() released
+                    // what they point at (a remote Doris scan's session on the other frontend, whose
+                    // query the ranges are the endpoints of), or reading them consumed it (an ADBC
+                    // partition, a result stream the failed attempt may have drained). Dispatched again,
+                    // the plan would read nothing, or only what the failed attempt left, and succeed.
+                    LOG.warn("not retrying query {} with the same plan: a scan node's ranges cannot be read"
+                            + " again by the backend. stmt: {}",
+                            DebugUtil.printId(context.queryId()), originStmt.originStmt);
+                    throw e;
+                }
+                if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
+                    LOG.warn("retry {} times. stmt: {}", (i + 1), originStmt.originStmt);
+                    willRetry = true;
                 } else {
                     throw e;
                 }
+            } catch (Exception e) {
+                profile.getSummaryProfile().recordFailedAttempt(context.queryId());
+                throw e;
             } finally {
-                if (context.isReturnResultFromLocal()) {
-                    finalizeQuery();
+                if (letQueryRetryFinishProfile) {
+                    // Unregister now; the outer retry loop will finish the profile.
+                    finishProfileInQueryRetry = true;
+                    QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
+                } else if (context.isReturnResultFromLocal()) {
+                    finalizeQuery(willRetry);
                 }
                 LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
             }
@@ -1306,15 +1516,56 @@ public class StmtExecutor {
         }
     }
 
+    /**
+     * Whether this statement's profile is reported, decided the first time it is asked and the
+     * same ever after (see {@link #profileEnabled}): the update that publishes the profile as
+     * RUNNING and the one that finishes it must agree, whatever the session variable says by then.
+     */
+    private boolean reportsProfile() {
+        Boolean decided = profileEnabled;
+        if (decided == null) {
+            decided = context.getSessionVariable().enableProfile() && isProfileSafeStmt();
+            profileEnabled = decided;
+        }
+        return decided;
+    }
+
     public void updateProfile(boolean isFinished) {
-        if (!context.getSessionVariable().enableProfile() || !isProfileSafeStmt()) {
+        if (!reportsProfile()) {
             return;
         }
         // If any error happened in update profile, we should ignore this error
         // and ensure the sql is finished normally. For example, if update profile
         // failed, the insert stmt should be success
         try {
-            profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
+            if (isFinished && ((coord != null && !coord.getExecStatus().ok())
+                    || (!deferredForArrowFlight && context.getState().getStateType() == MysqlStateType.ERR))) {
+                profile.getSummaryProfile().recordFailedAttempt(queryId());
+            }
+            if (isFinished) {
+                profile.getSummaryProfile().recordQueryAttempt(queryId(), false);
+            }
+            boolean isCommand = parsedStmt instanceof LogicalPlanAdapter
+                    && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command;
+            // Finish command profiles after the outer retry loop.
+            if (isFinished && isInQueryRetry && isCommand) {
+                finishProfileInQueryRetry = true;
+                isFinished = false;
+            }
+            Map<String, String> summaryInfo;
+            if (isFinished && finishProfileInQueryRetry && isCommand
+                    && DebugUtil.printId(context.queryId()).equals(profile.getId())) {
+                // Keep this attempt's settings after SET_VAR is restored.
+                long now = System.currentTimeMillis();
+                SummaryBuilder completion = new SummaryBuilder().endTime(TimeUtils.longToTimeString(now))
+                        .taskState(coord == null ? context.getState().toString()
+                                : coord.getExecStatus().getErrorCode().name());
+                addTotalTime(completion, now - context.getStartTime());
+                summaryInfo = completion.build();
+            } else {
+                summaryInfo = getSummaryInfo(isFinished);
+            }
+            profile.updateSummary(summaryInfo, isFinished, this.planner);
             if (planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
@@ -1339,6 +1590,8 @@ public class StmtExecutor {
     }
 
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         Consumer<Status> delegate = cancelDelegate;
         if (delegate != null) {
             delegate.accept(cancelReason);
@@ -1358,7 +1611,7 @@ public class StmtExecutor {
         }
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel(cancelReason);
+            coordRef.cancel(coordinatorCancelReason);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1367,6 +1620,23 @@ public class StmtExecutor {
             // Wait for the command to run or cancel completion
             cancelableCommand.get().waitNotRunning();
         }
+    }
+
+    public void setCoord(Coordinator coordinator) {
+        coord = coordinator;
+        Status cancelReason = pendingCoordinatorCancelReason.get();
+        if (coordinator != null && cancelReason != null) {
+            coordinator.cancel(cancelReason);
+        }
+    }
+
+    /**
+     * The first terminal status delivered to this executor, or null when it has not been cancelled. Sticky:
+     * a later cancellation never replaces the first one. Used by owners (such as the distributed rewrite
+     * driver) that execute outside the coordinator publication handoff.
+     */
+    public Status getPendingCancelReason() {
+        return pendingCoordinatorCancelReason.get();
     }
 
     public void cancel(Status cancelReason) {
@@ -1388,7 +1658,7 @@ public class StmtExecutor {
     // return true if the meta fields has been sent, otherwise, return false.
     // the meta fields must be sent right before the first batch of data(or eos flag).
     // so if it has data(or eos is true), this method must return true.
-    private boolean sendCachedValues(MysqlChannel channel, List<InternalService.PCacheValue> cacheValues,
+    private boolean sendCachedValues(ResultSender sender, List<InternalService.PCacheValue> cacheValues,
             Queriable selectStmt, boolean isSendFields, boolean isEos)
             throws Exception {
         RowBatch batch = null;
@@ -1407,12 +1677,12 @@ public class StmtExecutor {
             batch.setEos(true);
             if (!isSend) {
                 // send meta fields before sending first data batch.
-                sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
+                sender.sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
                         exprToType(selectStmt.getResultExprs()));
                 isSend = true;
             }
             for (ByteBuffer row : batch.getBatch().getRows()) {
-                channel.sendOnePacket(row);
+                sender.sendRow(row);
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
@@ -1423,7 +1693,7 @@ public class StmtExecutor {
                         ? null : batch.getQueryStatistics().toBuilder();
             }
             if (!isSend) {
-                sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
+                sender.sendFields(selectStmt.getColLabels(), selectStmt.getFieldInfos(),
                         exprToType(selectStmt.getResultExprs()));
                 isSend = true;
             }
@@ -1435,13 +1705,13 @@ public class StmtExecutor {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer) throws Exception {
         // only compute CacheTable, but not get cache from be, because there has a case in nereids planner:
         // `select * from tbl`. the tbl has 2 columns and create cache in be, use the **original sql** as the cache key,
         // and then we add another column to the table, and the cache in be will not remove. if we use the result in be,
         // it will return 2 columns result, but the correct result is 3 columns. so we will not trust the cache in be.
         cacheAnalyzer.getCacheData(false);
-        executeAndSendResult(false, false, (Queriable) parsedStmt, channel, cacheAnalyzer, null);
+        executeAndSendResult(false, false, (Queriable) parsedStmt, context.getResultSender(), cacheAnalyzer, null);
     }
 
     // Process a select statement.
@@ -1451,10 +1721,11 @@ public class StmtExecutor {
                     originStmt.originStmt, DebugUtil.printId(context.queryId));
         }
 
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            // Every time set no send flag and clean all data in buffer
-            context.getMysqlChannel().reset();
-        }
+        ResultSender sender = context.getResultSender();
+        // Each attempt of the query starts from a clean sender: a failed attempt may have left
+        // packets behind that never reached the client (or it would not be retried, see
+        // ProtocolAdapter.canRetryQuery).
+        sender.reset();
 
         Queriable queryStmt = (Queriable) parsedStmt;
 
@@ -1488,24 +1759,20 @@ public class StmtExecutor {
             }
         }
 
-        MysqlChannel channel = null;
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            channel = context.getMysqlChannel();
-        }
+        boolean sqlCacheReplayable = context.getProtocolAdapter().supportsSqlCacheReplay();
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
             if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
-                // sendCachedValues replays MySQL protocol packets, so it needs a MysqlChannel.
-                // ConnectProcessor.executeQuery only looks the sql cache up for a MySQL connection,
-                // so a cached plan must never reach another protocol here.
-                Preconditions.checkState(channel != null,
+                // ConnectProcessor.executeQuery only looks the sql cache up for a connection that
+                // can replay it, so a cached plan must never reach another protocol here.
+                Preconditions.checkState(sqlCacheReplayable,
                         "sql cache can only be replayed on a MySQL connection, but connect type is %s",
                         context.getConnectType());
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
                 PhysicalSqlCache physicalSqlCache = (PhysicalSqlCache) nereidsPlanner.getPhysicalPlan();
-                sendCachedValues(channel, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
+                sendCachedValues(sender, physicalSqlCache.getCacheValues(), logicalPlanAdapter, false, true);
                 return;
             }
         }
@@ -1515,19 +1782,23 @@ public class StmtExecutor {
         // TODO support arrow flight sql
         // NOTE: If you want to add another condition about SessionVariable, please consider whether
         // add to CacheAnalyzer.commonCacheCondition
-        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
+        if (sqlCacheReplayable && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof LogicalPlanAdapter) {
-                handleCacheStmt(cacheAnalyzer, channel);
+                handleCacheStmt(cacheAnalyzer);
                 return;
             }
         }
 
-        executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        executeAndSendResult(isOutfileQuery, false, queryStmt, sender, null, null);
     }
 
+    /**
+     * Runs the planned query and delivers its result through {@code sender}: normally the
+     * session's own, or the caller's when an internal executor streams to another session.
+     */
     public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,
-            Queriable queryStmt, MysqlChannel channel,
+            Queriable queryStmt, ResultSender sender,
             CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -1536,6 +1807,11 @@ public class StmtExecutor {
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
+        //
+        // Where the result goes is the protocol's decision, made now, before the coordinator is
+        // built: relayed by this frontend through the sender, or left on the backends for the
+        // client to pull (context.isReturnResultFromLocal() is false then).
+        context.getProtocolAdapter().beforeQuery(context);
         RowBatch batch;
         CoordInterface coordBase = null;
         if (statementContext.isShortCircuitQuery()) {
@@ -1549,15 +1825,15 @@ public class StmtExecutor {
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            coord = new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator());
+            setCoord(new NereidsCoordinator(context,
+                    (NereidsPlanner) planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
-            coord = EnvFactory.getInstance().createCoordinator(
-                    context, planner, context.getStatsErrorEstimator());
+            setCoord(EnvFactory.getInstance().createCoordinator(
+                    context, planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
@@ -1579,23 +1855,28 @@ public class StmtExecutor {
             profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
-            if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-                Preconditions.checkState(!context.isReturnResultFromLocal());
+            if (!context.isReturnResultFromLocal()) {
                 profile.getSummaryProfile().setTempStartTime();
-                // The client pulls the results from the BE later (DoGet). Only an external-table
-                // scan in batch mode still needs the coordinator after this point: the BE fetches
-                // its splits lazily from the split source the coordinator holds, so closing the
-                // coordinator here would release that source too early and break DoGet (#62259).
-                // Such a coordinator is closed later by ConnectContext: on the session's next
-                // query, on teardown, or by the idle reaper in checkTimeout. The trade-off is that
-                // its query queue slot and query registration stay held until then. Every other
-                // query closes its coordinator in the finally block below and releases both right
-                // away, the BE buffering its results independently of the coordinator (#67503).
-                // A short-circuit point query is the one case with a different coordBase, and it
-                // can no longer reach here: it has no Arrow result on either side, so
-                // LogicalResultSinkToShortCircuitPointQuery keeps Arrow Flight SQL on the normal
-                // execution path (#67368).
-                if (coordBase == coord && coord.hasBatchSplitSource()) {
+                // The client pulls the results from the BE later (Arrow Flight SQL's DoGet). Only a
+                // scan the BE keeps depending on the FE for still needs the coordinator after this
+                // point: an external-table scan in batch mode fetches its splits lazily from the
+                // split source the coordinator holds (#62259), and a remote Doris scan keeps the
+                // Flight SQL session open on the other frontend whose query the BE reads
+                // (RemoteDorisScanNode); closing the coordinator here would release either too early
+                // and break DoGet. Such a coordinator is closed later by ConnectContext: on the
+                // session's next query, on teardown, or by the idle reaper in checkTimeout. The
+                // trade-off is that its query queue slot and query registration stay held until
+                // then. Every other query closes its coordinator in the finally block below and
+                // releases both right away, the BE buffering its results independently of the
+                // coordinator (#67503). A short-circuit point query is the one case with a different
+                // coordBase, and it cannot reach here: it has no Arrow result on either side, so
+                // LogicalResultSinkToShortCircuitPointQuery keeps a Flight session on the normal
+                // execution path (ProtocolAdapter.supportsShortCircuitPointQuery, #67368).
+                if (coordBase == coord && coord.mustOutliveDispatch()) {
+                    // The coordinator outlives this statement, and with it what its scan nodes hold
+                    // for the BE: the statement's own end must not stop them (StatementContext.close
+                    // is the fallback for a plan no coordinator owns), the coordinator's close does.
+                    statementContext.handOverScanNodesToDeferredCoordinator(planner.getScanNodes());
                     deferForArrowFlight();
                 }
                 return;
@@ -1621,18 +1902,18 @@ public class StmtExecutor {
                     // so We need to send fields after first batch arrived
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
-                            sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    getReturnTypes(queryStmt), channel);
+                            sender.sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
+                                    getReturnTypes(queryStmt));
                         } else {
                             if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
                                 outfileWriteSuccess(outFileClause);
                             }
-                            sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES, channel);
+                            sender.sendFields(OutFileClause.RESULT_COL_NAMES, null, OutFileClause.RESULT_COL_TYPES);
                         }
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
-                        channel.sendOnePacket(row);
+                        sender.sendRow(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
@@ -1645,7 +1926,7 @@ public class StmtExecutor {
             if (cacheAnalyzer != null && !isDryRun) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
-                            sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields,
+                            sendCachedValues(sender, cacheResult.getValuesList(), queryStmt, isSendFields,
                                     false);
                 }
 
@@ -1670,14 +1951,14 @@ public class StmtExecutor {
                         List<String> data = Lists.newArrayList(String.valueOf(rows));
                         ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
                                 Collections.singletonList(data));
-                        sendResultSet(resultSet);
+                        sendResultSet(resultSet, null, sender);
                         return;
                     } else {
-                        sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                getReturnTypes(queryStmt), channel);
+                        sender.sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
+                                getReturnTypes(queryStmt));
                     }
                 } else {
-                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES, channel);
+                    sender.sendFields(OutFileClause.RESULT_COL_NAMES, null, OutFileClause.RESULT_COL_TYPES);
                 }
             }
 
@@ -1704,9 +1985,12 @@ public class StmtExecutor {
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
             // set to null so that the retry logic will generate a new coordinator
-            this.coord = null;
+            setCoord(null);
             throw e;
         } finally {
+            if (coordBase instanceof Coordinator) {
+                rememberDispatchedAuditBackends((Coordinator) coordBase);
+            }
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
             // (next query / connection teardown), so the BE can still fetch splits during DoGet.
             // See #62259.
@@ -1838,181 +2122,9 @@ public class StmtExecutor {
         }));
     }
 
-    private void sendMetaData(ResultSetMetaData metaData) throws IOException {
-        sendMetaData(metaData, null);
-    }
-
-    private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // sends how many columns
-        serializer.reset();
-        serializer.writeVInt(metaData.getColumnCount());
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        // send field one by one
-        for (int i = 0; i < metaData.getColumns().size(); i++) {
-            Column col = metaData.getColumn(i);
-            serializer.reset();
-            if (fieldInfos == null) {
-                // TODO(zhaochun): only support varchar type
-                serializer.writeField(col.getName(), col.getType());
-            } else {
-                serializer.writeField(fieldInfos.get(i), col.getType());
-            }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
-        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
-        // EOF packet after column definitions. The client will go directly from column
-        // definitions to reading data rows.
-        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-            serializer.reset();
-            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-            eofPacket.writeTo(serializer);
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
-    }
-
-    private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
-        return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
-    }
-
     public void sendStmtPrepareOK(int stmtId, List<String> labels, List<Slot> output) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
-        serializer.reset();
-        // 0x00 OK
-        serializer.writeInt1(0);
-        // statement_id
-        serializer.writeInt4(stmtId);
-        // num_columns
-        int numColumns = output == null ? 0 : output.size();
-        serializer.writeInt2(numColumns);
-        // num_params
-        int numParams = labels.size();
-        serializer.writeInt2(numParams);
-        // reserved_1
-        serializer.writeInt1(0);
-        if (numParams > 0 || numColumns > 0) {
-            // warning_count
-            serializer.writeInt2(0);
-            // metadata_follows
-            serializer.writeInt1(1);
-        }
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        if (numParams > 0) {
-            // send field one by one
-            // TODO use real type instead of string, for JDBC client it's ok
-            // but for other client, type should be correct
-            // List<PrimitiveType> types = exprToStringType(labels);
-            List<String> colNames = labels;
-            for (int i = 0; i < colNames.size(); ++i) {
-                serializer.reset();
-                // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
-                serializer.writeField(colNames.get(i), Type.STRING);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-            // When CLIENT_DEPRECATE_EOF is set, no EOF/OK packet should be sent after
-            // parameter definitions. The driver knows how many params to expect from the
-            // prepare OK packet and simply stops reading after that count.
-            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                serializer.reset();
-                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                eofPacket.writeTo(serializer);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        if (numColumns > 0) {
-            for (Slot slot : output) {
-                serializer.reset();
-                if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getOriginalColumn().isPresent()
-                        && ((SlotReference) slot).getOriginalTable().isPresent()) {
-                    SlotReference slotReference = (SlotReference) slot;
-                    TableIf table = slotReference.getOriginalTable().get();
-                    Column column = slotReference.getOriginalColumn().get();
-                    DatabaseIf database = table.getDatabase();
-                    String dbName = database == null ? "" : database.getFullName();
-                    serializer.writeField(dbName, table.getName(), column, false);
-                } else {
-                    serializer.writeField(slot.getName(), slot.getDataType().toCatalogDataType());
-                }
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-            // When CLIENT_DEPRECATE_EOF is set, no EOF/OK packet should be sent after
-            // column definitions. The driver knows how many columns to expect from the
-            // prepare OK packet and simply stops reading after that count.
-            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
-                serializer.reset();
-                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-                eofPacket.writeTo(serializer);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        context.getMysqlChannel().flush();
+        MysqlProtocolAdapter.of(context).resultSender(context).sendStmtPrepareOK(stmtId, labels, output);
         context.getState().setNoop();
-    }
-
-    private void sendFields(List<String> colNames, List<Type> types) throws IOException {
-        sendFields(colNames, null, types);
-    }
-
-    private void sendFields(List<String> colNames, List<Type> types, MysqlChannel channel) throws IOException {
-        sendFields(colNames, null, types, channel);
-    }
-
-    private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types) throws
-            IOException {
-        sendFields(colNames, fieldInfos, types, context.getMysqlChannel());
-    }
-
-    private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types,
-            MysqlChannel channel) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
-        // sends how many columns
-        serializer.reset();
-        serializer.writeVInt(colNames.size());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("sendFields {}", colNames);
-        }
-        channel.sendOnePacket(serializer.toByteBuffer());
-        StatementContext statementContext = context.getStatementContext();
-        boolean isShortCircuited = statementContext.isShortCircuitQuery()
-                && statementContext.getShortCircuitQueryContext() != null;
-        ShortCircuitQueryContext ctx = statementContext.getShortCircuitQueryContext();
-        // send field one by one
-        for (int i = 0; i < colNames.size(); ++i) {
-            serializer.reset();
-            if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited) {
-                // Using PreparedStatment pre serializedField to avoid serialize each time
-                // we send a field
-                byte[] serializedField = ctx.getSerializedField(i);
-                if (serializedField == null) {
-                    if (fieldInfos != null) {
-                        serializer.writeField(fieldInfos.get(i), types.get(i));
-                    } else {
-                        serializer.writeField(colNames.get(i), types.get(i));
-                    }
-                    serializedField = serializer.toArray();
-                    ctx.addSerializedField(i, serializedField);
-                }
-                channel.sendOnePacket(ByteBuffer.wrap(serializedField));
-            } else {
-                if (fieldInfos != null) {
-                    serializer.writeField(fieldInfos.get(i), types.get(i));
-                } else {
-                    serializer.writeField(colNames.get(i), types.get(i));
-                }
-                channel.sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
-        // EOF packet after column definitions. The client will go directly from column
-        // definitions to reading data rows.
-        if (!channel.clientDeprecatedEOF()) {
-            serializer.reset();
-            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-            eofPacket.writeTo(serializer);
-            channel.sendOnePacket(serializer.toByteBuffer());
-        }
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {
@@ -2020,120 +2132,19 @@ public class StmtExecutor {
     }
 
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos) throws IOException {
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            context.updateReturnRows(resultSet.getResultRows().size());
-            // Send meta data.
-            sendMetaData(resultSet.getMetaData(), fieldInfos);
-
-            // Send result set.
-            if (isComStmtExecute) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Use binary protocol to set result.");
-                }
-                sendBinaryResultRow(resultSet);
-            } else {
-                sendTextResultRow(resultSet);
-            }
-            context.getState().setEof();
-        } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            context.updateReturnRows(resultSet.getResultRows().size());
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), resultSet);
-            context.getState().setEof();
-        } else {
-            LOG.error("sendResultSet error connect type");
-        }
+        sendResultSet(resultSet, fieldInfos, context.getResultSender());
     }
 
-    protected void sendTextResultRow(ResultSet resultSet) throws IOException {
-        for (List<String> row : resultSet.getResultRows()) {
-            serializer.reset();
-            for (String item : row) {
-                if (item == null || item.equals(FeConstants.null_string)) {
-                    serializer.writeNull();
-                } else {
-                    serializer.writeLenEncodedString(item);
-                }
-            }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
-    }
-
-    protected void sendBinaryResultRow(ResultSet resultSet) throws IOException {
-        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
-        ResultSetMetaData metaData = resultSet.getMetaData();
-        int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
-        for (List<String> row : resultSet.getResultRows()) {
-            serializer.reset();
-            // Reserved one byte.
-            serializer.writeByte((byte) 0x00);
-            byte[] nullBitmap = new byte[nullBitmapLength];
-            // Generate null bitmap
-            for (int i = 0; i < row.size(); i++) {
-                String item = row.get(i);
-                if (item == null || item.equals(FeConstants.null_string)) {
-                    // The first 2 bits are reserved.
-                    int byteIndex = (i + 2) / 8;  // Index of the byte in the bitmap array
-                    int bitInByte = (i + 2) % 8;  // Position within the target byte (0-7)
-                    nullBitmap[byteIndex] |= (1 << bitInByte);
-                }
-            }
-            // Null bitmap
-            serializer.writeBytes(nullBitmap);
-            // Non-null columns
-            for (int i = 0; i < row.size(); i++) {
-                String item = row.get(i);
-                if (item != null && !item.equals(FeConstants.null_string)) {
-                    Column col = metaData.getColumn(i);
-                    switch (col.getType().getPrimitiveType()) {
-                        case BOOLEAN:
-                            serializer.writeInt1(parseBooleanResultValue(item));
-                            break;
-                        case INT:
-                            serializer.writeInt4(Integer.parseInt(item));
-                            break;
-                        case BIGINT:
-                            serializer.writeInt8(Long.parseLong(item));
-                            break;
-                        case DATETIME:
-                        case DATETIMEV2:
-                            DateTimeV2Literal datetime = new DateTimeV2Literal(item);
-                            long microSecond = datetime.getMicroSecond();
-                            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
-                            int length = microSecond == 0 ? 7 : 11;
-                            serializer.writeInt1(length);
-                            serializer.writeInt2((int) (datetime.getYear()));
-                            serializer.writeInt1((int) datetime.getMonth());
-                            serializer.writeInt1((int) datetime.getDay());
-                            serializer.writeInt1((int) datetime.getHour());
-                            serializer.writeInt1((int) datetime.getMinute());
-                            serializer.writeInt1((int) datetime.getSecond());
-                            if (microSecond > 0) {
-                                serializer.writeInt4((int) microSecond);
-                            }
-                            break;
-                        case TIMESTAMP_NS:
-                            // MySQL temporal binary values cannot carry nanoseconds. The metadata advertises
-                            // MYSQL_TYPE_STRING, so encode the result as length-encoded text.
-                            serializer.writeLenEncodedString(item);
-                            break;
-                        default:
-                            serializer.writeLenEncodedString(item);
-                    }
-                }
-            }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-        }
-    }
-
-    private static int parseBooleanResultValue(String item) {
-        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
-            return 1;
-        }
-        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
-            return 0;
-        }
-        throw new IllegalArgumentException("Invalid boolean result value: " + item);
+    /**
+     * Delivers a result set the frontend computed through {@code sender}. Regular statements use
+     * the session's own sender; an internal executor streams to the sender of the session that
+     * issued it, because its own session is not connected to that client.
+     */
+    private void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, ResultSender sender)
+            throws IOException {
+        context.updateReturnRows(resultSet.getResultRows().size());
+        sender.sendResultSet(resultSet, fieldInfos, isComStmtExecute);
+        context.getState().setEof();
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
@@ -2142,18 +2153,10 @@ public class StmtExecutor {
                 .addColumn(new Column("Before", ScalarType.createVarchar(-1)))
                 .addColumn(new Column("After", ScalarType.createVarchar(-1)))
                 .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
-
-            for (PlanProcess row : result) {
-                serializer.reset();
-                serializer.writeLenEncodedString(row.ruleName);
-                serializer.writeLenEncodedString(row.beforeShape);
-                serializer.writeLenEncodedString(row.afterShape);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        }
-        context.getState().setEof();
+        List<List<String>> rows = result.stream()
+                .map(row -> Lists.newArrayList(row.ruleName, row.beforeShape, row.afterShape))
+                .collect(Collectors.toList());
+        sendResultSet(new ShowResultSet(metaData, rows));
     }
 
     public void handleExplainStmt(String result, boolean isNereids) throws IOException {
@@ -2161,43 +2164,13 @@ public class StmtExecutor {
                 .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
                         ScalarType.createVarchar(20)))
                 .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
-
-            // Send result set.
-            for (String item : result.split("\n")) {
-                serializer.reset();
-                serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
-            context.setReturnResultFromLocal(true);
-        }
-        context.getState().setEof();
+        sendResultSet(new ShowResultSet(metaData, oneColumnPerLine(result)));
     }
 
-    public void handleReplayStmt(String result) throws IOException {
-        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("Plan Replayer dump url",
-                        ScalarType.createVarchar(20)))
-                .build();
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            sendMetaData(metaData);
-
-            // Send result set.
-            for (String item : result.split("\n")) {
-                serializer.reset();
-                serializer.writeLenEncodedString(item);
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
-            }
-        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            context.getFlightSqlChannel()
-                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
-            context.setReturnResultFromLocal(true);
-        }
-        context.getState().setEof();
+    private static List<List<String>> oneColumnPerLine(String text) {
+        return Arrays.stream(text.split("\n"))
+                .map(line -> Lists.newArrayList(line))
+                .collect(Collectors.toList());
     }
 
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
@@ -2239,7 +2212,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
+        // Proxy parsing creates a new context. Use the context marked as the prepare stage
+        // by PrepareCommand, rather than the one allocated before parsing in the constructor.
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(context.getStatementContext());
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
         return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
@@ -2258,20 +2233,21 @@ public class StmtExecutor {
 
     /**
      * Execute a pre-built logical plan adapter as a read-only query and stream each result
-     * batch to the given mysql channel, without collecting them in FE memory.
+     * batch through the given sender, without collecting them in FE memory. The sender is the
+     * calling session's: this executor's own session is not connected to any client.
      */
-    public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, MysqlChannel channel) throws Exception {
-        executeInternalQueryCommon(adapter, channel);
+    public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, ResultSender sender) throws Exception {
+        executeInternalQueryCommon(adapter, sender);
     }
 
     /**
      * Common internal query lifecycle. When {@code prebuilt} is non-null the plan is already
      * constructed (e.g. IVM dry-run delta) and the usual parse step is skipped. When
-     * {@code sendChannel} is non-null, rows are streamed to that channel via
+     * {@code sendTo} is non-null, rows are streamed through that sender via
      * {@link #executeAndSendResult}; otherwise they are collected into a {@code List<ResultRow>}.
      */
     private List<ResultRow> executeInternalQueryCommon(LogicalPlanAdapter prebuilt,
-            MysqlChannel sendChannel) throws Exception {
+            ResultSender sendTo) throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
         if (originStmt != null && originStmt.originStmt != null) {
@@ -2282,7 +2258,7 @@ public class StmtExecutor {
         context.getState().setInternal(true);
 
         LogicalPlanAdapter adapter;
-        boolean collectMode = (sendChannel == null);
+        boolean collectMode = (sendTo == null);
         try {
             if (prebuilt != null) {
                 setParsedStmt(prebuilt);
@@ -2297,8 +2273,33 @@ public class StmtExecutor {
             planner = new NereidsPlanner(statementContext);
             planner.plan(adapter, context.getSessionVariable().toThrift());
 
+            // A plan that FE can compute on its own (e.g. the empty delta of a dry run) must be
+            // answered by the frontend, like a regular query does. Otherwise the coordinator
+            // would send fragments to the placeholder backend registered when no backend is
+            // needed (see NereidsPlanner#notNeedBackend), which cannot resolve. Results go through
+            // the caller's sender: the executor's own session is not connected to that client.
+            if (context.supportHandleByFe()) {
+                Optional<ResultSet> resultSet = planner.handleQueryInFe(adapter);
+                if (resultSet.isPresent()) {
+                    boolean sendToChannel = !collectMode;
+                    if (sendToChannel) {
+                        sendResultSet(resultSet.get(), adapter.getFieldInfos(), sendTo);
+                    }
+                    isHandleQueryInFe = true;
+                    if (context.getSessionVariable().enableProfile() && profile != null) {
+                        profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                    if (sendToChannel) {
+                        return new ArrayList<>();
+                    }
+                    return resultSet.get().getResultRows().stream()
+                            .map(ResultRow::new)
+                            .collect(Collectors.toList());
+                }
+            }
+
             if (!collectMode) {
-                executeAndSendResult(false, false, adapter, sendChannel, null, null);
+                executeAndSendResult(false, false, adapter, sendTo, null, null);
                 return new ArrayList<>();
             }
 
@@ -2306,8 +2307,8 @@ public class StmtExecutor {
             if (Config.enable_collect_internal_query_profile) {
                 context.getSessionVariable().enableProfile = true;
             }
-            coord = EnvFactory.getInstance().createCoordinator(context,
-                    planner, context.getStatsErrorEstimator());
+            setCoord(EnvFactory.getInstance().createCoordinator(context,
+                    planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
@@ -2452,9 +2453,6 @@ public class StmtExecutor {
                 sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
                 return generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
-                if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
-                    MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
-                }
                 // try to fall back to legacy planner
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("nereids cannot process statement\n{}\n because of {}",
@@ -2471,12 +2469,12 @@ public class StmtExecutor {
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
-                // origin value init
-                sessionVariable.setIsSingleSetVar(false);
-                sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
                 LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            } finally {
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
             }
         }
     }
@@ -2562,17 +2560,15 @@ public class StmtExecutor {
         }
     }
 
-    public List<ByteBuffer> getProxyQueryResultBufList() {
-        return ((ProxyMysqlChannel) context.getMysqlChannel()).getProxyResultBufferList();
-    }
-
     public void sendProxyQueryResult() throws IOException {
         if (masterOpExecutor == null) {
             return;
         }
+        masterOpExecutor.prepareQueryResultForClient();
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
+        ResultSender sender = context.getResultSender();
         for (ByteBuffer byteBuffer : queryResultBufList) {
-            context.getMysqlChannel().sendOnePacket(byteBuffer);
+            sender.sendRow(byteBuffer);
         }
     }
 

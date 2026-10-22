@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_partition_baseline_rebuild", "nonConcurrent") {
+suite("test_ivm_partition_baseline_rebuild") {
     def tableName = "ivm_part_rebuild_t"
     def mvName = "ivm_part_rebuild_mv"
 
@@ -36,9 +36,8 @@ suite("test_ivm_partition_baseline_rebuild", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """INSERT INTO ${tableName} VALUES

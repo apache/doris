@@ -51,17 +51,16 @@ public class Column implements GsonPostProcessable {
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
-    public static final String IVM_HIDDEN_COLUMN_PREFIX = "__DORIS_IVM_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
-    public static final String IVM_ROW_ID_COL = "__DORIS_IVM_ROW_ID_COL__";
-    public static final String IVM_AGG_COUNT_COL = "__DORIS_IVM_AGG_COUNT_COL__";
-    public static final String IVM_DML_FACTOR_COL = "__DORIS_IVM_DML_FACTOR_COL__";
-    public static final String IVM_BASE_OP_COL = "__DORIS_IVM_BASE_OP_COL__";
-    public static final String IVM_DELTA_GROUP_COUNT_COL = "__DORIS_IVM_DELTA_GROUP_COUNT_COL__";
+    public static final String IVM_HIDDEN_COLUMN_PREFIX = HIDDEN_COLUMN_PREFIX + "IVM_";
+    public static final String IVM_ROW_ID_COL = IVM_HIDDEN_COLUMN_PREFIX + "ROW_ID_COL__";
+    public static final String IVM_AGG_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "AGG_COUNT_COL__";
+    public static final String IVM_DML_FACTOR_COL = IVM_HIDDEN_COLUMN_PREFIX + "DML_FACTOR_COL__";
+    public static final String IVM_DELTA_GROUP_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "DELTA_GROUP_COUNT_COL__";
     // Prefix for sink-level IVM identity key hidden columns (__DORIS_IVM_KEY_).
     public static final String IVM_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "KEY_";
     // Prefix for union arm-index columns (__DORIS_IVM_UNION_ARM_INDEX_).
@@ -76,7 +75,7 @@ public class Column implements GsonPostProcessable {
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
-    // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
+    // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with changelog enabled.
     public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
     public static final String ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
     // table stream columns
@@ -88,7 +87,7 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
-    public static final int BINLOG_LSN_AUTO_INC_ID = -1;
+    public static final int CHANGELOG_LSN_AUTO_INC_ID = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
     public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
@@ -98,19 +97,29 @@ public class Column implements GsonPostProcessable {
     public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
             new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, true, null, false);
 
-    // columns for binlog schema
+    // columns for changelog schema
     // explicit columns
-    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
-    public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
+    // ATTN(changelog-rename): formerly "__DORIS_BINLOG_TSO__"
+    public static final String CHANGELOG_TSO_COL = "__DORIS_CHANGELOG_TSO__";
+    // ATTN(changelog-rename): formerly "__DORIS_BINLOG_LSN__"
+    public static final String CHANGELOG_LSN_COL = "__DORIS_CHANGELOG_LSN__";
     // implicit columns
-    public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
-    public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
+    // ATTN(changelog-rename): formerly "__DORIS_BINLOG_OP__"
+    public static final String CHANGELOG_OP_COL = "__DORIS_CHANGELOG_OP__";
+    // Before-image column of <col> is named CHANGELOG_BEFORE_PREFIX + <col> + "__". The prefix starts with
+    // HIDDEN_COLUMN_PREFIX, which a user column can not take, so no user column looks like a before column.
+    // ATTN(changelog-rename): formerly "__BEFORE__" (before column "__BEFORE__<col>__")
+    public static final String CHANGELOG_BEFORE_PREFIX = "__DORIS_CHANGELOG_BEFORE_";
 
     public static String generateBeforeColName(String colName) {
-        return BINLOG_BEFORE_PREFIX + colName + "__";
+        return CHANGELOG_BEFORE_PREFIX + colName + "__";
     }
 
-    public static Column generateRowBinlogKeyColumn(Column column) {
+    public static boolean isChangelogBeforeColumn(String colName) {
+        return colName.startsWith(CHANGELOG_BEFORE_PREFIX);
+    }
+
+    public static Column generateChangelogKeyColumn(Column column) {
         Column keyColumn = new Column(column);
         keyColumn.setComment("key (" + column.getName() + ")");
         return keyColumn;
@@ -175,6 +184,7 @@ public class Column implements GsonPostProcessable {
     // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
     // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
     private transient String connectorDefaultValueSql;
+    private transient Type connectorStringWriteType;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -301,7 +311,6 @@ public class Column implements GsonPostProcessable {
                 false, null, null,  Sets.newHashSet(), null);
     }
 
-
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible, int colUniqueId) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, null, colUniqueId, null,
@@ -409,6 +418,7 @@ public class Column implements GsonPostProcessable {
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
         this.connectorDefaultValueSql = column.connectorDefaultValueSql;
+        this.connectorStringWriteType = column.connectorStringWriteType;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
@@ -561,13 +571,14 @@ public class Column implements GsonPostProcessable {
     // string/varchar/char/variant
     // date/datetime/datev2/datetimev2
     // decimal/decimal32/decimal64/decimal128I/decimal256
-    // ipv4/ipv6
+    // ipv4/ipv6/uuid
     public boolean isSupportBloomFilter() {
         PrimitiveType pType = getDataType();
         return (pType ==  PrimitiveType.SMALLINT || pType == PrimitiveType.INT
                 || pType == PrimitiveType.BIGINT || pType == PrimitiveType.LARGEINT)
                 || pType.isCharFamily() || pType.isDateLikeType() || pType.isVariantType()
-                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType();
+                || pType.isDecimalV2Type() || pType.isDecimalV3Type() || pType.isIPType()
+                || pType.isUuidType();
     }
 
     public PrimitiveType getDataType() {
@@ -678,6 +689,14 @@ public class Column implements GsonPostProcessable {
         } else {
             return "'" + defaultValue.replace("'", "''") + "'";
         }
+    }
+
+    public Type getConnectorStringWriteType() {
+        return connectorStringWriteType;
+    }
+
+    public void setConnectorStringWriteType(Type connectorStringWriteType) {
+        this.connectorStringWriteType = connectorStringWriteType;
     }
 
     public String getConnectorDefaultValueSql() {
@@ -886,13 +905,18 @@ public class Column implements GsonPostProcessable {
     }
 
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
+        return toSql(isUniqueTable, isCompatible, false);
+    }
+
+    /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
         }
@@ -901,7 +925,8 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExprSql()).append(")");
+            sb.append(" AS (").append(useGeneratedColumnPlaceholder ? "NULL" : generatedColumnInfo.getExprSql())
+                    .append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");

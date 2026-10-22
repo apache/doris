@@ -20,7 +20,6 @@ suite("test_timestamp_ns_cast", "nonConcurrent") {
     sql "set enable_sql_cache = false"
     sql "set enable_strict_cast = false"
     setFeConfigTemporary([
-            enable_variant_v2: true,
             disable_datev1: false,
             disable_decimalv2: false
     ]) {

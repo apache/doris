@@ -63,6 +63,9 @@ public:
     // Outputs a string representation with timezone information in the format +03:00
     std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
 
+    // Caller is responsible for ensuring that buffer has enough space.
+    int to_buffer(char* buffer, const cctz::time_zone& local_time_zone, int scale = 6) const;
+
     // Parses a string, CastParameters can control whether strict mode is used
     bool from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
                      CastParameters& params, uint32_t to_scale);

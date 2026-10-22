@@ -22,12 +22,11 @@ import org.apache.doris.catalog.MTMV;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
@@ -61,28 +60,6 @@ public class MTMVRefreshSnapshot {
         return partitionSnapshot.getPctSnapshot(pctTableInfo).keySet();
     }
 
-    public Optional<Set<String>> getMvPartitionNames(BaseTableInfo pctTableInfo,
-            Map<String, Long> pctPartitions) {
-        Set<String> matchedPctPartitions = new HashSet<>();
-        Set<String> mvPartitionNames = new HashSet<>();
-        for (Map.Entry<String, MTMVRefreshPartitionSnapshot> entry : partitionSnapshots.entrySet()) {
-            Map<String, MTMVSnapshotIf> pctSnapshots = entry.getValue().getPcts().get(pctTableInfo);
-            if (pctSnapshots == null) {
-                continue;
-            }
-            for (Map.Entry<String, Long> pctPartition : pctPartitions.entrySet()) {
-                MTMVSnapshotIf snapshot = pctSnapshots.get(pctPartition.getKey());
-                if (snapshot instanceof MTMVVersionSnapshot
-                        && ((MTMVVersionSnapshot) snapshot).getId() == pctPartition.getValue()) {
-                    matchedPctPartitions.add(pctPartition.getKey());
-                    mvPartitionNames.add(entry.getKey());
-                }
-            }
-        }
-        return matchedPctPartitions.size() == pctPartitions.size()
-                ? Optional.of(mvPartitionNames) : Optional.empty();
-    }
-
     public boolean equalsWithBaseTable(String mtmvPartitionName, BaseTableInfo tableInfo,
             MTMVSnapshotIf baseTableCurrentSnapshot) {
         MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
@@ -108,6 +85,17 @@ public class MTMVRefreshSnapshot {
                 iterator.remove();
             }
         }
+    }
+
+    /**
+     * Drops these MV partitions' snapshots. An invalidated partition must not be able to back a
+     * transparent rewrite until it has been rebuilt: what it holds is exactly what the rebuild replaces.
+     */
+    public void removeSnapshots(Set<String> mvPartitionNames) {
+        if (CollectionUtils.isEmpty(mvPartitionNames)) {
+            return;
+        }
+        partitionSnapshots.keySet().removeAll(mvPartitionNames);
     }
 
     public Map<String, MTMVRefreshPartitionSnapshot> getPartitionSnapshots() {

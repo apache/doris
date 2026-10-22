@@ -41,8 +41,8 @@
 #include "core/extended_types.h"
 #include "io/io_common.h"
 #include "storage/field_type.h"
-#include "storage/index/inverted/inverted_index_stats.h"
-#include "storage/index/snii/snii_query_stats.h"
+#include "storage/index/inverted/common/inverted_index_stats.h"
+#include "storage/index/inverted/common/snii_query_stats.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset_id.h"
@@ -55,13 +55,22 @@ using SchemaHash = int32_t;
 
 using TabletUid = UniqueId;
 
-enum CompactionType {
+enum class CompactionType {
     BASE_COMPACTION = 1,
     CUMULATIVE_COMPACTION = 2,
     FULL_COMPACTION = 3,
-    // Only used by scheduler to route row-binlog tablets to the binlog thread pool.
-    CUMU_BINLOG_COMPACTION = 4
+    // Only used by scheduler to route changelog tablets to the changelog thread pool.
+    CHANGELOG_COMPACTION = 4
 };
+
+inline constexpr CompactionType BASE_COMPACTION = CompactionType::BASE_COMPACTION;
+inline constexpr CompactionType CUMULATIVE_COMPACTION = CompactionType::CUMULATIVE_COMPACTION;
+inline constexpr CompactionType FULL_COMPACTION = CompactionType::FULL_COMPACTION;
+inline constexpr CompactionType CHANGELOG_COMPACTION = CompactionType::CHANGELOG_COMPACTION;
+
+inline std::ostream& operator<<(std::ostream& os, CompactionType type) {
+    return os << static_cast<int>(type);
+}
 
 struct CompactionScoreStats {
     int64_t max_score = 0;
@@ -70,7 +79,7 @@ struct CompactionScoreStats {
     bool scanned = false;
 };
 
-enum DataDirType {
+enum class DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,
     DATA_CACHE_DIR,
@@ -328,6 +337,16 @@ struct OlapReaderStatistics {
     // Pushed-down conjuncts skipped (never index-evaluated) because the row
     // bitmap was already empty when their turn came.
     int64_t inverted_index_conjuncts_short_circuited = 0;
+    // Rows pruned by the approximate (gram) index: rows removed when the candidate bitmap is
+    // intersected with _row_bitmap.
+    int64_t rows_gram_index_filtered = 0;
+    // Candidate rows produced by the approximate (gram) index: rows that still need expression
+    // re-verification after the intersection.
+    int64_t gram_index_candidate_rows = 0;
+    // Query nodes the gram index's cost gate widened to the whole segment rather than read. A
+    // non-zero count is why the two numbers above can show an index that eliminated nothing: it
+    // was not consulted for those nodes, by a cost decision rather than because no gram matched.
+    int64_t gram_index_gate_gave_up = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
     // See snii_query_stats.h: one field here instead of one per SNII counter.
@@ -369,6 +388,8 @@ struct OlapReaderStatistics {
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
+    // number of condition cache lookups, including misses
+    int64_t condition_cache_lookup_count = 0;
     // number of segment with condition cache hit
     int64_t condition_cache_hit_seg_nums = 0;
     // number of rows filtered by condition cache hit

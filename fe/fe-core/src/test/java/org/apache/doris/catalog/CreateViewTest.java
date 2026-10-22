@@ -17,17 +17,23 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class CreateViewTest extends TestWithFeService {
 
@@ -46,6 +52,36 @@ public class CreateViewTest extends TestWithFeService {
         NereidsParser nereidsParser = new NereidsParser();
         AlterViewCommand command = (AlterViewCommand) nereidsParser.parseSingle(sql);
         command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    @Test
+    public void testChangelogTtlViewAnalysis() throws Exception {
+        boolean originalEnableChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
+        try {
+            // @incr resolves its window through the TSO, which the TSO daemon calibrates only after the switch is on.
+            Awaitility.await().atMost(30, TimeUnit.SECONDS)
+                    .until(() -> Env.getCurrentTSOService().getStatusSnapshot().isInitialized());
+            createTable("create table test.view_ttl_base(k int, v int) duplicate key(k)"
+                    + " distributed by hash(k) buckets 1 properties('replication_num'='1',"
+                    + " 'changelog.enable'='true', 'changelog.ttl_seconds'='60')");
+            createView("create view test.view_ttl as select k, v"
+                    + " from test.view_ttl_base@incr('incrementType'='DETAIL')");
+            Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl")
+                    .contains("OlapScanNode"));
+
+            createView("create view test.view_ttl_alter as select k from test.view_ttl_base");
+            alterView("alter view test.view_ttl_alter as with changes as (select k, v"
+                    + " from test.view_ttl_base@incr('incrementType'='DETAIL')) select k, v from changes");
+            Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl_alter")
+                    .contains("OlapScanNode"));
+
+            createView("create view test.view_ttl_nested as select * from test.view_ttl");
+            Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl_nested")
+                    .contains("OlapScanNode"));
+        } finally {
+            Config.enable_feature_changelog = originalEnableChangelog;
+        }
     }
 
     @Test
@@ -123,6 +159,25 @@ public class CreateViewTest extends TestWithFeService {
         Assertions.assertEquals(2, view8.getFullSchema().size());
         Assertions.assertNotNull(view8.getColumn("id"));
         Assertions.assertNotNull(view8.getColumn("c_array"));
+    }
+
+    @Test
+    public void testViewCommentDdlRoundTrip() throws Exception {
+        createView("create view test.view_comment_round_trip comment \"O'Reilly\" as select 1 as c");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View originalView = (View) db.getTableOrDdlException("view_comment_round_trip");
+        List<String> createViewStmts = new ArrayList<>();
+        Env.getDdlStmt(originalView, createViewStmts, null, null, false, true, -1L);
+
+        String exportedDdl = createViewStmts.get(0);
+        Assertions.assertTrue(exportedDdl.contains(" COMMENT \"O'Reilly\""));
+        String copiedDdl = exportedDdl.replace("CREATE VIEW `view_comment_round_trip`",
+                "CREATE VIEW test.`view_comment_round_trip_copy`");
+        createView(copiedDdl);
+
+        View copiedView = (View) db.getTableOrDdlException("view_comment_round_trip_copy");
+        Assertions.assertEquals(originalView.getComment(), copiedView.getComment());
     }
 
     @Test
@@ -214,11 +269,9 @@ public class CreateViewTest extends TestWithFeService {
     }
 
     @Test
-    public void testViewRejectVarbinary() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(
-                org.apache.doris.common.AnalysisException.class,
-                "View does not support VARBINARY type: vb",
-                () -> createView("create view test.vb_view as select X'AB' as vb;"));
+    public void testViewPreservesVarbinary() throws Exception {
+        createView("create view test.vb_view as select X'AB' as vb;");
+        PlanChecker.from(connectContext).analyze("select * from test.vb_view").rewrite();
     }
 
     @Test

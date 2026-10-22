@@ -48,6 +48,7 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -96,26 +97,27 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     bool is_lower_key_included = _keys_param.start_key_include;
     bool is_upper_key_included = _keys_param.end_key_include;
 
+    DORIS_CHECK_EQ(_keys_param.start_keys.size(), _keys_param.end_keys.size());
     for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
-        // lower bound
-        RowCursor& start_key = _keys_param.start_keys[i];
-        RowCursor& end_key = _keys_param.end_keys[i];
-
-        if (!is_lower_key_included) {
-            if (compare_row_key(start_key, end_key) >= 0) {
-                VLOG_NOTICE << "return EOF when lower key not include"
-                            << ", start_key=" << start_key.to_string()
-                            << ", end_key=" << end_key.to_string();
-                eof = true;
-                break;
-            }
-        } else {
-            if (compare_row_key(start_key, end_key) > 0) {
-                VLOG_NOTICE << "return EOF when lower key include="
-                            << ", start_key=" << start_key.to_string()
-                            << ", end_key=" << end_key.to_string();
-                eof = true;
-                break;
+        const auto& start_key = _keys_param.start_keys[i];
+        const auto& end_key = _keys_param.end_keys[i];
+        if (start_key.has_value() && end_key.has_value()) {
+            if (!is_lower_key_included) {
+                if (compare_row_key(*start_key, *end_key) >= 0) {
+                    VLOG_NOTICE << "return EOF when lower key not include"
+                                << ", start_key=" << start_key->to_string()
+                                << ", end_key=" << end_key->to_string();
+                    eof = true;
+                    break;
+                }
+            } else {
+                if (compare_row_key(*start_key, *end_key) > 0) {
+                    VLOG_NOTICE << "return EOF when lower key include="
+                                << ", start_key=" << start_key->to_string()
+                                << ", end_key=" << end_key->to_string();
+                    eof = true;
+                    break;
+                }
             }
         }
 
@@ -156,14 +158,14 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     _reader_context.reader_type = read_params.reader_type;
-    _reader_context.read_row_binlog = read_params.read_row_binlog;
+    _reader_context.read_changelog = read_params.read_changelog;
     _reader_context.version = read_params.version;
-    _reader_context.tablet_schema = _tablet_schema;
+    _reader_context.variant_compaction_paths = read_params.variant_compaction_paths;
     _reader_context.need_ordered_result = need_ordered_result || read_params.force_key_ordered_read;
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.use_insert_order_when_same =
-            read_params.use_insert_order_when_same || read_params.read_row_binlog;
+            read_params.use_insert_order_when_same || read_params.read_changelog;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.read_schema = _read_schema;
     _reader_context.read_orderby_key_columns =
@@ -183,14 +185,13 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.enable_mor_value_predicate_pushdown =
             read_params.enable_mor_value_predicate_pushdown;
-    _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.extra_columns = read_params.extra_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
-    _reader_context.ttl_seconds = _tablet->ttl_seconds();
+    _reader_context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     _reader_context.score_runtime = read_params.score_runtime;
     _reader_context.collection_statistics = read_params.collection_statistics;
 
@@ -224,6 +225,16 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
     _read_schema = read_params.read_schema;
+    // A changelog read finds the TSO column by name: a singleton rowset stores a NULL placeholder
+    // there, and only a column named CHANGELOG_TSO_COL is given the rowset's commit TSO instead.
+    // Example: a changelog tablet whose hidden columns were named by another build. Its reads
+    // would return NULL TSOs and lose the TSO merge order, and a compaction would write those
+    // NULLs into its output for good, so both fail here.
+    if ((_tablet->is_changelog_tablet() || read_params.read_changelog) &&
+        _tablet_schema->changelog_tso_col_idx() < 0) {
+        return Status::InternalError<false>("changelog tablet {} has no {} column in its schema",
+                                            _tablet->tablet_id(), CHANGELOG_TSO_COL);
+    }
     _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
@@ -250,6 +261,11 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
 Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_keys_param_timer_ns);
+    if (read_params.start_key.size() != read_params.end_key.size()) {
+        return Status::Error<INVALID_ARGUMENT>(
+                "The number of start keys does not equal the number of end keys: {} vs {}",
+                read_params.start_key.size(), read_params.end_key.size());
+    }
     if (read_params.start_key.empty()) {
         return Status::OK();
     }
@@ -258,10 +274,16 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     _keys_param.end_key_include = read_params.end_key_include;
 
     size_t start_key_size = read_params.start_key.size();
-    //_keys_param.start_keys.resize(start_key_size);
-    std::vector<RowCursor>(start_key_size).swap(_keys_param.start_keys);
+    std::vector<std::optional<RowCursor>>(start_key_size).swap(_keys_param.start_keys);
 
-    size_t scan_key_size = read_params.start_key.front().size();
+    const OlapTuple* first_key =
+            read_params.start_key.front().has_value() ? &*read_params.start_key.front()
+            : read_params.end_key.front().has_value() ? &*read_params.end_key.front()
+                                                      : nullptr;
+    if (first_key == nullptr) {
+        return Status::Error<INVALID_ARGUMENT>("A key range must have at least one bound");
+    }
+    size_t scan_key_size = first_key->size();
     if (scan_key_size > _tablet_schema->num_columns()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "Input param are invalid. Column count is bigger than num_columns of schema. "
@@ -270,13 +292,17 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     }
 
     for (size_t i = 0; i < start_key_size; ++i) {
-        if (read_params.start_key[i].size() != scan_key_size) {
+        if (!read_params.start_key[i].has_value()) {
+            continue;
+        }
+        if (read_params.start_key[i]->size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
                     "The start_key.at({}).size={}, not equals the scan_key_size={}", i,
-                    read_params.start_key[i].size(), scan_key_size);
+                    read_params.start_key[i]->size(), scan_key_size);
         }
 
-        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
+        auto& start_key = _keys_param.start_keys[i].emplace();
+        Status res = start_key.init(_tablet_schema, *read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -284,19 +310,28 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     }
 
     size_t end_key_size = read_params.end_key.size();
-    //_keys_param.end_keys.resize(end_key_size);
-    std::vector<RowCursor>(end_key_size).swap(_keys_param.end_keys);
+    std::vector<std::optional<RowCursor>>(end_key_size).swap(_keys_param.end_keys);
     for (size_t i = 0; i < end_key_size; ++i) {
-        if (read_params.end_key[i].size() != scan_key_size) {
+        if (!read_params.end_key[i].has_value()) {
+            continue;
+        }
+        if (read_params.end_key[i]->size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
                     "The end_key.at({}).size={}, not equals the scan_key_size={}", i,
-                    read_params.end_key[i].size(), scan_key_size);
+                    read_params.end_key[i]->size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
+        auto& end_key = _keys_param.end_keys[i].emplace();
+        Status res = end_key.init(_tablet_schema, *read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
+        }
+    }
+
+    for (size_t i = 0; i < start_key_size; ++i) {
+        if (!_keys_param.start_keys[i].has_value() && !_keys_param.end_keys[i].has_value()) {
+            return Status::Error<INVALID_ARGUMENT>("Key range {} has no bounds", i);
         }
     }
 
@@ -354,6 +389,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
         }
     }
 
+    // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
+    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
+                "enable_unique_key_merge_on_write={}, read_orderby_key_num_prefix_columns={}",
+                _tablet_schema->keys_type(), _tablet->enable_unique_key_merge_on_write(),
+                read_params.read_orderby_key_num_prefix_columns);
+    }
+
     return Status::OK();
 }
 
@@ -368,7 +413,8 @@ Status TabletReader::_init_column_predicates(const ReaderParams& read_params) {
         }
         const auto& col = *_read_schema->column(predicate->column_id());
         const auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
-        if (tablet_index && config::enable_query_like_bloom_filter) {
+        if (tablet_index && config::enable_query_like_bloom_filter &&
+            predicate->can_do_bloom_filter(true)) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
             std::string pattern = predicate->get_search_str();
             auto gram_bf_size = tablet_index->get_gram_bf_size();

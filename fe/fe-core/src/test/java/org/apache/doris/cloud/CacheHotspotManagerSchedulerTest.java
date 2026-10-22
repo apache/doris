@@ -21,10 +21,10 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ public class CacheHotspotManagerSchedulerTest {
     private ThreadPoolExecutor executor;
     private CacheHotspotManager manager;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalRunningUnitTest = FeConstants.runningUnitTest;
         originalMaxActiveCloudWarmUpJob = Config.max_active_cloud_warm_up_job;
@@ -52,7 +52,7 @@ public class CacheHotspotManagerSchedulerTest {
         manager = new CacheHotspotManager(Mockito.mock(CloudSystemInfoService.class), executor);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         FeConstants.runningUnitTest = originalRunningUnitTest;
         Config.max_active_cloud_warm_up_job = originalMaxActiveCloudWarmUpJob;
@@ -76,7 +76,7 @@ public class CacheHotspotManagerSchedulerTest {
         manager.runCloudWarmUpJob();
         manager.runCloudWarmUpJob();
 
-        Assert.assertEquals(Arrays.asList(4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), runOrder);
+        Assertions.assertEquals(Arrays.asList(4L, 1L, 2L, 3L, 4L, 1L, 2L, 3L), runOrder);
     }
 
     @Test
@@ -92,11 +92,11 @@ public class CacheHotspotManagerSchedulerTest {
 
         manager.runCloudWarmUpJob();
         manager.runCloudWarmUpJob();
-        Assert.assertEquals(1, submittedTasks.size());
+        Assertions.assertEquals(1, submittedTasks.size());
 
         submittedTasks.get(0).run();
         manager.runCloudWarmUpJob();
-        Assert.assertEquals(2, submittedTasks.size());
+        Assertions.assertEquals(2, submittedTasks.size());
         submittedTasks.get(1).run();
         Mockito.verify(job, Mockito.times(2)).run();
     }
@@ -119,7 +119,7 @@ public class CacheHotspotManagerSchedulerTest {
         Mockito.verify(job, Mockito.never()).run();
         manager.runCloudWarmUpJob();
 
-        Assert.assertEquals(2, submitCount.get());
+        Assertions.assertEquals(2, submitCount.get());
         Mockito.verify(job, Mockito.times(1)).run();
     }
 

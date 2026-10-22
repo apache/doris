@@ -58,16 +58,11 @@ public class MysqlOkPacket extends MysqlPacket {
             // TODO(zhaochun): STATUS_FLAGS
             // if ((STATUS_FLAGS & MysqlStatusFlag.SERVER_SESSION_STATE_CHANGED) != 0) {
             // }
-        } else {
-            // Always write the info field as a length-encoded string.
-            // When CLIENT_DEPRECATE_EOF is negotiated, the driver's OkPacket.parse()
-            // unconditionally reads STRING_LENENC for info, so an empty string must
-            // still be written (as a single 0x00 byte representing length 0).
-            if (Strings.isNullOrEmpty(infoMessage)) {
-                serializer.writeVInt(0);
-            } else {
-                serializer.writeLenEncodedString(infoMessage);
-            }
+        } else if (!Strings.isNullOrEmpty(infoMessage)) {
+            serializer.writeLenEncodedString(infoMessage);
+        } else if (capability.isDeprecatedEOF()) {
+            // Connector/J parses the info field for CLIENT_DEPRECATE_EOF even when it is empty.
+            serializer.writeVInt(0);
         }
     }
 }

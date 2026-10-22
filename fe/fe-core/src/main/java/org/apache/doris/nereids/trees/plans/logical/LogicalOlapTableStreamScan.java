@@ -150,20 +150,20 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < baseSchema.size(); i++) {
-            // skip binlog before column
+            // skip changelog before column
             final int index = i;
             Column col = baseSchema.get(i);
-            if (col.getName().startsWith(Column.BINLOG_BEFORE_PREFIX)) {
+            if (Column.isChangelogBeforeColumn(col.getName())) {
                 continue;
             }
             // Keep visible columns, and IVM row-id / row lsn during IVM rewrite.
             // Skip all other hidden columns. For reset, we could use get full schema of
             // base table; otherwise, we only need to get the schema without hidden columns.
             // DUP detail tables always carry __DORIS_ROW_LSN_COL__ (added at create time when
-            // row binlog is enabled); IVM needs it as the stable row identity. RESET/SNAPSHOT
+            // changelog is enabled); IVM needs it as the stable row identity. RESET/SNAPSHOT
             // stream scans are expanded from the base table olap scan, which carries the row
-            // lsn column directly. INCREMENTAL stream scans are expanded from the row-binlog
-            // (which carries the value as __DORIS_BINLOG_LSN__), so they expose the stream lsn
+            // lsn column directly. INCREMENTAL stream scans are expanded from the changelog
+            // (which carries the value as __DORIS_CHANGELOG_LSN__), so they expose the stream lsn
             // virtual column instead; the IVM delta rewrite maps it back to the row lsn slot.
             boolean ivmRewriteColumn = ivmRewriteEnabled
                     && (Column.IVM_ROW_ID_COL.equals(col.getName())
@@ -173,10 +173,10 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                 continue;
             }
             Pair<Long, String> key = Pair.of(selectedIndexId, col.getName());
-            // INCREMENTAL reads materialize value columns from the base table row-binlog whose
+            // INCREMENTAL reads materialize value columns from the base table changelog whose
             // after/before value columns are always nullable (see Column.generateAfterValueColumn /
             // generateBeforeValueColumn). SNAPSHOT reads scan the base table directly (DUP tables;
-            // MOW normal partitions) but may also rebuild partitions from binlog, so declaring
+            // MOW normal partitions) but may also rebuild partitions from changelog, so declaring
             // every non-RESET value column nullable is a safe widening that keeps the stream scan
             // output consistent with the plan expanded in NormalizeOlapTableStreamScan; otherwise
             // AdjustNullable reports a not-nullable -> nullable conflict. RESET does a full
@@ -204,7 +204,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             // add stream exclusive virtual columns.
             slots.add(SlotReference.fromColumn(
                     exprIdGenerator.getNextId(), table, Column.STREAM_SEQ_VIRTUAL_COLUMN, qualified()));
-            // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+            // Only expose stream LSN when the base table stores row LSN, e.g. dup table with changelog.
             if (table instanceof OlapTable && ((OlapTable) table).hasRowLsnColumn()) {
                 slots.add(SlotReference.fromColumn(
                         exprIdGenerator.getNextId(), table, Column.STREAM_LSN_VIRTUAL_COLUMN, qualified()));
@@ -315,7 +315,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
      */
     @Override
     public LogicalOlapTableStreamScan withSelectedPartitionIds(List<Long> selectedPartitionIdsd) {
-        return withSelectedPartitionIds(selectedPartitionIdsd, false);
+        return withSelectedPartitionIds(selectedPartitionIdsd, hasPartitionPredicate);
     }
 
     /**
@@ -445,9 +445,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     public LogicalOlapTableStreamScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        LogicalProperties logicalProperties = getLogicalProperties();
-        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        List<Slot> output = outputWithVirtualColumns(virtualColumns);
         LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
