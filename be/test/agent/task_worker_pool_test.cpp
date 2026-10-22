@@ -151,11 +151,11 @@ TEST(TaskWorkerPoolTest, CloudOwnerRefreshUsesEpochAndOldSenderOnlyInvalidates) 
     EXPECT_EQ(tablet->last_active_time_ms(), 100);
     EXPECT_EQ(tablet->last_active_epoch(), 5);
 
-    tablet->last_sync_time_s = 123;
+    tablet->last_sync_rowsets_time_s = 123;
     refresh_owner("cluster_without_epoch", 300, {});
     EXPECT_EQ(tablet->last_active_cluster_id(), "cluster_b");
     EXPECT_EQ(tablet->last_active_epoch(), 5);
-    EXPECT_EQ(tablet->last_sync_time_s, 0);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 0);
 }
 
 TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
