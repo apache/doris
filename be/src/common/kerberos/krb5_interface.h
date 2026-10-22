@@ -35,7 +35,6 @@ public:
     virtual Status parse_name(krb5_context context, const char* name,
                               krb5_principal* principal) = 0;
     virtual Status kt_resolve(krb5_context context, const char* name, krb5_keytab* keytab) = 0;
-    virtual const char* cc_default_name(krb5_context context) = 0;
     virtual Status cc_resolve(krb5_context context, const char* name, krb5_ccache* ccache) = 0;
     virtual Status get_init_creds_opt_alloc(krb5_context context,
                                             krb5_get_init_creds_opt** opt) = 0;

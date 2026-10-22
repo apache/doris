@@ -60,8 +60,7 @@ public:
 
     // Get the ticket cache object. This is used by HdfsHandler to hold a reference
     std::shared_ptr<KerberosTicketCache> get_ticket_cache(const std::string& principal,
-                                                          const std::string& keytab_path,
-                                                          bool use_default_cache = false);
+                                                          const std::string& keytab_path);
 
     // Get detailed information about all active Kerberos ticket caches
     std::vector<KerberosTicketInfo> get_krb_ticket_cache_info();

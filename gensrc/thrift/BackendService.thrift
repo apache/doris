@@ -129,7 +129,6 @@ const set<string> KAFKA_ALLOWED_PROPERTIES = [
 // These data files must be registered through CREATE FILE, never raw BE paths.
 const set<string> KAFKA_FILE_PROPERTIES = [
     "https.ca.location",
-    "sasl.kerberos.keytab",
     "ssl.ca.location",
     "ssl.certificate.location",
     "ssl.crl.location",

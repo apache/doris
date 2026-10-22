@@ -17,7 +17,6 @@
 
 #include "common/kerberos/kerberos_ticket_cache.h"
 
-#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -37,9 +36,7 @@ KerberosTicketCache::KerberosTicketCache(const KerberosConfig& config, const std
 KerberosTicketCache::~KerberosTicketCache() {
     stop_periodic_refresh();
     _cleanup_context();
-    // The default cache belongs to the process/deployment and may still be in
-    // use by Kafka or another client after this refresh worker is released.
-    if (!_config.use_default_cache() && std::filesystem::exists(_ticket_cache_path)) {
+    if (std::filesystem::exists(_ticket_cache_path)) {
         std::filesystem::remove(_ticket_cache_path);
     }
     LOG(INFO) << "destroy kerberos ticket cache " << _ticket_cache_path
@@ -48,8 +45,8 @@ KerberosTicketCache::~KerberosTicketCache() {
 
 Status KerberosTicketCache::initialize() {
     std::lock_guard<std::mutex> lock(_mutex);
-    RETURN_IF_ERROR(_initialize_context());
-    Status st = _init_ticket_cache_path();
+    RETURN_IF_ERROR(_init_ticket_cache_path());
+    Status st = _initialize_context();
     LOG(INFO) << "initialized kerberos ticket cache " << _ticket_cache_path
               << " with principal: " << _config.get_principal()
               << " and keytab: " << _config.get_keytab_path() << ": " << st.to_string();
@@ -57,16 +54,6 @@ Status KerberosTicketCache::initialize() {
 }
 
 Status KerberosTicketCache::_init_ticket_cache_path() {
-    if (_config.use_default_cache()) {
-        // Honor operator-selected KRB5CCNAME/krb5.conf defaults without changing
-        // the process environment. Preserve the cache type prefix (FILE:, etc.).
-        const char* name = _krb5_interface->cc_default_name(_context);
-        if (name == nullptr) {
-            return Status::InternalError("Failed to resolve default Kerberos credential cache");
-        }
-        _ticket_cache_path = name;
-        return Status::OK();
-    }
     std::string cache_file_md5 = "doris_krb_" + _config.get_hash_code();
 
     // The path should be with prefix "_ccache_root_dir"
@@ -103,15 +90,6 @@ Status KerberosTicketCache::_init_ticket_cache_path() {
 
 Status KerberosTicketCache::login() {
     std::lock_guard<std::mutex> lock(_mutex);
-
-    // Like librdkafka's old kinit lock, serialize writers to the shared default
-    // cache. This prevents interleaved initialize/store operations; it does not
-    // provide identity isolation when different jobs use the same default cache.
-    static std::mutex default_cache_login_mutex;
-    std::unique_lock<std::mutex> default_cache_lock(default_cache_login_mutex, std::defer_lock);
-    if (_config.use_default_cache()) {
-        default_cache_lock.lock();
-    }
 
     krb5_keytab keytab = nullptr;
     krb5_ccache temp_ccache = nullptr;
@@ -222,38 +200,23 @@ Status KerberosTicketCache::refresh_tickets() {
     }
 }
 
-std::chrono::milliseconds KerberosTicketCache::get_refresh_interval() {
-    std::lock_guard<std::mutex> lock(_mutex);
-    std::chrono::milliseconds interval =
-            std::chrono::seconds(std::max<int64_t>(1, _config.get_refresh_interval_second()));
-    if (_ticket_lifetime_sec > 0) {
-        interval = std::min(interval, std::chrono::milliseconds(_ticket_lifetime_sec * 500));
-    }
-    return interval;
-}
-
 void KerberosTicketCache::start_periodic_refresh() {
     _should_stop_refresh = false;
     _refresh_thread = std::make_unique<std::thread>([this]() {
-        auto refresh_interval = get_refresh_interval();
-        auto next_refresh = std::chrono::steady_clock::now() + refresh_interval;
+        auto refresh_interval = std::chrono::milliseconds(
+                static_cast<int>(_config.get_refresh_interval_second() * 1000));
+        auto sleep_duration = _refresh_thread_sleep_time;
+        std::chrono::milliseconds accumulated_time(0);
         while (!_should_stop_refresh) {
-            // Short-lived tickets must not wait for the default five-second poll.
-            auto sleep_duration = std::min(_refresh_thread_sleep_time, refresh_interval);
             std::this_thread::sleep_for(sleep_duration);
-            if (_should_stop_refresh) {
-                break;
-            }
-            // Use elapsed clock time: a delayed worker must not treat a long
-            // scheduler stall as only one polling interval.
-            if (std::chrono::steady_clock::now() >= next_refresh) {
+            accumulated_time += sleep_duration;
+            if (accumulated_time >= refresh_interval) {
+                accumulated_time = std::chrono::milliseconds(0); // Reset accumulated time
                 Status st = refresh_tickets();
                 if (!st.ok()) {
-                    // Keep the refresh due: retry on the next poll after a KDC outage.
+                    // ignore and continue
                     LOG(WARNING) << st.to_string();
                 } else {
-                    refresh_interval = get_refresh_interval();
-                    next_refresh = std::chrono::steady_clock::now() + refresh_interval;
                     LOG(INFO) << "refresh kerberos ticket cache: " << _ticket_cache_path
                               << ", lifetime sec: " << _ticket_lifetime_sec;
                 }

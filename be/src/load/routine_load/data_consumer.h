@@ -44,10 +44,6 @@
 
 namespace doris {
 
-namespace kerberos {
-class KerberosTicketCache;
-}
-
 template <typename T>
 class BlockingQueue;
 
@@ -179,9 +175,6 @@ private:
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
-
-    // Held until after _k_consumer closes its connections in the destructor.
-    std::shared_ptr<kerberos::KerberosTicketCache> _kerberos_ticket_cache;
 
     // AWS MSK IAM authentication callback (must outlive _k_consumer)
     std::unique_ptr<AwsMskIamOAuthCallback> _aws_msk_oauth_callback;

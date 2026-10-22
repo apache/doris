@@ -18,7 +18,6 @@
 #pragma once
 
 #include <map>
-#include <memory>
 #include <string>
 
 namespace RdKafka {
@@ -27,20 +26,9 @@ class Conf;
 
 namespace doris {
 class Status;
-namespace kerberos {
-class KerberosTicketCache;
-class KerberosTicketMgr;
-} // namespace kerberos
 
 // Validate the entire map before applying any user properties, then disable
 // librdkafka's shell-based Kerberos ticket acquisition and renewal.
 Status configure_kafka_security(RdKafka::Conf& conf,
                                 const std::map<std::string, std::string>& properties);
-// keytab_path must already have been resolved by SmallFileMgr. Keep the returned
-// refresh worker alive until the Kafka consumer is destroyed. Tickets are written
-// to the process default cache, preserving the existing shared-cache semantics.
-Status configure_kafka_kerberos(RdKafka::Conf& conf, const std::string& principal,
-                                const std::string& keytab_path,
-                                kerberos::KerberosTicketMgr& manager,
-                                std::shared_ptr<kerberos::KerberosTicketCache>* ticket_cache);
 } // namespace doris

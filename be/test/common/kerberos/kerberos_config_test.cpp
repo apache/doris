@@ -57,16 +57,4 @@ TEST_F(KerberosConfigTest, SetterAndGetter) {
     EXPECT_EQ(config.get_min_time_before_refresh_second(), 800);
 }
 
-TEST_F(KerberosConfigTest, DefaultCacheModeHasSeparateManagerKey) {
-    KerberosConfig config;
-    config.set_principal_and_keytab("user@REALM", "/managed/keytab");
-    EXPECT_FALSE(config.use_default_cache());
-    const auto private_key = config.get_hash_code();
-    EXPECT_EQ(private_key, KerberosConfig::get_hash_code("user@REALM", "/managed/keytab"));
-    config.set_use_default_cache(true);
-    EXPECT_NE(private_key, config.get_hash_code());
-    EXPECT_EQ(config.get_hash_code(),
-              KerberosConfig::get_hash_code("user@REALM", "/managed/keytab", true));
-}
-
 } // namespace doris::kerberos

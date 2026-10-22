@@ -36,7 +36,6 @@ public:
     MOCK_METHOD(Status, init_context, (krb5_context*), (override));
     MOCK_METHOD(Status, parse_name, (krb5_context, const char*, krb5_principal*), (override));
     MOCK_METHOD(Status, kt_resolve, (krb5_context, const char*, krb5_keytab*), (override));
-    MOCK_METHOD(const char*, cc_default_name, (krb5_context), (override));
     MOCK_METHOD(Status, cc_resolve, (krb5_context, const char*, krb5_ccache*), (override));
     MOCK_METHOD(Status, get_init_creds_opt_alloc, (krb5_context, krb5_get_init_creds_opt**),
                 (override));
@@ -92,15 +91,6 @@ protected:
         }
     }
 
-    void ResetForDefaultCache() {
-        _cache.reset();
-        _config.set_use_default_cache(true);
-        auto mock = std::make_unique<testing::StrictMock<MockKrb5Interface>>();
-        _mock_krb5_ptr = mock.get();
-        _cache =
-                std::make_unique<KerberosTicketCache>(_config, _test_dir.string(), std::move(mock));
-    }
-
     // Helper function to set up basic expectations for initialization
     void SetupBasicInitExpectations() {
         EXPECT_CALL(*_mock_krb5_ptr, init_context(_)).WillOnce(testing::Return(Status::OK()));
@@ -116,30 +106,20 @@ protected:
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    void ExpectForLogin(const std::string& cache_path, int lifetime_seconds = 3600) {
+    void ExpectForLogin(const std::string& cache_path) {
         // Setup expectations for login
         EXPECT_CALL(*_mock_krb5_ptr, kt_resolve(_, _, _)).WillOnce(testing::Return(Status::OK()));
-        EXPECT_CALL(*_mock_krb5_ptr, cc_resolve(_, testing::StrEq(cache_path), _))
-                .WillOnce(testing::Return(Status::OK()));
+        EXPECT_CALL(*_mock_krb5_ptr, cc_resolve(_, _, _)).WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, get_init_creds_opt_alloc(_, _))
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, get_init_creds_keytab(_, _, _, _, _, _, _))
-                .WillOnce(
-                        testing::Invoke([lifetime_seconds](krb5_context, krb5_creds* creds,
-                                                           krb5_principal, krb5_keytab, krb5_deltat,
-                                                           const char*, krb5_get_init_creds_opt*) {
-                            creds->times.starttime = 100;
-                            creds->times.endtime = 100 + lifetime_seconds;
-                            return Status::OK();
-                        }));
+                .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, cc_initialize(_, _, _))
                 .WillOnce(testing::Return(Status::OK()));
         EXPECT_CALL(*_mock_krb5_ptr, cc_store_cred(_, _, _))
                 .WillOnce(testing::DoAll(
                         testing::Invoke([this, cache_path](krb5_context, krb5_ccache, krb5_creds*) {
-                            SimulateTicketCacheFileUpdate(cache_path.starts_with("FILE:")
-                                                                  ? cache_path.substr(5)
-                                                                  : cache_path);
+                            SimulateTicketCacheFileUpdate(cache_path);
                             return Status::OK();
                         })));
 
@@ -226,53 +206,6 @@ TEST_F(KerberosTicketCacheTest, RefreshTickets) {
     // Verify that the cache file has been updated
     auto new_write_time = GetFileLastWriteTime(cache_path);
     ASSERT_GT(new_write_time, initial_write_time);
-}
-
-TEST_F(KerberosTicketCacheTest, DefaultCacheIsUsedForLoginAndRefreshAndNotDeleted) {
-    const auto file = (_test_dir / "operator-cache").string();
-    for (const auto* prefix : {"", "FILE:"}) {
-        ResetForDefaultCache();
-        std::ofstream(file) << "existing tickets";
-        const std::string name = prefix + file;
-        SetupBasicInitExpectations();
-        EXPECT_CALL(*_mock_krb5_ptr, cc_default_name(_)).WillOnce(testing::Return(name.c_str()));
-        ASSERT_TRUE(_cache->initialize().ok());
-        EXPECT_EQ(name, _cache->get_ticket_cache_path());
-        // Initialization must not remove an operator-owned default cache.
-        std::ifstream input(file);
-        std::string contents;
-        std::getline(input, contents);
-        EXPECT_EQ("existing tickets", contents);
-        input.close();
-        ExpectForLogin(name);
-        ASSERT_TRUE(_cache->login().ok());
-        ExpectForLogin(name);
-        ASSERT_TRUE(_cache->refresh_tickets().ok());
-        _cache.reset();
-        EXPECT_TRUE(std::filesystem::exists(file));
-    }
-}
-
-TEST_F(KerberosTicketCacheTest, DefaultCacheResolutionFailureIsReported) {
-    ResetForDefaultCache();
-    SetupBasicInitExpectations();
-    EXPECT_CALL(*_mock_krb5_ptr, cc_default_name(_)).WillOnce(testing::Return(nullptr));
-    EXPECT_FALSE(_cache->initialize().ok());
-}
-
-TEST_F(KerberosTicketCacheTest, RefreshIntervalTracksTicketLifetime) {
-    SetupBasicInitExpectations();
-    ASSERT_TRUE(_cache->initialize().ok());
-    EXPECT_EQ(std::chrono::seconds(2), _cache->get_refresh_interval());
-    ExpectForLogin(_cache->get_ticket_cache_path(), 2);
-    ASSERT_TRUE(_cache->login().ok());
-    EXPECT_EQ(std::chrono::seconds(1), _cache->get_refresh_interval());
-    ExpectForLogin(_cache->get_ticket_cache_path(), 1);
-    ASSERT_TRUE(_cache->login().ok());
-    EXPECT_EQ(std::chrono::milliseconds(500), _cache->get_refresh_interval());
-    ExpectForLogin(_cache->get_ticket_cache_path(), 3600);
-    ASSERT_TRUE(_cache->login().ok());
-    EXPECT_EQ(std::chrono::seconds(2), _cache->get_refresh_interval());
 }
 
 TEST_F(KerberosTicketCacheTest, PeriodicRefresh) {

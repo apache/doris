@@ -121,7 +121,6 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         RETURN_IF_ERROR(set_conf("debug", config::kafka_debug));
     }
 
-    std::string kerberos_keytab_path;
     for (auto& item : ctx->kafka_info->properties) {
         _custom_properties.emplace(item.first, item.second);
 
@@ -147,22 +146,10 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
                 return Status::InternalError("PAUSE: failed to get file for config: {}, error: {}",
                                              item.first, st.to_string());
             }
-            if (item.first == "sasl.kerberos.keytab") {
-                // The keytab is consumed by libkrb5, never by a shell command.
-                kerberos_keytab_path = std::move(file_path);
-            } else {
-                RETURN_IF_ERROR(set_conf(item.first, file_path));
-            }
+            RETURN_IF_ERROR(set_conf(item.first, file_path));
         } else {
             RETURN_IF_ERROR(set_conf(item.first, item.second));
         }
-    }
-
-    if (!kerberos_keytab_path.empty()) {
-        RETURN_IF_ERROR(configure_kafka_kerberos(
-                *conf, ctx->kafka_info->properties.at("sasl.kerberos.principal"),
-                kerberos_keytab_path, *ctx->exec_env()->kerberos_ticket_mgr(),
-                &_kerberos_ticket_cache));
     }
 
     // if not specified group id, generate a random one.
