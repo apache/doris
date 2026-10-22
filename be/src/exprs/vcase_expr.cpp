@@ -29,6 +29,7 @@
 #include "core/column/column.h"
 #include "core/column/column_execute_util.h"
 #include "core/custom_allocator.h"
+#include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
@@ -64,7 +65,9 @@ constexpr size_t simple_case_lookup_threshold() {
 template <PrimitiveType PType>
 struct SimpleCaseLookupState {
     using Key = typename ColumnElementView<PType>::ElementType;
-    using Hash = std::conditional_t<PType == TYPE_STRING, StringRefHash, phmap::Hash<Key>>;
+    using Hash = std::conditional_t<
+            is_string_type(PType), StringRefHash,
+            std::conditional_t<is_decimal(PType), HashCRC32<Key>, phmap::Hash<Key>>>;
 
     // StringRef keys borrow storage from the expression's VLiteral children.
     doris::flat_hash_map<Key, uint16_t, Hash> table;
