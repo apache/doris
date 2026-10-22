@@ -76,15 +76,15 @@ suite("test_iceberg_show_nullable", "p0,external") {
     assertTrue(ddl.contains("`event_time` datetimev2(6) NULL"), ddl)
     order_qt_select """select * from iceberg_show_nullable"""
 
-    // Only the metadata view is NOT NULL; the columns are read as nullable, and a write still enforces
-    // the declared constraint.
+    // Columns are read as nullable, but the Iceberg validator rejects required NULLs before
+    // format-specific writers run.
     test {
         sql """insert into iceberg_show_nullable values (null, 'bad', '2026-01-02 00:00:00')"""
-        exception "Column 'id' is declared non-nullable but contains nulls"
+        exception "Iceberg required field 'id' contains NULL"
     }
     test {
         sql """insert into iceberg_show_nullable values (3, null, '2026-01-02 00:00:00')"""
-        exception "Column 'value' is declared non-nullable but contains nulls"
+        exception "Iceberg required field 'value' contains NULL"
     }
 
     // Relaxing the constraint is reflected without a new data snapshot.
@@ -99,6 +99,6 @@ suite("test_iceberg_show_nullable", "p0,external") {
     order_qt_select_after_alter """select * from iceberg_show_nullable"""
     test {
         sql """insert into iceberg_show_nullable values (null, 'still required', null)"""
-        exception "Column 'id' is declared non-nullable but contains nulls"
+        exception "Iceberg required field 'id' contains NULL"
     }
 }

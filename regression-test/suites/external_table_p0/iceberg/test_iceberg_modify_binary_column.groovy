@@ -86,19 +86,20 @@ suite("test_iceberg_modify_binary_column", "p0,external,iceberg,external_docker,
     sql """set show_column_comment_in_describe = true"""
     // DESC preserves Iceberg requiredness: digest is non-nullable until the ALTER below.
     qt_desc_before """DESC ${tableName}"""
-    // The required column, ARRAY element and MAP value reject NULL.
+    // The Iceberg validator rejects required NULLs before format-specific writers run and
+    // reports full field paths for ARRAY elements and MAP values.
     test {
         sql """INSERT INTO ${tableName} VALUES (2, X'03', NULL, NULL, NULL, NULL)"""
-        exception "Column 'digest' is declared non-nullable"
+        exception "Iceberg required field 'digest' contains NULL"
     }
     test {
         sql """INSERT INTO ${tableName} VALUES (2, X'03', X'00112233445566778899AABBCCDDEEFF', NULL, [NULL], NULL)"""
-        exception "Column 'element' is declared non-nullable"
+        exception "Iceberg required field 'arr.element' contains NULL"
     }
     test {
         sql """INSERT INTO ${tableName} VALUES (2, X'03', X'00112233445566778899AABBCCDDEEFF', NULL, NULL,
                 map('k', NULL))"""
-        exception "Column 'value' is declared non-nullable"
+        exception "Iceberg required field 'm.value' contains NULL"
     }
 
     // Each statement restates the type DESC shows, to change the position, nullability or comment.
