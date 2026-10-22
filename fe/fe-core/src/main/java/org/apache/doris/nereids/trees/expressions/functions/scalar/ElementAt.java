@@ -123,6 +123,9 @@ public class ElementAt extends ScalarFunction
             if (!(getArgument(1) instanceof StringLikeLiteral)) {
                 throw new AnalysisException("element_at over FILE requires a constant public field name");
             }
+            if (((StringLikeLiteral) getArgument(1)).getStringValue().equalsIgnoreCase("inline")) {
+                throw new AnalysisException("ELEMENT_AT does not support the FILE inline field; use FL_GET_BINARY");
+            }
         }
     }
 
