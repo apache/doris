@@ -74,10 +74,10 @@ public class HboDeleteStaleStatisticsCommand extends Command {
                     + ": " + olderThanSeconds);
         }
         long olderThanMillis = olderThanSeconds == null ? -1 : olderThanSeconds * 1000;
-        int removed = Env.getCurrentEnv().getHboPlanStatisticsManager()
+        int[] outcome = Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .deleteStalePinnedPlanStatistics(olderThanMillis);
-        LOG.info("HBO DELETE STALE STATISTICS removed {} pinned entries (olderThanSeconds={})",
-                removed, olderThanSeconds);
+        LOG.info("HBO DELETE STALE STATISTICS removed {} pinned entries, {} kept because their stored"
+                + " row could not be removed (olderThanSeconds={})", outcome[0], outcome[1], olderThanSeconds);
     }
 
     @Override

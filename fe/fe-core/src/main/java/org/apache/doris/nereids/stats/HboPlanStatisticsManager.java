@@ -209,6 +209,14 @@ public class HboPlanStatisticsManager {
         // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
         long createTimeMs = System.currentTimeMillis();
         synchronized (pinnedLoadLock) {
+            // the stored row is written first: when the write fails the statement fails and the entry
+            // is not pinned, so an entry which only lives in memory (and disappears on a restart)
+            // cannot be reported as set
+            if (persistenceEnabled() && !HboStatisticsStore.persist(fingerprint, rows, type, structCanonical,
+                    expansion, literalMode, createTimeMs)) {
+                throw new IllegalStateException("failed to persist the hbo statistics entry " + fingerprint
+                        + " into the internal table, see the FE log; the entry was not set");
+            }
             pinnedPlanStatistics.put(fingerprint,
                     new PinnedHboStatistics(fingerprint, rows, type, structCanonical, expansion, literalMode,
                             createTimeMs));
@@ -217,13 +225,6 @@ public class HboPlanStatisticsManager {
                 // keyed by the join conditions, is rejected by getPinnedPlanStatistics, and its
                 // scanless canonical would turn the pre filter into a no-op for every group
                 registerRelationKey(structCanonical);
-            }
-            // persist under the same lock as DELETE's DB removal, so concurrent same-key
-            // SET/DELETE serialize their DB writes in the same order as their memory updates
-            // (a failed write only logs a warning and may reappear after a FE restart)
-            if (persistenceEnabled()) {
-                HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, expansion, literalMode,
-                        createTimeMs);
             }
         }
     }
@@ -407,11 +408,12 @@ public class HboPlanStatisticsManager {
      *                        struct info records no comparable state, e.g. it prunes partitions or
      *                        does not resolve to existing tables) are removed as well, but only when
      *                        they are older than this many milliseconds; a negative value keeps them
-     * @return the number of removed entries
+     * @return the number of removed entries and the number whose stored row could not be removed
      */
-    public int deleteStalePinnedPlanStatistics(long olderThanMillis) {
+    public int[] deleteStalePinnedPlanStatistics(long olderThanMillis) {
         long now = System.currentTimeMillis();
         int removed = 0;
+        int failed = 0;
         for (PinnedHboStatistics pinned : getAllPinnedPlanStatistics().values()) {
             // an expansion entry is keyed by join conditions and carries no data state, so it can
             // neither go stale nor be judged by age: OLDER_THAN must not silently drop it
@@ -425,12 +427,20 @@ public class HboPlanStatisticsManager {
             if (obsolete) {
                 // the entry may have been replaced by a concurrent set between the read above and this
                 // removal: only the entry which was judged obsolete is removed, never a fresh baseline
-                if (removePinnedPlanStatisticsIfUnchanged(pinned.getFingerprint(), pinned)) {
-                    removed++;
+                try {
+                    if (removePinnedPlanStatisticsIfUnchanged(pinned.getFingerprint(), pinned)) {
+                        removed++;
+                    }
+                } catch (IllegalStateException e) {
+                    // the stored row of this entry could not be removed: the entry stays active and is
+                    // judged again by the next run, the other entries of this statement still go
+                    failed++;
+                    LOG.warn("failed to remove stale hbo statistics entry {}: {}",
+                            pinned.getFingerprint(), e.getMessage());
                 }
             }
         }
-        return removed;
+        return new int[] {removed, failed};
     }
 
     /**
