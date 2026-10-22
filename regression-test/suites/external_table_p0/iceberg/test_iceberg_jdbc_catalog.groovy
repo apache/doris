@@ -123,6 +123,173 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
         }
     }
     
+    // Run the same commit/read-back checks against both JDBC metadata implementations.
+    def checkCapabilities = { String backend, String dorisCatalog, String metadataCatalog, String database ->
+        def check = { String name, String query ->
+            quickTest("${backend}_${name}", query, true)
+        }
+
+        for (def variant : [[format: "parquet", version: 2], [format: "orc", version: 2],
+                            [format: "parquet", version: 3], [format: "orc", version: 3]]) {
+            String format = variant.format
+            String prefix = "${format}_v${variant.version}"
+            sql """DROP TABLE IF EXISTS jdbc_row_changes"""
+            sql """
+                CREATE TABLE jdbc_row_changes (id INT, category STRING, amount INT)
+                PARTITION BY LIST (category) ()
+                PROPERTIES (
+                    'format-version' = '${variant.version}',
+                    'write.format.default' = '${format}',
+                    'write.delete.mode' = 'merge-on-read',
+                    'write.update.mode' = 'merge-on-read',
+                    'write.merge.mode' = 'merge-on-read'
+                )
+            """
+            sql """INSERT INTO jdbc_row_changes VALUES
+                    (1, 'A', 10), (2, 'A', 20), (3, 'B', 30), (4, 'B', 40)"""
+            sql """ALTER TABLE jdbc_row_changes CREATE TAG before_dml"""
+            sql """UPDATE jdbc_row_changes SET amount = amount + 1 WHERE id = 1"""
+            check("${prefix}_update", "SELECT * FROM jdbc_row_changes ORDER BY id")
+            // A partial partition delete exercises V2 position deletes or V3 deletion vectors.
+            sql """DELETE FROM jdbc_row_changes WHERE amount = 20"""
+            check("${prefix}_delete", "SELECT * FROM jdbc_row_changes ORDER BY id")
+            sql """
+                MERGE INTO jdbc_row_changes t
+                USING (SELECT 1 AS id, 'A' AS category, 100 AS amount, 'U' AS op
+                       UNION ALL SELECT 3, 'B', 30, 'D'
+                       UNION ALL SELECT 5, 'C', 50, 'I') s
+                ON t.id = s.id
+                WHEN MATCHED AND s.op = 'D' THEN DELETE
+                WHEN MATCHED THEN UPDATE SET category = s.category, amount = s.amount
+                WHEN NOT MATCHED THEN INSERT (id, category, amount) VALUES (s.id, s.category, s.amount)
+            """
+            check("${prefix}_merge", "SELECT * FROM jdbc_row_changes ORDER BY id")
+            // Moving a row must remove it from its old partition without hiding the other rows.
+            sql """UPDATE jdbc_row_changes SET category = 'D' WHERE id = 4"""
+            check("${prefix}_partition_move", "SELECT * FROM jdbc_row_changes ORDER BY id")
+            check("${prefix}_old_tag", "SELECT * FROM jdbc_row_changes@tag(before_dml) ORDER BY id")
+            sql """UPDATE jdbc_row_changes SET amount = 0 WHERE id = 99"""
+            sql """DELETE FROM jdbc_row_changes WHERE id = 99"""
+            check("${prefix}_no_match", "SELECT * FROM jdbc_row_changes ORDER BY id")
+        }
+
+        sql """DROP TABLE IF EXISTS jdbc_ctas_renamed"""
+        sql """DROP TABLE IF EXISTS jdbc_ctas"""
+        sql """CREATE TABLE jdbc_ctas PROPERTIES ('format-version' = '2')
+                AS SELECT id, category, amount FROM jdbc_row_changes"""
+        sql """ALTER TABLE jdbc_ctas RENAME jdbc_ctas_renamed"""
+        sql """ALTER TABLE jdbc_ctas_renamed ADD COLUMN note STRING"""
+        sql """ALTER TABLE jdbc_ctas_renamed RENAME COLUMN amount total"""
+        sql """ALTER TABLE jdbc_ctas_renamed MODIFY COLUMN total BIGINT"""
+        check("ctas_schema", "SELECT * FROM jdbc_ctas_renamed ORDER BY id")
+        sql """INSERT INTO jdbc_ctas_renamed VALUES (6, 'E', 6000000000, 'new')"""
+        sql """ALTER TABLE jdbc_ctas_renamed DROP COLUMN note"""
+        check("schema_write", "SELECT * FROM jdbc_ctas_renamed ORDER BY id")
+        sql """REFRESH CATALOG ${dorisCatalog}"""
+        check("reload", "SELECT * FROM jdbc_ctas_renamed ORDER BY id")
+
+        sql """DROP TABLE IF EXISTS jdbc_overwrite"""
+        sql """CREATE TABLE jdbc_overwrite (id INT, category STRING)
+                PARTITION BY LIST (category) () PROPERTIES ('format-version' = '2')"""
+        sql """INSERT INTO jdbc_overwrite VALUES (1, 'A'), (2, 'A'), (3, 'B')"""
+        sql """INSERT OVERWRITE TABLE jdbc_overwrite VALUES (4, 'A')"""
+        check("dynamic_overwrite", "SELECT * FROM jdbc_overwrite ORDER BY id")
+        // The suite pins dynamic mode; restore it after checking static whole-table replacement.
+        sql """SET iceberg_partition_overwrite_mode = 'static'"""
+        try {
+            sql """INSERT OVERWRITE TABLE jdbc_overwrite VALUES (5, 'C')"""
+            check("static_overwrite", "SELECT * FROM jdbc_overwrite ORDER BY id")
+        } finally {
+            sql """SET iceberg_partition_overwrite_mode = 'dynamic'"""
+        }
+
+        sql """ALTER TABLE jdbc_overwrite ADD PARTITION KEY bucket(4, id)"""
+        sql """INSERT INTO jdbc_overwrite VALUES (6, 'D')"""
+        check("partition_add", "SELECT * FROM jdbc_overwrite ORDER BY id")
+        sql """ALTER TABLE jdbc_overwrite DROP PARTITION KEY category"""
+        sql """INSERT INTO jdbc_overwrite VALUES (7, 'E')"""
+        check("partition_drop", "SELECT * FROM jdbc_overwrite ORDER BY id")
+        check("partition_filter", "SELECT * FROM jdbc_overwrite WHERE category IN ('C', 'E') ORDER BY id")
+
+        sql """DROP TABLE IF EXISTS jdbc_refs"""
+        sql """CREATE TABLE jdbc_refs (id INT, name STRING)
+                PROPERTIES ('format-version' = '2')"""
+        sql """INSERT INTO jdbc_refs VALUES (1, 'base')"""
+        String baseSnapshot = sql("""SELECT snapshot_id FROM jdbc_refs\$snapshots""")[0][0].toString()
+        sql """ALTER TABLE jdbc_refs CREATE TAG base_tag"""
+        sql """ALTER TABLE jdbc_refs CREATE BRANCH audit_branch"""
+        sql """INSERT INTO jdbc_refs@branch(audit_branch) VALUES (2, 'branch')"""
+        check("main_before_publish", "SELECT * FROM jdbc_refs ORDER BY id")
+        check("branch", "SELECT * FROM jdbc_refs@branch(audit_branch) ORDER BY id")
+        sql """ALTER TABLE jdbc_refs EXECUTE fast_forward('branch' = 'main', 'to' = 'audit_branch')"""
+        check("main_after_publish", "SELECT * FROM jdbc_refs ORDER BY id")
+        String branchSnapshot = sql("""SELECT snapshot_id FROM jdbc_refs\$refs WHERE name = 'main'""")[0][0].toString()
+        check("snapshot", "SELECT * FROM jdbc_refs FOR VERSION AS OF ${baseSnapshot} ORDER BY id")
+        check("tag", "SELECT * FROM jdbc_refs@tag(base_tag) ORDER BY id")
+        sql """ALTER TABLE jdbc_refs DROP BRANCH audit_branch"""
+        sql """ALTER TABLE jdbc_refs DROP TAG base_tag"""
+        sql """ALTER TABLE jdbc_refs EXECUTE rollback_to_snapshot('snapshot_id' = '${baseSnapshot}')"""
+        check("rollback", "SELECT * FROM jdbc_refs ORDER BY id")
+        check("refs", "SELECT name, type FROM jdbc_refs\$refs ORDER BY name")
+        sql """ALTER TABLE jdbc_refs EXECUTE expire_snapshots('snapshot_ids' = '${branchSnapshot}')"""
+        check("expire_snapshot_count", "SELECT count(*) FROM jdbc_refs\$snapshots")
+        check("after_expire", "SELECT * FROM jdbc_refs ORDER BY id")
+
+        // Counts vary with writer parallelism; require actual work without recording file counts or sizes.
+        quickRunTest("${backend}_rewrite_manifests_committed",
+                "ALTER TABLE jdbc_row_changes EXECUTE rewrite_manifests()", false,
+                { row -> [row[0].toLong() > 0] })
+        check("rewrite_manifests", "SELECT * FROM jdbc_row_changes ORDER BY id")
+        quickRunTest("${backend}_compact_committed",
+                "ALTER TABLE jdbc_row_changes EXECUTE rewrite_data_files('min-input-files' = '1')", false,
+                { row -> [row[0].toLong() > 0, row[1].toLong() > 0] })
+        check("compact", "SELECT * FROM jdbc_row_changes ORDER BY id")
+
+        sql """DROP TABLE IF EXISTS jdbc_v1"""
+        sql """CREATE TABLE jdbc_v1 (id INT) PROPERTIES ('format-version' = '1')"""
+        sql """INSERT INTO jdbc_v1 VALUES (1), (2)"""
+        for (String statement : ["UPDATE jdbc_v1 SET id = 3 WHERE id = 1",
+                                 "DELETE FROM jdbc_v1 WHERE id = 1",
+                                 "MERGE INTO jdbc_v1 t USING (SELECT 1 AS id) s ON t.id = s.id "
+                                         + "WHEN MATCHED THEN UPDATE SET id = 3"]) {
+            test {
+                sql statement
+                exception "must have format version 2 or higher for position deletes"
+            }
+        }
+        check("v1_unchanged", "SELECT * FROM jdbc_v1 ORDER BY id")
+
+        sql """DROP TABLE IF EXISTS jdbc_cow"""
+        sql """CREATE TABLE jdbc_cow (id INT) PROPERTIES (
+                    'format-version' = '2',
+                    'write.delete.mode' = 'copy-on-write',
+                    'write.update.mode' = 'copy-on-write',
+                    'write.merge.mode' = 'copy-on-write')"""
+        sql """INSERT INTO jdbc_cow VALUES (1), (2)"""
+        for (String statement : ["UPDATE jdbc_cow SET id = 3 WHERE id = 1",
+                                 "DELETE FROM jdbc_cow WHERE id = 1",
+                                 "MERGE INTO jdbc_cow t USING (SELECT 1 AS id) s ON t.id = s.id "
+                                         + "WHEN MATCHED THEN UPDATE SET id = 3"]) {
+            test {
+                sql statement
+                exception "copy-on-write"
+            }
+        }
+        check("cow_unchanged", "SELECT * FROM jdbc_cow ORDER BY id")
+
+        // catalog_name, rather than the Doris catalog name or JDBC URI, isolates metadata in the same database.
+        sql """ALTER CATALOG ${dorisCatalog} SET PROPERTIES (
+                    'iceberg.jdbc.catalog_name' = '${metadataCatalog}_isolated')"""
+        try {
+            check("isolated_namespaces", "SHOW DATABASES FROM ${dorisCatalog}")
+        } finally {
+            sql """ALTER CATALOG ${dorisCatalog} SET PROPERTIES (
+                        'iceberg.jdbc.catalog_name' = '${metadataCatalog}')"""
+            sql """USE ${dorisCatalog}.${database}"""
+        }
+        check("restored_namespace", "SELECT * FROM jdbc_ctas_renamed ORDER BY id")
+    }
+
     try {
         // Clean up existing catalog
         sql """DROP CATALOG IF EXISTS ${catalog_name}"""
@@ -278,6 +445,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
         """
         order_qt_after_overwrite """SELECT * FROM test_partitioned ORDER BY id"""
 
+        checkCapabilities("postgresql", catalog_name, iceberg_jdbc_catalog_name, db_name)
+
         // Test: Drop table
         sql """DROP TABLE IF EXISTS test_datatypes"""
         sql """DROP TABLE IF EXISTS test_partitioned"""
@@ -345,6 +514,8 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
                 
                 order_qt_mysql_select """SELECT * FROM test_mysql_catalog ORDER BY id"""
                 
+                checkCapabilities("mysql", mysql_catalog_name, iceberg_jdbc_mysql_catalog_name, mysql_db_name)
+
                 sql """DROP TABLE IF EXISTS test_mysql_catalog"""
                 sql """DROP DATABASE IF EXISTS ${mysql_db_name} FORCE"""
                 
