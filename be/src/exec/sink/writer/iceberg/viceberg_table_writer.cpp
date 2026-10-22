@@ -33,6 +33,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/iceberg_partition_path.h"
+#include "exec/sink/writer/iceberg/iceberg_write_validator.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -402,6 +403,7 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
+    RETURN_IF_ERROR(iceberg::validate_write_block(*_schema, output_block));
 
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
             writer_positions;

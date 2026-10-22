@@ -158,7 +158,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
-                                                           force, true, 1));
+                                                           force, true, TriggerMethod::MANUAL));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -181,7 +181,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             // 3. submit full compaction task to thread pool
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
-                                                           force, true, 1));
+                                                           force, true, TriggerMethod::MANUAL));
         } else {
             // 3. execute base/cumulative compaction task in a detached thread
             std::packaged_task<Status()> task([this, tablet, compaction_type]() {

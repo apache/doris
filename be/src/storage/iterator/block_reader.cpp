@@ -76,23 +76,23 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-int64_t BlockReader::_read_changelog_op(const IColumn& col, size_t row) const {
+ChangelogOp BlockReader::_read_changelog_op(const IColumn& col, size_t row) const {
     const IColumn* cur = &col;
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*cur)) {
         if (nullable->is_null_at(row)) {
-            return changelog::CHANGELOG_OP_UNKNOWN;
+            return ChangelogOp::UNKNOWN;
         }
         cur = &nullable->get_nested_column();
     }
 
     if (const auto* int64_col = check_and_get_column<ColumnInt64>(*cur)) {
-        return int64_col->get_element(row);
+        return static_cast<ChangelogOp>(int64_col->get_element(row));
     }
 
-    return changelog::CHANGELOG_OP_UNKNOWN;
+    return ChangelogOp::UNKNOWN;
 }
 
-Status BlockReader::_write_changelog_op(IColumn& col, int64_t op) const {
+Status BlockReader::_write_changelog_op(IColumn& col, changelog::StreamChangeOp op) const {
     IColumn* cur = &col;
     ColumnNullable* nullable = nullptr;
     if (auto* n = typeid_cast<ColumnNullable*>(cur)) {
@@ -101,7 +101,7 @@ Status BlockReader::_write_changelog_op(IColumn& col, int64_t op) const {
     }
 
     if (auto* int64_col = typeid_cast<ColumnInt64*>(cur)) {
-        int64_col->insert_value(op);
+        int64_col->insert_value(static_cast<int64_t>(op));
     } else {
         return Status::InternalError("invalid column type");
     }
@@ -181,7 +181,8 @@ bool BlockReader::_emit_pending_row(MutableColumns& target_columns, size_t& outp
 // or AFTER values per column according to use_before. Used by _detail_change_next_block to
 // materialize the BEFORE / AFTER halves of an UPDATE pair (and INSERT / DELETE singletons).
 Status BlockReader::_append_change_row(MutableColumns& target_columns, const Block& src_block,
-                                       size_t row_pos, int64_t output_op, bool use_before) {
+                                       size_t row_pos, changelog::StreamChangeOp output_op,
+                                       bool use_before) {
     const int32_t op_ordinal = _read_schema->op_ordinal();
     for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
         if (static_cast<int32_t>(ordinal) == op_ordinal) {
@@ -276,7 +277,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
                     RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                        changelog::STREAM_CHANGE_INSERT));
+                                                        changelog::StreamChangeOp::INSERT));
                 } else {
                     // insert should use most recent value
                     target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
@@ -290,7 +291,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
                 const auto read_ordinal = static_cast<int32_t>(ordinal);
                 if (read_ordinal == op_ordinal) {
                     RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                        changelog::STREAM_CHANGE_DELETE));
+                                                        changelog::StreamChangeOp::DELETE));
                 } else if (read_ordinal == lsn_ordinal || read_ordinal == tso_ordinal) {
                     target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                          group_size - 1);
@@ -312,7 +313,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                 if (static_cast<int32_t>(ordinal) == op_ordinal) {
                     RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                        changelog::STREAM_CHANGE_UPDATE_BEFORE));
+                                                        changelog::StreamChangeOp::UPDATE_BEFORE));
                 } else {
                     auto source_ordinal =
                             _resolve_source_column_ordinal(static_cast<uint32_t>(ordinal), true);
@@ -323,8 +324,9 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             if (output_row_count >= batch_max_rows()) {
                 for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                     if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                        RETURN_IF_ERROR(_write_changelog_op(*_pending_row_columns[ordinal],
-                                                            changelog::STREAM_CHANGE_UPDATE_AFTER));
+                        RETURN_IF_ERROR(
+                                _write_changelog_op(*_pending_row_columns[ordinal],
+                                                    changelog::StreamChangeOp::UPDATE_AFTER));
                     } else {
                         _pending_row_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                                    group_size - 1);
@@ -334,8 +336,8 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             } else {
                 for (size_t ordinal = 0; ordinal < target_columns.size(); ++ordinal) {
                     if (static_cast<int32_t>(ordinal) == op_ordinal) {
-                        RETURN_IF_ERROR(_write_changelog_op(*target_columns[ordinal],
-                                                            changelog::STREAM_CHANGE_UPDATE_AFTER));
+                        RETURN_IF_ERROR(_write_changelog_op(
+                                *target_columns[ordinal], changelog::StreamChangeOp::UPDATE_AFTER));
                     } else {
                         target_columns[ordinal]->insert_from(*_stored_data_columns[ordinal],
                                                              group_size - 1);
@@ -379,27 +381,27 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
         }
         const Block& source_block = *_next_row.block;
         const size_t row = _next_row.row_pos;
-        int64_t op = _read_changelog_op(*source_block.get_by_position(op_ordinal).column, row);
-        if (op == CHANGELOG_OP_UPDATE) {
+        const auto op = _read_changelog_op(*source_block.get_by_position(op_ordinal).column, row);
+        if (op == ChangelogOp::UPDATE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               changelog::STREAM_CHANGE_UPDATE_BEFORE, true));
+                                               changelog::StreamChangeOp::UPDATE_BEFORE, true));
             output_row_count++;
             if (output_row_count >= batch_max_rows()) {
                 RETURN_IF_ERROR(_append_change_row(_pending_row_columns, source_block, row,
-                                                   changelog::STREAM_CHANGE_UPDATE_AFTER, false));
+                                                   changelog::StreamChangeOp::UPDATE_AFTER, false));
                 _has_pending_row = true;
             } else {
                 RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                                   changelog::STREAM_CHANGE_UPDATE_AFTER, false));
+                                                   changelog::StreamChangeOp::UPDATE_AFTER, false));
                 output_row_count++;
             }
-        } else if (op == CHANGELOG_OP_APPEND) {
+        } else if (op == ChangelogOp::APPEND) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               changelog::STREAM_CHANGE_INSERT, false));
+                                               changelog::StreamChangeOp::INSERT, false));
             output_row_count++;
-        } else if (op == CHANGELOG_OP_DELETE) {
+        } else if (op == ChangelogOp::DELETE) {
             RETURN_IF_ERROR(_append_change_row(target_columns, source_block, row,
-                                               changelog::STREAM_CHANGE_DELETE, true));
+                                               changelog::StreamChangeOp::DELETE, true));
             output_row_count++;
         }
 

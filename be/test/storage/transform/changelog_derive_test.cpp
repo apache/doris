@@ -371,8 +371,10 @@ TEST_F(ChangelogDeriveTest, PlainAppendAndDeleteWithAfterAndLsn) {
     // op: delete sign decides; both must differ from each other (not vacuous 0)
     const int lsn_idx = changelog_schema->changelog_lsn_col_idx();
     const int op_idx = changelog_schema->changelog_op_col_idx();
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_APPEND); // delete sign 0
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_DELETE); // delete sign 1
+    EXPECT_EQ(read_op(block, op_idx, 0),
+              static_cast<int64_t>(ChangelogOp::APPEND)); // delete sign 0
+    EXPECT_EQ(read_op(block, op_idx, 1),
+              static_cast<int64_t>(ChangelogOp::DELETE)); // delete sign 1
     // per-row LSN == the injected make_seg_lsn ids (1000, 1001)
     EXPECT_EQ(read_lsn(block, lsn_idx, 0), 1000);
     EXPECT_EQ(read_lsn(block, lsn_idx, 1), 1001);
@@ -422,8 +424,8 @@ TEST_F(ChangelogDeriveTest, PlainNoDeleteSignColumnAllAppend) {
 
     ASSERT_TRUE(chain.apply(ctx, &block).ok());
     const int op_idx = changelog_schema->changelog_op_col_idx();
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_APPEND);
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_APPEND);
+    EXPECT_EQ(read_op(block, op_idx, 0), static_cast<int64_t>(ChangelogOp::APPEND));
+    EXPECT_EQ(read_op(block, op_idx, 1), static_cast<int64_t>(ChangelogOp::APPEND));
 }
 
 // Hidden keys are part of the row image, while hidden non-key columns are not.
@@ -518,8 +520,10 @@ TEST_F(ChangelogDeriveTest, PlainMapsHiddenKeysAndSkipsHiddenNonKeys) {
     EXPECT_TRUE(read_is_null(block, changelog_schema->changelog_tso_col_idx(), 1));
     EXPECT_EQ(read_lsn(block, changelog_schema->changelog_lsn_col_idx(), 0), 1000);
     EXPECT_EQ(read_lsn(block, changelog_schema->changelog_lsn_col_idx(), 1), 1001);
-    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0), CHANGELOG_OP_APPEND);
-    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 1), CHANGELOG_OP_APPEND);
+    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0),
+              static_cast<int64_t>(ChangelogOp::APPEND));
+    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 1),
+              static_cast<int64_t>(ChangelogOp::APPEND));
 }
 
 // ===========================================================================
@@ -605,8 +609,8 @@ TEST_F(ChangelogDeriveTest, MowUpdateAndAppendTakesHistoryV2) {
     EXPECT_TRUE(read_is_null(block, changelog_schema->changelog_tso_col_idx(), 0));
     EXPECT_TRUE(read_is_null(block, changelog_schema->changelog_tso_col_idx(), 1));
     // op: key 1 existed -> UPDATE; key 99 new -> APPEND
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_UPDATE);
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_APPEND);
+    EXPECT_EQ(read_op(block, op_idx, 0), static_cast<int64_t>(ChangelogOp::UPDATE));
+    EXPECT_EQ(read_op(block, op_idx, 1), static_cast<int64_t>(ChangelogOp::APPEND));
     // AFTER row 0 (UPDATE): key kept, provided v1=10 kept, missing v2 == history 777
     EXPECT_EQ(read_int(block, 0, 0), 1);
     EXPECT_EQ(read_int(block, 1, 0), 10);
@@ -741,7 +745,8 @@ TEST_F(ChangelogDeriveTest, MowHiddenKeyColumnIsPartOfTheProbeKey) {
     // the probe encoded both key columns, so it found the history row: UPDATE,
     // and the missing v2 is the historical 777. Dropping the hidden key from the
     // probe key would miss and report APPEND with v2 defaulted to 0.
-    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0), CHANGELOG_OP_UPDATE);
+    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0),
+              static_cast<int64_t>(ChangelogOp::UPDATE));
     EXPECT_EQ(read_int(block, 2, 0), 10);
     EXPECT_EQ(read_int(block, 3, 0), 777);
     EXPECT_FALSE(read_is_null(block, 3, 0));
@@ -819,8 +824,10 @@ TEST_F(ChangelogDeriveTest, MowPartialUpdateWithBeforeImage) {
     ASSERT_EQ(block.columns(), changelog_schema->num_columns());
     ASSERT_EQ(block.rows(), 2);
     const int op_idx = changelog_schema->changelog_op_col_idx();
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_UPDATE); // key 1 existed
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_APPEND); // key 99 is new
+    EXPECT_EQ(read_op(block, op_idx, 0),
+              static_cast<int64_t>(ChangelogOp::UPDATE)); // key 1 existed
+    EXPECT_EQ(read_op(block, op_idx, 1),
+              static_cast<int64_t>(ChangelogOp::APPEND)); // key 99 is new
     // AFTER: provided v1 kept, missing v2 rebuilt from history for the old key
     EXPECT_EQ(read_int(block, 1, 0), 10);
     EXPECT_EQ(read_int(block, 2, 0), 777);
@@ -913,9 +920,9 @@ TEST_F(ChangelogDeriveTest, MowInsertAfterDeletedHistoryRowIsAppend) {
     const int op_idx = changelog_schema->changelog_op_col_idx();
     // key 1: the probe found the tombstone, so the op is revised UPDATE -> APPEND.
     // Dropping revise_operators_by_old_delete_sign leaves it UPDATE.
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_APPEND);
+    EXPECT_EQ(read_op(block, op_idx, 0), static_cast<int64_t>(ChangelogOp::APPEND));
     // key 2: a live old row, so it stays an UPDATE -- the revision is not blanket
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_UPDATE);
+    EXPECT_EQ(read_op(block, op_idx, 1), static_cast<int64_t>(ChangelogOp::UPDATE));
     // key 1's old row is a tombstone, so its missing v2 takes the column default
     // rather than the deleted row's 777; key 2's live old row still supplies 888
     EXPECT_EQ(read_int(block, 2, 0), 0);
@@ -996,7 +1003,8 @@ TEST_F(ChangelogDeriveTest, MowLooksUpHistoryInBaseTabletNotChangelogTablet) {
     // the key was found in base_tablet: UPDATE, and the missing v2 is the
     // historical 777. The same lookup against the changelog tablet hits its delete
     // bitmap instead and would report APPEND with v2 defaulted to 0.
-    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0), CHANGELOG_OP_UPDATE);
+    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0),
+              static_cast<int64_t>(ChangelogOp::UPDATE));
     EXPECT_EQ(read_int(block, 0, 0), 1);
     EXPECT_EQ(read_int(block, 1, 0), 10);
     EXPECT_EQ(read_int(block, 2, 0), 777);
@@ -1077,8 +1085,10 @@ TEST_F(ChangelogDeriveTest, MowDeleteExistingAndNewKey) {
 
     const int lsn_idx = changelog_schema->changelog_lsn_col_idx();
     const int op_idx = changelog_schema->changelog_op_col_idx();
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_DELETE); // existing key + delete sign
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_DELETE); // new key + delete sign
+    EXPECT_EQ(read_op(block, op_idx, 0),
+              static_cast<int64_t>(ChangelogOp::DELETE)); // existing key + delete sign
+    EXPECT_EQ(read_op(block, op_idx, 1),
+              static_cast<int64_t>(ChangelogOp::DELETE)); // new key + delete sign
     EXPECT_EQ(read_lsn(block, lsn_idx, 0), 1000);
     EXPECT_EQ(read_lsn(block, lsn_idx, 1), 1001);
 }
@@ -1180,9 +1190,9 @@ TEST_F(ChangelogDeriveTest, MowBeforeImageMirrorsHistory) {
     const int before_v2 = 4;
 
     // op
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_UPDATE);
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_DELETE);
-    EXPECT_EQ(read_op(block, op_idx, 2), CHANGELOG_OP_APPEND);
+    EXPECT_EQ(read_op(block, op_idx, 0), static_cast<int64_t>(ChangelogOp::UPDATE));
+    EXPECT_EQ(read_op(block, op_idx, 1), static_cast<int64_t>(ChangelogOp::DELETE));
+    EXPECT_EQ(read_op(block, op_idx, 2), static_cast<int64_t>(ChangelogOp::APPEND));
 
     // AFTER carries the source values
     EXPECT_EQ(read_int(block, 1, 0), 11);
@@ -1282,8 +1292,9 @@ TEST_F(ChangelogDeriveTest, MowBeforeNoopZeroValueColumns) {
     EXPECT_EQ(read_int(block, 0, 0), 1);
     EXPECT_EQ(read_int(block, 0, 1), 98);
     const int op_idx = changelog_schema->changelog_op_col_idx();
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_UPDATE); // key 1 existed
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_APPEND); // key 98 new
+    EXPECT_EQ(read_op(block, op_idx, 0),
+              static_cast<int64_t>(ChangelogOp::UPDATE)); // key 1 existed
+    EXPECT_EQ(read_op(block, op_idx, 1), static_cast<int64_t>(ChangelogOp::APPEND)); // key 98 new
 }
 
 // Changelog MoW over a SEQUENCE source. The changelog retriever probes with
@@ -1372,8 +1383,9 @@ TEST_F(ChangelogDeriveTest, MowSeqSourceSeqLosesStillReadsHistory) {
     const int op_idx = changelog_schema->changelog_op_col_idx();
     // both rows read the old row (use_default_or_null=false): the seq loser is NOT
     // default-filled, so op=UPDATE and v1 is the historical value.
-    EXPECT_EQ(read_op(block, op_idx, 0), CHANGELOG_OP_UPDATE); // seq loses, still UPDATE
-    EXPECT_EQ(read_op(block, op_idx, 1), CHANGELOG_OP_UPDATE); // seq wins
+    EXPECT_EQ(read_op(block, op_idx, 0),
+              static_cast<int64_t>(ChangelogOp::UPDATE)); // seq loses, still UPDATE
+    EXPECT_EQ(read_op(block, op_idx, 1), static_cast<int64_t>(ChangelogOp::UPDATE)); // seq wins
     EXPECT_EQ(read_int(block, 0, 0), 1);
     EXPECT_EQ(read_int(block, 1, 0), 100); // <-- history v1, NOT default 0 (the key point)
     EXPECT_EQ(read_int(block, 0, 1), 2);
@@ -1452,7 +1464,8 @@ TEST_F(ChangelogDeriveTest, MowMaterializesFlexiblePartialUpdate) {
     EXPECT_EQ(read_int(block, 0, 0), 1);
     EXPECT_EQ(read_int(block, 1, 0), 10);
     EXPECT_EQ(read_lsn(block, changelog_schema->changelog_lsn_col_idx(), 0), 1000);
-    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0), CHANGELOG_OP_APPEND);
+    EXPECT_EQ(read_op(block, changelog_schema->changelog_op_col_idx(), 0),
+              static_cast<int64_t>(ChangelogOp::APPEND));
 }
 
 // N5/N6 (B10): the fixed-PU MoW derive rejects a block that is too narrow

@@ -43,13 +43,13 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
                                           const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
-    return meta->key_may_exist(META_COLUMN_FAMILY_INDEX, key, &value);
+    return meta->key_may_exist(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value);
 }
 
 Status RowsetMetaManager::exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
-    return meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    return meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value);
 }
 
 Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
@@ -57,7 +57,7 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
                                           RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
-    Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    Status s = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value);
     if (s.is<META_KEY_NOT_FOUND>()) {
         return Status::Error<META_KEY_NOT_FOUND>("rowset id: {} not found.", key);
     } else if (!s.ok()) {
@@ -111,7 +111,7 @@ Status RowsetMetaManager::_save(OlapMeta* meta, TabletUid tablet_uid, const Rows
                                                        key);
     }
 
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, value);
 }
 
 Status RowsetMetaManager::_save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet_uid,
@@ -157,7 +157,7 @@ Status RowsetMetaManager::_save_with_ccr_binlog(OlapMeta* meta, TabletUid tablet
             {std::cref(binlog_meta_key), std::cref(binlog_meta_value)},
             {std::cref(binlog_data_key), std::cref(rowset_value)}};
 
-    return meta->put(META_COLUMN_FAMILY_INDEX, entries);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, entries);
 }
 
 Status RowsetMetaManager::_save_with_changelog(OlapMeta* meta, TabletUid tablet_uid,
@@ -188,7 +188,7 @@ Status RowsetMetaManager::_save_with_changelog(OlapMeta* meta, TabletUid tablet_
     std::vector<OlapMeta::BatchEntry> entries = {
             {std::cref(rowset_key), std::cref(rowset_value)},
             {std::cref(changelog_rowset_key), std::cref(changelog_rowset_value)}};
-    return meta->put(META_COLUMN_FAMILY_INDEX, entries);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, entries);
 }
 
 std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
@@ -228,7 +228,8 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
     };
 
     // get binlog meta by prefix
-    Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
+    Status status =
+            meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
     if (!status.ok() || rowset_id.empty() || num_segments < 0) {
         LOG(WARNING) << fmt::format(
                 "fail to get binlog filename. tablet uid:{}, binlog version:{}, status:{}, "
@@ -279,7 +280,8 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
     };
 
     // get binlog meta by prefix
-    Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
+    Status status =
+            meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
     if (!status.ok() || rowset_id.empty() || num_segments < 0) {
         LOG(WARNING) << fmt::format(
                 "fail to get binlog filename. tablet uid:{}, binlog version:{}, status:{}, "
@@ -298,7 +300,8 @@ std::string RowsetMetaManager::get_rowset_binlog_meta(OlapMeta* meta, TabletUid 
     VLOG_DEBUG << fmt::format("get binlog_meta_key:{}", binlog_data_key);
 
     std::string binlog_meta_value;
-    Status status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_meta_value);
+    Status status = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, binlog_data_key,
+                              &binlog_meta_value);
     if (!status.ok()) {
         LOG(WARNING) << fmt::format(
                 "fail to get binlog meta. tablet uid:{}, binlog version:{}, "
@@ -353,7 +356,8 @@ Status RowsetMetaManager::_get_rowset_binlog_metas(OlapMeta* meta, const TabletU
         auto binlog_data_key =
                 make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
         std::string binlog_data;
-        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        status = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, binlog_data_key,
+                           &binlog_data);
         if (!status.ok()) {
             LOG(WARNING) << status.to_string();
             return false;
@@ -366,7 +370,8 @@ Status RowsetMetaManager::_get_rowset_binlog_metas(OlapMeta* meta, const TabletU
 
     for (auto& binlog_version : binlog_versions) {
         auto prefix_key = make_binlog_meta_key_prefix(tablet_uid, binlog_version);
-        Status iterStatus = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
+        Status iterStatus = meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, prefix_key,
+                                          traverse_func);
         if (!iterStatus.ok()) {
             LOG(WARNING) << fmt::format("fail to iterate binlog meta. prefix_key:{}, status:{}",
                                         prefix_key, iterStatus.to_string());
@@ -420,7 +425,8 @@ Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, TabletUid tabl
         auto binlog_data_key =
                 make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
         std::string binlog_data;
-        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        status = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, binlog_data_key,
+                           &binlog_data);
         if (!status.ok()) {
             LOG(WARNING) << status.to_string();
             return false;
@@ -431,8 +437,8 @@ Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, TabletUid tabl
         return true;
     };
 
-    Status iterStatus =
-            meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, prefix_key, traverse_func);
+    Status iterStatus = meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, begin_key,
+                                      prefix_key, traverse_func);
     if (!iterStatus.ok()) {
         LOG(WARNING) << fmt::format(
                 "fail to iterate binlog meta. prefix_key:{}, version:{}, status:{}", prefix_key,
@@ -480,7 +486,8 @@ Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const Tab
         auto binlog_data_key =
                 make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
         std::string binlog_data;
-        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        status = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, binlog_data_key,
+                           &binlog_data);
         if (!status.ok()) {
             LOG(WARNING) << status;
             return false;
@@ -492,7 +499,8 @@ Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const Tab
     };
 
     auto prefix_key = make_binlog_meta_key_prefix(tablet_uid);
-    Status iterStatus = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
+    Status iterStatus =
+            meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
     if (!iterStatus.ok()) {
         LOG(WARNING) << fmt::format("fail to iterate binlog meta. prefix_key:{}, status:{}",
                                     prefix_key, iterStatus.to_string());
@@ -504,14 +512,14 @@ Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const Tab
 Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     VLOG_NOTICE << "start to remove rowset, key:" << key;
-    Status status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    Status status = meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key);
     VLOG_NOTICE << "remove rowset key:" << key << " finished";
     return status;
 }
 
 Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
     // Please do not remove std::vector<std::string>, more info refer to pr#23190
-    return meta->remove(META_COLUMN_FAMILY_INDEX,
+    return meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX,
                         std::vector<std::string> {kBinlogMetaPrefix.data() + suffix,
                                                   kBinlogDataPrefix.data() + suffix});
 }
@@ -534,7 +542,7 @@ Status RowsetMetaManager::ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_u
         entries.emplace_back(*data_key, rowset_binlog_meta.data());
     }
 
-    return meta->put(META_COLUMN_FAMILY_INDEX, entries);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, entries);
 }
 
 Status RowsetMetaManager::traverse_rowset_metas(
@@ -555,8 +563,8 @@ Status RowsetMetaManager::traverse_rowset_metas(
         TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
         return func(tablet_uid, rowset_id, value);
     };
-    Status status =
-            meta->iterate(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
+    Status status = meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX,
+                                  traverse_rowset_meta_func);
     return status;
 }
 
@@ -590,8 +598,8 @@ Status RowsetMetaManager::traverse_binlog_metas(
 
     do {
         seek_found = false;
-        status = meta->iterate(META_COLUMN_FAMILY_INDEX, last_info.first, kBinlogMetaPrefix.data(),
-                               traverse_binlog_meta_func);
+        status = meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, last_info.first,
+                               kBinlogMetaPrefix.data(), traverse_binlog_meta_func);
     } while (status.ok() && seek_found);
 
     return status;
@@ -608,7 +616,7 @@ Status RowsetMetaManager::save_partial_update_info(
                 "serialize partial update info failed. key={}", key);
     }
     VLOG_NOTICE << "save partial update info, key=" << key << ", value_size=" << value.size();
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, value);
 }
 
 Status RowsetMetaManager::try_get_partial_update_info(OlapMeta* meta, int64_t tablet_id,
@@ -617,7 +625,7 @@ Status RowsetMetaManager::try_get_partial_update_info(OlapMeta* meta, int64_t ta
     std::string key =
             fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
     std::string value;
-    Status status = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    Status status = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value);
     if (status.is<META_KEY_NOT_FOUND>()) {
         return status;
     }
@@ -652,7 +660,7 @@ Status RowsetMetaManager::traverse_partial_update_info(
         int64_t txn_id = std::stoll(parts[3]);
         return func(tablet_id, partition_id, txn_id, value);
     };
-    return meta->iterate(META_COLUMN_FAMILY_INDEX, PARTIAL_UPDATE_INFO_PREFIX,
+    return meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, PARTIAL_UPDATE_INFO_PREFIX,
                          traverse_partial_update_info_func);
 }
 
@@ -660,7 +668,7 @@ Status RowsetMetaManager::remove_partial_update_info(OlapMeta* meta, int64_t tab
                                                      int64_t partition_id, int64_t txn_id) {
     std::string key =
             fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
-    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    Status res = meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key);
     VLOG_NOTICE << "remove partial update info, key=" << key;
     return res;
 }
@@ -672,7 +680,7 @@ Status RowsetMetaManager::remove_partial_update_infos(
         remove_keys.push_back(fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id,
                                           partition_id, txn_id));
     }
-    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
+    Status res = meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, remove_keys);
     VLOG_NOTICE << "remove partial update info, remove_keys.size()=" << remove_keys.size();
     return res;
 }
@@ -687,7 +695,8 @@ Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* me
     };
     VLOG_NOTICE << "remove tablet related partial update info, tablet_id: " << tablet_id
                 << " removed keys size: " << remove_keys.size();
-    RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, prefix, get_remove_keys_func));
-    return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
+    RETURN_IF_ERROR(meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, prefix,
+                                  get_remove_keys_func));
+    return meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 } // namespace doris
