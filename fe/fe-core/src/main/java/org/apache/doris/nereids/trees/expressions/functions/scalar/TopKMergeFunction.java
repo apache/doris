@@ -25,12 +25,9 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -40,16 +37,17 @@ import java.util.List;
  *
  * <pre>
  * topk_merge_min(S, b, I, b_i, D, b_d, n, dn, k)
- *   -> STRUCT&lt;values ARRAY&lt;STRUCT&lt;value T, count BIGINT&gt;&gt;, bound T, n BIGINT,
- *             exhausted BOOLEAN&gt;
+ *   -> STRUCT&lt;values ARRAY&lt;STRUCT&lt;value T, count BIGINT&gt;&gt;, bound T&gt;
  * </pre>
+ *
+ * <p>The result is the state itself and has exactly the type the aggregate returns, so apply can
+ * write it back to the hidden top-K state columns without rebuilding a struct. The caller derives
+ * {@code n' = n + dn} and {@code exhausted = (size(values) == 0 && n' > 0)} itself.
  *
  * <p>A NULL list is an empty list; a NULL {@code b}/{@code b_i}/{@code b_d} means that side is
  * complete/untruncated. The result struct itself is never NULL, only its {@code bound} field can
  * be: the merge only trusts values in {@code v <= min(b, b_i, b_d)}, so {@code bound} is the
  * effective upper bound (for MIN; the lower bound for MAX) of the resulting state.
- * {@code exhausted} is true when the value range is used up: the merge found no value to keep but
- * {@code n + dn > 0}, which requires a fallback to a complete refresh.
  */
 public abstract class TopKMergeFunction extends ScalarFunction
         implements CustomSignature, AlwaysNotNullable {
@@ -134,15 +132,8 @@ public abstract class TopKMergeFunction extends ScalarFunction
         return null;
     }
 
-    /**
-     * Builds {@code STRUCT<values ARRAY<STRUCT<value T, count BIGINT>>, bound T NULL, n BIGINT,
-     * exhausted BOOLEAN>}.
-     */
+    /** The merge result is the aggregate state type: {@code STRUCT<values, bound>}. */
     private static StructType resultType(DataType valueType) {
-        return new StructType(ImmutableList.of(
-                new StructField("values", ArrayType.of(TopKCountFunction.pairType(valueType)), false, ""),
-                new StructField("bound", valueType, true, ""),
-                new StructField("n", BigIntType.INSTANCE, false, ""),
-                new StructField("exhausted", BooleanType.INSTANCE, false, "")));
+        return TopKCountFunction.resultType(valueType);
     }
 }

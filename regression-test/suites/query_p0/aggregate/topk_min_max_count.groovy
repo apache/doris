@@ -308,6 +308,21 @@ suite("topk_min_max_count") {
             CAST(4 AS BIGINT), CAST(0 AS BIGINT), CAST(2 AS BIGINT))
     """
 
+    // pos == k is not truncation: every known value fits, so the state keeps bE (5) instead of
+    // shrinking the trusted range to max(S') (2).
+    order_qt_merge_min_pos_equals_k """
+        SELECT topk_merge_min(
+            CAST(array(named_struct('value', 1, 'count', 1))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            CAST(array(named_struct('value', 2, 'count', 1))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(5 AS INT),
+            CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            CAST(1 AS BIGINT), CAST(1 AS BIGINT), CAST(2 AS BIGINT))
+    """
+
     // MAX is symmetric.
     order_qt_merge_max_truncate_to_k """
         SELECT topk_merge_max(

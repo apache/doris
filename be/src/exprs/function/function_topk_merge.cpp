@@ -215,6 +215,11 @@ DataTypePtr find_value_type(const DataTypes& arguments) {
  * MAX): outside it at least one side may have dropped values. The post count of a value is
  * S + I - D; non-positive counts are removed (net-zero cancellations), then the first k values are
  * kept.
+ *
+ * The result is the state itself, i.e. the same type topk_min_count/topk_max_count return:
+ * STRUCT<values ARRAY<STRUCT<value T, count BIGINT>>, bound T NULL>. n' = n + dn and
+ * exhausted = (size(values) == 0 && n' > 0) are derived by the caller, which writes n' to the
+ * COUNT state column and uses exhausted to trigger the fallback.
  */
 template <bool IsMin>
 class FunctionTopKMerge : public IFunction {
@@ -237,14 +242,15 @@ public:
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "{} can not infer the value type from arguments", name);
         }
+        // The result is the state type, identical to the aggregate's return type, so that the
+        // apply expression can write it straight back to the hidden MIN_TOPK/MAX_TOPK and BOUND
+        // columns.
         auto pair_type = std::make_shared<DataTypeStruct>(
                 DataTypes {value_type, std::make_shared<DataTypeInt64>()},
                 Strings {"value", "count"});
         auto values_type = std::make_shared<DataTypeArray>(make_nullable(pair_type));
-        return std::make_shared<DataTypeStruct>(
-                DataTypes {values_type, make_nullable(value_type),
-                           std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeBool>()},
-                Strings {"values", "bound", "n", "exhausted"});
+        return std::make_shared<DataTypeStruct>(DataTypes {values_type, make_nullable(value_type)},
+                                                Strings {"values", "bound"});
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
@@ -269,8 +275,6 @@ public:
         auto& out_value_column = out_pair.get_column(0);
         auto& out_count_column = assert_cast<ColumnInt64&>(out_pair.get_column(1));
         auto& out_bound_column = assert_cast<ColumnNullable&>(result_struct.get_column(1));
-        auto& out_n_column = assert_cast<ColumnInt64&>(result_struct.get_column(2));
-        auto& out_exhausted_column = assert_cast<ColumnUInt8&>(result_struct.get_column(3));
 
         for (size_t row = 0; row != input_rows_count; ++row) {
             const int64_t k = read_int64(*columns[8], row, "k");
@@ -297,14 +301,16 @@ public:
                                                   out_count_column, out_pair_nullable, &positive));
             out_values.get_offsets().push_back(out_pair.size());
 
-            // bound: NULL while the state is complete, the k-th kept value when the state is
-            // truncated, or the effective bound when fewer than k values survived.
+            // bound: NULL while the state is complete, the k-th kept value only when values were
+            // actually dropped (pos > k), or the effective bound otherwise.
             // b IS NULL means the pre-image covers every distinct value; a NULL b_i/b_d means
             // that side of the delta was not truncated.
+            // pos == k is NOT truncation: every known value fit, so keep bE instead of shrinking
+            // the trusted range to max(S').
             const bool sides_complete = b_view.is_null && bi_view.is_null && bd_view.is_null;
             if (new_n == 0 || (sides_complete && std::cmp_less_equal(positive, k))) {
                 out_bound_column.insert_default();
-            } else if (std::cmp_greater_equal(positive, k)) {
+            } else if (std::cmp_greater(positive, k)) {
                 out_bound_column.get_nested_column().insert_from(out_value_column,
                                                                  out_pair.size() - 1);
                 out_bound_column.get_null_map_data().push_back(0);
@@ -313,9 +319,6 @@ public:
                 out_bound_column.get_nested_column().insert_from(*effective_bound, 0);
                 out_bound_column.get_null_map_data().push_back(0);
             }
-
-            out_n_column.get_data().push_back(new_n);
-            out_exhausted_column.get_data().push_back(positive == 0 && new_n > 0 ? 1 : 0);
         }
 
         block.replace_by_position(result, std::move(result_column));
@@ -387,7 +390,8 @@ private:
 
     /// Merges the trusted part (v <= bE for MIN) of S, I and D into the output list, keeping the
     /// first k values with a positive post count S + I - D. `positive` receives the number of
-    /// positive candidates in the trusted range, which may exceed k.
+    /// positive candidates, capped at k + 1: once more than k are found the scan stops, which is
+    /// enough to decide the bound.
     Status append_trusted_values(const TopKArrayView& s_view, const TopKArrayView& i_view,
                                  const TopKArrayView& d_view, const IColumn* effective_bound,
                                  int64_t k, PrimitiveType type, IColumn& out_value_column,
@@ -433,6 +437,11 @@ private:
                     out_count_column.get_data().push_back(post);
                     out_pair_nullable.get_null_map_data().push_back(0);
                     ++kept;
+                }
+                if (std::cmp_greater(*positive, k)) {
+                    // pos > k is decided (a value was dropped); the rest only affects counts
+                    // outside the kept prefix, so stop scanning.
+                    break;
                 }
             }
         }

@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructType;
@@ -116,15 +115,13 @@ class TopKFunctionSignatureTest {
             Assertions.assertEquals(valueType, signature.getArgType(1));
             Assertions.assertEquals(BigIntType.INSTANCE, signature.getArgType(8));
 
+            // The merge result is the state itself, identical to the aggregate's return type.
             StructType resultType = (StructType) signature.returnType;
-            Assertions.assertEquals(4, resultType.getFields().size());
+            Assertions.assertEquals(TopKCountFunction.resultType(valueType), resultType);
+            Assertions.assertEquals(2, resultType.getFields().size());
             assertPairType(valueType, (StructType) ((ArrayType) resultType.getField("values")
                     .getDataType()).getItemType());
             Assertions.assertTrue(resultType.getField("bound").isNullable());
-            Assertions.assertFalse(resultType.getField("n").isNullable());
-            Assertions.assertEquals(BigIntType.INSTANCE, resultType.getField("n").getDataType());
-            Assertions.assertFalse(resultType.getField("exhausted").isNullable());
-            Assertions.assertEquals(BooleanType.INSTANCE, resultType.getField("exhausted").getDataType());
             Assertions.assertFalse(function.nullable());
         }
     }
