@@ -52,6 +52,7 @@ import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.InstantiationUtil;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -536,9 +537,19 @@ public class PaimonBackendBoundTableTest {
         FileStoreTable versionManaged = withCatalogEnvironment(onDisk, catalogEnvironment(catalog));
         Table systemTable = SystemTableLoader.load("file_indexes", versionManaged);
         List<Split> splits = systemTable.newReadBuilder().newScan().plan().splits();
-        Table backendTable = provider().tableForBackend(sysHandle("file_indexes", versionManaged), systemTable);
-        backendTable = InstantiationUtil.deserializeObject(InstantiationUtil.serializeObject(backendTable),
-                getClass().getClassLoader());
+        PaimonTableHandle handle = sysHandle("file_indexes", versionManaged);
+        handle.setPaimonTable(systemTable);
+        handle.setSystemTableSource(versionManaged);
+        Map<String, String> props = provider().getScanNodeProperties(null, handle,
+                Collections.emptyList(), Optional.empty());
+        Map<?, ?> options = JsonSerdeUtil.fromJson(props.get("paimon.options_json"), Map.class);
+        FileStoreTable transported = deserializeTable((String) options.get("doris.serialized-system-source"));
+        Assertions.assertNull(transported.catalogEnvironment().catalogLoader());
+        Assertions.assertEquals("1", transported.options().get("scan.snapshot-id"));
+        // JNI lowers the manifest cap and rebuilds from this payload, replacing serialized_table.
+        FileStoreTable capped = transported.copyWithoutTimeTravel(Collections.singletonMap(
+                CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), "1"));
+        Table backendTable = SystemTableLoader.load("file_indexes", capped);
 
         List<String> files = new ArrayList<>();
         for (Split split : splits) {
@@ -593,6 +604,26 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void fileIndexesPreserveDeferredQueryAuthorization(@TempDir Path warehouse) {
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        FileStoreTable authorized = newTable(warehouse, catalogEnvironment(catalog),
+                queryAuthEnabled(), C1);
+        PaimonTableHandle handle = sysHandle("file_indexes", authorized);
+        handle.setPaimonTable(SystemTableLoader.load("file_indexes", authorized));
+        handle.setSystemTableSource(authorized);
+
+        provider().getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty());
+        Assertions.assertFalse(catalog.authCalls.isEmpty(),
+                "$file_indexes must authorize before the catalog loader is removed");
+
+        catalog.denyAuthWith("file index query denied");
+        RuntimeException denied = Assertions.assertThrows(RuntimeException.class,
+                () -> provider().getScanNodeProperties(null, handle,
+                        Collections.emptyList(), Optional.empty()));
+        Assertions.assertTrue(rootCauseMessage(denied).contains("file index query denied"));
+    }
+
+    @Test
     public void leavesDataSystemTablesTheirOwnProjectedAuthorization(@TempDir Path warehouse) {
         // $ro / $row_tracking / $audit_log / $binlog keep planning on the FE through
         // DataTableBatchScan, which already calls authTableQuery with the slot projection
@@ -605,7 +636,7 @@ public class PaimonBackendBoundTableTest {
         provider().tableForBackend(sysHandle("ro", dataTable), SystemTableLoader.load("ro", dataTable));
 
         Assertions.assertTrue(catalog.authCalls.isEmpty(),
-                "only $files, which loses its authorization by re-planning on the BE, may transfer it");
+                "only $files and $file_indexes, which re-plan on the BE, may transfer authorization");
     }
 
     // ==================== the fallback-branch pair ====================
