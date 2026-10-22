@@ -100,6 +100,29 @@ under the License.
             <artifactId>azure-identity</artifactId>
         </dependency>
 
+        <!-- Reactor Netty can select Netty's optional io_uring transport on Java 11+.
+             Bundle its classes (transitive) and Linux natives together: falling back to the FE
+             host for io_uring mixes parent/child IoHandlerFactory types and fails with LinkageError.
+             Versions are managed by the Netty BOM in fe/pom.xml. -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-native-io_uring</artifactId>
+            <classifier>linux-x86_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-native-io_uring</artifactId>
+            <classifier>linux-aarch_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-native-io_uring</artifactId>
+            <classifier>linux-riscv64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
