@@ -964,6 +964,9 @@ TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
         float avg_dl;
         float alpha_idf;
     };
+    // The delete bitmap's aggregation cache is keyed by tablet and rowset, and the mock rowsets
+    // share their ids, so each collection uses its own tablet id.
+    int64_t next_tablet_id = 9100;
     auto collect = [&](const std::string& segment_path,
                        const std::vector<uint32_t>& hidden_rows) -> Collected {
         auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
@@ -975,7 +978,7 @@ TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
         std::vector<RowSetSplits> splits {RowSetSplits(reader)};
 
         constexpr int64_t kVersion = 5;
-        MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(0),
+        MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(next_tablet_id++),
                               .version = kVersion};
         for (const auto seg : rowset->segments()) {
             for (const uint32_t row : hidden_rows) {
@@ -1038,7 +1041,8 @@ TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
     std::vector<RowSetSplits> splits {RowSetSplits(reader)};
 
     constexpr int64_t kVersion = 3;
-    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(0), .version = kVersion};
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9200),
+                          .version = kVersion};
     for (const auto seg : rowset->segments()) {
         hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 0);
         hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 1);
