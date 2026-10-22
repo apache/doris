@@ -18,9 +18,9 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -32,9 +32,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.ArrayType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -103,9 +103,14 @@ class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
                         target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK_BOUND)),
                 mappedDeltaSlots(processor, target, outputs), slot("delta_group_count", BigIntType.INSTANCE));
         Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK).getName());
-        // The hidden column stays a typed struct: an empty list plus the current extreme.
+        // The extreme-only state is a one-element array built from the better pair.
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof Array));
         Assertions.assertTrue(state.anyMatch(node -> node instanceof CreateNamedStruct));
         Assertions.assertTrue(state.anyMatch(node -> node instanceof AssertTrue));
+        Assertions.assertFalse(state.anyMatch(node -> node instanceof ArraySortedMerge),
+                "K = 0 does not merge lists");
+        Assertions.assertNotNull(finalByName.get(
+                target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK_BOUND).getName()));
         Expression visible = finalByName.get("min_v");
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof CaseWhen));
         Assertions.assertTrue(visible.anyMatch(node -> node instanceof ElementAt));
