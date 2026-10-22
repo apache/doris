@@ -76,6 +76,27 @@ public class SimpleSchedulerTest {
     }
 
     @Test
+    public void testRecentErrorsAccumulateBeforeBlacklistThreshold() {
+        int count = Config.do_add_backend_black_list_threshold_count;
+        int seconds = Config.do_add_backend_black_list_threshold_seconds;
+        try {
+            Config.do_add_backend_black_list_threshold_count = 2;
+            Config.do_add_backend_black_list_threshold_seconds = 60;
+            SimpleScheduler.BlackListInfo info = new SimpleScheduler.BlackListInfo();
+            Assertions.assertFalse(info.isRecentlyRecorded());
+            info.tryAddBlackList("restarting backend");
+            Assertions.assertTrue(info.isRecentlyRecorded());
+            Assertions.assertFalse(info.isBlacked());
+            info.tryAddBlackList("restarting backend");
+            Assertions.assertTrue(info.isBlacked());
+            Assertions.assertFalse(info.shouldBeRemoved());
+        } finally {
+            Config.do_add_backend_black_list_threshold_count = count;
+            Config.do_add_backend_black_list_threshold_seconds = seconds;
+        }
+    }
+
+    @Test
     public void testGetHostNormal() throws UserException, InterruptedException {
         Reference<Long> ref = new Reference<Long>();
         ImmutableMap<Long, Backend> backends = ImmutableMap.copyOf(genBackends());

@@ -816,4 +816,34 @@ TEST_F(DNSCacheTest, refresh_stops_early_when_stopping) {
     EXPECT_EQ(1u, cache.size_for_test()) << "bailing out must leave the cache untouched";
 }
 
+TEST_F(DNSCacheTest, invalidation_resolves_replaced_pod_and_clears_negative_cache) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    bool fail = false;
+    std::string current_ip = "10.0.0.1";
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        *error = fail ? EAI_NONAME : 0;
+        if (fail) {
+            return Status::InternalError("pod DNS removed");
+        }
+        ip = current_ip;
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.1");
+    current_ip = "10.0.0.2";
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    fail = true;
+    cache.refresh_for_test();
+    EXPECT_FALSE(cache.get("be.test", &ip).ok());
+    fail = false;
+    current_ip = "10.0.0.3";
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.3");
+}
+
 } // end of namespace doris

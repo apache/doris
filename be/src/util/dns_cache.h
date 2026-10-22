@@ -64,6 +64,9 @@ public:
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
 
+    // Force resolution after a connection to a replaced pod fails.
+    void invalidate(const std::string& hostname);
+
 private:
     // Resolve hostname to IP address.
     // If resolution fails, falls back to cached IP if available.

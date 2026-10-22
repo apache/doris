@@ -46,6 +46,13 @@ DNSCache::~DNSCache() {
     }
 }
 
+void DNSCache::invalidate(const std::string& hostname) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    cache.erase(hostname);
+    failure_count.erase(hostname);
+    _negative_cache.erase(hostname);
+}
+
 Status DNSCache::get(const std::string& hostname, std::string* ip) {
     bool has_negative_entry = false;
     {

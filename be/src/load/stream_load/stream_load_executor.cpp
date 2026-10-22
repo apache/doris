@@ -228,9 +228,15 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     } else {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
-        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr_provider, [&request, &result](FrontendServiceConnection& client) {
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
+                master_addr_provider,
+                [&request, &result](FrontendServiceConnection& client) {
+                    result = {};
                     client->loadTxnBegin(result, request);
+                },
+                [&result]() { return result.status; },
+                [&result]() -> const TNetworkAddress* {
+                    return result.__isset.master_address ? &result.master_address : nullptr;
                 }));
 #else
         result = k_stream_load_begin_result;
@@ -273,10 +279,15 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
         auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
-        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
                 master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
+                    result = {};
                     client->loadTxnPreCommit(result, request);
+                },
+                [&result]() { return result.status; },
+                [&result]() -> const TNetworkAddress* {
+                    return result.__isset.master_address ? &result.master_address : nullptr;
                 },
                 config::txn_commit_rpc_timeout_ms));
 #else
@@ -317,10 +328,15 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     {
         SCOPED_RAW_TIMER(&duration_ns);
         auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
-        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
                 master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
+                    result = {};
                     client->loadTxn2PC(result, request);
+                },
+                [&result]() { return result.status; },
+                [&result]() -> const TNetworkAddress* {
+                    return result.__isset.master_address ? &result.master_address : nullptr;
                 },
                 config::txn_commit_rpc_timeout_ms));
     }
@@ -368,10 +384,15 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
     auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc_fe_with_master_refresh(
             master_addr_provider,
             [&request, &result](FrontendServiceConnection& client) {
+                result = {};
                 client->loadTxnCommit(result, request);
+            },
+            [&result]() { return result.status; },
+            [&result]() -> const TNetworkAddress* {
+                return result.__isset.master_address ? &result.master_address : nullptr;
             },
             config::txn_commit_rpc_timeout_ms));
 #else
@@ -418,9 +439,15 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     TLoadTxnRollbackResult result;
 #ifndef BE_TEST
     auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
-    auto rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr_provider, [&request, &result](FrontendServiceConnection& client) {
+    auto rpc_st = ThriftRpcHelper::rpc_fe_with_master_refresh(
+            master_addr_provider,
+            [&request, &result](FrontendServiceConnection& client) {
+                result = {};
                 client->loadTxnRollback(result, request);
+            },
+            [&result]() { return result.status; },
+            [&result]() -> const TNetworkAddress* {
+                return result.__isset.master_address ? &result.master_address : nullptr;
             });
     if (!rpc_st.ok()) {
         LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st << ctx->brief();
