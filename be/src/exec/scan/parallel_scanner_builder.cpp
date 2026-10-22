@@ -27,6 +27,7 @@
 #include "exec/scan/olap_scanner.h"
 #include "io/io_common.h"
 #include "runtime/query_context.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/base_tablet.h"
@@ -281,6 +282,8 @@ Status ParallelScannerBuilder::_load() {
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
         const auto& read_source = _all_read_sources[tablet_id];
+        _scoring_read_sources[tablet_id] = std::make_shared<const TabletReadSource>(read_source);
+        _scoring_statistics[tablet_id] = std::make_shared<CollectionStatistics>();
         for (auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
             RETURN_IF_ERROR(rowset->load());
@@ -327,6 +330,8 @@ std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
             .bucket_num = scan_range.bucket_num,
             .start_tso = std::nullopt,
             .end_tso = std::nullopt,
+            .scoring_read_source = _scoring_read_sources.at(scan_range.tablet_id),
+            .shared_collection_statistics = _scoring_statistics.at(scan_range.tablet_id),
     };
     return OlapScanner::create_shared(_parent, std::move(params));
 }

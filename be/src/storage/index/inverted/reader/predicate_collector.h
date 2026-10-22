@@ -62,6 +62,7 @@ struct CollectInfo {
     std::vector<LogicalScoringLeaf> logical_scoring_leaves;
     std::shared_ptr<const TabletIndex> owned_index_meta;
     const TabletIndex* index_meta = nullptr;
+    std::shared_ptr<const TabletColumn> read_column = nullptr;
 };
 using CollectInfoMap = std::unordered_map<std::wstring, CollectInfo>;
 
@@ -72,6 +73,7 @@ struct ScoringIndexCandidates {
     std::string index_suffix_path;
     std::vector<const TabletIndex*> index_metas;
     std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
+    std::shared_ptr<const TabletColumn> read_column = nullptr;
 };
 
 Result<std::vector<segment_v2::TermInfo>> analyze_plain_query(

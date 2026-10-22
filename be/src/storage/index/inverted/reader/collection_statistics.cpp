@@ -22,6 +22,7 @@
 #include <sstream>
 
 #include "common/exception.h"
+#include "exprs/function/search/search_predicate_collector.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -32,10 +33,12 @@
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/string_helper.h"
+#include "storage/index/inverted/reader/visible_collection.h"
 #include "storage/index/inverted/snii/reader/snii_index_source.h"
 #include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader.h"
+#include "storage/tablet/base_tablet.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -84,6 +87,66 @@ Status CollectionStatistics::collect(RuntimeState* state,
     }
     return collect_full_collection(state, rowsets, tablet_schema, common_expr_ctxs_push_down,
                                    io_ctx);
+}
+
+Status CollectionStatistics::collect_visible_collection(
+        RuntimeState* state, const TabletReadSource& read_source,
+        const std::shared_ptr<BaseTablet>& tablet, int64_t version,
+        const TabletSchemaSPtr& tablet_schema, const VExprContextSPtrs& common_expr_ctxs_push_down,
+        io::IOContext* io_ctx) {
+    std::call_once(_visible_collection_once, [&] {
+        _visible_collection_status =
+                collect_visible_collection_impl(state, read_source, tablet, version, tablet_schema,
+                                                common_expr_ctxs_push_down, io_ctx);
+        if (!_visible_collection_status.ok()) {
+            clear();
+        }
+    });
+    return _visible_collection_status;
+}
+
+Status CollectionStatistics::collect_visible_collection_impl(
+        RuntimeState* state, const TabletReadSource& read_source,
+        const std::shared_ptr<BaseTablet>& tablet, int64_t version,
+        const TabletSchemaSPtr& tablet_schema, const VExprContextSPtrs& common_expr_ctxs_push_down,
+        io::IOContext* io_ctx) {
+    clear();
+    _visible_statistics = true;
+    if (_search_collector == nullptr) {
+        _search_collector = std::make_unique<SearchPredicateCollector>();
+    }
+    CollectInfoMap collect_infos;
+    RETURN_IF_ERROR(
+            extract_collect_info(state, common_expr_ctxs_push_down, tablet_schema, &collect_infos));
+    for (const auto& [field, info] : collect_infos) {
+        _total_num_tokens[field] = 0;
+        for (const auto& term : info.unique_terms) {
+            _term_doc_freqs[field][segment_v2::inverted_index::StringHelper::to_wstring(term)] = 0;
+        }
+    }
+    VisibleScoringDocuments visible;
+    RETURN_IF_ERROR(collect_visible_scoring_documents(tablet, read_source, version, tablet_schema,
+                                                      state, &visible));
+    for (const auto& split : read_source.rs_splits) {
+        const auto& rowset = split.rs_reader->rowset();
+        for (auto segment : rowset->segments()) {
+            RETURN_IF_ERROR(process_segment(rowset, segment, tablet_schema.get(), collect_infos,
+                                            io_ctx, &visible, state));
+        }
+    }
+    // Publish fully populated caches before parallel scanners can read them.
+    // A lazy first insertion from multiple scoring threads would race.
+    for (const auto& [field, frequencies] : _term_doc_freqs) {
+        (void)get_or_calculate_avg_dl(field);
+        for (const auto& [term, frequency] : frequencies) {
+            if (frequency > _total_num_docs) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                        "Visible term document frequency exceeds collection size");
+            }
+            (void)get_or_calculate_idf(field, term);
+        }
+    }
+    return Status::OK();
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) Statistics collection spans rowsets and formats.
@@ -220,7 +283,17 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                                              const RowsetSegmentView& seg,
                                              const TabletSchema* tablet_schema,
                                              const CollectInfoMap& collect_infos,
-                                             io::IOContext* io_ctx) {
+                                             io::IOContext* io_ctx,
+                                             const VisibleScoringDocuments* visible_documents,
+                                             RuntimeState* state) {
+    const roaring::Roaring* visible = nullptr;
+    if (visible_documents != nullptr) {
+        visible = &visible_documents->segments.at(rowset->rowset_id())
+                           .at(static_cast<uint32_t>(seg.id()));
+        if (visible->isEmpty()) {
+            return Status::OK();
+        }
+    }
     auto seg_path = DORIS_TRY(seg.path());
     auto rowset_meta = rowset->rowset_meta();
 
@@ -353,8 +426,24 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, segment_v2::inverted_index::StringHelper::to_string(ws_field_name));
         }
+        if (visible != nullptr) {
+            uint64_t visible_tokens = 0;
+            std::unordered_map<std::wstring, uint64_t> visible_frequencies;
+            RETURN_IF_ERROR(collect_clucene_visible_field_statistics(
+                    index_reader, rowset, seg, collect_info, ws_field_name,
+                    idx_file_reader->get_index_file_cache_key(collect_info.index_meta), *visible,
+                    state, io_ctx, !scoring_stats.has_norms, &visible_tokens,
+                    &visible_frequencies));
+            _total_num_tokens[ws_field_name] += visible_tokens;
+            for (const auto& [term, frequency] : visible_frequencies) {
+                collection_statistics_detail::add_term_doc_frequency(
+                        &_term_doc_freqs, ws_field_name, term, frequency);
+            }
+            continue;
+        }
+        // CLucene omits term totals without norms; one token per row gives a unit-length estimate.
         _total_num_tokens[ws_field_name] +=
-                scoring_stats.has_norms ? scoring_stats.token_count : scoring_stats.doc_count;
+                !scoring_stats.has_norms ? scoring_stats.doc_count : scoring_stats.token_count;
 
         for (const auto& logical_term_bytes : collect_info.unique_terms) {
             const auto logical_term =
@@ -366,7 +455,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         }
     }
 
-    _total_num_docs += static_cast<uint64_t>(total_segment_docs);
+    _total_num_docs +=
+            visible != nullptr ? visible->cardinality() : static_cast<uint64_t>(total_segment_docs);
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 
@@ -413,6 +503,7 @@ void CollectionStatistics::commit_snii_scoring_segment(
 }
 
 void CollectionStatistics::clear() {
+    _visible_statistics = false;
     _total_num_docs = 0;
     _total_num_tokens.clear();
     _term_doc_freqs.clear();
@@ -451,7 +542,7 @@ uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& luc
 }
 
 uint64_t CollectionStatistics::get_doc_num() const {
-    if (_total_num_docs == 0) {
+    if (_total_num_docs == 0 && !_visible_statistics) {
         throw Exception(
                 ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
                 "Index statistics collection failed: No data available for SimilarityCollector");
@@ -485,6 +576,12 @@ float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_
 
     const uint64_t doc_num = get_doc_num();
     const uint64_t doc_freq = get_term_doc_freq_by_col(lucene_col_name, term);
+    // A snapshot whose documents are all deleted has no scored hits. Physical
+    // postings can still exist until compaction; constructing their scorer is valid.
+    if (doc_num == 0) {
+        _idf_by_col_term[lucene_col_name][term] = 0.0F;
+        return 0.0F;
+    }
     auto idf = (float)std::log(1 + ((double)doc_num - (double)doc_freq + 0.5) /
                                            ((double)doc_freq + 0.5));
     _idf_by_col_term[lucene_col_name][term] = idf;

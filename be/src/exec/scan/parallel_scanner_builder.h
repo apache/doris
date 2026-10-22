@@ -124,6 +124,8 @@ private:
     const std::vector<const std::vector<OlapScanRange*>*>& _tablet_key_ranges;
     const std::vector<std::unique_ptr<TPaloScanRange>>& _scan_ranges;
     std::unordered_map<int64_t, TabletReadSource> _all_read_sources;
+    std::unordered_map<int64_t, std::shared_ptr<const TabletReadSource>> _scoring_read_sources;
+    std::unordered_map<int64_t, CollectionStatisticsPtr> _scoring_statistics;
     std::vector<TabletReadSource>& _read_sources;
 };
 
