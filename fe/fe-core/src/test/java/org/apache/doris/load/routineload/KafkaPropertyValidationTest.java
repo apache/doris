@@ -18,19 +18,33 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.BackendServiceConstants;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class KafkaPropertyValidationTest {
     private KafkaDataSourceProperties properties(String key, String value, boolean alter) {
@@ -149,5 +163,68 @@ public class KafkaPropertyValidationTest {
         DdlException error = Assertions.assertThrows(DdlException.class,
                 () -> Deencapsulation.invoke(job, "convertCustomProperties", false));
         Assertions.assertTrue(error.getMessage().contains("is not allowed in Routine Load"));
+    }
+
+    @Test
+    public void testRecoverMigratedCertificateProperties() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
+        SmallFileMgr smallFileMgr = Mockito.mock(SmallFileMgr.class);
+        String originalSql = "CREATE ROUTINE LOAD test_db.test_job ON test_table COLUMNS(id) "
+                + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                + "\"kafka_topic\" = \"test_topic\", \"property.ssl.ca.location\" = \"/etc/ssl/ca.pem\")";
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(env.getSmallFileMgr()).thenReturn(smallFileMgr);
+            Mockito.doReturn(Optional.of(db)).when(catalog).getDb(1L);
+            Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("test_db");
+            Mockito.when(db.getName()).thenReturn("test_db");
+            Mockito.doReturn(Optional.of(table)).when(db).getTable(2L);
+            Mockito.doReturn(table).when(db).getTableOrAnalysisException("test_table");
+            Mockito.when(table.getName()).thenReturn("test_table");
+            SmallFile ca = new SmallFile(1L, "kafka", "ca.pem", 3L, "", 0L, "checksum", true);
+            Mockito.when(smallFileMgr.getSmallFile(1L, "kafka", "ca.pem", true)).thenReturn(ca);
+
+            // ALTER changes the effective map, but the persisted CREATE SQL still contains the old path.
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                    "127.0.0.1:9092", "test_topic", UserIdentity.ADMIN);
+            job.setOrigStmt(new OriginStatement(originalSql, 0));
+            Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+            Deencapsulation.setField(job, "customProperties", Map.of("ssl.ca.location", "FILE:ca.pem"));
+            KafkaRoutineLoadJob restored = (KafkaRoutineLoadJob) GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job), RoutineLoadJob.class);
+
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, restored.getState());
+            Assertions.assertEquals(-1L, restored.getEndTimestamp());
+            Assertions.assertEquals("id", restored.getColumnExprDescs().descs.get(0).getColumnName());
+            restored.prepare();
+            Assertions.assertEquals("FILE:3:checksum", restored.getConvertedCustomProperties().get("ssl.ca.location"));
+
+            // Recovery also preserves an unmigrated job, while runtime validation still rejects its current path.
+            Deencapsulation.setField(job, "customProperties", Map.of("ssl.ca.location", "/etc/ssl/ca.pem"));
+            KafkaRoutineLoadJob unmigrated = (KafkaRoutineLoadJob) GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job), RoutineLoadJob.class);
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, unmigrated.getState());
+            DdlException error = Assertions.assertThrows(DdlException.class, unmigrated::prepare);
+            Assertions.assertTrue(error.getMessage().contains("CREATE FILE"));
+
+            // The recovery path must not weaken CREATE admission for the same SQL.
+            ConnectContext ctx = new ConnectContext();
+            try {
+                ctx.setThreadLocalInfo();
+                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) new NereidsParser()
+                        .parseSingle(originalSql);
+                AnalysisException createError = Assertions.assertThrows(AnalysisException.class,
+                        () -> command.getCreateRoutineLoadInfo().validate(ctx));
+                Assertions.assertTrue(createError.getMessage().contains("CREATE FILE"));
+            } finally {
+                ctx.cleanup();
+            }
+        }
     }
 }
