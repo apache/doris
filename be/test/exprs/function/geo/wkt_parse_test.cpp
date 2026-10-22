@@ -42,7 +42,7 @@ TEST_F(WktParseTest, normal) {
 
     std::unique_ptr<GeoShape> shape;
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), shape);
-    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
     EXPECT_NE(nullptr, shape);
     LOG(INFO) << "parse result: " << shape->to_string();
 }
@@ -52,7 +52,7 @@ TEST_F(WktParseTest, invalid_wkt) {
 
     std::unique_ptr<GeoShape> shape;
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), shape);
-    EXPECT_NE(GEO_PARSE_OK, status);
+    EXPECT_NE(GeoParseStatus::GEO_PARSE_OK, status);
     EXPECT_EQ(nullptr, shape);
 }
 

@@ -105,10 +105,10 @@ SNAPPY_SOURCE=snappy-1.2.1
 SNAPPY_MD5SUM="dd6f9b667e69491e1dbf7419bdf68823"
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.10.tar.gz
-GPERFTOOLS_SOURCE=gperftools-2.10
-GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.18.1/gperftools-2.18.1.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.18.1.tar.gz
+GPERFTOOLS_SOURCE=gperftools-2.18.1
+GPERFTOOLS_MD5SUM="129c01f6f5297f0482b33d431b5ec555"
 
 # zlib
 ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
@@ -222,11 +222,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-2.11.0
-LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.11.0.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-2.11.0.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-2.11.0
-LIBRDKAFKA_MD5SUM="bc611d0340e269abaa8886d42ff9c558"
+# librdkafka-2.16.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.16.0.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-2.16.0
+LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
@@ -617,11 +617,11 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-# Complete-segment prefilter fixes are supplied by upstream lance-c, not local patches.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/9bd730add2ac70316c1d642b8459011e2dd92022"
-LANCE_C_NAME="lance-c-9bd730add2ac70316c1d642b8459011e2dd92022.tar.gz"
-LANCE_C_SOURCE="lance-c-9bd730add2ac70316c1d642b8459011e2dd92022"
-LANCE_C_MD5SUM="63851b09bf1689032579f1a094ff2f37"
+# Includes lance-c #97: resolve index/column name collisions without serializing prewarm.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4fafcd64525b274b113208390bbcca86bbbc093b"
+LANCE_C_NAME="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b.tar.gz"
+LANCE_C_SOURCE="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b"
+LANCE_C_MD5SUM="65e924fb62137c5dd4d58af3fb33923a"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"

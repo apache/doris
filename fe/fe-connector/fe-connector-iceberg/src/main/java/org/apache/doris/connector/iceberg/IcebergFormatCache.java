@@ -52,12 +52,13 @@ import java.util.function.Supplier;
  *
  * <p><b>No credential gate</b> (unlike {@link IcebergTableCache}, like {@link IcebergPartitionCache}): the cached
  * value is a bare format-name {@link String} with no {@code FileIO} / credential, so it is safe to share across
- * users and is built unconditionally (only the TTL knob disables it).
+ * users and is built unconditionally (only the table entry's cache keys disable it).
  *
  * <p>Backed identically to {@link IcebergPartitionCache}: a contextual, access-TTL {@link MetaCache} with
  * manual miss-load, so the inference runs OUTSIDE Caffeine's compute lock and a failed scan's exception
- * propagates verbatim and is NOT cached (the next query retries — legacy parity). TTL is
- * {@code meta.cache.iceberg.table.ttl-second}; {@code <= 0} disables (read live). Lives on the long-lived
+ * propagates verbatim and is NOT cached (the next query retries — legacy parity). The connector builds it with
+ * the table entry's {@code meta.cache.iceberg.table.(enable|ttl-second|capacity)}; {@code enable=false},
+ * {@code ttl-second <= 0} or {@code capacity=0} disables it (read live). Lives on the long-lived
  * per-catalog {@link IcebergConnector}; a REFRESH CATALOG rebuilds the connector and thus the cache.
  */
 final class IcebergFormatCache {
@@ -94,20 +95,19 @@ final class IcebergFormatCache {
     private final MetaCache<Key, String> entry;
 
     IcebergFormatCache(long ttlSeconds, int maxSize) {
-        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
+        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
+        this(CatalogMetaCache.unmanaged(), CacheSpec.ofConnectorTtl(ttlSeconds, maxSize));
     }
 
-    IcebergFormatCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
+    IcebergFormatCache(CatalogMetaCache owner, CacheSpec spec) {
         this.owner = owner;
-        // "<= 0 disables" connector TTL contract, folded to CacheSpec's disable sentinel (CacheSpec.ofConnectorTtl).
-        CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = owner.create(MetaCacheDefinition
                 .<Key, String>builder("iceberg-format", spec, IcebergFormatCache::scope)
                 .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 
-    /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always infer live". */
+    /** Caching is on unless the spec disables it; a disabled cache means "always infer live". */
     boolean isEnabled() {
         return entry.isEnabled();
     }
@@ -145,6 +145,11 @@ final class IcebergFormatCache {
     /** Test-only: how many times the live loader (the whole-table format inference) actually ran — the metric gate. */
     long loadCountForTest() {
         return entry.loadSuccessCount();
+    }
+
+    /** Test-only: the enable / TTL / capacity / weight spec this cache was built with. */
+    CacheSpec cacheSpecForTest() {
+        return entry.cacheSpec();
     }
 
     private static ScopePath scope(Key key) {

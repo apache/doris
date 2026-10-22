@@ -120,7 +120,7 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testBuildGlobalStatisticSkipsRowBinlogIndex() throws Exception {
+    public void testBuildGlobalStatisticSkipsChangelogIndex() throws Exception {
         Env env = Mockito.mock(Env.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
@@ -132,20 +132,20 @@ public class ColocateTableCheckerAndBalancerTest {
         db.registerTable(table);
 
         MaterializedIndex baseIndex = new MaterializedIndex(10002L, IndexState.NORMAL);
-        MaterializedIndex rowBinlogIndex = new MaterializedIndex(10003L, IndexState.NORMAL);
-        rowBinlogIndex.setIsRowBinlog(true);
+        MaterializedIndex changelogIndex = new MaterializedIndex(10003L, IndexState.NORMAL);
+        changelogIndex.setIsChangelog(true);
         Partition partition = new Partition(10004L, "p0", baseIndex, new HashDistributionInfo());
         table.addPartition(partition);
         table.getPartitionInfo().addPartition(partition.getId(), new DataProperty(TStorageMedium.HDD),
                 ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
 
         Tablet baseTablet = createColocateTablet(10005L, Lists.newArrayList(1L, 2L, 3L));
-        Tablet rowBinlogTablet = createColocateTablet(10006L, Lists.newArrayList(1L, 2L, 3L));
-        baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
-        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        Tablet changelogTablet = createColocateTablet(10006L, Lists.newArrayList(1L, 2L, 3L));
+        baseTablet.setChangelogTabletId(changelogTablet.getId());
+        changelogTablet.setChangelogBaseTabletId(baseTablet.getId());
         baseIndex.addTablet(baseTablet, null, true);
-        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
-        partition.createRollupIndex(rowBinlogIndex);
+        changelogIndex.addTablet(changelogTablet, null, true);
+        partition.createRollupIndex(changelogIndex);
 
         GroupId groupId = new GroupId(db.getId(), 10007L);
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
@@ -171,7 +171,7 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testMatchGroupsSchedulesRowBinlogWithoutMarkingGroupUnstable() throws Exception {
+    public void testMatchGroupsSchedulesChangelogWithoutMarkingGroupUnstable() throws Exception {
         Env env = Mockito.mock(Env.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         TabletScheduler tabletScheduler = Mockito.mock(TabletScheduler.class);
@@ -190,20 +190,20 @@ public class ColocateTableCheckerAndBalancerTest {
         db.registerTable(table);
 
         MaterializedIndex baseIndex = new MaterializedIndex(10002L, IndexState.NORMAL);
-        MaterializedIndex rowBinlogIndex = new MaterializedIndex(10003L, IndexState.NORMAL);
-        rowBinlogIndex.setIsRowBinlog(true);
+        MaterializedIndex changelogIndex = new MaterializedIndex(10003L, IndexState.NORMAL);
+        changelogIndex.setIsChangelog(true);
         Partition partition = new Partition(10004L, "p0", baseIndex, new HashDistributionInfo());
         table.addPartition(partition);
         table.getPartitionInfo().addPartition(partition.getId(), new DataProperty(TStorageMedium.HDD),
                 ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
 
         Tablet baseTablet = createColocateTablet(10005L, Lists.newArrayList(1L, 2L, 3L));
-        Tablet rowBinlogTablet = Mockito.spy(createColocateTablet(10006L, Lists.newArrayList(1L, 2L)));
-        baseTablet.setRowBinlogTabletId(rowBinlogTablet.getId());
-        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        Tablet changelogTablet = Mockito.spy(createColocateTablet(10006L, Lists.newArrayList(1L, 2L)));
+        baseTablet.setChangelogTabletId(changelogTablet.getId());
+        changelogTablet.setChangelogBaseTabletId(baseTablet.getId());
         baseIndex.addTablet(baseTablet, null, true);
-        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
-        partition.createRollupIndex(rowBinlogIndex);
+        changelogIndex.addTablet(changelogTablet, null, true);
+        partition.createRollupIndex(changelogIndex);
 
         GroupId groupId = new GroupId(db.getId(), 10007L);
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
@@ -231,14 +231,14 @@ public class ColocateTableCheckerAndBalancerTest {
             ArgumentCaptor<TabletSchedCtx> tabletCtxCaptor = ArgumentCaptor.forClass(TabletSchedCtx.class);
             Mockito.verify(tabletScheduler).addTablet(tabletCtxCaptor.capture(), Mockito.eq(false));
             TabletSchedCtx tabletCtx = tabletCtxCaptor.getValue();
-            Assertions.assertEquals(rowBinlogIndex.getId(), tabletCtx.getIndexId());
-            Assertions.assertEquals(rowBinlogTablet.getId(), tabletCtx.getTabletId());
+            Assertions.assertEquals(changelogIndex.getId(), tabletCtx.getIndexId());
+            Assertions.assertEquals(changelogTablet.getId(), tabletCtx.getTabletId());
             Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, tabletCtx.getTabletStatus());
             Assertions.assertEquals(Priority.HIGH, tabletCtx.getPriority());
             Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L), tabletCtx.getColocateBackendsSet());
             Assertions.assertEquals(ImmutableMap.of(1L, 1L, 2L, 2L, 3L, 3L),
-                    tabletCtx.getRowBinlogRequiredDestPathHashByBackend());
-            Mockito.verify(rowBinlogTablet).readyToBeRepaired(infoService, Priority.HIGH);
+                    tabletCtx.getChangelogRequiredDestPathHashByBackend());
+            Mockito.verify(changelogTablet).readyToBeRepaired(infoService, Priority.HIGH);
             Assertions.assertFalse(colocateTableIndex.isGroupUnstable(groupId));
         }
     }

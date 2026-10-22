@@ -26,6 +26,7 @@
 #include "exprs/vexpr_context.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
 
 namespace doris::index_exec_context_test {
 
@@ -63,7 +64,8 @@ TEST(IndexExecContextTest, ApproxResultIsIsolatedFromExactTables) {
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> index_status;
     const segment_v2::ColumnIteratorOptions column_iter_opts;
     IndexExecContext ctx(iterators, storage_name_and_type, index_status, nullptr, nullptr,
-                         column_iter_opts);
+                         column_iter_opts,
+                         std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
 
     StubVExpr expr;
     ctx.set_approx_index_result_for_expr(&expr, make_bitmap(7, true));
@@ -98,7 +100,8 @@ TEST(IndexExecContextTest, ExactResultKeepsExactTableAndColumnStatus) {
     index_status[kColumnId][&approx_expr] = false;
     const segment_v2::ColumnIteratorOptions column_iter_opts;
     IndexExecContext ctx(iterators, storage_name_and_type, index_status, nullptr, nullptr,
-                         column_iter_opts);
+                         column_iter_opts,
+                         std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
 
     // The exact path: the same shape as in VExpr::evaluate_inverted_index.
     ctx.set_index_result_for_expr(&exact_expr, make_bitmap(11, false));

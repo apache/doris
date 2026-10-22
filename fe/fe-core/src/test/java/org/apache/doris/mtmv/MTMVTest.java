@@ -361,6 +361,11 @@ public class MTMVTest {
         mtmv.setRefreshSnapshot(refreshSnapshot);
 
         Assertions.assertTrue(mtmv.hasRefreshSnapshot());
+
+        // An emptied partition map means the baseline is gone; MTMVTask then plans a COMPLETE refresh for an
+        // AUTO refresh of a non-IVM MV.
+        mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
+        Assertions.assertFalse(mtmv.hasRefreshSnapshot());
     }
 
     @Test
@@ -403,6 +408,9 @@ public class MTMVTest {
         EditLog editLog = Mockito.mock(EditLog.class);
         EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
         Mockito.when(env.getEditLog()).thenReturn(editLog);
+        // The invalidation path drops the rewrite cache under the MV lock, so the mocked env
+        // has to serve a real cache manager, otherwise invalidateRewriteCache hits a null one.
+        Mockito.when(env.getMtmvCacheManager()).thenReturn(new MTMVCacheManager());
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
                 .thenAnswer(invocation -> {
                     Assertions.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
@@ -548,7 +556,7 @@ public class MTMVTest {
     }
 
     @Test
-    public void testDisabledCacheReusesPlanWithinSameStatement() throws Exception {
+    public void testDisabledCacheReusesPlanOnlyWithinCurrentGeneration() throws Exception {
         int originalMaxSize = Config.mtmv_cache_manage_num;
         try {
             Config.mtmv_cache_manage_num = 0;
@@ -557,7 +565,9 @@ public class MTMVTest {
 
             HookedMTMV mtmv = buildHookedMTMV();
             MTMVCache plan = Mockito.mock(MTMVCache.class);
+            MTMVCache refreshedPlan = Mockito.mock(MTMVCache.class);
             mtmv.lazyCaches.add(plan);
+            mtmv.lazyCaches.add(refreshedPlan);
 
             ConnectContext context = mockConnectContext();
             StatementContext statementContext = new StatementContext();
@@ -570,11 +580,18 @@ public class MTMVTest {
                 MTMVCache second = mtmv.getOrGenerateCache(context);
                 Assertions.assertSame(plan, first);
                 Assertions.assertSame(first, second);
+                Assertions.assertEquals(1, mtmv.lazyBuildCount);
+
+                // INSERT may plan again with this same StatementContext after releasing its table locks.
+                // A refresh between attempts must invalidate the local copy as well as the global cache.
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+                MTMVCache afterRefresh = mtmv.getOrGenerateCache(context);
+                Assertions.assertSame(refreshedPlan, afterRefresh);
+                Assertions.assertSame(afterRefresh, mtmv.getOrGenerateCache(context));
             }
 
-            Assertions.assertEquals(1, mtmv.lazyBuildCount);
+            Assertions.assertEquals(2, mtmv.lazyBuildCount);
             Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
-            Assertions.assertSame(plan, statementContext.getQueryLocalMtmvCache(mtmv.getId(), false));
         } finally {
             Config.mtmv_cache_manage_num = originalMaxSize;
         }

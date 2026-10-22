@@ -21,6 +21,16 @@ suite("test_uuid_variant_identity") {
                CAST(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT) AS UUID),
                variant_type(CAST(CAST(NULL AS UUID) AS VARIANT))
     """
+    // An array element of a Variant is encoded, while a cast scalar is typed. Both convert a UUID
+    // to the same STRING, without JSON quotes, also as an ARRAY<STRING> element; JSON output
+    // keeps the quoted string.
+    qt_uuid_variant_to_string """
+        SELECT CAST(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT) AS STRING),
+               CAST(CAST(ARRAY(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID)) AS VARIANT)[1] AS STRING),
+               CAST(CAST(ARRAY(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID)) AS VARIANT) AS ARRAY<STRING>),
+               CAST(CAST(ARRAY(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID)) AS VARIANT)[1] AS JSON),
+               CAST(CAST(ARRAY(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID)) AS VARIANT) AS STRING)
+    """
     sql "DROP TABLE IF EXISTS uuid_variant_identity"
     sql """
         CREATE TABLE uuid_variant_identity (

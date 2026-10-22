@@ -82,11 +82,12 @@ Status MergePartitioner::prepare(RuntimeState* state, const RowDescriptor& row_d
 Status MergePartitioner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::open(_operation_expr_ctxs, state));
     if (_insert_partition_function != nullptr) {
-        RETURN_IF_ERROR(_insert_partition_function->open(state));
-        if (auto* insert_function =
-                    dynamic_cast<IcebergInsertPartitionFunction*>(_insert_partition_function.get());
-            insert_function != nullptr && insert_function->fallback_to_random()) {
+        Status status = _insert_partition_function->open(state);
+        if (status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            LOG(WARNING) << "Merge partitioning fallback to RR: " << status;
             _insert_random = true;
+        } else {
+            RETURN_IF_ERROR(status);
         }
     }
     if (_delete_partition_function != nullptr) {

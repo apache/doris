@@ -32,12 +32,17 @@
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "io/fs/file_writer.h"
@@ -162,6 +167,162 @@ TEST_F(VParquetWriterTest, WritesIcebergPrimitiveAndCollectsMetrics) {
     EXPECT_GT(stats.column_sizes.at(7), 0);
     EXPECT_EQ(std::string("\x01\x00\x00\x00", 4), stats.lower_bounds.at(7));
     EXPECT_EQ(std::string("\x03\x00\x00\x00", 4), stats.upper_bounds.at(7));
+}
+
+TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+    auto nullable_variant_type = make_nullable(variant_type);
+    VExprContextSPtrs output_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {nullable_variant_type});
+
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {"id": 2, "name": "payload", "required": false, "type": "variant"}
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VIcebergParquetWriter transformer(&state, file_writer.get(), output_exprs, {"payload"}, false,
+                                      options, &schema_json, *schema);
+    ASSERT_TRUE(transformer.open().ok());
+
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
+    for (std::string_view json : {std::string_view {R"({"name":"doris","n":1})"},
+                                  std::string_view {"null"}, std::string_view {R"([1,2,3])"}}) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    auto variant_column = ColumnVariantV2::create();
+    variant_column->insert_encoded_batch(encoder.finish_batch());
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign({0, 0, 1});
+    auto nullable_column = ColumnNullable::create(std::move(variant_column), std::move(null_map));
+
+    Block block;
+    block.insert(
+            ColumnWithTypeAndName(std::move(nullable_column), nullable_variant_type, "payload"));
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    TIcebergColumnStats stats;
+    ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+    EXPECT_EQ(0, stats.column_sizes.count(-1));
+    EXPECT_EQ(0, stats.value_counts.count(-1));
+    EXPECT_EQ(0, stats.null_value_counts.count(-1));
+    EXPECT_EQ(0, stats.column_sizes.count(2));
+    ASSERT_EQ(1, stats.value_counts.count(2));
+    EXPECT_EQ(3, stats.value_counts.at(2));
+    ASSERT_TRUE(stats.__isset.null_value_counts);
+    ASSERT_EQ(1, stats.null_value_counts.count(2));
+    EXPECT_EQ(1, stats.null_value_counts.at(2));
+    if (stats.__isset.lower_bounds) {
+        EXPECT_EQ(0, stats.lower_bounds.count(2));
+    }
+    if (stats.__isset.upper_bounds) {
+        EXPECT_EQ(0, stats.upper_bounds.count(2));
+    }
+
+    auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = reader->metadata()->schema()->group_node();
+    ASSERT_EQ(1, root->field_count());
+    const auto& payload = root->field(0);
+    ASSERT_NE(nullptr, payload->logical_type());
+    EXPECT_TRUE(payload->logical_type()->is_variant());
+    EXPECT_EQ(2, payload->field_id());
+    const auto& payload_group = static_cast<const ::parquet::schema::GroupNode&>(*payload);
+    ASSERT_EQ(2, payload_group.field_count());
+    EXPECT_EQ(-1, payload_group.field(0)->field_id());
+    EXPECT_EQ(-1, payload_group.field(1)->field_id());
+}
+
+TEST_F(VParquetWriterTest, WritesNestedIcebergVariant) {
+    auto variant_type = std::make_shared<DataTypeVariantV2>();
+    auto array_type = std::make_shared<DataTypeArray>(variant_type);
+    auto nullable_array_type = make_nullable(array_type);
+    VExprContextSPtrs output_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {nullable_array_type});
+
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {
+                "id": 2,
+                "name": "events",
+                "required": false,
+                "type": {
+                    "type": "list",
+                    "element-id": 3,
+                    "element": "variant",
+                    "element-required": false
+                }
+            }
+        ]
+    })";
+    std::unique_ptr<iceberg::Schema> schema = iceberg::SchemaParser::from_json(schema_json);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VIcebergParquetWriter transformer(&state, file_writer.get(), output_exprs, {"events"}, false,
+                                      options, &schema_json, *schema);
+    ASSERT_TRUE(transformer.open().ok());
+
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
+    for (std::string_view json :
+         {std::string_view {R"({"kind":"nested"})"}, std::string_view {"null"},
+          std::string_view {"{}"}, std::string_view {"7"}}) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    auto variant_values = ColumnVariantV2::create();
+    variant_values->insert_encoded_batch(encoder.finish_batch());
+    auto element_nulls = ColumnUInt8::create();
+    element_nulls->get_data().assign({0, 0, 1, 0});
+    auto nullable_values =
+            ColumnNullable::create(std::move(variant_values), std::move(element_nulls));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({3, 4});
+    auto events = ColumnArray::create(std::move(nullable_values), std::move(offsets));
+    auto outer_nulls = ColumnUInt8::create();
+    outer_nulls->get_data().assign({0, 1});
+    auto nullable_events = ColumnNullable::create(std::move(events), std::move(outer_nulls));
+
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(nullable_events), nullable_array_type, "events"));
+    ASSERT_TRUE(transformer.write(block).ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    TIcebergColumnStats stats;
+    ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+    EXPECT_EQ(0, stats.value_counts.count(-1));
+    EXPECT_EQ(0, stats.null_value_counts.count(-1));
+    ASSERT_EQ(1, stats.value_counts.count(3));
+    EXPECT_EQ(0, stats.lower_bounds.count(3));
+    EXPECT_EQ(0, stats.upper_bounds.count(3));
+
+    auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = reader->metadata()->schema()->group_node();
+    const auto& events_group = static_cast<const ::parquet::schema::GroupNode&>(*root->field(0));
+    const auto& list_group =
+            static_cast<const ::parquet::schema::GroupNode&>(*events_group.field(0));
+    const auto& element = list_group.field(0);
+    ASSERT_NE(nullptr, element->logical_type());
+    EXPECT_TRUE(element->logical_type()->is_variant());
+    EXPECT_EQ(3, element->field_id());
 }
 
 TEST_F(VParquetWriterTest, IcebergDecimalBoundsUseMinimalSignedBytes) {
@@ -352,6 +513,55 @@ TEST_F(VParquetWriterTest, HiveInt96HonorsCatalogTimezoneContract) {
         EXPECT_EQ("Asia/Shanghai", state.timezone());
         ASSERT_TRUE(_fs->delete_file(_file_path).ok());
     }
+}
+
+TEST_F(VParquetWriterTest, IcebergNanosecondsRoundTripWithoutCoercion) {
+    const auto type = make_nullable(std::make_shared<DataTypeTimeStampNs>());
+    auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    const std::string json =
+            R"({"type":"struct","fields":[{"id":1,"name":"ts","required":false,"type":"timestamp_ns"}]})";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    const std::map<std::string, std::string> hadoop_conf;
+    TDataSink sink;
+    RuntimeState state;
+    state.set_timezone("Asia/Shanghai");
+    const auto name = "iceberg_ns_" + UniqueId::gen_uid().to_string();
+    _file_path = "./" + name + "-0.parquet";
+    VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json, {"ts"},
+                                   {.write_path = ".",
+                                    .original_write_path = ".",
+                                    .target_path = ".",
+                                    .file_type = TFileType::FILE_LOCAL,
+                                    .broker_addresses = {}},
+                                   name, 0, TFileFormatType::FORMAT_PARQUET,
+                                   TFileCompressType::PLAIN, hadoop_conf);
+    ASSERT_TRUE(writer.open(&state, nullptr, nullptr).ok());
+    const std::vector<int64_t> nanos = {std::numeric_limits<int64_t>::min(), -1, 0, 1, 123456789,
+                                        std::numeric_limits<int64_t>::max()};
+    auto column = type->create_column();
+    for (auto value : nanos) {
+        column->insert(Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(value)));
+    }
+    column->insert_default();
+    Block block({{std::move(column), type, "ts"}});
+    auto status = writer.write(block);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(writer.close(Status::OK()).ok());
+    auto input = arrow::io::ReadableFile::Open(_file_path);
+    ASSERT_TRUE(input.ok()) << input.status();
+    auto reader = ::parquet::arrow::OpenFile(*input, arrow::default_memory_pool());
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    auto table = (*reader)->ReadTable();
+    ASSERT_TRUE(table.ok()) << table.status();
+    const auto& values = assert_cast<const arrow::TimestampArray&>(*(*table)->column(0)->chunk(0));
+    const auto& timestamp_type = assert_cast<const arrow::TimestampType&>(*values.type());
+    EXPECT_EQ(arrow::TimeUnit::NANO, timestamp_type.unit());
+    EXPECT_TRUE(timestamp_type.timezone().empty());
+    ASSERT_EQ(nanos.size() + 1, values.length());
+    for (size_t row = 0; row < nanos.size(); ++row) {
+        EXPECT_EQ(nanos[row], values.Value(row));
+    }
+    EXPECT_TRUE(values.IsNull(nanos.size()));
 }
 
 } // namespace doris

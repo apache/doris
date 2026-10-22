@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -79,6 +80,65 @@ public class ConnectorSessionImplTest {
         Assertions.assertFalse(disabled.isExternalScanTaskReuseEnabled());
         Assertions.assertTrue(enabled.isExternalScanTaskReuseEnabled());
         Assertions.assertFalse(catalogOnly.isExternalScanTaskReuseEnabled());
+    }
+
+    @Test
+    public void testExternalScanTaskReuseFollowsTheSessionVariable() {
+        // Connectors see the switch only through the session properties copied out of the SessionVariable, and a
+        // missing property means off. Renaming enable_external_scan_task_reuse or making it invisible would turn
+        // reuse off for every connector, which the connector tests (they set the property by hand) cannot notice.
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            Assertions.assertTrue(ConnectorSessionBuilder.from(ctx).build().isExternalScanTaskReuseEnabled(),
+                    "scan reuse is on by default");
+            ctx.getSessionVariable().enableExternalScanTaskReuse = false;
+            Assertions.assertFalse(ConnectorSessionBuilder.from(ctx).build().isExternalScanTaskReuseEnabled(),
+                    "turning the session variable off must reach the connector");
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBeExecVersionIsTheVersionPinnedForTheStatement() {
+        // Connectors gate optimizer-time choices on it (an Iceberg partition-hash write needs exec version 18). The
+        // planner pins one version per statement, and the query options the backends receive and the write handle
+        // carry it, so the session must report it too: an ADMIN change of be_exec_version while the statement is
+        // planned must not put a version-18 partition function into a plan sent at version 17. MUTATION: reading
+        // Config.be_exec_version in getBeExecVersion() -> red.
+        int original = Config.be_exec_version;
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            StatementContext stmtCtx = new StatementContext();
+            ctx.setStatementContext(stmtCtx);
+            stmtCtx.initializeBeExecVersion(17);
+            Config.be_exec_version = 18;
+            Assertions.assertEquals(17, ConnectorSessionBuilder.from(ctx).build().getBeExecVersion());
+            Assertions.assertEquals(17, ConnectorSessionBuilder.create().build().getBeExecVersion(),
+                    "a session built on the statement's thread reads the thread-local statement context");
+        } finally {
+            Config.be_exec_version = original;
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testBeExecVersionFallsBackToTheEngineConfigOutsideAPlannedStatement() {
+        // Sessions built where no statement version is pinned (background loaders, commands that plan no query,
+        // tests) report the configured version.
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 16;
+            Assertions.assertEquals(16, ConnectorSessionBuilder.create().build().getBeExecVersion());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setStatementContext(new StatementContext());
+            Assertions.assertEquals(16, ConnectorSessionBuilder.from(ctx).build().getBeExecVersion(),
+                    "a statement whose version is not pinned yet");
+        } finally {
+            Config.be_exec_version = original;
+        }
     }
 
     @Test
@@ -293,6 +353,18 @@ public class ConnectorSessionImplTest {
                 .build();
 
         Assertions.assertFalse(session.getDelegatedCredential().isPresent());
+    }
+
+    @Test
+    public void sessionTimeZoneReachesConnectorsAsCanonicalId() {
+        // Connectors resolve the session time zone with ZoneId.of, which rejects Doris aliases such as CST or JST
+        // (MaxCompute then stops pushing down datetime predicates). MUTATION: copying the session value as is ->
+        // red.
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().setTimeZone("JST");
+        Assertions.assertEquals("Asia/Tokyo", ConnectorSessionBuilder.from(ctx).build().getTimeZone());
+        ctx.getSessionVariable().setTimeZone("CST");
+        Assertions.assertEquals("Asia/Shanghai", ConnectorSessionBuilder.from(ctx).build().getTimeZone());
     }
 
     @Test

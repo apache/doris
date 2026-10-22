@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DataSizeDisplayUtil;
@@ -1779,6 +1780,10 @@ public class MetadataGenerator {
 
                 Map<String, String> propertiesMap = property.getProperties();
                 propertiesMap.forEach((key, value) -> {
+                    if (ChangelogConfig.CONFIG_VERSION.equals(key)) {
+                        // internal persistence property, not a table property
+                        return;
+                    }
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
                     trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
@@ -2408,8 +2413,8 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult tsoStatusMetadataResult(boolean includeCommittedTso) {
-        if (!Config.enable_feature_binlog) {
-            return errorResult("TSO feature is disabled, please check enable_feature_binlog");
+        if (!Config.enable_feature_changelog) {
+            return errorResult("TSO feature is disabled, please check enable_feature_changelog");
         }
 
         TSOService.TSOStatusSnapshot statusSnapshot = Env.getCurrentEnv().getTSOService().getStatusSnapshot();

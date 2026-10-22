@@ -183,12 +183,14 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             "REPO": "example/repo", "PR_NUMBER": "1", "HEAD_SHA": "a" * 40,
             "GITHUB_WORKSPACE": str(self.root),
             "BASE_SHA": "b" * 40, "HELPER_REF": "test-pin", "REVIEW_TIMEOUT_MINUTES": "120",
+            "REVIEW_GH_HELPER": str(Path(__file__).resolve().with_name("review_github_api.py")),
             "FAKE_REVIEW_HELPER": str(Path(__file__).resolve().with_name("run_review_with_resume.py")),
         })
         self.new_runner()
 
     def new_runner(self):
         runner = Path(tempfile.mkdtemp(dir=self.root))
+        shutil.copyfile(self.env["REVIEW_GH_HELPER"], runner / "review_github_api.py")
         context = runner / "review-context"
         context.mkdir()
         (context / "codex_goal_prompt.txt").write_text("Fake review")
@@ -439,7 +441,7 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
                 ("success", "failure", "failure"), ("failure", "success", "pending")):
             with self.subTest(execution=execution, verdict=verdict):
                 result = subprocess.run(["bash", "-eo", "pipefail", "-c",
-                    'gh() { printf "%s\\n" "$@"; };\n' + re.sub(r"\$\{\{.*?\}\}", "test", step_script("Sync Code Review check for current head"))],
+                    'python3() { shift; printf "%s\\n" "$@"; };\n' + re.sub(r"\$\{\{.*?\}\}", "test", step_script("Sync Code Review check for current head"))],
                     env={**self.env, "JOB_STATUS": execution, "REVIEW_CONTEXT_OUTCOME": "success",
                          "REVIEW_OUTCOME": execution, "REVIEW_STATE": verdict, "REVIEW_P0": "0", "REVIEW_P1": "1"},
                     capture_output=True, text=True, check=True)

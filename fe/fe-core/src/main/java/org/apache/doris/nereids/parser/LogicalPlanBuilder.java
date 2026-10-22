@@ -1711,7 +1711,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
+        return new CreateMaterializedViewCommand(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                logicalPlan, properties);
     }
 
     /**
@@ -2188,8 +2189,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 cte = Optional.ofNullable(withCte(query, ctx.cteContext));
             }
             deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
-                    partitionSpec.first, partitionSpec.second, query, cte,
-                    hasQueryOrganization);
+                    partitionSpec.first, partitionSpec.second, query, cte, hasQueryOrganization);
         }
         if (ctx.explainContext != null) {
             return withExplain(deleteCommand, ctx.explainContext);
@@ -4604,9 +4604,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
                     .map(key -> {
                         if (key.getExpr() instanceof IntegerLikeLiteral) {
-                            return key.withExpression(
-                                    new UnboundSlot(String.valueOf(
-                                            ((IntegerLikeLiteral) key.getExpr()).getIntValue())));
+                            // The slot is named after the literal, so narrowing it renames it:
+                            // getIntValue() truncates to the low 32 bits, turning
+                            // `order by 4294967297` into a reference to "1". Keep the digits
+                            // the user wrote.
+                            return key.withExpression(new UnboundSlot(
+                                    ((IntegerLikeLiteral) key.getExpr())
+                                            .getBigDecimalValue().toBigIntegerExact().toString()));
                         }
                         return key;
                     })
@@ -9545,7 +9549,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.IDENTIFIED() == null) {
             return new UserDesc(userIdentity);
         }
-        String password = stripQuotes(ctx.STRING_LITERAL().getText());
+        if (ctx.integration != null) {
+            return new UserDesc(userIdentity, stripQuotes(ctx.integration.getText()),
+                    ctx.identity == null ? null : SqlLiteralUtils.parseStringLiteral(ctx.identity.getText()));
+        }
+        String password = stripQuotes(ctx.pwd.getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }

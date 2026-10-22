@@ -287,7 +287,7 @@ private:
     const segment_v2::MowKeyProbe& _probe;
     HistoricalRowFetcher& _fetcher;
 
-    // Optional sidecar used by Row Binlog. Flexible aggregation can remove or merge input rows;
+    // Optional sidecar used by changelog. Flexible aggregation can remove or merge input rows;
     // keep the persisted LSN aligned with the surviving row and retain the largest LSN of all
     // merged changes.
     const std::vector<int64_t>* _input_row_lsns = nullptr;

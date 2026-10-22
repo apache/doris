@@ -59,7 +59,9 @@ public:
 
     // Write a Vlq encoded int to the buffer. The value is written byte aligned.
     // For more details on vlq: en.wikipedia.org/wiki/Variable-length_quantity
-    void PutVlqInt(int32_t v);
+    // Takes an unsigned value on purpose: the encoding shifts `v` right until it
+    // is exhausted, which only terminates for a logical shift.
+    void PutVlqInt(uint32_t v);
 
     // Get the index to the next aligned byte and advance the underlying buffer by num_bytes.
     size_t GetByteIndexAndAdvance(int num_bytes) {

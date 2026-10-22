@@ -125,6 +125,9 @@ Usage: $0 <options>
      -j                 build parallel
      -h                 print this help message
 
+  Environment:
+    DORIS_BE_UT_EXECUTABLE  Existing test binary to run after the build, for benchmark comparisons.
+
   Eg.
     $0                                                              build tests
     $0 --run                                                        build and run all tests
@@ -253,12 +256,14 @@ update_submodule() {
 
 # Keep this list in sync with build.sh: be/CMakeLists.txt adds storage/index/ann
 # unconditionally, and its cmake-protect target add_subdirectory()s both faiss and openblas,
-# so the configure step fails outright when either is missing.
+# so the configure step fails outright when either is missing. The H3 wrapper also
+# requires its submodule to be initialized before configuring BE.
 update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
 update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
+update_submodule "contrib/h3" "h3" "https://github.com/uber/h3/archive/refs/tags/v4.5.0.tar.gz"
 
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
@@ -561,8 +566,9 @@ export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 
-# find all executable test files
-test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
+# A saved reference binary keeps benchmark comparisons independent of relinking.
+test="${DORIS_BE_UT_EXECUTABLE:-${DORIS_TEST_BINARY_DIR}/doris_be_test}"
+echo "Using test executable: ${test}"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
 profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 
@@ -594,4 +600,5 @@ if [[ -f "${test}" ]]; then
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else
     echo "unit test file: ${test} does not exist."
+    exit 1
 fi

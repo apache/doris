@@ -18,6 +18,8 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <limits> // IWYU pragma: keep
 
 #include "common/cast_set.h"
@@ -156,6 +158,16 @@ public:
         Clear();
     }
 
+    // The largest number of values a single repeated run can describe.
+    //
+    // A repeated run is written as a vlq-encoded indicator holding
+    // `run_length << 1` (see FlushRepeatedRun) and read back into a uint32_t by
+    // BitReader::GetVlqInt. Capping the run length here keeps the indicator
+    // inside int32_t's positive range, which is exactly the range every released
+    // version could already encode, so the output stays byte-identical for any
+    // run length that used to work.
+    static constexpr int64_t MAX_VALUES_PER_REPEATED_RUN = (int64_t {1} << 30) - 1;
+
     // Reserve 'num_bytes' bytes for a plain encoded header, set each
     // byte with 'val': this is used for the RLE-encoded data blocks in
     // order to be able to able to store the initial ordinal position
@@ -212,7 +224,7 @@ private:
     // if we are in a literal run.  If the repeat_count_ get high enough, we switch
     // to encoding repeated runs.
     uint64_t current_value_;
-    int repeat_count_;
+    int64_t repeat_count_;
 
     // Number of literals in the current run.  This does not include the literals
     // that might be in buffered_values_.  Only after we've got a group big enough
@@ -437,7 +449,7 @@ void RleEncoder<T>::Put(T value, size_t run_length) {
     // Fast path: if this is a continuation of the current repeated run and
     // we've already buffered enough values, just increment repeat_count_
     if (current_value_ == value && repeat_count_ >= 8 && run_length > 0) [[likely]] {
-        repeat_count_ += run_length;
+        repeat_count_ += static_cast<int64_t>(run_length);
         return;
     }
 
@@ -457,7 +469,7 @@ void RleEncoder<T>::Put(T value, size_t run_length) {
                 // After flushing, if we still have a repeated run and more values,
                 // we can add them directly to repeat_count_
                 if (repeat_count_ >= 8 && run_length > 0) {
-                    repeat_count_ += run_length;
+                    repeat_count_ += static_cast<int64_t>(run_length);
                     return;
                 }
             }
@@ -514,11 +526,21 @@ void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
 template <typename T>
 void RleEncoder<T>::FlushRepeatedRun() {
     DCHECK_GT(repeat_count_, 0);
-    // The lsb of 0 indicates this is a repeated run
-    int32_t indicator_value = repeat_count_ << 1 | 0;
-    bit_writer_.PutVlqInt(indicator_value);
-    bit_writer_.PutAligned(current_value_, BitUtil::Ceil(bit_width_, 8));
+    // A run longer than MAX_VALUES_PER_REPEATED_RUN cannot be described by a
+    // single indicator, so emit it as several back-to-back repeated runs of the
+    // same value. Decoders stitch those back together transparently
+    // (RleDecoder::GetNextRun merges adjacent runs carrying the same value), so
+    // splitting is invisible to readers.
+    while (repeat_count_ > 0) {
+        const int64_t run_length = std::min(repeat_count_, MAX_VALUES_PER_REPEATED_RUN);
+        // The lsb of 0 indicates this is a repeated run
+        bit_writer_.PutVlqInt(static_cast<uint32_t>(run_length) << 1);
+        bit_writer_.PutAligned(current_value_, BitUtil::Ceil(bit_width_, 8));
+        repeat_count_ -= run_length;
+    }
     num_buffered_values_ = 0;
+    // The loop above drains repeat_count_; assign it anyway so the postcondition
+    // holds even if it somehow entered non-positive.
     repeat_count_ = 0;
 }
 

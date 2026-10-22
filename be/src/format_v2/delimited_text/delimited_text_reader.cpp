@@ -269,7 +269,7 @@ Status DelimitedTextReader::init(RuntimeState* state) {
         field.identifier = Field::create_field<TYPE_STRING>(slot->col_name());
         field.local_id = _source_column_idxs[i];
         field.name = slot->col_name();
-        field.type = nullable_type(delimited_file_type_from_slot_type(slot->get_data_type_ptr()));
+        field.type = nullable_type(delimited_file_type_from_slot_type(slot->type()));
         // Delimited text stores a complex value in one top-level text field, but TableColumnMapper
         // still needs semantic children to localize nested projections and predicates. Expose
         // ARRAY element, MAP key/value, and STRUCT fields as file-schema children while keeping the
@@ -459,7 +459,7 @@ Status DelimitedTextReader::_build_requested_columns(const FileScanRequest& requ
                                            _reader_name, block_position.value());
         }
         const auto* slot = _source_file_slot_descs[source_index];
-        const auto type = slot->get_data_type_ptr();
+        const auto type = slot->type();
         RequestedColumn requested_column;
         requested_column.file_column_id = file_column_id;
         requested_column.block_position = block_position;

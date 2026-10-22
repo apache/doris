@@ -1437,21 +1437,34 @@ start_iceberg() {
     register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
     compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # data/ is extracted from the fixture archive once and then reused. A data/ from an older archive lacks
+        # jars that iceberg.yaml now mounts, and Compose would create empty directories in their place, so
+        # start over from the current archive.
+        if [[ -d "${ICEBERG_DIR}/data" ]]; then
+            local jar
+            for jar in $(grep -o '\./data/input/jars/[^:]*\.jar' "${ICEBERG_DIR}/iceberg.yaml"); do
+                if [[ ! -f "${ICEBERG_DIR}/${jar#./}" ]]; then
+                    echo "${ICEBERG_DIR}/${jar#./} is missing, ${ICEBERG_DIR}/data is from an older archive"
+                    host_admin_cmd rm -rf "${ICEBERG_DIR:?}/data"
+                    break
+                fi
+            done
+        fi
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
                 if [[ "${HOST_OS}" == "Darwin" ]]; then
-                    curl -fL -o iceberg_data_spark40.zip \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                    curl -fL -o iceberg_data_spark40_paimon142.zip \
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 else
                     wget -P "${ROOT}/docker-compose/iceberg" \
-                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40.zip"
+                        "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 fi
-                host_admin_cmd unzip iceberg_data_spark40.zip
+                host_admin_cmd unzip iceberg_data_spark40_paimon142.zip
                 host_admin_cmd mv iceberg_data data
-                host_admin_cmd rm -rf iceberg_data_spark40.zip
+                host_admin_cmd rm -rf iceberg_data_spark40_paimon142.zip
             )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
@@ -1499,7 +1512,8 @@ start_fluss() {
     # the host) can read the kv snapshots and remote log segments the servers
     # write, and the lake files the tiering service writes.
     export FLUSS_COMPOSE_DIR="${fluss_dir}"
-    envsubst <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
+    CONTAINER_UID="${CONTAINER_UID}" envsubst \
+        <"${fluss_dir}/fluss.env.tpl" >"${fluss_dir}/fluss.env"
     set -a
     # shellcheck source=/dev/null
     . "${fluss_dir}/fluss.env"

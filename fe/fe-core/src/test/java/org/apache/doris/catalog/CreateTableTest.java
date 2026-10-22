@@ -24,7 +24,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.utframe.TestWithFeService;
@@ -32,7 +36,10 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -81,6 +88,92 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateTableReturnsExistingAfterRegistrationRace() throws Exception {
+        String sql = "CREATE TABLE IF NOT EXISTS test.registration_race (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        CreateTableInfo winner = analyzeCreateTable(sql);
+        Assertions.assertFalse(catalog.createTable(winner));
+
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+
+        // Both creators can observe absence before either registers its table. Make only the
+        // loser's initial probe stale; atomic registration must still see the winner's real table.
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(db.isWriteLockHeldByCurrentThread());
+            OlapTable loser = invocation.getArgument(1);
+            Assertions.assertTrue(Collections.disjoint(((OlapTable) table).getIndexIdList(true),
+                    loser.getIndexIdList(true)));
+            return invocation.callRealMethod();
+        }).when(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()), Mockito.any(OlapTable.class));
+        Assertions.assertTrue(racingCatalog.createTable(analyzeCreateTable(sql)));
+        Mockito.verify(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()),
+                Mockito.argThat(loser -> loser.getId() != table.getId()));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+
+        // A sequential IF NOT EXISTS remains a no-op as well.
+        Assertions.assertTrue(catalog.createTable(analyzeCreateTable(sql)));
+    }
+
+    @Test
+    public void testCreateTableRegistrationRaceWithoutIfNotExists() throws Exception {
+        String sql = "CREATE TABLE test.registration_race_error (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        createTable(sql);
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race_error");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race_error");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+
+        Assertions.assertThrows(DdlException.class, () -> racingCatalog.createTable(analyzeCreateTable(sql)));
+        Mockito.verify(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()),
+                Mockito.argThat(loser -> loser.getId() != table.getId()));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race_error"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+    }
+
+    @Test
+    public void testCreateTableRegistrationRaceCleanupFailure() throws Exception {
+        String sql = "CREATE TABLE IF NOT EXISTS test.registration_race_cleanup (k INT) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')";
+        createTable(sql);
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        Database db = catalog.getDbOrDdlException("test");
+        Table table = db.getTableOrDdlException("registration_race_cleanup");
+        Set<Long> tabletIds = new HashSet<>(Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+        Database racingDb = Mockito.spy(db);
+        Mockito.doReturn(false).doCallRealMethod().when(racingDb).isTableExist("registration_race_cleanup");
+        InternalCatalog racingCatalog = Mockito.spy(catalog);
+        Mockito.doReturn(racingDb).when(racingCatalog).getDbOrDdlException("test");
+        Mockito.doThrow(new DdlException("failed to recycle losing indexes"))
+                .when(racingCatalog).onCreateTableConflict(Mockito.eq(db.getId()), Mockito.any(OlapTable.class));
+
+        DdlException error = Assertions.assertThrows(DdlException.class,
+                () -> racingCatalog.createTable(analyzeCreateTable(sql)));
+        Assertions.assertTrue(error.getMessage().contains("failed to recycle losing indexes"));
+        Assertions.assertSame(table, db.getTableOrDdlException("registration_race_cleanup"));
+        Assertions.assertEquals(tabletIds, Env.getCurrentInvertedIndex().getTabletMetaMap().keySet());
+    }
+
+    private CreateTableInfo analyzeCreateTable(String sql) {
+        CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(sql);
+        CreateTableInfo info = command.getCreateTableInfo();
+        info.validate(connectContext);
+        return info;
+    }
+
+    @Test
     public void testDuplicateCreateTable() throws Exception {
         // test
         Env env = Env.getCurrentEnv();
@@ -117,21 +210,21 @@ public class CreateTableTest extends TestWithFeService {
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
-                "CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Cannot create temporary table with changelog enable",
+                () -> createTableWithChangelog("CREATE TEMPORARY TABLE test.temp_changelog (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
-                "CREATE TABLE test.row_binlog_normal (k1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithChangelog(
+                "CREATE TABLE test.changelog_normal (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
-                "CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithChangelog(
+                "CREATE TABLE test.changelog_unique (k1 INT, v1 INT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW');"));
+                + "'changelog.enable'='true');"));
 
         ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.tbl2\n" + "(k1 int, k2 int)\n"
                 + "duplicate key(k1)\n" + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -257,30 +350,30 @@ public class CreateTableTest extends TestWithFeService {
                         + "'function_column.sequence_col' = 'v1');"));
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-        OlapTable rowBinlogNormal = (OlapTable) db.getTableOrDdlException("row_binlog_normal");
-        Assertions.assertTrue(rowBinlogNormal.needRowBinlog());
-        Assertions.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
-        Assertions.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
-                rowBinlogNormal.getAutoIncrementGenerator().getColumnId());
-        boolean foundRowBinlogIndex = false;
-        for (Partition partition : rowBinlogNormal.getPartitions()) {
+        OlapTable changelogNormal = (OlapTable) db.getTableOrDdlException("changelog_normal");
+        Assertions.assertTrue(changelogNormal.hasChangelog());
+        Assertions.assertNotNull(changelogNormal.getAutoIncrementGenerator());
+        Assertions.assertEquals((long) Column.CHANGELOG_LSN_AUTO_INC_ID,
+                changelogNormal.getAutoIncrementGenerator().getColumnId());
+        boolean foundChangelogIndex = false;
+        for (Partition partition : changelogNormal.getPartitions()) {
             for (MaterializedIndex index
                     : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
-                foundRowBinlogIndex |= index.isRowBinlog();
+                foundChangelogIndex |= index.isChangelog();
                 for (Tablet tablet : index.getTablets()) {
                     TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tablet.getId());
                     Assertions.assertNotNull(tabletMeta);
-                    Assertions.assertEquals(index.isRowBinlog(), tabletMeta.isRowBinlog());
+                    Assertions.assertEquals(index.isChangelog(), tabletMeta.isChangelog());
                 }
             }
         }
-        Assertions.assertTrue(foundRowBinlogIndex);
+        Assertions.assertTrue(foundChangelogIndex);
 
-        OlapTable rowBinlogUnique = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
-        Assertions.assertTrue(rowBinlogUnique.needRowBinlog());
-        Assertions.assertNotNull(rowBinlogUnique.getAutoIncrementGenerator());
-        Assertions.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
-                rowBinlogUnique.getAutoIncrementGenerator().getColumnId());
+        OlapTable changelogUnique = (OlapTable) db.getTableOrDdlException("changelog_unique");
+        Assertions.assertTrue(changelogUnique.hasChangelog());
+        Assertions.assertNotNull(changelogUnique.getAutoIncrementGenerator());
+        Assertions.assertEquals((long) Column.CHANGELOG_LSN_AUTO_INC_ID,
+                changelogUnique.getAutoIncrementGenerator().getColumnId());
 
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assertions.assertTrue(tbl6.getColumn("k1").isKey());
@@ -671,10 +764,10 @@ public class CreateTableTest extends TestWithFeService {
                     + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                     + ");"));
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "binlog<Row>",
-                () -> createTableWithRowBinlog("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "changelog",
+                () -> createTableWithChangelog("CREATE TABLE test.changelog_agg (k1 INT, v1 INT SUM) "
                         + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                        + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+                        + "PROPERTIES('replication_num'='1','changelog.enable'='true');"));
     }
 
     @Test

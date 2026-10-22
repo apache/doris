@@ -1146,8 +1146,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (index == null) {
                 throw new MetaNotFoundException("index " + tabletMeta.getIndexId() + " does not exist");
             }
-            if (index.isRowBinlog()) {
-                // Row-binlog delete bitmap is derived and saved by its base tablet.
+            if (index.isChangelog()) {
+                // Changelog delete bitmap is derived and saved by its base tablet.
                 continue;
             }
 

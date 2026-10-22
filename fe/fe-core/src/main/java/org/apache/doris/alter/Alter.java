@@ -51,6 +51,7 @@ import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVHookService;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -94,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplaceTableOp;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
@@ -228,9 +230,9 @@ public class Alter {
             currentAlterOps.checkMTMVAllow(alterOps);
         }
 
-        // For row binlog tables, only allow operations explicitly marked as safe.
-        if (olapTable.needRowBinlog()) {
-            currentAlterOps.checkRowBinlogAllow(alterOps);
+        // For changelog tables, only allow operations explicitly marked as safe.
+        if (olapTable.hasChangelog()) {
+            currentAlterOps.checkChangelogAllow(alterOps);
         }
 
         // check cluster capacity and db quota, only need to check once.
@@ -289,6 +291,11 @@ public class Alter {
             }
             // TODO(Drogon): check error
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterOps);
+        } else if (currentAlterOps.checkChangelogConfigChange(alterOps)) {
+            if (!Config.enable_feature_changelog) {
+                throw new DdlException("Changelog feature is not enabled");
+            }
+            ((SchemaChangeHandler) schemaChangeHandler).updateChangelogConfig(db, olapTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterOps, db, olapTable);
@@ -373,8 +380,29 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterOps)) {
-            Env.getCurrentEnv().getMtmvService()
-                .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
+            // Which columns an operation's effect on a view turns on is the operation's to say, see
+            // AlterOp#queryJudgedColumnNames, and every clause of the alter has to name them: a batch that
+            // mixes a dropped column with a type change is decided by neither -- no query says anything
+            // about a type change -- and stays invalidated the way it was before the queries were asked at
+            // all. Each of them also has to have reached the table. A schema change that is not a light one
+            // is applied by a job, which may not have run where this hook runs: the table still holds the
+            // column the change is about, every query still analyses against it, and an invalidation
+            // decided on that answer would be about the table from before the change. What is asked is
+            // whether the change has reached the table, which is the same fact the re-analysis reads, so
+            // the two answers cannot disagree.
+            boolean judgedByQuery = haveReachedTheTable(alterOps, olapTable);
+            // The names of those columns go to the hook rather than a verdict: what the judgement is about
+            // is the column, and the hook holds the query's answer against it -- both while asking, in case
+            // the query can reach the name some other way now, and once it has answered, in case the table
+            // is no longer the one that answered. See MTMVRelationManager.
+            MTMVHookService.QueryJudgedChange queryJudgedChange = judgedByQuery
+                    ? new MTMVHookService.QueryJudgedChange(
+                            alterOps.stream().map(AlterOp::queryJudgedColumnNames).flatMap(Set::stream)
+                                    .collect(Collectors.toSet()),
+                            () -> haveReachedTheTable(alterOps, olapTable))
+                    : null;
+            Env.getCurrentEnv().getMtmvService().alterTable(oldBaseTableInfo, newBaseTableInfo,
+                    currentAlterOps.hasReplaceTableOp(), queryJudgedChange);
         }
         olapTable.writeLock();
         try {
@@ -404,11 +432,32 @@ public class Alter {
         Env.getCurrentEnv().getEditLog().logModifyTableProperties(info);
     }
 
+    /**
+     * Whether every clause of the alter names the columns it is judged on, and every one of them has reached
+     * the table. The columns are read under the table's read lock: a light change of another statement
+     * rebuilds the schema map, and a reader without the lock can take the map mid rebuild, when the column
+     * this clause added is not in it yet.
+     */
+    private boolean haveReachedTheTable(List<AlterOp> alterOps, OlapTable olapTable) {
+        olapTable.readLock();
+        try {
+            return alterOps.stream().allMatch(op -> !op.queryJudgedColumnNames().isEmpty()
+                    && op.hasReachedTheTable(olapTable));
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
     private void processAlterTableForExternalTable(
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
-                setExternalTableAutoAnalyzePolicy(table, alterOps);
+                Map<String, String> properties = alterOp.getProperties();
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+                    setExternalTableAutoAnalyzePolicy(table, alterOps);
+                } else {
+                    table.getCatalog().updateTableProperties(table, properties);
+                }
             } else if (alterOp instanceof CreateOrReplaceBranchOp) {
                 table.getCatalog().createOrReplaceBranch(
                         table, ((CreateOrReplaceBranchOp) alterOp).getBranchInfo());
@@ -1314,15 +1363,20 @@ public class Alter {
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
         TableNameInfo tbl = alterMTMV.getMvName();
         MTMV mtmv = null;
+        // ALTER_REFRESH_INFO and ALTER_STATUS journal themselves from inside the MV write lock that
+        // applies them: mutation and enqueue have to be the same step, or a record submitted in
+        // between can be replayed on either side of this one. Their journal write is awaited after the
+        // lock is released, like the other journaled MTMV changes.
+        EditLogItem editLogItem = null;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
-                    mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+                    editLogItem = mtmv.alterRefreshInfo(alterMTMV, isReplay);
                     break;
                 case ALTER_STATUS:
-                    mtmv.alterStatus(alterMTMV.getStatus());
+                    editLogItem = mtmv.alterStatus(alterMTMV, isReplay);
                     break;
                 case ALTER_PROPERTY:
                     // Live ALTER PROPERTY statements call processAlterMTMVProperty directly
@@ -1358,8 +1412,8 @@ public class Alter {
             if (alterMTMV.isNeedRebuildJob()) {
                 Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
             }
-            if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
+            if (editLogItem != null) {
+                editLogItem.await();
             }
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception

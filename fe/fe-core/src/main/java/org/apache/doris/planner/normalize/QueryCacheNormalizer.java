@@ -22,6 +22,7 @@ package org.apache.doris.planner.normalize;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
@@ -116,11 +117,22 @@ public class QueryCacheNormalizer implements Normalizer {
     }
 
     private Optional<CachePoint> computeCachePoint() {
-        if (!fragment.getTargetRuntimeFilterIds().isEmpty()) {
+        if (!fragment.getTargetRuntimeFilterIds().isEmpty() || containsTtlScan(fragment.getPlanRoot())) {
             return Optional.empty();
         }
         PlanNode planRoot = fragment.getPlanRoot();
         return doComputeCachePoint(planRoot);
+    }
+
+    private boolean containsTtlScan(PlanNode planRoot) {
+        if (planRoot instanceof OlapScanNode) {
+            OlapTable table = ((OlapScanNode) planRoot).getOlapTable();
+            if (table instanceof OlapChangelogTableWrapper
+                    && ((OlapChangelogTableWrapper) table).getOriginTable().hasChangelogTtl()) {
+                return true;
+            }
+        }
+        return planRoot.getChildren().stream().anyMatch(this::containsTtlScan);
     }
 
     private Optional<CachePoint> doComputeCachePoint(PlanNode planRoot) {

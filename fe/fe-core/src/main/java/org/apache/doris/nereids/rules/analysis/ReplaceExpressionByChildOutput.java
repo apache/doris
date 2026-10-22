@@ -72,7 +72,13 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
         for (NamedExpression expr : output) {
             if (expr instanceof Alias) {
                 Alias alias = (Alias) expr;
-                sMap.put(alias.child(), alias.toSlot());
+                // replacing a constant sub-expression anywhere it structurally recurs, e.g. inside
+                // a function argument that must fold to a literal (NTILE's bucket, LAG/LEAD's offset),
+                // gives no benefit since a constant is folded once anyway, and can only break such a
+                // position wherever the constant happens to also be an unrelated output value.
+                if (!alias.child().isConstant()) {
+                    sMap.put(alias.child(), alias.toSlot());
+                }
             }
         }
         return sMap;

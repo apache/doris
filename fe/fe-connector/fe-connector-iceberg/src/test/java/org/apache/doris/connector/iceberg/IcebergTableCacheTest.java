@@ -48,6 +48,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -209,6 +210,34 @@ public class IcebergTableCacheTest {
                 Assertions.assertNotSame(firstSnapshot, secondSnapshot,
                         "each statement must own its snapshot lazy-loading state");
                 Assertions.assertEquals(cachedSnapshot.snapshotId(), firstSnapshot.snapshotId());
+            }
+            Assertions.assertEquals(1, cache.size());
+        }
+    }
+
+    @Test
+    public void weightedBorrowIsolatesHistoricalSnapshotsPerStatement() {
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergTableCache cache = new IcebergTableCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 10L * 1024L * 1024L),
+                    ignored -> () -> {
+                    }, new IcebergCatalogResourceTracker());
+
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(),
+                    IcebergTableCacheTest::tableWithSnapshotHistory)) {
+                Table cached = lease.table();
+                Table firstStatement = lease.snapshotReadTable();
+                Table secondStatement = lease.snapshotReadTable();
+                for (long snapshotId : new long[] {101L, 102L}) {
+                    Snapshot firstSnapshot = firstStatement.snapshot(snapshotId);
+                    Assertions.assertNotNull(firstSnapshot, "time travel must still reach snapshot " + snapshotId);
+                    Assertions.assertEquals(snapshotId, firstSnapshot.snapshotId());
+                    Assertions.assertNotSame(cached.snapshot(snapshotId), firstSnapshot,
+                            "reading an old snapshot must not load manifests into the weighted cache generation");
+                    Assertions.assertNotSame(firstSnapshot, secondStatement.snapshot(snapshotId),
+                            "each statement must own the lazy-loading state of every snapshot it reads");
+                }
+                Assertions.assertEquals(Long.valueOf(101L), firstStatement.snapshot(102L).parentId());
             }
             Assertions.assertEquals(1, cache.size());
         }
@@ -384,6 +413,89 @@ public class IcebergTableCacheTest {
             }
             Assertions.assertEquals(1, cache.size());
         }
+    }
+
+    @Test
+    public void weightedPublicationDoesNotFetchLazilySuppliedSnapshots() {
+        // REST snapshot-loading-mode=refs keeps the full snapshot list behind a remote supplier. Serialization and
+        // estimation both read snapshots(), so weighted publication declines the table instead of fetching the list
+        // on every miss; the borrower still reaches history through the supplier. MUTATION: dropping the guard ->
+        // the supplier runs during publication -> red.
+        AtomicInteger snapshotLoads = new AtomicInteger();
+        Table table = tableWithLazySnapshots(snapshotLoads);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergTableCache cache = new IcebergTableCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 10L * 1024L * 1024L),
+                    ignored -> () -> { }, new IcebergCatalogResourceTracker());
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(), () -> table)) {
+                Assertions.assertEquals(0, snapshotLoads.get(), "publication must not fetch the snapshot list");
+                Assertions.assertEquals(0, cache.size());
+                Assertions.assertEquals("incomplete_estimate:iceberg_snapshots_not_loaded",
+                        owner.entries().get("iceberg-table").metrics().getLastWeightRejectReason());
+
+                Table statement = lease.snapshotReadTable();
+                Assertions.assertEquals(102L, statement.currentSnapshot().snapshotId());
+                Assertions.assertEquals(0, snapshotLoads.get());
+                Assertions.assertEquals(101L, statement.snapshot(101L).snapshotId());
+                Assertions.assertEquals(1, snapshotLoads.get());
+            }
+            // Once the list has been fetched the same metadata is weighed and retained like any other.
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(), () -> table)) {
+                Assertions.assertEquals(1, cache.size());
+            }
+            Assertions.assertEquals(1, snapshotLoads.get());
+        }
+    }
+
+    @Test
+    public void unweightedCacheRetainsLazilySuppliedSnapshotsWithoutFetchingThem() {
+        AtomicInteger snapshotLoads = new AtomicInteger();
+        Table table = tableWithLazySnapshots(snapshotLoads);
+        IcebergTableCache cache = new IcebergTableCache(100L, 1000);
+
+        Assertions.assertSame(table, cache.getOrLoad(id(), () -> table));
+        Assertions.assertEquals(1, cache.size());
+        Assertions.assertEquals(0, snapshotLoads.get());
+    }
+
+    /** What a REST catalog returns under snapshot-loading-mode=refs: the referenced snapshot plus a supplier. */
+    private static Table tableWithLazySnapshots(AtomicInteger snapshotLoads) {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        TableMetadata base = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:///tmp/lazy-snapshots-table", Collections.emptyMap());
+        Snapshot older = SnapshotParser.fromJson("{"
+                + "\"sequence-number\":1,"
+                + "\"snapshot-id\":101,"
+                + "\"timestamp-ms\":1000,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"file:///tmp/snap-101.avro\","
+                + "\"schema-id\":0}");
+        Snapshot newer = SnapshotParser.fromJson("{"
+                + "\"sequence-number\":2,"
+                + "\"snapshot-id\":102,"
+                + "\"parent-snapshot-id\":101,"
+                + "\"timestamp-ms\":2000,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"file:///tmp/snap-102.avro\","
+                + "\"schema-id\":0}");
+        TableMetadata full = TableMetadata.buildFrom(base)
+                .upgradeFormatVersion(2)
+                .setBranchSnapshot(older, "main")
+                .setBranchSnapshot(newer, "main")
+                .discardChanges()
+                .build();
+        List<Snapshot> allSnapshots = full.snapshots();
+        // The server drops unreferenced snapshots; the client attaches a supplier that loads all of them.
+        TableMetadata refsOnly = TableMetadata.buildFrom(
+                        TableMetadata.buildFrom(full).suppressHistoricalSnapshots().build())
+                .withMetadataLocation("file:///tmp/lazy-snapshots.metadata.json")
+                .setSnapshotsSupplier(() -> {
+                    snapshotLoads.incrementAndGet();
+                    return allSnapshots;
+                })
+                .discardChanges()
+                .build();
+        return new BaseTable(new StaticTableOperations(refsOnly), "lazy-snapshots");
     }
 
     @Test
@@ -610,6 +722,35 @@ public class IcebergTableCacheTest {
                 .discardChanges()
                 .build();
         return new BaseTable(new StaticTableOperations(metadata), "weighted");
+    }
+
+    private static Table tableWithSnapshotHistory() {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        TableMetadata base = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:///tmp/weighted-history-table", Collections.emptyMap());
+        Snapshot older = SnapshotParser.fromJson("{"
+                + "\"sequence-number\":1,"
+                + "\"snapshot-id\":101,"
+                + "\"timestamp-ms\":1000,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"file:///tmp/snap-101.avro\","
+                + "\"schema-id\":0}");
+        Snapshot newer = SnapshotParser.fromJson("{"
+                + "\"sequence-number\":2,"
+                + "\"snapshot-id\":102,"
+                + "\"parent-snapshot-id\":101,"
+                + "\"timestamp-ms\":2000,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"file:///tmp/snap-102.avro\","
+                + "\"schema-id\":0}");
+        TableMetadata metadata = TableMetadata.buildFrom(base)
+                .upgradeFormatVersion(2)
+                .withMetadataLocation("file:///tmp/v3.metadata.json")
+                .setBranchSnapshot(older, "main")
+                .setBranchSnapshot(newer, "main")
+                .discardChanges()
+                .build();
+        return new BaseTable(new StaticTableOperations(metadata), "weighted-history");
     }
 
     private static Table tableWithV1EmbeddedManifests(int manifestCount) {
