@@ -28,12 +28,14 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.DependsOnColumnIndex;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -237,9 +239,10 @@ public class InferPredicateByReplace {
         }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
-            // Inference can evaluate a predicate on rows that never reach its original filter,
-            // and it replaces the column of the predicate with an equal one.
-            if (input.anyMatch(expr -> expr instanceof NoneMovableFunction || expr instanceof DependsOnColumnIndex
+            // Inference can evaluate a predicate on rows that never reach its original filter.
+            // MATCH and SEARCH depend on column indexes, and copies can change score().
+            if (input.containsType(Match.class, Search.class, SearchExpression.class)
+                    || input.anyMatch(expr -> expr instanceof NoneMovableFunction
                     || !((ExpressionTrait) expr).isDeterministic())
                     || input.getInputSlots().size() != 1) {
                 continue;

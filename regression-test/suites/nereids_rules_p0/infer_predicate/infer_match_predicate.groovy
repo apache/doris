@@ -35,6 +35,14 @@ suite("infer_match_predicate") {
         SELECT id FROM infer_match_predicate_parser
         WHERE c1 = c2 AND (c1 MATCH_ANY 'apple' OR c1 MATCH_ANY 'pear')
     """
+    order_qt_wrapped_match """
+        SELECT id FROM infer_match_predicate_parser
+        WHERE c1 = c2 AND CAST((c1 MATCH_ANY 'apple' OR c1 MATCH_ANY 'pear') AS INT) > 0
+    """
+    order_qt_search """
+        SELECT id FROM infer_match_predicate_parser
+        WHERE c1 = c2 AND (search('c1:apple') OR c1 = 'pear')
+    """
 
     sql "DROP TABLE IF EXISTS infer_match_predicate_score"
     sql """

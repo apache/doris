@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,8 +26,10 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
@@ -93,19 +96,50 @@ public class InferPredicateByReplaceTest {
         Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
     }
 
-    @Test
-    public void testDoNotInferPredicatesThatDependOnColumnIndex() {
+    @ParameterizedTest
+    @MethodSource("matchAndSearchPredicates")
+    public void testDoNotInferMatchOrSearchPredicates(Expression predicate, SlotReference a, SlotReference b) {
+        Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(new EqualTo(a, b), predicate));
+
+        Assertions.assertEquals(inputs, InferPredicateByReplace.infer(inputs));
+        Assertions.assertEquals(inputs, PredicateInferUtils.inferPredicate(inputs));
+        Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
+    }
+
+    private static Stream<Arguments> matchAndSearchPredicates() {
         SlotReference a = new SlotReference("a", StringType.INSTANCE);
         SlotReference b = new SlotReference("b", StringType.INSTANCE);
-        for (Expression predicate : ImmutableList.of(
-                new Or(new MatchAny(a, new StringLiteral("apple")), new MatchAny(a, new StringLiteral("pear"))),
-                new EqualTo(new MatchAny(a, new StringLiteral("apple")), BooleanLiteral.TRUE),
-                new Or(new Search(new StringLiteral("a:apple")), new EqualTo(a, new StringLiteral("pear"))))) {
-            Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(new EqualTo(a, b), predicate));
+        return Stream.of(
+                new MatchAny(a, new StringLiteral("apple")),
+                new MatchPhrase(a, new StringLiteral("apple red")),
+                new Search(new StringLiteral("a:apple")),
+                new SearchExpression("a:apple", SearchDslParser.parseDsl("a:apple"), ImmutableList.of(a)))
+                .flatMap(search -> {
+                    Expression or = new Or(search, new EqualTo(a, new StringLiteral("pear")));
+                    return Stream.of(or,
+                            new EqualTo(search, BooleanLiteral.TRUE),
+                            new EqualTo(or, BooleanLiteral.TRUE),
+                            new GreaterThan(new Cast(or, IntegerType.INSTANCE), new IntegerLiteral(0)),
+                            new InPredicate(or, ImmutableList.of(BooleanLiteral.TRUE)),
+                            new Not(new EqualTo(or, BooleanLiteral.TRUE)),
+                            new Like(new Cast(or, StringType.INSTANCE), new StringLiteral("%true%")));
+                })
+                .map(predicate -> Arguments.of(predicate, a, b));
+    }
 
-            Assertions.assertEquals(inputs, InferPredicateByReplace.infer(inputs));
-            Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
-        }
+    @Test
+    public void testInferOrdinaryPredicatesAlongsideMatch() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        Expression match = new Or(new MatchAny(a, new StringLiteral("apple")),
+                new MatchAny(a, new StringLiteral("pear")));
+        Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(
+                new EqualTo(a, b), match, new Like(a, new StringLiteral("apple%"))));
+        Set<Expression> expected = new LinkedHashSet<>(inputs);
+        expected.add(new Like(b, new StringLiteral("apple%")));
+
+        Assertions.assertEquals(expected, InferPredicateByReplace.infer(inputs));
+        Assertions.assertEquals(expected, PredicateInferUtils.inferAllPredicate(inputs));
     }
 
     @Test

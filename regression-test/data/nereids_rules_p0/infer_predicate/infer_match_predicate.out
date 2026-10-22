@@ -2,6 +2,12 @@
 -- !different_index --
 1
 
+-- !wrapped_match --
+1
+
+-- !search --
+1
+
 -- !score --
 1	0.4700036
 2	0.4700036

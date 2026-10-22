@@ -21,7 +21,6 @@ import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.MatchPredicate.Operator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.DependsOnColumnIndex;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
@@ -37,8 +36,7 @@ import java.util.Optional;
 /**
  * like expression: a MATCH 'hello'.
  */
-public abstract class Match extends BinaryOperator
-        implements PropagateNullable, PreferPushDownProject, DependsOnColumnIndex {
+public abstract class Match extends BinaryOperator implements PropagateNullable, PreferPushDownProject {
 
     private final Optional<String> analyzer;
 
