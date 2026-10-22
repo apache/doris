@@ -30,12 +30,9 @@
 //   "java.util.ArrayList.get(int)" is null
 // inside GroupJoinNode.toThrift.
 //
-// Fix: treat an aggregate whose inputs are not all directly produced by the join
-// children (i.e. that depend on an intermediate Project between the join and the
-// aggregate) as not fusible, so such queries stay on the regular
-// AggregationNode + HashJoinNode path. This suite asserts the binary-agg query is
-// not fused and returns exactly the reference result, while a single-argument
-// aggregate query of the same shape is still fused.
+// Join-based GroupJoin inlines the deterministic casts into the aggregate arguments,
+// resolving their inputs to the join children. Both binary and single-argument aggregates
+// should fuse and return the reference results.
 suite("test_group_join_fusion_binary_agg") {
     sql "DROP TABLE IF EXISTS gj_binagg_left"
     sql "DROP TABLE IF EXISTS gj_binagg_right"
@@ -110,13 +107,10 @@ suite("test_group_join_fusion_binary_agg") {
 
     sql "SET experimental_enable_group_join_fusion = true"
 
-    // Binary aggregates with hoisted argument casts must NOT be fused: the fused
-    // operator cannot evaluate aggregate arguments that only an intermediate
-    // Project between the aggregate and the join produces, so the query must fall
-    // back to the regular hash join + aggregation path.
+    // Join-based GroupJoin inlines the intermediate Project's hoisted argument casts.
     def binaryAggPlan = sql "EXPLAIN " + binaryAggQuery
-    assertFalse(binaryAggPlan.toString().contains("VGROUP JOIN"),
-            "binary-agg query must not be fused, plan: " + binaryAggPlan)
+    assertTrue(binaryAggPlan.toString().contains("VGROUP JOIN"),
+            "binary-agg argument casts should be inlined, plan: " + binaryAggPlan)
 
     // Fused mode must return the same rows as the reference (no NPE, correct
     // aggregate values).

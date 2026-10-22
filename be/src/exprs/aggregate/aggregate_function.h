@@ -195,21 +195,12 @@ public:
     /// Inserts results into a column.
     // todo: Consider whether this passes a ConstAggregateDataPtr
     // Hot path. Callers must validate `to` with check_result_column_type() before calling
-    // insert_result_into()/insert_result_into_vec()/insert_result_into_range()/
-    // insert_result_into_repeat()/insert_result_into_repeat_vec().
+    // insert_result_into()/insert_result_into_vec()/insert_result_into_range().
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
                                         const size_t offset, IColumn& to,
                                         const size_t num_rows) const = 0;
-
-    virtual void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat,
-                                           IColumn& to, Arena& arena) const = 0;
-
-    virtual void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
-                                               const size_t offset,
-                                               const std::vector<uint64_t>& repeats, IColumn& to,
-                                               const size_t num_rows, Arena& arena) const = 0;
 
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
@@ -218,6 +209,15 @@ public:
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena&, bool agg_many = false) const = 0;
+
+    // Read original input rows without gathering columns into a temporary Block.
+    virtual void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                                   const IColumn** columns, const uint32_t* rows,
+                                   Arena& arena) const {
+        for (size_t i = 0; i < batch_size; ++i) {
+            add(places[i] + place_offset, columns, rows[i], arena);
+        }
+    }
 
     // same as add_batch, but only call "add" function when place is not nullptr
     virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
@@ -450,6 +450,19 @@ public:
         }
     }
 
+    void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                           const IColumn** columns, const uint32_t* rows,
+                           Arena& arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
+        constexpr size_t prefetch_distance = 16;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (i + prefetch_distance < batch_size) {
+                __builtin_prefetch(places[i + prefetch_distance] + place_offset, 1, 3);
+            }
+            derived->add(places[i] + place_offset, columns, rows[i], arena);
+        }
+    }
+
     void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                             const IColumn** columns, Arena& arena) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
@@ -501,33 +514,6 @@ public:
         const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i != num_rows; ++i) {
             derived->insert_result_into(places[i] + offset, to);
-        }
-    }
-
-    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
-                                   Arena& arena) const override {
-        const Derived* derived = assert_cast<const Derived*>(this);
-        auto* output_state = arena.aligned_alloc(derived->size_of_data(), derived->align_of_data());
-        derived->create(output_state);
-        try {
-            for (uint64_t i = 0; i < repeat; ++i) {
-                derived->merge(output_state, place, arena);
-            }
-            derived->insert_result_into(output_state, to);
-        } catch (...) {
-            derived->destroy(output_state);
-            throw;
-        }
-        derived->destroy(output_state);
-    }
-
-    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
-                                       const size_t offset, const std::vector<uint64_t>& repeats,
-                                       IColumn& to, const size_t num_rows,
-                                       Arena& arena) const override {
-        const Derived* derived = assert_cast<const Derived*>(this);
-        for (size_t i = 0; i != num_rows; ++i) {
-            derived->insert_result_into_repeat(places[i] + offset, repeats[i], to, arena);
         }
     }
 

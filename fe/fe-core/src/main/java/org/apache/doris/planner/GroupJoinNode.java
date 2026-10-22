@@ -285,6 +285,8 @@ public class GroupJoinNode extends PlanNode {
         StringBuilder output = new StringBuilder();
         output.append(detailPrefix).append("group join: ");
         output.append(joinOp.toString()).append("\n");
+        output.append(detailPrefix).append("  implementation: ")
+                .append("JOIN_BASED").append("\n");
 
         output.append(detailPrefix).append("  join op: ").append(joinOp).append("\n");
         output.append(detailPrefix).append("  equi conjuncts: ").append(eqJoinConjuncts).append("\n");

@@ -17,49 +17,19 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-
-#include <cstddef>
-#include <cstdint>
-#include <memory>
-#include <vector>
-
+#include "core/block/block.h"
 #include "exec/pipeline/dependency.h"
-#include "runtime/runtime_profile.h"
 
 namespace doris {
-
-class AggFnEvaluator;
-struct AggregateDataContainer;
-class Arena;
-struct GroupJoinDataVariants;
+struct JoinDataVariants;
 
 struct GroupJoinSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(GroupJoinSharedState)
-
     GroupJoinSharedState();
     ~GroupJoinSharedState() override;
-
-    // Shared hash-table and arena storage is attributed only to the build sink. The
-    // sink profile lives in RuntimeState's object pool, including during probe/drain.
-    RuntimeProfile::HighWaterMarkCounter* memory_used_counter = nullptr;
-    void update_memory_usage();
-
-    bool probe_eos = false;
-    bool result_emitted = false;
-    std::unique_ptr<GroupJoinDataVariants> data_variants;
-    std::unique_ptr<AggregateDataContainer> data_container;
-    std::shared_ptr<Arena> arena;
-    int64_t total_match_count = 0;
-    std::vector<TGroupJoinAggSide::type> aggregate_sides;
-    std::vector<AggFnEvaluator*> aggregate_evaluators;
-    std::vector<size_t> offsets_of_aggregate_states;
-    std::vector<size_t> sizes_of_aggregate_states;
-    std::vector<size_t> aligns_of_aggregate_states;
-    size_t total_size_of_aggregate_states = 0;
-    size_t align_aggregate_states = 1;
-    bool agg_layout_ready = false;
-    bool has_build_side_aggregate = false;
+    Block build_block;
+    std::vector<ColumnPtr> build_keys;
+    std::shared_ptr<JoinDataVariants> build_context;
+    bool short_circuit_for_probe = false;
 };
-
 } // namespace doris
