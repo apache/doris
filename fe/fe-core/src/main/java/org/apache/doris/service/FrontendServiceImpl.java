@@ -1438,10 +1438,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         if (status.getStatusCode() != TStatusCode.OK) {
-            TNetworkAddress master = getMasterAddress();
-            if (!Strings.isNullOrEmpty(master.hostname) && master.port > 0) {
-                result.setMasterAddress(master);
-            }
             return result;
         }
 
@@ -1662,10 +1658,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = checkMaster();
         result.setStatus(status);
         if (status.getStatusCode() != TStatusCode.OK) {
-            TNetworkAddress master = getMasterAddress();
-            if (!Strings.isNullOrEmpty(master.hostname) && master.port > 0) {
-                result.setMasterAddress(master);
-            }
             return result;
         }
 
@@ -1810,10 +1802,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         if (status.getStatusCode() != TStatusCode.OK) {
-            TNetworkAddress master = getMasterAddress();
-            if (!Strings.isNullOrEmpty(master.hostname) && master.port > 0) {
-                result.setMasterAddress(master);
-            }
             return result;
         }
 
@@ -1907,10 +1895,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         if (status.getStatusCode() != TStatusCode.OK) {
-            TNetworkAddress master = getMasterAddress();
-            if (!Strings.isNullOrEmpty(master.hostname) && master.port > 0) {
-                result.setMasterAddress(master);
-            }
             return result;
         }
 
@@ -2152,10 +2136,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = checkMaster();
         result.setStatus(status);
         if (status.getStatusCode() != TStatusCode.OK) {
-            TNetworkAddress master = getMasterAddress();
-            if (!Strings.isNullOrEmpty(master.hostname) && master.port > 0) {
-                result.setMasterAddress(master);
-            }
             return result;
         }
         try {

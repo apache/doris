@@ -80,18 +80,16 @@ TEST(ThriftRpcHelperTest, DisabledModeTransportRetryUsesLiveMasterProvider) {
                 EXPECT_EQ(cache._client_cache_helper._client_hostport_map.at(client._client),
                           master);
             },
-            [] { return TStatus(); }, []() -> const TNetworkAddress* { return nullptr; });
+            [] { return TStatus(); });
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_EQ(calls, 2);
     EXPECT_FALSE(cluster_info.in_graceful_shutdown());
 }
 
-TEST(ThriftRpcHelperTest, NotMasterHintDoesNotOverwriteHeartbeatAddress) {
+TEST(ThriftRpcHelperTest, NotMasterUsesFreshHeartbeat) {
     TNetworkAddress master;
     master.__set_hostname("old-master");
     master.__set_port(9020);
-    TNetworkAddress hint = master;
-    hint.__set_hostname("new-master");
     TStatus response;
     int calls = 0;
     auto status = ThriftRpcHelper::_retry_fe_rpc(
@@ -100,12 +98,13 @@ TEST(ThriftRpcHelperTest, NotMasterHintDoesNotOverwriteHeartbeatAddress) {
                 EXPECT_EQ(target.hostname, calls == 0 ? "old-master" : "new-master");
                 response.__set_status_code(calls++ == 0 ? TStatusCode::NOT_MASTER
                                                         : TStatusCode::OK);
+                master.__set_hostname("new-master");
                 return Status::OK();
             },
-            [&]() { return response; }, [&]() { return &hint; }, true, 0);
+            [&]() { return response; }, 0);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(calls, 2);
-    EXPECT_EQ(master.hostname, "old-master");
+    EXPECT_EQ(master.hostname, "new-master");
 }
 
 TEST(ThriftRpcHelperTest, TransportFailureUsesFreshHeartbeat) {
@@ -125,13 +124,12 @@ TEST(ThriftRpcHelperTest, TransportFailureUsesFreshHeartbeat) {
                 EXPECT_EQ(target.hostname, "new-master");
                 return Status::OK();
             },
-            [&]() { return response; }, []() -> const TNetworkAddress* { return nullptr; }, true,
-            0);
+            [&]() { return response; }, 0);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(calls, 2);
 }
 
-TEST(ThriftRpcHelperTest, ApplicationFailureAndDisabledModeDoNotRetry) {
+TEST(ThriftRpcHelperTest, ApplicationFailureDoesNotRetry) {
     TNetworkAddress master;
     TStatus response;
     response.__set_status_code(TStatusCode::ANALYSIS_ERROR);
@@ -140,16 +138,10 @@ TEST(ThriftRpcHelperTest, ApplicationFailureAndDisabledModeDoNotRetry) {
         ++calls;
         return Status::OK();
     };
-    auto hint = []() -> const TNetworkAddress* { return nullptr; };
     EXPECT_TRUE(ThriftRpcHelper::_retry_fe_rpc([&]() { return master; }, attempt,
-                                               [&]() { return response; }, hint, true, 0)
+                                               [&]() { return response; }, 0)
                         .ok());
     EXPECT_EQ(calls, 1);
-    response.__set_status_code(TStatusCode::NOT_MASTER);
-    EXPECT_TRUE(ThriftRpcHelper::_retry_fe_rpc([&]() { return master; }, attempt,
-                                               [&]() { return response; }, hint, false, 0)
-                        .ok());
-    EXPECT_EQ(calls, 2);
 }
 
 TEST(ThriftRpcHelperTest, ElectionWithoutMasterIsBounded) {
@@ -162,9 +154,7 @@ TEST(ThriftRpcHelperTest, ElectionWithoutMasterIsBounded) {
                                                      ++calls;
                                                      return Status::OK();
                                                  },
-                                                 [&]() { return response; },
-                                                 []() -> const TNetworkAddress* { return nullptr; },
-                                                 true, 0);
+                                                 [&]() { return response; }, 0);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(response.status_code, TStatusCode::NOT_MASTER);
     EXPECT_EQ(calls, 6);

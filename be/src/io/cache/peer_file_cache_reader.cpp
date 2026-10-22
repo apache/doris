@@ -270,7 +270,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
             [&] { finish_peer_connection_attempt(brpc_addr, transport_succeeded); }};
     std::shared_ptr<PBackendService_Stub> brpc_stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
-                    brpc_addr, "", "", "", 200, 0, _host);
+                    brpc_addr, "", "", "", 200, 0);
     if (!brpc_stub) {
         peer_cache_reader_failed_counter << 1;
         LOG(WARNING) << "failed to get brpc stub " << brpc_addr;

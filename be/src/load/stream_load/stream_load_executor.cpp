@@ -234,10 +234,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
                     result = {};
                     client->loadTxnBegin(result, request);
                 },
-                [&result]() { return result.status; },
-                [&result]() -> const TNetworkAddress* {
-                    return result.__isset.master_address ? &result.master_address : nullptr;
-                }));
+                [&result]() { return result.status; }));
 #else
         result = k_stream_load_begin_result;
 #endif
@@ -285,11 +282,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
                     result = {};
                     client->loadTxnPreCommit(result, request);
                 },
-                [&result]() { return result.status; },
-                [&result]() -> const TNetworkAddress* {
-                    return result.__isset.master_address ? &result.master_address : nullptr;
-                },
-                config::txn_commit_rpc_timeout_ms));
+                [&result]() { return result.status; }, config::txn_commit_rpc_timeout_ms));
 #else
         result = k_stream_load_commit_result;
 #endif
@@ -334,11 +327,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
                     result = {};
                     client->loadTxn2PC(result, request);
                 },
-                [&result]() { return result.status; },
-                [&result]() -> const TNetworkAddress* {
-                    return result.__isset.master_address ? &result.master_address : nullptr;
-                },
-                config::txn_commit_rpc_timeout_ms));
+                [&result]() { return result.status; }, config::txn_commit_rpc_timeout_ms));
     }
     g_stream_load_commit_txn_latency << duration_ns / 1000;
     Status status(Status::create(result.status));
@@ -390,11 +379,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
                 result = {};
                 client->loadTxnCommit(result, request);
             },
-            [&result]() { return result.status; },
-            [&result]() -> const TNetworkAddress* {
-                return result.__isset.master_address ? &result.master_address : nullptr;
-            },
-            config::txn_commit_rpc_timeout_ms));
+            [&result]() { return result.status; }, config::txn_commit_rpc_timeout_ms));
 #else
     result = k_stream_load_commit_result;
 #endif
@@ -445,10 +430,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
                 result = {};
                 client->loadTxnRollback(result, request);
             },
-            [&result]() { return result.status; },
-            [&result]() -> const TNetworkAddress* {
-                return result.__isset.master_address ? &result.master_address : nullptr;
-            });
+            [&result]() { return result.status; });
     if (!rpc_st.ok()) {
         LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st << ctx->brief();
     }

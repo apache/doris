@@ -531,7 +531,6 @@ struct TLoadTxnBeginResult {
     // If use_table_group_commit_mode is true in TLoadTxnBeginRequest, and table group_commit_mode property is
     // async_mode or sync_mode, return table group_commit_mode (begin_txn is skipped)
     5: optional string table_group_commit_mode
-    6: optional Types.TNetworkAddress master_address
 }
 
 struct TBeginTxnRequest {
@@ -738,7 +737,6 @@ struct TLoadTxnCommitRequest {
 
 struct TLoadTxnCommitResult {
     1: required Status.TStatus status
-    2: optional Types.TNetworkAddress master_address
 }
 
 struct TCommitTxnRequest {
@@ -785,7 +783,6 @@ struct TLoadTxn2PCRequest {
 
 struct TLoadTxn2PCResult {
     1: required Status.TStatus status
-    2: optional Types.TNetworkAddress master_address
 }
 
 struct TRollbackTxnRequest {
@@ -827,7 +824,6 @@ struct TLoadTxnRollbackRequest {
 
 struct TLoadTxnRollbackResult {
     1: required Status.TStatus status
-    2: optional Types.TNetworkAddress master_address
 }
 
 struct TSnapshotLoaderReportRequest {
