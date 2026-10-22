@@ -82,6 +82,22 @@ template void clear_blocks<BlockUPtr>(moodycamel::ConcurrentQueue<BlockUPtr>&,
 
 namespace {
 
+Status check_variant_block_format(const PColumnMeta& column_meta, const std::string& column_name) {
+    // V1 starts with a subcolumn count, while V2 starts with the const/row header. Reading V1
+    // as V2 during a mixed-version load or exchange can advance the decoder past the payload.
+    if (column_meta.type() == PGenericType::VARIANT && !column_meta.variant_is_v2()) {
+        return Status::NotSupported(
+                "Unsupported VARIANT block format in column '{}': Variant V1 cannot be decoded "
+                "as Variant V2; use compatible backend versions for Variant block transfer",
+                column_name);
+    }
+
+    for (const auto& child : column_meta.children()) {
+        RETURN_IF_ERROR(check_variant_block_format(child, column_name));
+    }
+    return Status::OK();
+}
+
 // The no-clone fast path is only safe when the whole column tree is uniquely
 // owned. A composite column with shared children still needs COW detachment.
 bool is_recursively_exclusive(const IColumn& column) {
@@ -149,6 +165,12 @@ Status Block::deserialize(const PBlock& pblock, size_t* uncompressed_bytes,
     swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(be_exec_version));
+
+    // Validate every column before reading any payload, including legacy Variant nested in
+    // ARRAY/MAP/STRUCT. This also avoids decoding preceding columns before rejecting the block.
+    for (const auto& column_meta : pblock.column_metas()) {
+        RETURN_IF_ERROR(check_variant_block_format(column_meta, column_meta.name()));
+    }
 
     const char* buf = nullptr;
     std::string compression_scratch;
