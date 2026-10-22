@@ -60,6 +60,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutput;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -69,7 +75,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -915,5 +924,93 @@ public class AnalysisManagerTest {
             Mockito.verify(table, Mockito.never()).writeLock();
             Mockito.verify(editLog).logDeleteTableStats(Mockito.any(TableStatsDeletionLog.class));
         }
+    }
+    // A record whose serialization waits, so that a test can publish another record while the image of the
+    // statistics map is written. The latches are transient: they are not part of the image.
+    private static class BlockingTableStatsMeta extends TableStatsMeta {
+        private final transient CountDownLatch imageWriting = new CountDownLatch(1);
+        private final transient CountDownLatch resumeImage = new CountDownLatch(1);
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            imageWriting.countDown();
+            try {
+                resumeImage.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            super.write(out);
+        }
+    }
+
+    /**
+     * The image writes the number of records of the statistics map and then the records, and the reader trusts
+     * that number. A record which a load publishes while the image is written, for instance from the commit
+     * report of a cloud backend, must therefore not be inserted between the two: it would be written although
+     * the declared number excludes it, and the reader would take the extra record as the header of the next
+     * module of the image.
+     */
+    @Test
+    public void testRecordInsertedWhileTheImageIsWrittenWaitsForTheStatsMap() throws Exception {
+        AnalysisManager manager = new AnalysisManager();
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20002L, "test_stats_map_lock");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30008L, "t_stats_map_lock", db);
+        BlockingTableStatsMeta record = new BlockingTableStatsMeta();
+        manager.replayUpdateTableStatsStatus(record);
+
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        Thread dump = new Thread(() -> {
+            try {
+                manager.write(new DataOutputStream(image));
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+        dump.start();
+        Assertions.assertTrue(record.imageWriting.await(30, TimeUnit.SECONDS), "the image is not being written");
+
+        // The load of another table publishes its record from its own thread, exactly like the commit report
+        // of a cloud backend, which takes no table lock.
+        CountDownLatch loadReady = new CountDownLatch(1);
+        CountDownLatch insertNow = new CountDownLatch(1);
+        CountDownLatch inserted = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread load = new Thread(() -> {
+            try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+                envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+                loadReady.countDown();
+                insertNow.await();
+                manager.replayUpdateRowsRecord(new UpdateRowsEvent(db.getId(),
+                        ImmutableMap.of(table.getId(), 1L)));
+                inserted.countDown();
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        });
+        load.start();
+        Assertions.assertTrue(loadReady.await(30, TimeUnit.SECONDS), "the load is not ready");
+        insertNow.countDown();
+        // The insertion has to wait for the monitor which the image holds, otherwise the record can be written
+        // although the number of records was already written.
+        boolean insertedWhileWriting = inserted.await(500, TimeUnit.MILLISECONDS);
+
+        record.resumeImage.countDown();
+        dump.join(30000);
+        load.join(30000);
+
+        Assertions.assertFalse(insertedWhileWriting, "the record was inserted while the image was written");
+        Assertions.assertNull(failure.get());
+        Assertions.assertFalse(dump.isAlive(), "the image was not written");
+        Assertions.assertFalse(load.isAlive());
+
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(image.toByteArray()));
+        AnalysisManager loaded = AnalysisManager.readFields(in);
+        // The reader consumes exactly the records which the image declares.
+        Assertions.assertEquals(0, in.available(), "the image contains more records than it declares");
+        Assertions.assertNotNull(loaded.findTableStatsStatus(0L));
+        Assertions.assertNull(loaded.findTableStatsStatus(table.getId()),
+                "the record which was created after the image was written is in the image");
     }
 }

@@ -1310,8 +1310,16 @@ public class AnalysisManager implements Writable {
             return tableStats;
         }
         TableStatsMeta created = new TableStatsMeta(table);
-        TableStatsMeta existing = idToTblStats.putIfAbsent(table.getId(), created);
-        return existing == null ? created : existing;
+        // The insertion is published under the monitor {@link #writeTableStats} holds while it writes the
+        // number of records and then the records themselves. A record which is inserted in between would be
+        // written although the declared number excludes it, and the readers, which trust that number, would
+        // take the extra record as the header of the next module of the image. The creation stays outside the
+        // monitor: it only reads catalog metadata and must not be ordered with the catalog locks which the
+        // image dump holds before it takes this monitor.
+        synchronized (idToTblStats) {
+            TableStatsMeta existing = idToTblStats.putIfAbsent(table.getId(), created);
+            return existing == null ? created : existing;
+        }
     }
 
     // Invoke this when load transaction finished.
