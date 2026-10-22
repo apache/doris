@@ -324,10 +324,10 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks,
     return st;
 }
 
-// Execute remote read
-Status execute_remote_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
-                           ReadStatistics& stats, const IOContext* io_ctx,
-                           FileReaderSPtr remote_file_reader) {
+// Read the span directly from remote storage.
+Status read_remote_span(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
+                        ReadStatistics& stats, const IOContext* io_ctx,
+                        FileReaderSPtr remote_file_reader) {
     remote_read_counter << 1;
     SCOPED_RAW_TIMER(&stats.remote_read_timer);
     stats.from_peer_cache = false;
@@ -591,7 +591,7 @@ Status CachedRemoteFileReader::_execute_remote_fallback(size_t empty_start, size
     }
     buffer.reset(new char[span_size]);
     size_t read_size = span_size;
-    return execute_remote_read(empty_start, read_size, buffer, stats, io_ctx, _remote_file_reader);
+    return read_remote_span(empty_start, read_size, buffer, stats, io_ctx, _remote_file_reader);
 }
 
 Status CachedRemoteFileReader::_execute_sequential_peer_read(
