@@ -51,6 +51,10 @@ suite("test_bm25_score_parallel_scan_statistics", "p0") {
     }
     sql "sync"
 
+    // SEARCH() must be evaluated by the inverted index; fuzzy mode may turn these off.
+    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_common_expr_pushdown_for_inverted_index = true"
+
     def scoreQuery = { String vars ->
         sql """
             SELECT /*+ SET_VAR(${vars}) */ score() AS s
