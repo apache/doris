@@ -56,8 +56,6 @@ void repair_tablet_index(std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, 
                          const std::vector<int64_t>& tablet_ids, bool is_versioned_write);
 }; // namespace doris::cloud
 
-static std::shared_ptr<TxnKv> get_mem_txn_kv();
-
 static std::shared_ptr<TxnKv> txn_kv;
 static doris::cloud::RecyclerThreadPoolGroup thread_group;
 
@@ -119,6 +117,8 @@ int main(int argc, char** argv) {
     return ret;
 }
 namespace doris::cloud {
+
+static std::shared_ptr<TxnKv> get_mem_txn_kv();
 
 // GoogleTest assertions inflate this bounded-serialization test's complexity metric.
 TEST(TxnLazyCommitTest, // NOLINT(readability-function-cognitive-complexity)

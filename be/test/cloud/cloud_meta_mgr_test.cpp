@@ -33,8 +33,6 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
-}
-
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "cpp/sync_point.h"
@@ -278,14 +276,18 @@ TEST_F(CloudMetaMgrTest, // NOLINT(readability-function-cognitive-complexity)
     ASSERT_TRUE(meta_mgr.prepare_rowset(rowset_meta, "compaction-job", 3001).ok());
     EXPECT_FALSE(prepare_request.has_load_cluster_id());
 
+    // An unknown local identity is only a missing hint; meta-service resolves the writer.
     cluster_info.set_cloud_compute_group_id("");
     cluster_info.set_my_cluster_id("");
-    EXPECT_FALSE(meta_mgr.prepare_rowset(rowset_meta, "", 3001).ok());
-    EXPECT_EQ(prepare_calls, 2);
-
-    config::enable_compaction_rw_separation = false;
     ASSERT_TRUE(meta_mgr.prepare_rowset(rowset_meta, "", 3001).ok());
     EXPECT_EQ(prepare_calls, 3);
+    EXPECT_FALSE(prepare_request.has_load_cluster_id());
+
+    // Conflicting identities also omit the hint instead of failing the load.
+    cluster_info.set_cloud_compute_group_id("cluster_a");
+    cluster_info.set_my_cluster_id("cluster_b");
+    ASSERT_TRUE(meta_mgr.prepare_rowset(rowset_meta, "", 3001).ok());
+    EXPECT_EQ(prepare_calls, 4);
     EXPECT_FALSE(prepare_request.has_load_cluster_id());
 }
 

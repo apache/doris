@@ -13000,8 +13000,8 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
     EXPECT_EQ(send_rowset(third_rowset, true, false, "", "writer-node-2"), MetaServiceCode::OK);
     EXPECT_EQ(send_rowset(third_rowset, false, false, "", "writer-node-2"), MetaServiceCode::OK);
 
-    // Lost-response retries are identified by the persisted rowset, so they remain idempotent for
-    // either BE after a move. New rowsets always resolve the current durable node membership.
+    // The binding only feeds compaction ownership and never rejects a load. After the nodes move,
+    // retries and new rowsets from any cluster succeed while the first writer stays bound.
     writer_instance.mutable_clusters(0)->clear_nodes();
     writer_instance.mutable_clusters(1)->add_nodes()->set_cloud_unique_id("writer-node");
     writer_instance.mutable_clusters(1)->add_nodes()->set_cloud_unique_id("writer-node-2");
@@ -13012,16 +13012,13 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
     EXPECT_EQ(send_rowset(second_rowset, false, false, "", "writer-node-2"), MetaServiceCode::OK);
     EXPECT_EQ(send_rowset(third_rowset, false, false, "", "writer-node-2"), MetaServiceCode::OK);
     auto moved_writer_rowset = make_load_rowset(txn_id, tablet_id + 3);
-    // A moved UID on a new rowset is an actual post-move writer, not an idempotent retry.
-    EXPECT_EQ(send_rowset(moved_writer_rowset, true, false, ""), MetaServiceCode::INVALID_ARGUMENT);
-    EXPECT_EQ(send_rowset(moved_writer_rowset, true, false, "", "writer-node-2"),
-              MetaServiceCode::INVALID_ARGUMENT);
-    EXPECT_EQ(send_rowset(moved_writer_rowset, true, true, "writer-b"),
-              MetaServiceCode::INVALID_ARGUMENT);
-    EXPECT_EQ(send_rowset(moved_writer_rowset, true, false, "", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
-    EXPECT_EQ(send_rowset(moved_writer_rowset, true, true, "writer-a", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(send_rowset(moved_writer_rowset, true, true, "writer-a"), MetaServiceCode::OK);
+    auto other_cluster_rowset = make_load_rowset(txn_id, tablet_id + 12);
+    EXPECT_EQ(send_rowset(other_cluster_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(read_txn_info(txn_id, &txn_info));
+    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
+    EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
 
     // Restore the durable node layout for independent first-binding cases below.
     writer_instance.mutable_clusters(0)->add_nodes()->set_cloud_unique_id("writer-node");
@@ -13035,46 +13032,7 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
     }
     ASSERT_NO_FATAL_FAILURE(persist_writer_instance());
 
-    // Same writer retries and writes to additional tablets idempotently.
-    EXPECT_EQ(send_rowset(first_rowset, true, true, "writer-a"), MetaServiceCode::ALREADY_EXISTED);
-    EXPECT_EQ(send_rowset(first_rowset, false, true, "writer-a"), MetaServiceCode::OK);
-    EXPECT_EQ(send_rowset(first_rowset, false, true, "writer-a"), MetaServiceCode::OK);
-    EXPECT_EQ(send_rowset(second_rowset, true, true, "writer-a"), MetaServiceCode::ALREADY_EXISTED);
-    EXPECT_EQ(send_rowset(second_rowset, false, true, "writer-a"), MetaServiceCode::OK);
-
-    auto conflicting_rowset = make_load_rowset(txn_id, tablet_id + 3);
-    EXPECT_EQ(send_rowset(conflicting_rowset, true, true, "writer-b", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
-    EXPECT_EQ(send_rowset(conflicting_rowset, true, false, "", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_NO_FATAL_FAILURE(read_txn_info(txn_id, &txn_info));
-    EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
-
-    auto seed_non_prepare_recycle_rowset = [&](const doris::RowsetMetaCloudPB& rowset,
-                                               RecycleRowsetPB::Type type) {
-        RecycleRowsetPB recycle_rowset;
-        recycle_rowset.set_type(type);
-        recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset);
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        txn->put(recycle_rowset_key({mock_instance, rowset.tablet_id(), rowset.rowset_id_v2()}),
-                 recycle_rowset.SerializeAsString());
-        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-    };
-    // COMPACT/DROP recycle records are lifecycle metadata, not evidence that this load rowset was
-    // previously accepted. They must not bypass the durable writer check.
-    auto compact_recycle_rowset = make_load_rowset(txn_id, tablet_id + 12);
-    ASSERT_NO_FATAL_FAILURE(
-            seed_non_prepare_recycle_rowset(compact_recycle_rowset, RecycleRowsetPB::COMPACT));
-    EXPECT_EQ(send_rowset(compact_recycle_rowset, true, false, "", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
-    auto drop_recycle_rowset = make_load_rowset(txn_id, tablet_id + 13);
-    ASSERT_NO_FATAL_FAILURE(
-            seed_non_prepare_recycle_rowset(drop_recycle_rowset, RecycleRowsetPB::DROP));
-    EXPECT_EQ(send_rowset(drop_recycle_rowset, true, false, "", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
-
-    // A subtransaction rowset resolves and validates the parent transaction binding.
+    // A subtransaction rowset resolves the parent transaction binding.
     BeginSubTxnRequest sub_req;
     sub_req.set_cloud_unique_id("writer-node");
     sub_req.set_txn_id(txn_id);
@@ -13089,9 +13047,10 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
     auto sub_rowset = make_load_rowset(sub_res.sub_txn_id(), tablet_id + 3);
     EXPECT_EQ(send_rowset(sub_rowset, true, true, "writer-a"), MetaServiceCode::OK);
     EXPECT_EQ(send_rowset(sub_rowset, false, true, "writer-a"), MetaServiceCode::OK);
-    auto conflicting_sub_rowset = make_load_rowset(sub_res.sub_txn_id(), tablet_id + 3);
-    EXPECT_EQ(send_rowset(conflicting_sub_rowset, true, false, "", "writer-b-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
+    // A subtransaction written by another cluster keeps the parent's first writer.
+    auto other_cluster_sub_rowset = make_load_rowset(sub_res.sub_txn_id(), tablet_id + 13);
+    EXPECT_EQ(send_rowset(other_cluster_sub_rowset, true, false, "", "writer-b-node"),
+              MetaServiceCode::OK);
     ASSERT_NO_FATAL_FAILURE(read_txn_info(txn_id, &txn_info));
     EXPECT_EQ(txn_info.load_cluster_id(), "writer-a");
     EXPECT_TRUE(txn_info.load_cluster_id_bound_by_writer());
@@ -13215,7 +13174,7 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
                                       unknown_writer_txn_id));
     auto unknown_writer_rowset = make_load_rowset(unknown_writer_txn_id, tablet_id + 10);
     EXPECT_EQ(send_rowset(unknown_writer_rowset, true, false, "", "unknown-writer-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
+              MetaServiceCode::OK);
     ASSERT_NO_FATAL_FAILURE(read_txn_info(unknown_writer_txn_id, &txn_info));
     EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
 
@@ -13227,7 +13186,7 @@ TEST(MetaServiceTest, // NOLINT(readability-function-cognitive-complexity)
                                       ambiguous_writer_txn_id));
     auto ambiguous_writer_rowset = make_load_rowset(ambiguous_writer_txn_id, tablet_id + 11);
     EXPECT_EQ(send_rowset(ambiguous_writer_rowset, true, false, "", "ambiguous-writer-node"),
-              MetaServiceCode::INVALID_ARGUMENT);
+              MetaServiceCode::OK);
     ASSERT_NO_FATAL_FAILURE(read_txn_info(ambiguous_writer_txn_id, &txn_info));
     EXPECT_FALSE(txn_info.load_cluster_id_bound_by_writer());
 

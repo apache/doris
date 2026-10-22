@@ -253,8 +253,14 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             }
             const std::string& effective_owner = stats.last_active_cluster_id();
             int64_t effective_epoch = stats.last_active_epoch();
+            // The epoch advances on every load, so it only fences a status-based takeover by a
+            // foreign requester. The owner itself and an emergency version-count compaction stay
+            // authorized while concurrent loads keep advancing it; the requester claim is bound to
+            // durable registration below.
+            const bool check_epoch = compaction.requester_cluster_id() != effective_owner &&
+                                     !compaction.force_compaction_by_version_count();
             if (compaction.observed_last_active_cluster_id() != effective_owner ||
-                compaction.observed_last_active_epoch() != effective_epoch) {
+                (check_epoch && compaction.observed_last_active_epoch() != effective_epoch)) {
                 code = MetaServiceCode::STALE_TABLET_CACHE;
                 msg = fmt::format(
                         "tablet owner changed before compaction, observed_owner={}, "

@@ -2559,7 +2559,7 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
             } else {
                 // An old sender cannot prove ordering. Force the next scheduler pass to pull the
                 // authoritative owner instead of applying a wall-clock based hint.
-                cloud_tablet->last_sync_time_s = 0;
+                cloud_tablet->last_sync_rowsets_time_s = 0;
             }
         }
     }
