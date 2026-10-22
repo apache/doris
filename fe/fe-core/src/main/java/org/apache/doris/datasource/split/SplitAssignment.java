@@ -29,15 +29,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -71,21 +71,103 @@ public class SplitAssignment {
     private final ConcurrentHashMap<Long, Set<Runnable>> queueSpaceListeners = new ConcurrentHashMap<>();
     private volatile Runnable moreSplitsRequestedCallback = () -> {};
 
-    /** Data readiness and terminal state use the same per-backend wait channel. */
-    private static final class AssignmentQueue {
-        private final BlockingQueue<Collection<TScanRangeLocations>> batches;
-        // Written under this channel's monitor; producers avoid that monitor when nobody waits.
-        private volatile int waitingReaders;
+    /** Per-backend scan ranges; bulk operations amortize synchronization without reserving an entire batch. */
+    static final class AssignmentQueue {
+        private final Deque<TScanRangeLocations> splits = new ArrayDeque<>();
+        private final int capacity;
+        private int waitingReaders;
+        private int waitingProducers;
 
         private AssignmentQueue(int capacity) {
-            batches = new LinkedBlockingQueue<>(capacity);
+            this.capacity = capacity;
         }
 
-        private void signalReaders() {
-            if (waitingReaders > 0) {
-                synchronized (this) {
-                    notifyAll();
+        synchronized int offer(List<TScanRangeLocations> batch, int offset) {
+            Preconditions.checkArgument(!batch.isEmpty() && offset >= 0 && offset < batch.size(),
+                    "Invalid split batch offset: %s", offset);
+            int accepted = Math.min(batch.size() - offset, capacity - splits.size());
+            for (int i = offset; i < offset + accepted; i++) {
+                splits.addLast(batch.get(i));
+            }
+            if (accepted > 0 && waitingReaders > 0) {
+                notifyAll();
+            }
+            return accepted;
+        }
+
+        synchronized int offer(List<TScanRangeLocations> batch, int offset, long timeout, TimeUnit unit)
+                throws InterruptedException {
+            Preconditions.checkArgument(!batch.isEmpty() && offset >= 0 && offset < batch.size(),
+                    "Invalid split batch offset: %s", offset);
+            long remaining = unit.toNanos(timeout);
+            long deadline = System.nanoTime() + remaining;
+            while (splits.size() == capacity) {
+                if (remaining <= 0) {
+                    return 0;
                 }
+                waitingProducers++;
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(this, remaining);
+                } finally {
+                    waitingProducers--;
+                }
+                remaining = deadline - System.nanoTime();
+            }
+            return offer(batch, offset);
+        }
+
+        synchronized TScanRangeLocations poll() {
+            TScanRangeLocations split = splits.pollFirst();
+            if (split != null && waitingProducers > 0) {
+                notifyAll();
+            }
+            return split;
+        }
+
+        synchronized int drainTo(Collection<TScanRangeLocations> target, int maxSplits) {
+            int count = 0;
+            while (count < maxSplits && !splits.isEmpty()) {
+                target.add(splits.removeFirst());
+                count++;
+            }
+            if (count > 0 && waitingProducers > 0) {
+                notifyAll();
+            }
+            return count;
+        }
+
+        synchronized TScanRangeLocations awaitSplit(long waitNanos, SplitAssignment assignment)
+                throws InterruptedException {
+            waitingReaders++;
+            try {
+                if (splits.isEmpty() && assignment.needMoreSplit()) {
+                    TimeUnit.NANOSECONDS.timedWait(this, waitNanos);
+                }
+                return poll();
+            } finally {
+                waitingReaders--;
+            }
+        }
+
+        synchronized boolean isEmpty() {
+            return splits.isEmpty();
+        }
+
+        synchronized int size() {
+            return splits.size();
+        }
+
+        synchronized int remainingCapacity() {
+            return capacity - splits.size();
+        }
+
+        synchronized TScanRangeLocations peek() {
+            return splits.peekFirst();
+        }
+
+        synchronized void signalWaiters() {
+            if (waitingReaders > 0 || waitingProducers > 0) {
+                notifyAll();
             }
         }
     }
@@ -107,7 +189,7 @@ public class SplitAssignment {
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
         this.fileCacheAdmission = fileCacheAdmission;
-        this.splitBatchSize = splitBatchSize;
+        this.splitBatchSize = Math.min(splitBatchSize, queueCapacity);
         this.queueCapacity = queueCapacity;
     }
 
@@ -141,14 +223,12 @@ public class SplitAssignment {
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
-            Collection<TScanRangeLocations> locations = createScanRanges(backend, batch.get(backend));
-            while (needMoreSplit()) {
+            List<TScanRangeLocations> locations = createScanRanges(backend, batch.get(backend));
+            int offset = 0;
+            while (offset < locations.size() && needMoreSplit()) {
                 AssignmentQueue queue = getOrCreateAssignmentQueue(backend);
                 try {
-                    if (queue.batches.offer(locations, 100, TimeUnit.MILLISECONDS)) {
-                        queue.signalReaders();
-                        break;
-                    }
+                    offset += queue.offer(locations, offset, 100, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     setException(new UserException("Failed to offer batch split by interrupted", e));
@@ -164,7 +244,7 @@ public class SplitAssignment {
         }
     }
 
-    Collection<TScanRangeLocations> createScanRanges(Backend backend, Collection<Split> splits)
+    List<TScanRangeLocations> createScanRanges(Backend backend, Collection<Split> splits)
             throws UserException {
         List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
         for (Split split : splits) {
@@ -181,30 +261,30 @@ public class SplitAssignment {
         return locations;
     }
 
-    boolean offerBatch(Backend backend, Collection<TScanRangeLocations> locations, Runnable resume) {
+    int offerBatch(Backend backend, List<TScanRangeLocations> locations, int offset, Runnable resume) {
         if (!needMoreSplit()) {
-            return false;
+            return 0;
         }
         AssignmentQueue queue = getOrCreateAssignmentQueue(backend);
-        if (queue.batches.offer(locations)) {
-            queue.signalReaders();
+        int accepted = queue.offer(locations, offset);
+        if (accepted > 0) {
             removeQueueSpaceListener(backend, resume);
-            return true;
+            return accepted;
         }
         synchronized (queueSpaceListeners) {
             // An error/stop may race range conversion. Do not register a waiter after its wakeup.
             if (!needMoreSplit()) {
-                return false;
+                return 0;
             }
             queueSpaceListeners.computeIfAbsent(backend.getId(), key -> new HashSet<>()).add(resume);
             // A consumer with no registered waiter skips this monitor. Retry after registration
             // so capacity released between the first offer and registration cannot be missed.
-            if (queue.batches.offer(locations)) {
-                queue.signalReaders();
+            accepted = queue.offer(locations, offset);
+            if (accepted > 0) {
                 removeQueueSpaceListener(backend, resume);
-                return true;
+                return accepted;
             }
-            return false;
+            return 0;
         }
     }
 
@@ -265,35 +345,23 @@ public class SplitAssignment {
         synchronized (readinessLock) {
             readinessLock.notifyAll();
         }
-        assignment.values().forEach(AssignmentQueue::signalReaders);
+        assignment.values().forEach(AssignmentQueue::signalWaiters);
     }
 
     private AssignmentQueue getOrCreateAssignmentQueue(Backend backend) {
         return assignment.computeIfAbsent(backend.getId(), be -> new AssignmentQueue(queueCapacity));
     }
 
-    Collection<TScanRangeLocations> awaitBatch(Backend backend, long waitNanos) throws InterruptedException {
+    TScanRangeLocations awaitSplit(Backend backend, long waitNanos) throws InterruptedException {
         AssignmentQueue queue = getOrCreateAssignmentQueue(backend);
-        synchronized (queue) {
-            queue.waitingReaders++;
-            try {
-                // Register before checking both predicates. An offer or terminal transition either
-                // precedes this check or signals after wait releases this channel's monitor.
-                if (queue.batches.isEmpty() && needMoreSplit()) {
-                    TimeUnit.NANOSECONDS.timedWait(queue, waitNanos);
-                }
-                return queue.batches.poll();
-            } finally {
-                queue.waitingReaders--;
-            }
-        }
+        return queue.awaitSplit(waitNanos, this);
     }
 
-    public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
+    AssignmentQueue getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<TScanRangeLocations>> splits = getOrCreateAssignmentQueue(backend).batches;
+        AssignmentQueue splits = getOrCreateAssignmentQueue(backend);
         if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
         }
