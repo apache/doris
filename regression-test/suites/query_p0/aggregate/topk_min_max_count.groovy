@@ -477,4 +477,95 @@ suite("topk_min_max_count") {
                GROUP BY grp"""
         exception "must be a non-null constant"
     }
+
+    // A NULL counter is invalid SQL input and must be a query error; a checked invariant would
+    // terminate a debugging BE.
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(NULL AS BIGINT), 0, 2)"""
+        exception "n must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_max(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   0, CAST(NULL AS BIGINT), 2)"""
+        exception "dn must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   0, 0, CAST(NULL AS BIGINT))"""
+        exception "k must not be NULL"
+    }
+
+    // A cancel pair can exceed int64 in an intermediate while the final count still fits.
+    order_qt_merge_min_cancel_at_int64_max """
+        SELECT topk_merge_min(
+            CAST(array(named_struct('value', 1, 'count', 9223372036854775807))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            CAST(array(named_struct('value', 1, 'count', 1))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            CAST(array(named_struct('value', 1, 'count', 1))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            CAST(9223372036854775807 AS BIGINT), CAST(0 AS BIGINT), CAST(1 AS BIGINT))
+    """
+
+    // Two rows in one block whose insert and delete sides name different keys. Row 1 deletes the
+    // only trusted value and inserts a worse one, so the candidate list must be empty with the
+    // bound kept: a non-empty list would hide the fallback that finds the real new extreme.
+    sql """DROP TABLE IF EXISTS topk_merge_block_t"""
+    sql """
+        CREATE TABLE topk_merge_block_t (
+            row_id INT,
+            s ARRAY<STRUCT<value:INT, count:BIGINT>>,
+            b INT,
+            i ARRAY<STRUCT<value:INT, count:BIGINT>>,
+            bi INT,
+            d ARRAY<STRUCT<value:INT, count:BIGINT>>,
+            bd INT,
+            n BIGINT,
+            dn BIGINT,
+            k BIGINT
+        )
+        DISTRIBUTED BY HASH(row_id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO topk_merge_block_t VALUES
+        (0, array(named_struct('value', 10, 'count', 1)), 10, array(), NULL, array(), NULL, 1, 0, 1),
+        (1, array(named_struct('value', 1, 'count', 1)), 1,
+            array(named_struct('value', 5, 'count', 1)), NULL,
+            array(named_struct('value', 1, 'count', 1)), NULL, 2, 0, 1),
+        (2, array(named_struct('value', 3, 'count', 1)), 3, array(), NULL, array(), NULL, 1, 0, 1),
+        (3, array(named_struct('value', 3, 'count', 1)), 3,
+            array(named_struct('value', 0, 'count', 1)), NULL,
+            array(named_struct('value', 3, 'count', 1)), NULL, 2, 0, 1)"""
+    order_qt_merge_min_different_keys_one_block """
+        SELECT topk_merge_min(s, b, i, bi, d, bd, n, dn, k)
+        FROM topk_merge_block_t WHERE row_id < 2 ORDER BY row_id
+    """
+    order_qt_merge_max_different_keys_one_block """
+        SELECT topk_merge_max(s, b, i, bi, d, bd, n, dn, k)
+        FROM topk_merge_block_t WHERE row_id >= 2 ORDER BY row_id
+    """
 }

@@ -18,6 +18,7 @@
 #include <glog/logging.h>
 
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -134,27 +135,24 @@ TopKBoundView make_bound_view(const IColumn& column, size_t row) {
     return view;
 }
 
-int64_t read_int64(const IColumn& column, size_t row, const char* argument_name) {
+Status read_int64(const IColumn& column, size_t row, const char* function_name,
+                  const char* argument_name, int64_t* out) {
     const IColumn* nested = &column;
     if (const auto* nullable = check_and_get_column<ColumnNullable>(&column)) {
-        // The contract declares these arguments as non-NULL BIGINT.
-        DORIS_CHECK(!nullable->is_null_at(row)) << argument_name << " must not be NULL";
+        // The signature accepts a nullable BIGINT, so a NULL here is invalid SQL input and must
+        // be a query error; a checked invariant would terminate a debugging BE.
+        if (UNLIKELY(nullable->is_null_at(row))) {
+            return Status::InvalidArgument("{}: {} must not be NULL", function_name, argument_name);
+        }
         nested = &nullable->get_nested_column();
     }
-    return assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*nested).get_element(row);
+    *out = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*nested).get_element(row);
+    return Status::OK();
 }
 
 int64_t checked_add(int64_t lhs, int64_t rhs, const char* function_name) {
     int64_t result = 0;
     if (UNLIKELY(__builtin_add_overflow(lhs, rhs, &result))) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "{}: value count overflow", function_name);
-    }
-    return result;
-}
-
-int64_t checked_sub(int64_t lhs, int64_t rhs, const char* function_name) {
-    int64_t result = 0;
-    if (UNLIKELY(__builtin_sub_overflow(lhs, rhs, &result))) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "{}: value count overflow", function_name);
     }
     return result;
@@ -281,13 +279,16 @@ public:
         auto& out_bound_column = assert_cast<ColumnNullable&>(result_struct.get_column(1));
 
         for (size_t row = 0; row != input_rows_count; ++row) {
-            const int64_t k = read_int64(*columns[8], row, "k");
+            int64_t k = 0;
+            RETURN_IF_ERROR(read_int64(*columns[8], row, name, "k", &k));
             if (UNLIKELY(k < 1 || k > MAX_TOPK_K)) {
                 return Status::InvalidArgument("{} requires 1 <= k <= {}, but got {}", name,
                                                MAX_TOPK_K, k);
             }
-            const int64_t n = read_int64(*columns[6], row, "n");
-            const int64_t dn = read_int64(*columns[7], row, "dn");
+            int64_t n = 0;
+            RETURN_IF_ERROR(read_int64(*columns[6], row, name, "n", &n));
+            int64_t dn = 0;
+            RETURN_IF_ERROR(read_int64(*columns[7], row, name, "dn", &dn));
             const int64_t new_n = checked_add(n, dn, name);
 
             const TopKArrayView s_view = make_array_view(*columns[0], row);
@@ -446,13 +447,20 @@ private:
             RETURN_IF_ERROR(consume_equal(i_view, i_index, *head, head_row, type, &count_i));
             RETURN_IF_ERROR(consume_equal(d_view, d_index, *head, head_row, type, &count_d));
 
-            int64_t post = checked_add(count_s, count_i, name);
-            post = checked_sub(post, count_d, name);
-            if (UNLIKELY(post < 0)) {
+            // A cancel pair can make an intermediate exceed int64 even though the final count
+            // fits (for example S = INT64_MAX and I = D = 1), so evaluate the whole expression
+            // in a wider type and range-check the result.
+            const __int128 post_wide = static_cast<__int128>(count_s) + count_i - count_d;
+            if (UNLIKELY(post_wide < 0)) {
                 // Deleting a row that the pre-image did not have breaks the top-K invariant.
                 return Status::InternalError(
-                        "{}: negative post count {} for a value in the trusted range", name, post);
+                        "{}: negative post count {} for a value in the trusted range", name,
+                        static_cast<int64_t>(post_wide));
             }
+            if (UNLIKELY(post_wide > std::numeric_limits<int64_t>::max())) {
+                return Status::InvalidArgument("{}: value count overflow", name);
+            }
+            const int64_t post = static_cast<int64_t>(post_wide);
             if (post > 0) {
                 ++*positive;
                 if (std::cmp_less(kept, k)) {
