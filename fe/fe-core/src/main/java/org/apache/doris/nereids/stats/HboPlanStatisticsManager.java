@@ -33,7 +33,6 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -165,16 +164,6 @@ public class HboPlanStatisticsManager {
     // backoff timestamp after a failed load attempt, so a not-ready internal schema does not
     // trigger a DDL+SELECT retry for every group of every query (guarded by pinnedLoadLock)
     private long lastLoadFailedMs = 0L;
-    // fingerprints whose DELETE could not be removed from the internal table while a lazy load
-    // is still pending (hboPinnedLoaded false); the pending or retrying load must not resurrect
-    // them into memory. Cleared after a successful load, at which point the rows actually seen
-    // in the loaded snapshot are best-effort removed from the table again; a tombstoned row the
-    // load did not see (e.g. replica read lag) is not re-removed and may reappear after a FE
-    // restart. Each tombstone carries the generation of the row it judged (the create time of
-    // that row, or the time of the removal when no row was known), so a row another FE wrote
-    // afterwards - a newer SET - is neither suppressed nor removed (see tombstoneCovers).
-    // (guarded by pinnedLoadLock)
-    private final Map<String, Long> pendingLoadTombstones = new HashMap<>();
 
     public HboPlanStatisticsManager() {
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
@@ -229,13 +218,9 @@ public class HboPlanStatisticsManager {
                 // scanless canonical would turn the pre filter into a no-op for every group
                 registerRelationKey(structCanonical);
             }
-            // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
-            // pending load does not skip the re-created row
-            pendingLoadTombstones.remove(fingerprint);
             // persist under the same lock as DELETE's DB removal, so concurrent same-key
             // SET/DELETE serialize their DB writes in the same order as their memory updates
-            // and, when the best-effort writes succeed, the stored row matches the last memory
-            // writer (a failed write only logs a warning and may reappear after a FE restart)
+            // (a failed write only logs a warning and may reappear after a FE restart)
             if (persistenceEnabled()) {
                 HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, expansion, literalMode,
                         createTimeMs);
@@ -305,9 +290,11 @@ public class HboPlanStatisticsManager {
      */
     public void removePinnedPlanStatistics(String fingerprint) {
         synchronized (pinnedLoadLock) {
-            PinnedHboStatistics judged = pinnedPlanStatistics.getIfPresent(fingerprint);
+            // the stored row is removed first: when that fails the statement fails and the in-memory
+            // entry stays authoritative, so a lazy load which reads the row later installs an entry
+            // which is still active (and which the user was told about)
+            deletePersistedPinnedPlanStatistics(fingerprint);
             pinnedPlanStatistics.invalidate(fingerprint);
-            deletePersistedPinnedPlanStatistics(fingerprint, judged);
         }
     }
 
@@ -328,31 +315,24 @@ public class HboPlanStatisticsManager {
             if (pinnedPlanStatistics.getIfPresent(fingerprint) != judged) {
                 return false;
             }
+            deletePersistedPinnedPlanStatistics(fingerprint);
             pinnedPlanStatistics.invalidate(fingerprint);
-            deletePersistedPinnedPlanStatistics(fingerprint, judged);
             return true;
         }
     }
 
     /**
-     * Remove the stored row, and remember the removal when it fails while a load is still pending.
-     *
-     * <p>The tombstone records the generation of the row the removal judged (its create time, or the
-     * time of the removal when the entry was not known), because a row another FE writes afterwards
-     * is a newer SET: it must neither be suppressed by the load nor removed by the retried delete
-     * (see {@link #tombstoneCovers}).
+     * Remove the stored row. A failure is reported to the caller instead of being remembered: the
+     * in-memory entry is only removed after the row is gone, so a row the load reads later always
+     * describes an entry which is still active.
      */
-    private void deletePersistedPinnedPlanStatistics(String fingerprint, PinnedHboStatistics judged) {
-        if (persistenceEnabled()) {
-            long generation = judged == null ? System.currentTimeMillis() : judged.getCreateTime();
-            // the DB removal runs under the lock so a lazy load can never SELECT the row in
-            // the window between the memory invalidation and its DB removal (M-1 R1); it is bounded by
-            // the generation of the row this removal judged, so a row another FE sets afterwards stays
-            if (!HboStatisticsStore.delete(fingerprint, generation) && !hboPinnedLoaded) {
-                // the row is still stored and a pending/retrying load would resurrect it
-                // into memory: remember the deletion intent (M-1 R2)
-                pendingLoadTombstones.merge(fingerprint, generation, Math::max);
-            }
+    private void deletePersistedPinnedPlanStatistics(String fingerprint) {
+        if (!persistenceEnabled()) {
+            return;
+        }
+        if (!HboStatisticsStore.delete(fingerprint)) {
+            throw new IllegalStateException("failed to remove the persisted hbo statistics entry "
+                    + fingerprint + " from the internal table, see the FE log; the entry is still active");
         }
     }
 
@@ -518,80 +498,17 @@ public class HboPlanStatisticsManager {
                 lastLoadFailedMs = now;
                 return;
             }
-            List<String> suppressedByTombstone = new ArrayList<>();
-            List<String> supersededTombstones = new ArrayList<>();
             for (PinnedHboStatistics pinned : loaded) {
-                // entries injected while persistence was off, or concurrently with the load,
-                // must win over the stored snapshot, and entries deleted while the load was
-                // still pending must not be resurrected: the in-memory cache stays authoritative.
-                // A stored row which another FE wrote after the removal this FE failed to perform is a
-                // newer SET: it wins over the tombstone (see tombstoneCovers)
-                Long generation = pendingLoadTombstones.get(pinned.getFingerprint());
-                if (generation != null && tombstoneCovers(generation, pinned)) {
-                    suppressedByTombstone.add(pinned.getFingerprint());
-                } else {
-                    if (generation != null) {
-                        supersededTombstones.add(pinned.getFingerprint());
-                    }
-                    pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
-                    if (pinned.getType() != PinnedType.JOIN_EXPANSION) {
-                        registerRelationKey(pinned.getStructCanonical());
-                    }
+                // entries injected while persistence was off, or concurrently with the load, must win
+                // over the stored snapshot: the in-memory cache stays authoritative
+                pinnedPlanStatistics.asMap().putIfAbsent(pinned.getFingerprint(), pinned);
+                if (pinned.getType() != PinnedType.JOIN_EXPANSION) {
+                    registerRelationKey(pinned.getStructCanonical());
                 }
             }
             hboPinnedLoaded = true;
-            if (!suppressedByTombstone.isEmpty()) {
-                // the load succeeded, so the internal table is reachable: retry the failed DB
-                // removals (idempotent) for exactly the rows that were seen in the loaded
-                // snapshot, so they do not reappear after this FE restarts. Rows another FE
-                // created after the snapshot are not touched; rows it created before the
-                // snapshot may be removed (see class javadoc)
-                int failed = 0;
-                for (String fingerprint : suppressedByTombstone) {
-                    // the row seen in the snapshot is removed only while it is still the generation the
-                    // failed removal judged: a SET another FE performed after the snapshot survives
-                    Long generation = pendingLoadTombstones.get(fingerprint);
-                    if (generation == null || !HboStatisticsStore.delete(fingerprint, generation)) {
-                        failed++;
-                    }
-                }
-                if (failed > 0) {
-                    LOG.warn("failed to remove {} of {} tombstoned hbo pinned statistics rows; "
-                            + "the rows will reappear after the next FE restart", failed,
-                            suppressedByTombstone.size());
-                }
-            }
-            if (!supersededTombstones.isEmpty()) {
-                // the row was set again by another FE after this FE's failed removal: that write is
-                // kept, and the removal intent is forgotten with it
-                LOG.info("{} hbo pinned statistics row(s) were set again after a failed removal and "
-                        + "are kept: {}", supersededTombstones.size(), supersededTombstones);
-                for (String fingerprint : supersededTombstones) {
-                    pendingLoadTombstones.remove(fingerprint);
-                }
-            }
-            int tombstonesNotSeen = pendingLoadTombstones.size() - suppressedByTombstone.size();
-            if (tombstonesNotSeen > 0) {
-                // mostly benign (the row is already gone), but under replica read lag the row may
-                // still be stored without this FE knowing; it then reappears after a FE restart
-                LOG.info("{} tombstoned hbo pinned statistics rows were not seen in the loaded "
-                        + "snapshot and may still be stored in the table; they may reappear after "
-                        + "the next FE restart", tombstonesNotSeen);
-            }
-            pendingLoadTombstones.clear();
             LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
         }
-    }
-
-    /**
-     * Whether a stored row is the one a failed removal intended to delete. The tombstone records the
-     * generation of the row it judged - the create time of that row, or the time of the removal when the
-     * entry was not known - while the row the load reads carries the create time of the write which
-     * produced it: a row another FE wrote later is a newer SET, and a deletion replayed by this FE must
-     * not remove it (the read side of that FE would then lose a write it acknowledged).
-     */
-    static boolean tombstoneCovers(long generation, PinnedHboStatistics loaded) {
-        return loaded.getCreateTime() <= generation;
     }
 
     private static boolean persistenceEnabled() {

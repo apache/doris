@@ -173,14 +173,13 @@ public class HboStatisticsStore {
      * @return true when the row was removed (or the table had no such row), false when the
      *         best-effort removal failed (e.g. internal schema not ready yet)
      */
-    public static boolean delete(String fingerprint, long generation) {
+    public static boolean delete(String fingerprint) {
         try {
             ensureTable();
-            // only the row the removal judged is deleted: a row another FE wrote afterwards is a newer
-            // SET and must survive, because this FE cannot order its removal against that write
+            // the entry of this fingerprint is removed: the caller only drops its in-memory copy after
+            // this returns true, and reports the failure to the user otherwise
             String sql = "DELETE FROM " + FULL_QUALIFIED + " WHERE `fingerprint` = '"
-                    + StatisticsUtil.escapeSQL(fingerprint) + "' AND `" + CREATE_TIME_COLUMN
-                    + "` <= '" + createTimeLiteral(generation) + "'";
+                    + StatisticsUtil.escapeSQL(fingerprint) + "'";
             StatisticsUtil.execUpdate(sql);
             return true;
         } catch (Exception t) {
