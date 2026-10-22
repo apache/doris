@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -112,6 +113,7 @@ public class InferPredicateByReplaceTest {
         return Stream.of(
                 new MatchAny(a, new StringLiteral("apple")),
                 new MatchPhrase(a, new StringLiteral("apple red")),
+                new MultiMatch(a, new StringLiteral("any"), new StringLiteral("apple")),
                 new Search(new StringLiteral("a:apple")),
                 new SearchExpression("a:apple", SearchDslParser.parseDsl("a:apple"), ImmutableList.of(a)))
                 .flatMap(search -> {
