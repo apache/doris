@@ -3335,6 +3335,9 @@ public class BaselineManager {
             BaselineStatus previousStatus = plan.getStatus();
             boolean durableReconcile = persistence.isDurable();
             DurableStatus probe = null;
+            // Whether the durable row CONTRADICTS a cache that already carried the requested
+            // status: the handoff signature (see the DIFFERS branch below).
+            boolean repairingStaleCache = false;
             if (durableReconcile) {
                 // Reconcile against the durable incarnation BEFORE touching anything: a
                 // promoted FE can serve a snapshot that predates the previous master's
@@ -3405,6 +3408,12 @@ public class BaselineManager {
                             + " durable row is {}; repairing", id, previousStatus,
                             otherStatus(status));
                 }
+                // A REPAIR (the cache already carried the requested status, the durable row
+                // contradicts it) is the signature of a HANDOFF: this FE's state came from a
+                // snapshot the previous master's in-flight write had not reached yet, so the very
+                // read that selected this branch may be missing rows of this id (see
+                // readNewestStoredUpdateMicrosAroundQuietClock).
+                repairingStaleCache = previousStatus == status;
                 previousStatus = otherStatus(status);
             } else if (previousStatus == status) {
                 // nothing durable to reconcile (unit tests / disabled persistence) and
@@ -3454,7 +3463,9 @@ public class BaselineManager {
             // no row it writes can outlive the fences that cover its publication.
             // ONE bounded keyed read feeds both the stored instant this statement writes and the
             // CAS bound of the conditional INSERT / the old-row delete below.
-            long newestStoredMicros = readNewestStoredUpdateMicros(id);
+            long newestStoredMicros = repairingStaleCache
+                    ? readNewestStoredUpdateMicrosAroundQuietClock(id)
+                    : readNewestStoredUpdateMicros(id);
             long newUpdateTime = nextStoredUpdateMicros(id, newestStoredMicros,
                     SPMUtils.nowMicros());
             requireNoContradictingStatusFence(id, status, newUpdateTime);
@@ -4816,10 +4827,11 @@ public class BaselineManager {
         }
         // A load is an AUTHORITATIVE replacement: every hash gets a fresh epoch above, so the
         // signature table applySnapshot stores is the new baseline for the next diff and its
-        // changed-hash set is not needed here.
+        // changed-hash set is not needed here. ONE call is enough - the second of the former pair
+        // re-diffed against the signatures the first had just written, so it could only ever
+        // report "nothing changed" (a full extra pass over every cached row).
         baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
         knownHashes = next;
-        baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
         // the snapshot read every row: no row above this id can exist undiscovered
         maxPersistedIdSeen = Math.max(maxPersistedIdSeen, maxId);
         if (maxId >= idGenerator.get()) {
@@ -5794,8 +5806,25 @@ public class BaselineManager {
             // shared clock would make two FEs' independent mutations refuse each other, which
             // round-56 #1 explicitly fixed (two windows opened in the SAME millisecond must both
             // work). Its own window plus the fence recorded from dispatch cover the write, and
-            // the planned instant is the newest VISIBLE instant + 1 ms, so any row that is
-            // already durable stays older than this one.
+            // the planned instant is the newest VISIBLE instant + 1 us, so any row that is
+            // already DURABLE stays older than this one.
+            //
+            // "already DURABLE" is exactly what the instant read can miss (round-80 #3): a
+            // committed row that no read shows yet - the old leader's no-op DISABLE left behind
+            // by a handoff - is invisible to the keyed read, so the newest VISIBLE instant it
+            // returns can be OLDER than that hidden row and the flip it orders would lose the
+            // durable pick to a write nothing here ever saw (the successor's successful ENABLE
+            // reverted to DISABLED by the next refresh). A flip that REPAIRS a cache the durable
+            // row contradicts is exactly the state a handoff leaves behind, so ITS read is
+            // bracketed by a QUIET shared clock instead (see
+            // readNewestStoredUpdateMicrosAroundQuietClock): a window is open for the whole
+            // lifetime of every foreign write - from before its statement is dispatched until its
+            // row is readable - so "quiet before AND after" proves no such write was hidden from
+            // the read, i.e. the instant really is the newest durable one. An ORDINARY flip (the
+            // request contradicts the cache, so the stale read is not what selected this branch)
+            // keeps ordering itself above the visible newest row: refusing it on any open window
+            // would make two FEs' independent mutations refuse each other, which round-56 #1
+            // explicitly fixed (two windows opened in the SAME millisecond must both work).
             return;
         }
         if (!sharedMutationClockAvailable()) {
@@ -9588,6 +9617,61 @@ public class BaselineManager {
      */
     private long readNewestStoredUpdateMicros(long id) {
         return persistence.newestStoredUpdateMicros(id);
+    }
+
+    /**
+     * {@link #readNewestStoredUpdateMicros(long)} bracketed by a QUIET shared mutation clock, for
+     * the REAL flip that REPAIRS a cache the durable row contradicts (see updateStatus).
+     *
+     * The keyed read only sees rows that are READABLE. A foreign write that COMMITTED but is still
+     * unpublished - the old leader's no-op DISABLE after a handoff - is invisible to it, so the
+     * instant it returns can be older than that hidden row: the flip then writes a stored instant
+     * that does not beat it, and the next refresh reverts the successful ALTER to the hidden
+     * status. The shared clock is the cluster-visible proof of such a write, and - unlike the
+     * local fence registry - it survives the handoff, because the window is opened BEFORE the
+     * statement is dispatched and closed only once the row is readable.
+     *
+     * Requiring quiet BEFORE and AFTER the read is what makes the result complete: a window that
+     * is open at either probe means some statement may still publish, so the read may be missing
+     * its row and the caller must retry. Two probes are needed because a window can open (or the
+     * read can straddle one) between them. Only the REPAIR path uses this - an ordinary flip keeps
+     * the plain read and orders itself above the visible newest row, because refusing it on any
+     * open window would make two FEs' independent mutations refuse each other (round-56 #1).
+     *
+     * @param id the baseline id
+     * @return the newest stored instant in epoch microseconds
+     */
+    private long readNewestStoredUpdateMicrosAroundQuietClock(long id) {
+        if (!sharedMutationClockAvailable()) {
+            return readNewestStoredUpdateMicros(id);
+        }
+        SnapshotFence before = readSnapshotFenceOrRetry(id);
+        long newestMicros = readNewestStoredUpdateMicros(id);
+        SnapshotFence after = readSnapshotFenceOrRetry(id);
+        if (!before.quiet() || !after.quiet()) {
+            throw new IllegalStateException("SPM cannot order the stored instant of baseline "
+                    + id + ": a mutation of the baseline table is still in flight (" + before
+                    + " -> " + after + "), so the newest durable row of the id may be"
+                    + " unreadable - retry the ALTER");
+        }
+        return newestMicros;
+    }
+
+    /**
+     * {@link #readSnapshotFence()} with the retryable failure the ALTER paths use: an unreadable
+     * clock cannot prove that no foreign write is hidden, so the statement must not be dispatched.
+     *
+     * @param id the baseline id (for the message)
+     * @return the fence token
+     */
+    private SnapshotFence readSnapshotFenceOrRetry(long id) {
+        try {
+            return readSnapshotFence();
+        } catch (Exception e) {
+            throw new IllegalStateException("SPM cannot read the shared mutation clock of"
+                    + " baseline " + id + ", so a concurrent write of the baseline table"
+                    + " cannot be ruled out - retry the ALTER", e);
+        }
     }
 
     /** The live implementation half of {@link BaselinePersistence#newestStoredUpdateMicros}. */

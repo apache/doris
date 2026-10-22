@@ -335,6 +335,16 @@ public final class BaselineManagerTestAccess {
     }
 
     /**
+     * The newest stored instant of one id, read under a QUIET shared mutation clock (see
+     * BaselineManager#readNewestStoredUpdateMicrosAroundQuietClock): the REAL flip's REPAIR path
+     * orders its row against THIS value, so it must fail retryably while any window is open.
+     */
+    public static long newestStoredInstantAroundQuietClock(BaselineManager manager, long id) {
+        return (Long) invoke(manager, "readNewestStoredUpdateMicrosAroundQuietClock",
+                new Class<?>[] {long.class}, id);
+    }
+
+    /**
      * The stored instant (epoch microseconds) the single HELD mutation window expects: a
      * snapshot row only proves the outcome when it carries this instant or a LATER one (a
      * same-status row the intent supersedes is NOT the outcome, see round-71 #10a).

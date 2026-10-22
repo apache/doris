@@ -35,6 +35,8 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -421,13 +423,57 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return true;
         }
         if (isElementAtCall(expr)) {
-            // `element_at(array(NULL), 1)` takes its type from the ARRAY's element type, so an
-            // all-NULL array literal makes the WHOLE call NullType: a Boolean consumer replaced
-            // the two markers of `k > 0 OR element_at(array(NULL), 1)` with a typed constant and
-            // the `element_at(array(NULL), 1)` variant had nothing to substitute (round-79 #3).
-            return !children.isEmpty() && isAllNullArray(children.get(0));
+            // `element_at(array(NULL), 1)` takes its type from the ARRAY's element type and
+            // `element_at(map('x', NULL), 'x')` from the MAP's VALUE type (CreateMap derives
+            // MAP<STRING, NULL_TYPE>), so an all-NULL container makes the WHOLE call NullType: a
+            // Boolean consumer replaced the two markers of
+            // `k > 0 OR element_at(array(NULL), 1)` with a typed constant and the
+            // `element_at(array(TRUE), 1)` variant had nothing to substitute (round-79 #3), and
+            // the MAP spelling lost the value marker the same way (round-80 #1).
+            return !children.isEmpty() && isAllNullContainer(children.get(0));
         }
         return false;
+    }
+
+    /**
+     * Whether the expression is a container whose ELEMENT type is NullType (see producesNullType):
+     * an all-NULL array or an all-NULL-valued map. Both overloads of `element_at` return the
+     * container's element / value type, so either one makes the call a NullType producer.
+     *
+     * @param expr the expression to classify
+     * @return whether it is an all-NULL array or map value
+     */
+    private static boolean isAllNullContainer(Expression expr) {
+        return isAllNullArray(expr) || isAllNullMap(expr);
+    }
+
+    /**
+     * Whether the expression builds a MAP whose every VALUE produces NullType (see
+     * producesNullType).
+     *
+     * The children of a map constructor alternate KEY, VALUE, so only the odd positions feed the
+     * map's value type - and with it what `element_at` returns. Both spellings are accepted: the
+     * parsed `map(...)` call and the bound {@code CreateMap}, which is a {@link Function} named
+     * {@code map}. A MAP LITERAL ({@code MapLiteral}) is a leaf without children and is therefore
+     * not covered - its entries are never parameterized either.
+     *
+     * @param expr the expression to classify
+     * @return whether it is an all-NULL-valued map value
+     */
+    private static boolean isAllNullMap(Expression expr) {
+        if (expr == null || !isMapConstructor(expr)) {
+            return false;
+        }
+        List<Expression> pairs = expr.children();
+        if (pairs.size() < 2) {
+            return false;
+        }
+        for (int i = 1; i < pairs.size(); i += 2) {
+            if (!producesNullType(pairs.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -452,7 +498,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (!isArrayConstructor(expr)) {
             return false;
         }
-        List<Expression> elements = expr.children();
+        // a bracket array LITERAL is a LEAF: its elements live in getValue(), not in children()
+        List<? extends Expression> elements = expr instanceof ArrayLiteral
+                ? ((ArrayLiteral) expr).getValue() : expr.children();
         if (elements.isEmpty()) {
             return false;
         }
@@ -496,6 +544,19 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         return expr instanceof Function
                 && "element_at".equalsIgnoreCase(((Function) expr).getName());
+    }
+
+    /**
+     * Whether the expression builds a MAP value (see isAllNullMap).
+     *
+     * Matched by NAME through {@link Function}, which covers both the unbound `map(...)` call and
+     * the bound {@code CreateMap} (its function name is {@code map}).
+     *
+     * @param expr the expression to classify
+     * @return whether it is a map constructor
+     */
+    private static boolean isMapConstructor(Expression expr) {
+        return expr instanceof Function && "map".equalsIgnoreCase(((Function) expr).getName());
     }
 
     /**
@@ -627,6 +688,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // has to be BOOLEAN already (round-79 #3)
             return true;
         }
+        if (isMapConstructor(parent)) {
+            // a MAP constructor's children alternate KEY, VALUE: only a VALUE feeds the map's
+            // value type and with it what `element_at` returns, so only the odd positions may be
+            // typed BOOLEAN - a BOOLEAN key would change the map's key type and be a type error
+            // for the captured key literal (round-80 #1)
+            return childIndex % 2 == 1;
+        }
         return isCoalesceConditional(parent);
     }
 
@@ -667,10 +735,25 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id,
                 markerPayload(literal, parent, currentProjectItem() >= 0,
-                        booleanConditionalDepth > 0 && isConditionalResultPosition(parent)));
+                        booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
+                        booleanConditionalDepth > 0 && isElementAtContainerPosition(parent)));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
+    }
+
+    /**
+     * Whether the literal sits in the CONTAINER position of an `element_at` call (see
+     * markerPayload).
+     *
+     * The container itself is not a value position: its marker has to stay an ARRAY / MAP, so the
+     * Boolean retyping of a bare NULL cannot apply to it - the container needs its own repair.
+     *
+     * @param parent the literal's parent expression
+     * @return whether the literal is `element_at`'s first argument
+     */
+    private boolean isElementAtContainerPosition(Expression parent) {
+        return isElementAtCall(parent) && currentChildIndex() == 0;
     }
 
     /**
@@ -691,10 +774,31 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      *
      * @param literal the captured literal
      * @param parent  the literal's parent expression (null at an expression root)
+     * @param projectionItem whether the literal is a projection item's expression
+     * @param booleanConditionalResult whether the literal is a RESULT of a conditional that is
+     *                                 consumed as a Boolean operand
+     * @param booleanElementContainer whether the literal is the CONTAINER of an `element_at` that
+     *                                is consumed as a Boolean operand
      * @return the payload the placeholder keeps
      */
     private static Literal markerPayload(Literal literal, Expression parent,
-            boolean projectionItem, boolean booleanConditionalResult) {
+            boolean projectionItem, boolean booleanConditionalResult,
+            boolean booleanElementContainer) {
+        if (booleanElementContainer) {
+            // A bracket ARRAY literal keeps its elements as LITERALS (ArrayLiteral#getValue), so
+            // the ELEMENT markers the function spelling gets (see isConditionalResultPosition)
+            // cannot exist here: the whole literal is ONE marker, its type is the literal's own
+            // ARRAY<NULL_TYPE> and `element_at` on it is still NullType - the Boolean consumer
+            // replaced the whole call and the marker with it, so the `element_at([TRUE], 1)`
+            // variant had no id left to substitute (round-80 #4). Retyping the marker's payload
+            // to ARRAY<BOOLEAN> removes the NullType from the tree while staying an array value;
+            // the frozen text carries the id only, so the replay still substitutes the caller's
+            // own value and keeps its own (correct) type.
+            Literal containerPayload = booleanContainerPayload(literal);
+            if (containerPayload != null) {
+                return containerPayload;
+            }
+        }
         boolean booleanOperand = parent instanceof And || parent instanceof Or
                 || parent instanceof Not;
         if (literal.isNullLiteral() && (booleanOperand || booleanConditionalResult)) {
@@ -713,6 +817,37 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         return literal;
+    }
+
+    /**
+     * The non-NullType payload of an `element_at` CONTAINER marker (see markerPayload).
+     *
+     * Only an all-NULL bracket array literal is repaired - every other container already carries
+     * a real element type. The array becomes an ARRAY&lt;BOOLEAN&gt; literal of the same shape: its
+     * elements are all NULL, and a NULL value is NULL whatever its type, so only the marker's TYPE
+     * changes. A bare NULL container is left alone: `element_at(NULL, k)` is legal for the MAP
+     * overload too, and typing it as an array would turn a MAP lookup into a type error.
+     *
+     * @param literal the captured container literal
+     * @return the retyped payload, or null when the literal is not an all-NULL array literal
+     */
+    private static Literal booleanContainerPayload(Literal literal) {
+        if (!(literal instanceof ArrayLiteral)) {
+            return null;
+        }
+        List<Literal> items = new ArrayList<>(((ArrayLiteral) literal).getValue().size());
+        for (Literal item : ((ArrayLiteral) literal).getValue()) {
+            if (!item.isNullLiteral()) {
+                // a partly non-NULL array keeps its own element type: element_at on it is not
+                // a NullType producer in the first place
+                return null;
+            }
+            items.add(NullLiteral.BOOLEAN_INSTANCE);
+        }
+        if (items.isEmpty()) {
+            return null;
+        }
+        return new ArrayLiteral(items, ArrayType.of(BooleanType.INSTANCE));
     }
 
     // ==================== IN (constant list) -> list placeholder ====================
