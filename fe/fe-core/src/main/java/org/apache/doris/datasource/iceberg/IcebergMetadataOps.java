@@ -126,7 +126,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
     // this class never re-checks the catalog type or reads REST properties directly.
     private final IcebergUserSessionCatalog userSessionCatalog;
-    private final boolean restSchemaCommitSupported;
     private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
     private final ThreadPoolExecutor threadPoolWithPreAuth;
@@ -155,7 +154,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ? (IcebergUserSessionCatalog) dorisCatalog : null;
         RESTSessionCatalog restSessionCatalog =
                 userSessionCatalog == null ? null : userSessionCatalog.getRestSessionCatalog();
-        this.restSchemaCommitSupported = IcebergRestSchemaCommit.supports(restSessionCatalog);
         IcebergRestProperties.DelegatedTokenMode delegatedTokenMode =
                 userSessionCatalog == null ? IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN
                         : userSessionCatalog.getDelegatedTokenMode();
@@ -958,8 +956,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
+        SessionContext context = SessionContext.current();
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            dropColumnSafely(lease, ColumnPath.of(columnName));
+            dropColumnSafely(lease, dorisTable, ColumnPath.of(columnName), context);
         }
         refreshTable(dorisTable, updateTime);
     }
@@ -970,13 +969,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             dropColumn(dorisTable, columnPath.getTopLevelName(), updateTime);
             return;
         }
+        SessionContext context = SessionContext.current();
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            dropColumnSafely(lease, columnPath);
+            dropColumnSafely(lease, dorisTable, columnPath, context);
         }
         refreshTable(dorisTable, updateTime);
     }
 
-    private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease, ColumnPath path)
+    private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease,
+            ExternalTable dorisTable, ColumnPath path, SessionContext context)
             throws UserException {
         try {
             // A refresh can perform authenticated catalog IO just like the eventual commit. Keep target
@@ -986,7 +987,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 if (!path.isNested()) {
                     validateRowLineageColumnMutation(table, path.getTopLevelName(), "drop");
                 }
-                dropColumnSafely(table, path);
+                dropColumnSafely(table, path, dorisTable,
+                        useSessionCatalog(context) ? context : SessionContext.empty());
                 return null;
             });
         } catch (UserException e) {
@@ -998,7 +1000,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void dropColumnSafely(
-            Table table, ColumnPath path) throws UserException {
+            Table table, ColumnPath path, ExternalTable dorisTable, SessionContext context) throws UserException {
         TableOperations operations = ((HasTableOperations) table).operations();
         TableMetadata loaded = operations.current();
         if (loaded == null) {
@@ -1022,12 +1024,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         stagedTable.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
         TableMetadata schemaUpdate = schemaCapture.committed();
         if (isRestTableOperations(operations)) {
-            if (!restSchemaCommitSupported) {
-                throw new UserException(
-                        "Iceberg REST schema DROP requires a catalog with partition-counter validation");
-            }
             // No retained spec references the target, so a new SDK partition reference must allocate a field ID.
-            IcebergRestSchemaCommit.commit(operations, base, schemaUpdate);
+            sessionCatalogAdapter.commitSchemaDrop(context,
+                    getTableIdentifier(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()), base, schemaUpdate);
             return;
         }
 

@@ -21,7 +21,6 @@ import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergDelegatedCredentialUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergRestSchemaCommit;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
@@ -255,7 +254,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
      */
     protected RESTSessionCatalog buildRestSessionCatalog(String catalogName, Map<String, String> catalogProps,
             Configuration configuration) {
-        RESTSessionCatalog sessionCatalog = IcebergRestSchemaCommit.newSessionCatalog();
+        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog();
         CatalogUtil.configureHadoopConf(sessionCatalog, configuration);
         sessionCatalog.initialize(catalogName, catalogProps);
         return sessionCatalog;

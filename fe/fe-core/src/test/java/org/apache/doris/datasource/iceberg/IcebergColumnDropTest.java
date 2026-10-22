@@ -35,8 +35,8 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateRequirement;
-import org.apache.iceberg.UpdateRequirements;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -44,6 +44,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMappingParser;
+import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
 import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
 import org.apache.iceberg.types.Types;
@@ -54,7 +55,6 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -66,6 +66,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class IcebergColumnDropTest {
     private InMemoryCatalog catalog;
     private IcebergMetadataOps ops;
+    private RESTSessionCatalog restCatalog;
     private ExecutionAuthenticator authenticator = new ExecutionAuthenticator() { };
 
     @Before
@@ -76,7 +77,8 @@ public class IcebergColumnDropTest {
         ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class,
                 Mockito.withSettings().extraInterfaces(IcebergUserSessionCatalog.class));
         IcebergUserSessionCatalog sessionCatalog = (IcebergUserSessionCatalog) dorisCatalog;
-        Mockito.when(sessionCatalog.getRestSessionCatalog()).thenReturn(IcebergRestSchemaCommit.newSessionCatalog());
+        restCatalog = Mockito.mock(RESTSessionCatalog.class);
+        Mockito.when(sessionCatalog.getRestSessionCatalog()).thenReturn(restCatalog);
         Mockito.when(sessionCatalog.getDelegatedTokenMode()).thenReturn(DelegatedTokenMode.ACCESS_TOKEN);
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(authenticator);
         Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
@@ -110,6 +112,16 @@ public class IcebergColumnDropTest {
     private void drop(Table table, ColumnPath path) throws UserException {
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn(table.name().substring(table.name().lastIndexOf('.') + 1));
+        TableOperations tableOperations = ((HasTableOperations) table).operations();
+        if (tableOperations instanceof RestTableOperations) {
+            Mockito.doAnswer(invocation -> {
+                List<TableCommit> commits = invocation.getArgument(1);
+                Assert.assertEquals(1, commits.size());
+                ((RestTableOperations) tableOperations).commitTransaction(commits.get(0));
+                return null;
+            }).when(restCatalog).commitTransaction(Mockito.any(), Mockito.anyList());
+        }
         IcebergExternalMetaCache.WritableTableLease lease =
                 Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
         Mockito.when(lease.getTable()).thenReturn(table);
@@ -469,7 +481,7 @@ public class IcebergColumnDropTest {
         String before = metadata("unsupported_rest").metadataFileLocation();
         UserException error = Assert.assertThrows(UserException.class,
                 () -> drop(new BaseTable(rest, table.name()), ColumnPath.of("other")));
-        Assert.assertTrue(error.getMessage(), error.getMessage().contains("partition-counter validation"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("retained REST session catalog"));
         Assert.assertEquals(0, rest.commitAttempts);
         Assert.assertEquals(before, metadata("unsupported_rest").metadataFileLocation());
     }
@@ -561,18 +573,17 @@ public class IcebergColumnDropTest {
 
         @Override
         public void commit(TableMetadata base, TableMetadata next) {
+            throw new AssertionError("REST DROP must use the transaction endpoint");
+        }
+
+        private void commitTransaction(TableCommit commit) {
             commitAttempts++;
             Assert.assertTrue("DROP must submit once", injectConcurrentSpec);
             injectConcurrentSpec = false;
-            UpdateTableRequest request = UpdateTableRequest.create(null,
-                    UpdateRequirements.forUpdateTable(base, next.changes()), next.changes());
-            try {
-                // Exercise the same serializer as the real REST client's on-the-wire request.
-                request = UpdateTableRequestParser.fromJson(IcebergRestSchemaCommit.newMapper()
-                        .writeValueAsString(request));
-            } catch (IOException e) {
-                throw new AssertionError(e);
-            }
+            TableMetadata base = delegate.current();
+            UpdateTableRequest request = UpdateTableRequest.create(
+                    commit.identifier(), commit.requirements(), commit.updates());
+            request = UpdateTableRequestParser.fromJson(UpdateTableRequestParser.toJson(request));
             clientChanges = request.updates();
             requirements = request.requirements();
             int specId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;

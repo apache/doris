@@ -17,6 +17,14 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties.DelegatedTokenMode;
+
 import com.google.common.io.ByteStreams;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -29,17 +37,22 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateRequirement;
-import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
+import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.inmemory.InMemoryFileIO;
+import org.apache.iceberg.rest.Endpoint;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
+import org.apache.iceberg.rest.requests.CommitTransactionRequest;
+import org.apache.iceberg.rest.requests.CommitTransactionRequestParser;
 import org.apache.iceberg.rest.requests.UpdateTableRequest;
 import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
+import org.apache.iceberg.rest.responses.ConfigResponse;
+import org.apache.iceberg.rest.responses.ConfigResponseParser;
 import org.apache.iceberg.rest.responses.ErrorResponse;
+import org.apache.iceberg.rest.responses.ErrorResponseParser;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponseParser;
 import org.apache.iceberg.types.Types;
@@ -47,47 +60,94 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Uses the real SDK REST operations and HTTP/auth client, backed by real in-memory table metadata. */
+/** Exercises public DROP through real SDK transaction HTTP/auth and committed in-memory metadata. */
 public class IcebergRestSchemaCommitTest {
-    private static final TableIdentifier IDENTIFIER = TableIdentifier.of("db", "wire");
-    private InMemoryCatalog backing;
+    private static final TableIdentifier ID = TableIdentifier.of("db", "transaction_probe");
+    private final SessionContext empty = SessionContext.empty();
+    private final org.apache.iceberg.catalog.SessionCatalog.SessionContext defaultContext =
+            org.apache.iceberg.catalog.SessionCatalog.SessionContext.createEmpty();
+    private IcebergMetadataOps ops;
+    private TableCommit submitted;
+    private boolean userSessionEnabled = true;
+    private final AtomicBoolean authenticated = new AtomicBoolean();
+    private final AtomicBoolean leaseClosed = new AtomicBoolean();
+    private final ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+        @Override
+        public <T> T execute(Callable<T> task) throws Exception {
+            Assert.assertFalse(authenticated.getAndSet(true));
+            try {
+                return task.call();
+            } finally {
+                authenticated.set(false);
+            }
+        }
+    };
+    private InMemoryCatalog backend;
     private RESTSessionCatalog rest;
     private HttpServer server;
-    private final AtomicReference<UpdateTableRequest> lastRequest = new AtomicReference<>();
-    private final AtomicReference<String> authorization = new AtomicReference<>();
-    private final AtomicReference<Exception> serverFailure = new AtomicReference<>();
-    private final AtomicBoolean concurrentPartition = new AtomicBoolean();
-    private final AtomicBoolean rejectNextCommit = new AtomicBoolean();
+    private boolean advertiseTransaction = true;
+    private boolean tableToken;
+    private boolean requireTableToken;
+    private boolean concurrentPartition;
+    private int transactionStatus = 204;
+    private int transactionPosts;
+    private int ordinaryPosts;
+    private int loads;
+    private String transactionAuth;
+    private String ordinaryAuth;
+    private String conditionalLoad;
+    private UpdateTableRequest received;
+    private final AtomicReference<Throwable> serverFailure = new AtomicReference<>();
 
     @Before
     public void setUp() throws Exception {
-        backing = new InMemoryCatalog();
-        backing.initialize("backing", Collections.emptyMap());
-        backing.createNamespace(Namespace.of("db"));
-        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()),
+        backend = new InMemoryCatalog();
+        backend.initialize("probe", Collections.emptyMap());
+        backend.createNamespace(ID.namespace());
+        backend.buildTable(ID, new Schema(
+                Types.NestedField.optional(1, "id", Types.LongType.get()),
                 Types.NestedField.optional(2, "a", Types.LongType.get()),
-                Types.NestedField.optional(3, "b", Types.LongType.get()));
-        backing.buildTable(IDENTIFIER, schema).withProperty(TableProperties.FORMAT_VERSION, "2").create();
+                Types.NestedField.optional(3, "b", Types.LongType.get())))
+                .withProperty(TableProperties.FORMAT_VERSION, "2").create();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handle);
         server.start();
-        initializeRest(false);
+        initialize(false);
     }
 
-    private void initializeRest(boolean oauth) {
-        rest = IcebergRestSchemaCommit.newSessionCatalog();
+    private void initialize(boolean oauth) throws IOException {
+        if (rest != null) {
+            rest.close();
+        }
+        rest = Mockito.spy(new RESTSessionCatalog());
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(authenticated.get());
+            Assert.assertFalse(leaseClosed.get());
+            java.util.List<TableCommit> commits = invocation.getArgument(1);
+            Assert.assertEquals(1, commits.size());
+            submitted = commits.get(0);
+            return invocation.callRealMethod();
+        }).when(rest).commitTransaction(Mockito.any(), Mockito.anyList());
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(authenticated.get());
+            Assert.assertFalse(leaseClosed.get());
+            return invocation.callRealMethod();
+        }).when(rest).invalidateTable(Mockito.any(), Mockito.any());
         Map<String, String> properties = new HashMap<>();
         properties.put(CatalogProperties.URI, "http://127.0.0.1:" + server.getAddress().getPort());
         properties.put(CatalogProperties.FILE_IO_IMPL, InMemoryFileIO.class.getName());
@@ -96,128 +156,343 @@ public class IcebergRestSchemaCommitTest {
             properties.put(OAuth2Properties.TOKEN, "catalog-token");
             properties.put(OAuth2Properties.TOKEN_REFRESH_ENABLED, "false");
         }
-        rest.initialize("wire", properties);
+        rest.initialize("transaction-probe", properties);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class,
+                Mockito.withSettings().extraInterfaces(IcebergUserSessionCatalog.class));
+        IcebergUserSessionCatalog capability = (IcebergUserSessionCatalog) dorisCatalog;
+        Mockito.when(capability.getRestSessionCatalog()).thenReturn(rest);
+        Mockito.when(capability.getDelegatedTokenMode()).thenReturn(DelegatedTokenMode.ACCESS_TOKEN);
+        Mockito.when(capability.useSessionCatalog(Mockito.any())).thenAnswer(invocation ->
+                userSessionEnabled && ((SessionContext) invocation.getArgument(0)).hasDelegatedCredential());
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.doReturn(Optional.empty()).when(dorisCatalog).getDbForReplay(Mockito.anyString());
+        ops = new IcebergMetadataOps(dorisCatalog, rest.asCatalog(defaultContext));
     }
 
     @After
     public void tearDown() throws Exception {
         rest.close();
         server.stop(0);
-        backing.close();
+        backend.close();
         Assert.assertNull(serverFailure.get());
     }
 
-    private TableOperations backingOperations() {
-        return ((HasTableOperations) backing.loadTable(IDENTIFIER)).operations();
+    private TableOperations backendOps() {
+        return ((HasTableOperations) backend.loadTable(ID)).operations();
     }
 
-    private TableOperations restOperations(SessionContext context) {
-        return ((HasTableOperations) rest.asCatalog(context).loadTable(IDENTIFIER)).operations();
+    private TableOperations load(SessionContext context) {
+        org.apache.iceberg.catalog.SessionCatalog.SessionContext sdkContext =
+                userSessionEnabled && context.hasDelegatedCredential()
+                        ? IcebergSessionCatalogAdapter.toIcebergSessionContext(context) : defaultContext;
+        return ((HasTableOperations) rest.loadTable(sdkContext, ID)).operations();
     }
 
-    private TableMetadata deleting(TableMetadata base, String name) {
-        List<Types.NestedField> remaining = new ArrayList<>(base.schema().columns());
-        remaining.remove(base.schema().findField(name));
-        return base.updateSchema(new Schema(remaining));
-    }
-
-    @Test
-    public void testRealRestClientSupportsConsecutiveDropsWithoutPartitionUpdates() {
-        TableOperations operations = restOperations(SessionContext.createEmpty());
-        for (String name : new String[] {"b", "id"}) {
-            TableMetadata base = operations.current();
-            IcebergRestSchemaCommit.commit(operations, base, deleting(base, name));
-            UpdateTableRequest request = lastRequest.get();
-            Assert.assertTrue(request.requirements().stream()
-                    .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
-            Assert.assertFalse(request.updates().stream().anyMatch(MetadataUpdate.AddPartitionSpec.class::isInstance));
-            Assert.assertFalse(request.updates().stream()
-                    .anyMatch(MetadataUpdate.RemovePartitionSpecs.class::isInstance));
+    private void drop(TableOperations operations, SessionContext context, String column) throws UserException {
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn(ID.name());
+        IcebergExternalMetaCache.WritableTableLease lease =
+                Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+        Mockito.when(lease.getTable()).thenReturn(new BaseTable(operations, ID.toString()));
+        Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+        leaseClosed.set(false);
+        Mockito.doAnswer(invocation -> {
+            leaseClosed.set(true);
+            return null;
+        }).when(lease).close();
+        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<SessionContext> sessions = Mockito.mockStatic(
+                        SessionContext.class, Mockito.CALLS_REAL_METHODS)) {
+            sessions.when(SessionContext::current).thenReturn(context);
+            utils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops)).thenReturn(lease);
+            try {
+                ops.dropColumn(dorisTable, column, 1L);
+            } finally {
+                Mockito.verify(lease).close();
+                Assert.assertFalse(authenticated.get());
+            }
         }
-        TableMetadata after = backingOperations().refresh();
-        Assert.assertEquals(1, after.schema().columns().size());
-        Assert.assertNotNull(after.schema().findField("a"));
-        Assert.assertEquals(1, after.specs().size());
-        Assert.assertEquals(0, after.defaultSpecId());
     }
 
     @Test
-    public void testRealRestClientRejectsConcurrentPartitionReference() {
-        TableOperations operations = restOperations(SessionContext.createEmpty());
-        TableMetadata base = operations.current();
-        concurrentPartition.set(true);
-        Assert.assertThrows(CommitFailedException.class,
-                () -> IcebergRestSchemaCommit.commit(operations, base, deleting(base, "b")));
-        TableMetadata after = backingOperations().refresh();
-        Assert.assertNotNull(after.schema().findField("b"));
-        Assert.assertEquals(2, after.specs().size());
-    }
-
-    @Test
-    public void testFailedDropDoesNotConstrainFollowingOrdinaryCommit() {
-        TableOperations operations = restOperations(SessionContext.createEmpty());
-        TableMetadata base = operations.current();
-        rejectNextCommit.set(true);
-        Assert.assertThrows(CommitFailedException.class,
-                () -> IcebergRestSchemaCommit.commit(operations, base, deleting(base, "b")));
-        new BaseTable(operations, "wire").updateProperties().set("after-failed-drop", "true").commit();
-        Assert.assertFalse(lastRequest.get().requirements().stream()
+    public void testExplicitObjectAndWireRequirementsAndCompleteSdkChanges() throws Exception {
+        TableOperations operations = load(empty);
+        drop(operations, empty, "b");
+        TableCommit commit = submitted;
+        Assert.assertTrue(commit.requirements().stream()
                 .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
-        Assert.assertNotNull(backingOperations().refresh().schema().findField("b"));
-        Assert.assertEquals("true", backingOperations().current().properties().get("after-failed-drop"));
+        Assert.assertEquals(ID, received.identifier());
+        Assert.assertEquals(commit.requirements().size(), received.requirements().size());
+        Assert.assertEquals(UpdateTableRequestParser.toJson(UpdateTableRequest.create(
+                ID, commit.requirements(), commit.updates())), UpdateTableRequestParser.toJson(received));
+        Assert.assertTrue(received.updates().stream().anyMatch(MetadataUpdate.SetCurrentSchema.class::isInstance));
+        Assert.assertFalse(received.updates().stream().anyMatch(MetadataUpdate.AddPartitionSpec.class::isInstance));
+        Assert.assertNull(backendOps().refresh().schema().findField("b"));
+        Assert.assertEquals(1, transactionPosts);
+        Assert.assertEquals(0, ordinaryPosts);
     }
 
     @Test
-    public void testDelegatedAuthClientRetainsPartitionRequirement() throws Exception {
-        rest.close();
-        initializeRest(true);
-        SessionContext context = new SessionContext("user-session", null,
-                Collections.singletonMap(OAuth2Properties.TOKEN, "user-token"), Collections.emptyMap());
-        TableOperations operations = restOperations(context);
+    public void testConcurrentPartitionAdditionUsesOriginalCounterAndRejectsDrop() throws Exception {
+        TableOperations operations = load(empty);
         TableMetadata base = operations.current();
-        IcebergRestSchemaCommit.commit(operations, base, deleting(base, "b"));
-        Assert.assertEquals("Bearer user-token", authorization.get());
-        Assert.assertTrue(lastRequest.get().requirements().stream()
+        concurrentPartition = true;
+        Assert.assertThrows(UserException.class, () -> drop(operations, empty, "b"));
+        UpdateRequirement.AssertLastAssignedPartitionId counter = received.requirements().stream()
+                .filter(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance)
+                .map(UpdateRequirement.AssertLastAssignedPartitionId.class::cast).findFirst().get();
+        Assert.assertEquals(base.lastAssignedPartitionId(), counter.lastAssignedPartitionId());
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+        Assert.assertEquals(2, backendOps().current().specs().size());
+        Assert.assertEquals(0, ordinaryPosts);
+    }
+
+    @Test
+    public void testConsecutiveDropsReloadAndDiscardStaleHandle() throws Exception {
+        TableOperations stale = load(empty);
+        TableMetadata base = stale.current();
+        drop(stale, empty, "b");
+        Assert.assertSame(base, stale.current());
+        Assert.assertNotNull(stale.current().schema().findField("b"));
+        int beforeLoad = loads;
+        TableOperations next = load(empty);
+        Assert.assertTrue(loads > beforeLoad);
+        Assert.assertNull(conditionalLoad);
+        Assert.assertNull(next.current().schema().findField("b"));
+        drop(next, empty, "id");
+        Assert.assertNull(load(empty).current().schema().findField("id"));
+        Assert.assertEquals(1, backendOps().refresh().schema().columns().size());
+        Assert.assertEquals(1, backendOps().current().specs().size());
+    }
+
+    @Test
+    public void testCatalogOAuthAuthentication() throws Exception {
+        initialize(true);
+        TableOperations operations = load(empty);
+        drop(operations, empty, "b");
+        Assert.assertEquals("Bearer catalog-token", transactionAuth);
+    }
+
+    private SessionContext delegated() {
+        return SessionContext.of("probe-user",
+                new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "user-token"));
+    }
+
+    @Test
+    public void testDelegatedUserOAuthAuthenticationUsesDorisConversion() throws Exception {
+        initialize(true);
+        SessionContext context = delegated();
+        TableOperations operations = load(context);
+        drop(operations, context, "b");
+        Assert.assertEquals("Bearer user-token", transactionAuth);
+    }
+
+    @Test
+    public void testTableSpecificTokenWorksForOrdinaryCommitButTransactionFails() throws Exception {
+        tableToken = true;
+        requireTableToken = true;
+        initialize(true);
+        TableOperations operations = load(empty);
+        new BaseTable(operations, "ordinary").updateProperties().set("ordinary-auth", "ok").commit();
+        Assert.assertEquals("Bearer table-token", ordinaryAuth);
+        UserException error = Assert.assertThrows(UserException.class, () -> drop(operations, empty, "b"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("transaction commit permission"));
+        Assert.assertEquals("Bearer catalog-token", transactionAuth);
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+        Assert.assertEquals(1, ordinaryPosts);
+        Assert.assertEquals(1, transactionPosts);
+    }
+
+    @Test
+    public void testDelegatedTransactionAlsoDoesNotInheritTableToken() throws Exception {
+        tableToken = true;
+        requireTableToken = true;
+        initialize(true);
+        SessionContext context = delegated();
+        TableOperations operations = load(context);
+        new BaseTable(operations, "ordinary").updateProperties().set("delegated-table-auth", "ok").commit();
+        Assert.assertEquals("Bearer table-token", ordinaryAuth);
+        Assert.assertThrows(UserException.class, () -> drop(operations, context, "b"));
+        Assert.assertEquals("Bearer user-token", transactionAuth);
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+    }
+
+    @Test
+    public void testMissingAdvertisedEndpointFailsWithoutOrdinaryFallback() throws Exception {
+        advertiseTransaction = false;
+        initialize(false);
+        TableOperations operations = load(empty);
+        UserException error = Assert.assertThrows(UserException.class,
+                () -> drop(operations, empty, "b"));
+        Assert.assertTrue(error.getMessage().contains("transactions/commit"));
+        Assert.assertEquals(0, transactionPosts);
+        Assert.assertEquals(0, ordinaryPosts);
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+    }
+
+    @Test
+    public void testHttp501UnsupportedEndpointDoesNotFallback() throws Exception {
+        transactionStatus = 501;
+        TableOperations operations = load(empty);
+        Assert.assertThrows(UserException.class,
+                () -> drop(operations, empty, "b"));
+        Assert.assertEquals(1, transactionPosts);
+        Assert.assertEquals(0, ordinaryPosts);
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+    }
+
+    @Test
+    public void testHttp404UnadvertisedLegacyServerDoesNotFallback() throws Exception {
+        transactionStatus = 404;
+        TableOperations operations = load(empty);
+        UserException error = Assert.assertThrows(UserException.class, () -> drop(operations, empty, "b"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("transaction endpoint or table not found"));
+        Assert.assertEquals(1, transactionPosts);
+        Assert.assertEquals(0, ordinaryPosts);
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+    }
+
+    @Test
+    public void testOrdinaryAddKeepsConcurrentPartitionBehavior() throws Exception {
+        TableOperations operations = load(empty);
+        concurrentPartition = true;
+        new BaseTable(operations, "ordinary").updateSchema().addColumn("added", Types.LongType.get()).commit();
+        Assert.assertNotNull(backendOps().refresh().schema().findField("added"));
+        Assert.assertEquals(0, transactionPosts);
+        Assert.assertFalse(received.requirements().stream()
                 .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
-        Assert.assertNull(backingOperations().refresh().schema().findField("b"));
+    }
+
+    @Test
+    public void testOrdinaryRenameKeepsConcurrentPartitionBehavior() throws Exception {
+        TableOperations operations = load(empty);
+        concurrentPartition = true;
+        new BaseTable(operations, "ordinary").updateSchema().renameColumn("b", "renamed").commit();
+        Assert.assertNotNull(backendOps().refresh().schema().findField("renamed"));
+        Assert.assertEquals(0, transactionPosts);
+        Assert.assertFalse(received.requirements().stream()
+                .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
+    }
+
+    @Test
+    public void testDefaultModeDoesNotUseDelegatedCredential() throws Exception {
+        userSessionEnabled = false;
+        initialize(true);
+        SessionContext context = delegated();
+        drop(load(context), context, "b");
+        Assert.assertEquals("Bearer catalog-token", transactionAuth);
+    }
+
+    @Test
+    public void testCacheInvalidationFailureReportsAlreadyCommitted() throws Exception {
+        TableOperations operations = load(empty);
+        Mockito.doThrow(new IllegalStateException("injected cache failure"))
+                .when(rest).invalidateTable(Mockito.any(), Mockito.any());
+        UserException error = Assert.assertThrows(UserException.class, () -> drop(operations, empty, "b"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("DROP committed"));
+        Assert.assertNull(backendOps().refresh().schema().findField("b"));
+        Assert.assertEquals(1, transactionPosts);
+        Assert.assertEquals(0, ordinaryPosts);
+    }
+
+    @Test
+    public void testFailedDropDoesNotConstrainFollowingOrdinaryCommit() throws Exception {
+        TableOperations operations = load(empty);
+        transactionStatus = 409;
+        Assert.assertThrows(UserException.class, () -> drop(operations, empty, "b"));
+        new BaseTable(operations, "ordinary").updateProperties().set("after-failed-drop", "ok").commit();
+        Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
+        Assert.assertFalse(received.requirements().stream()
+                .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
     }
 
     private void handle(HttpExchange exchange) throws IOException {
         try {
-            if (exchange.getRequestURI().getPath().equals("/v1/config")) {
-                send(exchange, 200, "{\"defaults\":{},\"overrides\":{}}");
+            String path = exchange.getRequestURI().getPath();
+            if (path.equals("/v1/config")) {
+                ConfigResponse.Builder config = ConfigResponse.builder();
+                if (!advertiseTransaction) {
+                    config.withEndpoints(Arrays.asList(Endpoint.V1_LOAD_TABLE, Endpoint.V1_UPDATE_TABLE));
+                }
+                send(exchange, 200, ConfigResponseParser.toJson(config.build()));
                 return;
             }
-            if (exchange.getRequestMethod().equals("POST")) {
-                authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
-                UpdateTableRequest request = UpdateTableRequestParser.fromJson(
-                        new String(ByteStreams.toByteArray(exchange.getRequestBody()), StandardCharsets.UTF_8));
-                lastRequest.set(request);
-                if (concurrentPartition.getAndSet(false)) {
-                    backing.loadTable(IDENTIFIER).updateSpec().addField("b").addNonDefaultSpec().commit();
-                }
-                if (rejectNextCommit.getAndSet(false)) {
-                    throw new CommitFailedException("Injected commit conflict");
-                }
-                TableOperations operations = backingOperations();
-                TableMetadata base = operations.refresh();
-                request.requirements().forEach(requirement -> requirement.validate(base));
-                TableMetadata.Builder updated = TableMetadata.buildFrom(base);
-                request.updates().forEach(update -> update.applyTo(updated));
-                operations.commit(base, updated.build());
+            if (exchange.getRequestMethod().equals("GET")) {
+                loads++;
+                conditionalLoad = exchange.getRequestHeaders().getFirst("If-None-Match");
+                sendMetadata(exchange);
+                return;
             }
-            send(exchange, 200, LoadTableResponseParser.toJson(
-                    LoadTableResponse.builder().withTableMetadata(backingOperations().refresh()).build()));
+            String auth = exchange.getRequestHeaders().getFirst("Authorization");
+            if (path.equals("/v1/transactions/commit")) {
+                transactionPosts++;
+                Assert.assertTrue(authenticated.get());
+                Assert.assertFalse(leaseClosed.get());
+                transactionAuth = auth;
+                if (transactionStatus != 204) {
+                    sendError(exchange, transactionStatus, "UnsupportedOperationException", "transaction unsupported");
+                    return;
+                }
+                CommitTransactionRequest transaction = CommitTransactionRequestParser.fromJson(
+                        new String(ByteStreams.toByteArray(exchange.getRequestBody()), StandardCharsets.UTF_8));
+                Assert.assertEquals(1, transaction.tableChanges().size());
+                received = transaction.tableChanges().get(0);
+                if (requireTableToken && !"Bearer table-token".equals(auth)) {
+                    sendError(exchange, 403, "ForbiddenException", "table-scoped credential required");
+                    return;
+                }
+                apply(received);
+                exchange.sendResponseHeaders(204, -1);
+            } else {
+                ordinaryPosts++;
+                ordinaryAuth = auth;
+                if (requireTableToken && !"Bearer table-token".equals(auth)) {
+                    sendError(exchange, 403, "ForbiddenException", "table-scoped credential required");
+                    return;
+                }
+                received = UpdateTableRequestParser.fromJson(
+                        new String(ByteStreams.toByteArray(exchange.getRequestBody()), StandardCharsets.UTF_8));
+                apply(received);
+                sendMetadata(exchange);
+            }
         } catch (CommitFailedException e) {
-            ErrorResponse error = ErrorResponse.builder().responseCode(409).withType("CommitFailedException")
-                    .withMessage(e.getMessage()).build();
-            send(exchange, 409, IcebergRestSchemaCommit.newMapper().writeValueAsString(error));
-        } catch (Exception e) {
+            sendError(exchange, 409, "CommitFailedException", e.getMessage());
+        } catch (Throwable e) {
             serverFailure.set(e);
-            send(exchange, 500, "{}");
+            sendError(exchange, 500, "RuntimeException", e.toString());
         } finally {
             exchange.close();
         }
+    }
+
+    private void apply(UpdateTableRequest request) {
+        if (concurrentPartition) {
+            concurrentPartition = false;
+            backend.loadTable(ID).updateSpec().addField("b").addNonDefaultSpec().commit();
+        }
+        TableOperations operations = backendOps();
+        TableMetadata base = operations.refresh();
+        request.requirements().forEach(requirement -> requirement.validate(base));
+        TableMetadata.Builder updated = TableMetadata.buildFrom(base);
+        request.updates().forEach(update -> update.applyTo(updated));
+        operations.commit(base, updated.build());
+    }
+
+    private void sendMetadata(HttpExchange exchange) throws IOException {
+        LoadTableResponse.Builder response = LoadTableResponse.builder().withTableMetadata(backendOps().refresh());
+        if (tableToken) {
+            response.addConfig(OAuth2Properties.TOKEN, "table-token");
+            response.addConfig(OAuth2Properties.TOKEN_REFRESH_ENABLED, "false");
+        }
+        exchange.getResponseHeaders().set("ETag", "\"schema-" + backendOps().current().currentSchemaId() + "\"");
+        send(exchange, 200, LoadTableResponseParser.toJson(response.build()));
+    }
+
+    private void sendError(HttpExchange exchange, int status, String type, String message) throws IOException {
+        send(exchange, status, ErrorResponseParser.toJson(ErrorResponse.builder()
+                .responseCode(status).withType(type).withMessage(message).build()));
     }
 
     private void send(HttpExchange exchange, int status, String body) throws IOException {
