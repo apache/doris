@@ -151,6 +151,11 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
         std::function<TStatus()> response_status,
         std::function<const TNetworkAddress*()> master_hint, int timeout_ms) {
     const bool enabled = _s_exec_env->cluster_info()->in_graceful_shutdown();
+    // With graceful mode disabled, preserve the existing transport retry's live
+    // provider: a new-master heartbeat may arrive after the old master's socket closes.
+    if (!enabled) {
+        return rpc<FrontendServiceClient>(address_provider, callback, timeout_ms);
+    }
     return _retry_fe_rpc(
             address_provider,
             [&](const TNetworkAddress& address) {

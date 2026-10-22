@@ -75,8 +75,8 @@ inline void on_brpc_network_fault(const std::shared_ptr<AtomicStatus>& channel_s
                                   const std::string& hostname, brpc::Controller* controller) {
     auto status = Status::NetworkError("brpc network failure: {}", controller->ErrorText());
     channel_status->update(status);
-    // Retrying against the same cached IP after a pod replacement cannot recover.
-    // Preserve the hostname-keyed stub map and normal DNS eviction / negative TTL rules.
+    // Refresh DNS before the next connection after a possible pod replacement.
+    // Socket errors alone must not discard the fallback IP during a resolver outage.
     if (!hostname.empty() && !is_valid_ip(hostname)) {
         auto* dns_cache = ExecEnv::GetInstance()->dns_cache();
         // get_client also supports startup / test environments without a DNS cache.
