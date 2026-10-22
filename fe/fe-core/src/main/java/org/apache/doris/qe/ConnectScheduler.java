@@ -124,6 +124,22 @@ public class ConnectScheduler {
         return connectPoolMgr.getConnectionMap();
     }
 
+    public void closeIdleMysqlConnections() {
+        for (ConnectContext context : getConnectionMap().values()) {
+            try {
+                context.closeIdleMysqlConnection();
+            } catch (Exception e) {
+                LOG.warn("failed to close idle MySQL connection {}", context.getConnectionId(), e);
+            }
+        }
+    }
+
+    public boolean hasPendingFlightResults() {
+        return getConnectionMap().values().stream()
+                .anyMatch(context -> context.getConnectType() == ConnectContext.ConnectType.ARROW_FLIGHT_SQL
+                        && context.getFlightSqlChannel().resultNum() > 0);
+    }
+
     public Map<String, AtomicInteger> getUserConnectionMap() {
         return connectPoolMgr.getUserConnectionMap();
     }

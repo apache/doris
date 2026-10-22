@@ -779,6 +779,30 @@ public class ConnectContext {
         this.command = command;
     }
 
+    /** Reserve an idle MySQL connection before dispatching a newly received packet. */
+    public synchronized boolean startMysqlCommand() {
+        if (isKilled) {
+            return false;
+        }
+        // COM_QUERY also covers the short interval before dispatch decodes the command.
+        // Otherwise the shutdown thread could mistake a received packet for an idle socket.
+        command = MysqlCommand.COM_QUERY;
+        return true;
+    }
+
+    /** Close an idle socket without cancelling an executor that has just finished. */
+    public boolean closeIdleMysqlConnection() {
+        synchronized (this) {
+            if (getConnectType() != ConnectType.MYSQL || command != MysqlCommand.COM_SLEEP || isKilled) {
+                return false;
+            }
+            // Paired with startMysqlCommand: a packet racing idle closure must not run.
+            isKilled = true;
+        }
+        closeChannel();
+        return true;
+    }
+
     public long getStartTime() {
         return startTime;
     }

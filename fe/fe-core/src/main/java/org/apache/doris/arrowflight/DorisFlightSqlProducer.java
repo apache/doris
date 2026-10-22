@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.thrift.TStatusCode;
@@ -218,6 +219,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
+        // Do not close the Flight server here: clients still need to retrieve results
+        // of previously admitted statements using DoGet on an existing ticket.
+        if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
+            throw CallStatus.UNAVAILABLE.withDescription("FE is shutting down; reconnect to another FE")
+                    .toRuntimeException();
+        }
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
@@ -329,6 +336,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 

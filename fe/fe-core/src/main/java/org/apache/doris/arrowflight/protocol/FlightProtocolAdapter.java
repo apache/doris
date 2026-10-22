@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -591,6 +592,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
+        QueryAdmissionController.INSTANCE.acquireContinuation();
         ConnectContext previous = ConnectContext.get();
         try {
             if (closed) {
@@ -608,6 +610,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
                 previous.setThreadLocalInfo();
             }
             commandLock.unlock();
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 

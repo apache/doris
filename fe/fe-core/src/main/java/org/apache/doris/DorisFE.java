@@ -42,6 +42,7 @@ import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
@@ -726,19 +727,46 @@ public class DorisFE {
     }
 
     private static void gracefulShutdown() {
-        // wait for all queries to finish
+        // Health is already 503, but keep serving during LB / DNS convergence.
         try {
-            long now = System.currentTimeMillis();
-            List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
-                Thread.sleep(1000);
-                allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-                LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
-            }
-        } catch (Throwable t) {
-            LOG.error("", t);
+            LOG.info("graceful shutdown: serving during drain for {} seconds", Config.graceful_shutdown_drain_seconds);
+            TimeUnit.SECONDS.sleep(Math.max(0, Config.graceful_shutdown_drain_seconds));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("graceful shutdown drain interrupted", e);
         }
 
+        // Close admission before the listener: an accepted connection can race its closure.
+        QueryAdmissionController.INSTANCE.stopAccepting();
+        if (qeService != null) {
+            qeService.stopAcceptNewConnections();
+        }
+        try {
+            long deadline = System.nanoTime()
+                    + TimeUnit.SECONDS.toNanos(Math.max(0, Config.grace_shutdown_wait_seconds));
+            while (true) {
+                ExecuteEnv.getInstance().getScheduler().closeIdleMysqlConnections();
+                int activeRequests = QueryAdmissionController.INSTANCE.getActiveRequests();
+                List<Coordinator> coordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+                boolean pendingFlightResults = ExecuteEnv.getInstance().getScheduler().hasPendingFlightResults();
+                if (activeRequests == 0 && coordinators.isEmpty() && !pendingFlightResults) {
+                    break;
+                }
+                if (System.nanoTime() >= deadline) {
+                    LOG.warn("graceful shutdown wait expired: {} requests, {} coordinators, pendingFlightResults={}",
+                            activeRequests, coordinators.size(), pendingFlightResults);
+                    break;
+                }
+                LOG.info("graceful shutdown: waiting for {} requests and {} coordinators, pendingFlightResults={}",
+                        activeRequests, coordinators.size(), pendingFlightResults);
+                TimeUnit.SECONDS.sleep(1);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("graceful shutdown wait interrupted", e);
+        } catch (Throwable t) {
+            LOG.error("graceful shutdown failed while draining requests", t);
+        }
         LOG.info("graceful shutdown finished");
     }
 }
