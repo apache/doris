@@ -87,18 +87,14 @@ public class LocalShuffleNodeCoverageTest {
 
     @Test
     public void testIdentityHashTypePropagatesThroughLocalExchangeAndFragment() {
-        TrackingPlanNode identityChild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.IDENTITY;
-            }
-        };
+        PlanNode identityChild = storageLayoutNode(HashDistributionInfo.HashType.IDENTITY);
         LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), identityChild,
                 LocalExchangeType.PASSTHROUGH, null);
         LocalExchangeNode bucket = new LocalExchangeNode(nextPlanNodeId(), passthrough,
-                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList(),
+                passthrough.getStorageHashLayout().getHashType());
         Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
-                bucket.getStorageDistributionHashType());
+                bucket.getStorageHashLayout().getHashType());
         Assertions.assertEquals(TDistributionHashType.IDENTITY,
                 bucket.treeToThrift().getNodes().get(0).getLocalExchangeNode().getDistributionHashType());
 
@@ -113,34 +109,8 @@ public class LocalShuffleNodeCoverageTest {
      */
     @Test
     public void testFragmentRejectsMixedStorageHashTypes() {
-        TrackingPlanNode identityScan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.IDENTITY;
-            }
-
-            @Override
-            protected HashDistributionInfo.HashType getOwnStorageHashType() {
-                return HashDistributionInfo.HashType.IDENTITY;
-            }
-        };
-        TrackingPlanNode crc32Scan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.CRC32;
-            }
-
-            @Override
-            protected HashDistributionInfo.HashType getOwnStorageHashType() {
-                return HashDistributionInfo.HashType.CRC32;
-            }
-        };
-        // A set operation over two layouts: getStorageDistributionHashType() is null (mixed), and
-        // the collector sees both opinions, so serialization must refuse the fragment.
-        UnionNode mixed = new UnionNode(nextPlanNodeId(), new TupleId(123));
-        mixed.addChild(identityScan);
-        mixed.addChild(crc32Scan);
-        Assertions.assertNull(mixed.getStorageDistributionHashType());
+        UnionNode mixed = mixedStorageLayoutUnion();
+        Assertions.assertEquals(StorageHashLayout.State.CONFLICT, mixed.getStorageHashLayout().getState());
 
         PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), mixed, DataPartition.UNPARTITIONED);
         IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class,
@@ -157,83 +127,130 @@ public class LocalShuffleNodeCoverageTest {
     @Test
     public void testFragmentWithoutStorageLayoutStillSerializes() {
         TrackingPlanNode layoutless = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        Assertions.assertNull(layoutless.getStorageDistributionHashType());
+        Assertions.assertSame(StorageHashLayout.NONE, layoutless.getStorageHashLayout());
 
         PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), layoutless, DataPartition.UNPARTITIONED);
+        // Thrift supplies CRC32 at the compatibility boundary; it is not a derived layout.
         Assertions.assertEquals(TDistributionHashType.CRC32,
                 fragment.toThrift().getDistributionHashType());
     }
 
-    /**
-     * collectStorageHashTypes de-duplicates: a unary chain of passthrough local exchanges over
-     * one identity scan contributes exactly one opinion, so a null root derivation caused by a
-     * multi-input node with one silent child is not misreported as mixed when it is not.
-     */
     @Test
-    public void testCollectStorageHashTypesDeduplicatesUnaryChain() {
-        TrackingPlanNode identityScan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.IDENTITY;
-            }
-        };
+    public void testPassthroughPreservesLayoutlessInput() {
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), storageLayoutNode(null),
+                LocalExchangeType.PASSTHROUGH);
+        Assertions.assertSame(StorageHashLayout.NONE, passthrough.getStorageHashLayout());
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), passthrough, DataPartition.UNPARTITIONED);
+        Assertions.assertSame(StorageHashLayout.NONE, fragment.validateStorageHashLayout());
+        Assertions.assertEquals(TDistributionHashType.CRC32, fragment.toThrift().getDistributionHashType());
+    }
+
+    @Test
+    public void testPassthroughDoesNotHideMixedStorageHashTypes() {
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), mixedStorageLayoutUnion(),
+                LocalExchangeType.PASSTHROUGH);
+        Assertions.assertEquals(StorageHashLayout.State.CONFLICT, passthrough.getStorageHashLayout().getState());
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), passthrough, DataPartition.UNPARTITIONED);
+        Assertions.assertThrows(IllegalStateException.class, fragment::validateStorageHashLayout);
+        IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class, fragment::toThrift);
+        Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"));
+    }
+
+    @Test
+    public void testStorageHashLayoutPreservesUnaryChain() {
+        PlanNode identityScan = storageLayoutNode(HashDistributionInfo.HashType.IDENTITY);
         LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), identityScan,
-                LocalExchangeType.PASSTHROUGH, null);
-        java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
-        passthrough.collectStorageHashTypes(collected);
-        Assertions.assertEquals(Collections.singleton(HashDistributionInfo.HashType.IDENTITY), collected);
+                LocalExchangeType.PASSTHROUGH);
+        LocalExchangeNode outer = new LocalExchangeNode(nextPlanNodeId(), passthrough,
+                LocalExchangeType.PASSTHROUGH);
+        Assertions.assertSame(identityScan.getStorageHashLayout(), outer.getStorageHashLayout());
+    }
+
+    @Test
+    public void testLayoutlessInputDoesNotHideNestedConflict() {
+        // NONE + IDENTITY is UNKNOWN, not NONE: adding CRC32 outside this subtree must
+        // still detect the IDENTITY/CRC32 conflict without collecting the leaves again.
+        UnionNode partial = new UnionNode(nextPlanNodeId(), new TupleId(123));
+        partial.addChild(storageLayoutNode(null));
+        partial.addChild(storageLayoutNode(HashDistributionInfo.HashType.IDENTITY));
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), partial,
+                LocalExchangeType.PASSTHROUGH);
+        Assertions.assertEquals(StorageHashLayout.State.UNKNOWN, passthrough.getStorageHashLayout().getState());
+        UnionNode mixed = new UnionNode(nextPlanNodeId(), new TupleId(124));
+        mixed.addChild(passthrough);
+        mixed.addChild(storageLayoutNode(HashDistributionInfo.HashType.CRC32));
+        Assertions.assertEquals(StorageHashLayout.State.CONFLICT, mixed.getStorageHashLayout().getState());
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), mixed, DataPartition.UNPARTITIONED);
+        Assertions.assertThrows(IllegalStateException.class, fragment::validateStorageHashLayout);
+    }
+
+    @Test
+    public void testLocalExecutionExchangeDoesNotAdvertiseStorageLayout() {
+        for (LocalExchangeType type : new LocalExchangeType[] {LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE,
+                LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE, LocalExchangeType.BROADCAST}) {
+            LocalExchangeNode exchange = new LocalExchangeNode(nextPlanNodeId(),
+                    storageLayoutNode(HashDistributionInfo.HashType.IDENTITY), type, Collections.emptyList());
+            Assertions.assertSame(StorageHashLayout.NONE, exchange.getStorageHashLayout());
+            PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), exchange, DataPartition.UNPARTITIONED);
+            // Generated Thrift enum fields have a legacy CRC32 default even when FE never
+            // sets them. Execution exchanges ignore this compatibility default on BE.
+            Assertions.assertEquals(TDistributionHashType.CRC32, fragment.toThrift().getDistributionHashType());
+            Assertions.assertEquals(TDistributionHashType.CRC32, exchange.treeToThrift().getNodes().get(0)
+                    .getLocalExchangeNode().getDistributionHashType());
+            Assertions.assertThrows(IllegalStateException.class, () -> new LocalExchangeNode(nextPlanNodeId(),
+                    mixedStorageLayoutUnion(), type, Collections.emptyList()));
+        }
+    }
+
+    @Test
+    public void testBucketLocalExchangeRequiresExplicitTarget() {
+        PlanNode source = storageLayoutNode(HashDistributionInfo.HashType.IDENTITY);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> new LocalExchangeNode(nextPlanNodeId(),
+                source, LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList()));
+        LocalExchangeNode exchange = new LocalExchangeNode(nextPlanNodeId(), source,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList(), HashDistributionInfo.HashType.CRC32);
+        Assertions.assertEquals(HashDistributionInfo.HashType.CRC32, exchange.getStorageHashLayout().getHashType());
+        Assertions.assertEquals(TDistributionHashType.CRC32,
+                exchange.treeToThrift().getNodes().get(0).getLocalExchangeNode().getDistributionHashType());
     }
 
     @Test
     public void testBroadcastJoinPreservesProbeStorageHashType() {
-        TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.IDENTITY;
-            }
-        };
-        TrackingPlanNode crc32Build = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.CRC32;
-            }
-        };
+        PlanNode identityProbe = storageLayoutNode(HashDistributionInfo.HashType.IDENTITY);
+        PlanNode crc32Build = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         HashJoinNode broadcastJoin = new HashJoinNode(nextPlanNodeId(), identityProbe, crc32Build,
                 JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
                 Collections.emptyList(), null, null, false);
         broadcastJoin.setDistributionMode(DistributionMode.BROADCAST);
 
         Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
-                broadcastJoin.getStorageDistributionHashType());
+                broadcastJoin.getStorageHashLayout().getHashType());
         LocalExchangeNode bucketExchange = new LocalExchangeNode(nextPlanNodeId(), broadcastJoin,
-                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList(),
+                broadcastJoin.getStorageHashLayout().getHashType());
         Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
-                bucketExchange.getStorageDistributionHashType());
+                bucketExchange.getStorageHashLayout().getHashType());
     }
 
     @Test
-    public void testStorageHashCollectionStopsAtRemoteExchange() {
+    public void testStorageHashLayoutStopsAtRemoteExchange() {
         ExchangeNode exchange = new ExchangeNode(nextPlanNodeId(), storageLayoutNode(
                 HashDistributionInfo.HashType.IDENTITY));
         exchange.setPartitionType(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         exchange.setDistributionHashType(HashDistributionInfo.HashType.CRC32);
-        java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
-        exchange.collectStorageHashTypes(collected);
         // The receiver rebuckets using CRC32; the sender's IDENTITY layout belongs to a different fragment.
-        Assertions.assertEquals(Collections.singleton(HashDistributionInfo.HashType.CRC32), collected);
+        Assertions.assertEquals(HashDistributionInfo.HashType.CRC32, exchange.getStorageHashLayout().getHashType());
 
         for (TPartitionType type : new TPartitionType[] {TPartitionType.UNPARTITIONED,
                 TPartitionType.HASH_PARTITIONED, TPartitionType.RANDOM}) {
             exchange.setPartitionType(type);
-            collected.clear();
-            exchange.collectStorageHashTypes(collected);
-            Assertions.assertTrue(collected.isEmpty(),
+            Assertions.assertSame(StorageHashLayout.NONE, exchange.getStorageHashLayout(),
                     "Default tags on non-bucket exchanges do not represent storage bucket layouts: " + type);
         }
     }
 
     @Test
-    public void testBroadcastLayoutCollectionUsesOnlyProbe() {
+    public void testBroadcastLayoutUsesOnlyProbe() {
         for (HashDistributionInfo.HashType probeType : new HashDistributionInfo.HashType[] {
                 null, HashDistributionInfo.HashType.CRC32, HashDistributionInfo.HashType.IDENTITY}) {
             PlanNode probe = storageLayoutNode(probeType);
@@ -248,17 +265,11 @@ public class LocalShuffleNodeCoverageTest {
                         JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
                         Collections.emptyList(), null, null, false);
                 join.setDistributionMode(DistributionMode.BROADCAST);
-                java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
-                join.collectStorageHashTypes(collected);
-                Assertions.assertEquals(probeType == null ? Collections.emptySet()
-                        : Collections.singleton(probeType), collected);
+                Assertions.assertSame(probe.getStorageHashLayout(), join.getStorageHashLayout());
 
                 NestedLoopJoinNode nested = new NestedLoopJoinNode(nextPlanNodeId(), probe, build,
                         Collections.emptyList(), JoinOperator.CROSS_JOIN, false);
-                collected.clear();
-                nested.collectStorageHashTypes(collected);
-                Assertions.assertEquals(probeType == null ? Collections.emptySet()
-                        : Collections.singleton(probeType), collected);
+                Assertions.assertSame(probe.getStorageHashLayout(), nested.getStorageHashLayout());
             }
         }
     }
@@ -277,16 +288,24 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"));
     }
 
-    private static PlanNode storageLayoutNode(HashDistributionInfo.HashType hashType) {
-        return new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return hashType;
-            }
+    private static UnionNode mixedStorageLayoutUnion() {
+        UnionNode mixed = new UnionNode(nextPlanNodeId(), new TupleId(123));
+        mixed.addChild(storageLayoutNode(HashDistributionInfo.HashType.IDENTITY));
+        mixed.addChild(storageLayoutNode(HashDistributionInfo.HashType.CRC32));
+        return mixed;
+    }
 
+    private static TrackingPlanNode storageLayoutNode(HashDistributionInfo.HashType hashType) {
+        return storageLayoutNode(hashType, LocalExchangeType.NOOP);
+    }
+
+    private static TrackingPlanNode storageLayoutNode(HashDistributionInfo.HashType hashType,
+            LocalExchangeType providedType) {
+        StorageHashLayout layout = hashType == null ? StorageHashLayout.NONE : StorageHashLayout.known(hashType);
+        return new TrackingPlanNode(nextPlanNodeId(), providedType) {
             @Override
-            protected HashDistributionInfo.HashType getOwnStorageHashType() {
-                return hashType;
+            public StorageHashLayout getStorageHashLayout() {
+                return layout;
             }
         };
     }
@@ -477,8 +496,8 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertSame(probe, broadcastJoin.getChild(0));
         Assertions.assertSame(build, broadcastJoin.getChild(1));
 
-        TrackingPlanNode probe2 = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        TrackingPlanNode build2 = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode probe2 = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+        TrackingPlanNode build2 = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         HashJoinNode bucketJoin = new HashJoinNode(nextPlanNodeId(), probe2, build2, JoinOperator.INNER_JOIN,
                 eqConjuncts, Collections.emptyList(), null, null, false);
         bucketJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
@@ -585,6 +604,53 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     @Test
+    public void testBucketTargetSurvivesProbeUpgradeBelowBroadcast() {
+        for (HashDistributionInfo.HashType hashType : HashDistributionInfo.HashType.values()) {
+            for (boolean upgrade : new boolean[] {false, true}) {
+                PlanTranslatorContext ctx = new PlanTranslatorContext();
+                ctx.setCurrentFragmentBucketUpgradeEligible(upgrade);
+                List<Expr> eqConjuncts = Collections.singletonList(Mockito.mock(BinaryPredicate.class));
+                HashJoinNode bucketJoin = new HashJoinNode(nextPlanNodeId(),
+                        storageLayoutNode(hashType, LocalExchangeType.BUCKET_HASH_SHUFFLE),
+                        storageLayoutNode(hashType, LocalExchangeType.BUCKET_HASH_SHUFFLE),
+                        JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+                bucketJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                bucketJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
+                HashJoinNode broadcast = new HashJoinNode(nextPlanNodeId(), bucketJoin, storageLayoutNode(null),
+                        JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
+                broadcast.setDistributionMode(DistributionMode.BROADCAST);
+                IntersectNode intersect = new IntersectNode(nextPlanNodeId(), new TupleId(123));
+                intersect.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                intersect.addChild(broadcast);
+                intersect.addChild(storageLayoutNode(hashType, LocalExchangeType.BUCKET_HASH_SHUFFLE));
+                intersect.setChildrenDistributeExprLists(Lists.newArrayList(
+                        Collections.singletonList(new IntLiteral(1)), Collections.singletonList(new IntLiteral(1))));
+                Assertions.assertEquals(hashType, intersect.getStorageHashLayout().getHashType());
+
+                // Broadcast does not forward the parent's bucket requirement to its probe.
+                // An eligible inner join can upgrade, so Intersect must restore the ORIGINAL
+                // target rather than querying the now execution-shuffled child's layout.
+                intersect.enforceAndDeriveLocalExchange(ctx, null, LocalExchangeTypeRequire.requireHash());
+                Assertions.assertEquals(hashType, intersect.getStorageHashLayout().getHashType());
+                if (upgrade) {
+                    Assertions.assertSame(StorageHashLayout.NONE, broadcast.getStorageHashLayout());
+                    LocalExchangeNode restored = Assertions.assertInstanceOf(LocalExchangeNode.class,
+                            intersect.getChild(0));
+                    Assertions.assertEquals(LocalExchangeType.BUCKET_HASH_SHUFFLE, restored.getExchangeType());
+                    Assertions.assertEquals(hashType, restored.getStorageHashLayout().getHashType());
+                    TPlanNode thrift = new TPlanNode();
+                    restored.toThrift(thrift);
+                    Assertions.assertEquals(DataPartition.toTHashType(hashType),
+                            thrift.getLocalExchangeNode().getDistributionHashType());
+                } else {
+                    Assertions.assertSame(broadcast, intersect.getChild(0));
+                    Assertions.assertEquals(hashType, broadcast.getStorageHashLayout().getHashType());
+                }
+            }
+        }
+    }
+
+    @Test
     public void testHashJoinBucketUpgradeToLocalHash() {
         List<Expr> eqConjuncts = Collections.singletonList(Mockito.mock(BinaryPredicate.class));
 
@@ -627,8 +693,8 @@ public class LocalShuffleNodeCoverageTest {
         //    the fragment is eligible: children keep BUCKET_HASH_SHUFFLE.
         PlanTranslatorContext parentBucketCtx = new PlanTranslatorContext();
         parentBucketCtx.setCurrentFragmentBucketUpgradeEligible(true);
-        TrackingPlanNode probeForBucketParent = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        TrackingPlanNode buildForBucketParent = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode probeForBucketParent = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+        TrackingPlanNode buildForBucketParent = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         HashJoinNode bucketParentJoin = new HashJoinNode(nextPlanNodeId(), probeForBucketParent,
                 buildForBucketParent, JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(),
                 null, null, false);
@@ -643,8 +709,8 @@ public class LocalShuffleNodeCoverageTest {
         // 4. Fragment not eligible (ratio gate failed / not a pooled bucket fragment) →
         //    existing behavior untouched.
         PlanTranslatorContext ineligibleCtx = new PlanTranslatorContext();
-        TrackingPlanNode probeIneligible = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        TrackingPlanNode buildIneligible = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode probeIneligible = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+        TrackingPlanNode buildIneligible = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         HashJoinNode ineligibleJoin = new HashJoinNode(nextPlanNodeId(), probeIneligible, buildIneligible,
                 JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
         ineligibleJoin.setChildrenDistributeExprLists(mockDistributeExprLists());
@@ -700,8 +766,8 @@ public class LocalShuffleNodeCoverageTest {
         // 7. Missing distribute exprs → no upgrade (the LOCAL hash LE would have no keys).
         PlanTranslatorContext noExprCtx = new PlanTranslatorContext();
         noExprCtx.setCurrentFragmentBucketUpgradeEligible(true);
-        TrackingPlanNode probeNoExpr = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        TrackingPlanNode buildNoExpr = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode probeNoExpr = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+        TrackingPlanNode buildNoExpr = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         HashJoinNode noExprJoin = new HashJoinNode(nextPlanNodeId(), probeNoExpr, buildNoExpr,
                 JoinOperator.INNER_JOIN, eqConjuncts, Collections.emptyList(), null, null, false);
         noExprJoin.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
@@ -782,27 +848,18 @@ public class LocalShuffleNodeCoverageTest {
 
     @Test
     public void testNestedLoopJoinPreservesProbeStorageHashType() {
-        TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.IDENTITY;
-            }
-        };
-        TrackingPlanNode crc32Build = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
-            @Override
-            public HashDistributionInfo.HashType getStorageDistributionHashType() {
-                return HashDistributionInfo.HashType.CRC32;
-            }
-        };
+        PlanNode identityProbe = storageLayoutNode(HashDistributionInfo.HashType.IDENTITY);
+        PlanNode crc32Build = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         NestedLoopJoinNode nestedLoopJoin = new NestedLoopJoinNode(nextPlanNodeId(), identityProbe, crc32Build,
                 Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement())), JoinOperator.CROSS_JOIN, false);
 
         Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
-                nestedLoopJoin.getStorageDistributionHashType());
+                nestedLoopJoin.getStorageHashLayout().getHashType());
         LocalExchangeNode bucketExchange = new LocalExchangeNode(nextPlanNodeId(), nestedLoopJoin,
-                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList(),
+                nestedLoopJoin.getStorageHashLayout().getHashType());
         Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
-                bucketExchange.getStorageDistributionHashType());
+                bucketExchange.getStorageHashLayout().getHashType());
     }
 
     @Test
@@ -919,8 +976,8 @@ public class LocalShuffleNodeCoverageTest {
         UnionNode bucketUnion = new UnionNode(nextPlanNodeId(), new TupleId(NEXT_ID.getAndIncrement()));
         bucketUnion.setColocate(false);
         bucketUnion.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-        TrackingPlanNode bucketUnionLeft = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        TrackingPlanNode bucketUnionRight = new TrackingPlanNode(nextPlanNodeId(),
+        TrackingPlanNode bucketUnionLeft = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+        TrackingPlanNode bucketUnionRight = storageLayoutNode(HashDistributionInfo.HashType.CRC32,
                 LocalExchangeType.BUCKET_HASH_SHUFFLE);
         bucketUnion.addChild(bucketUnionLeft);
         bucketUnion.addChild(bucketUnionRight);
@@ -986,8 +1043,8 @@ public class LocalShuffleNodeCoverageTest {
                 new TupleId(NEXT_ID.getAndIncrement()));
         bucketIntersect.setColocate(false);
         bucketIntersect.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-        TrackingPlanNode bucketLeft = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
-        TrackingPlanNode bucketRight = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        TrackingPlanNode bucketLeft = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+        TrackingPlanNode bucketRight = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
         bucketIntersect.addChild(bucketLeft);
         bucketIntersect.addChild(bucketRight);
         Pair<PlanNode, LocalExchangeType> bucketIntersectOutput = bucketIntersect.enforceAndDeriveLocalExchange(
@@ -1677,6 +1734,7 @@ public class LocalShuffleNodeCoverageTest {
             Mockito.when(desc.getTable()).thenReturn(table);
             Mockito.when(desc.getSlots()).thenReturn(new ArrayList<SlotDescriptor>());
             Mockito.when(table.getDistributionColumnNames()).thenReturn(Collections.emptySet());
+            Mockito.when(table.getDefaultDistributionInfo()).thenReturn(new HashDistributionInfo());
             return desc;
         }
     }

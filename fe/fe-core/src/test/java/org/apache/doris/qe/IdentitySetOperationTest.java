@@ -41,6 +41,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SetOperationNode;
+import org.apache.doris.planner.StorageHashLayout;
 import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -103,6 +104,37 @@ public class IdentitySetOperationTest extends TestWithFeService {
     }
 
     @Test
+    public void testMixedUnionAnyKeepsExecutionBoundaries() throws Exception {
+        SessionVariable sv = connectContext.getSessionVariable();
+        boolean oldLocalShufflePlanner = sv.isEnableLocalShufflePlanner();
+        try {
+            for (boolean localShufflePlanner : new boolean[] {false, true}) {
+                sv.setEnableLocalShufflePlanner(localShufflePlanner);
+                NereidsPlanner planner = (NereidsPlanner) executeNereidsSql("explain distributed plan "
+                        + "SELECT id FROM identity8 UNION ALL SELECT id FROM crc7").planner();
+                List<SetOperationNode> sets = new ArrayList<>();
+                for (PlanFragment fragment : planner.getFragments()) {
+                    collectSetNodes(fragment.getPlanRoot(), sets);
+                    Assertions.assertDoesNotThrow(fragment::toThrift);
+                }
+                Assertions.assertEquals(1, sets.size());
+                SetOperationNode set = sets.get(0);
+                Assertions.assertSame(StorageHashLayout.NONE, set.getStorageHashLayout());
+                // Mixed source tables do not make a mixed receiver: ANY inserts RANDOM
+                // execution exchanges on both branches, independent of local-shuffle planning.
+                for (PlanNode child : set.getChildren()) {
+                    List<ExchangeNode> exchanges = child.collectInCurrentFragment(n -> n instanceof ExchangeNode);
+                    Assertions.assertEquals(1, exchanges.size());
+                    Assertions.assertEquals(TPartitionType.RANDOM, exchanges.get(0).getPartitionType());
+                    Assertions.assertSame(StorageHashLayout.NONE, exchanges.get(0).getStorageHashLayout());
+                }
+            }
+        } finally {
+            sv.setEnableLocalShufflePlanner(oldLocalShufflePlanner);
+        }
+    }
+
+    @Test
     public void testRandomProbeIdentityBroadcastToThrift() throws Exception {
         // Specify broadcast in LEADING so join reconstruction preserves it regardless of other tests' statistics.
         checkBroadcastToThrift("SELECT /*+ LEADING(r broadcast i) */ r.id FROM random8 r "
@@ -142,9 +174,7 @@ public class IdentitySetOperationTest extends TestWithFeService {
                                 .collectInCurrentFragment(node -> node instanceof OlapScanNode);
                         Assertions.assertEquals(1, probes.size());
                         Assertions.assertEquals("random8", probes.get(0).getOlapTable().getName());
-                        if (!localShufflePlanner) {
-                            Assertions.assertNull(join.getStorageDistributionHashType());
-                        }
+                        Assertions.assertSame(StorageHashLayout.NONE, join.getStorageHashLayout());
                     }
                     Assertions.assertDoesNotThrow(() -> fragment.toThrift(),
                             "localShufflePlanner=" + localShufflePlanner + ": " + sql);
@@ -188,9 +218,7 @@ public class IdentitySetOperationTest extends TestWithFeService {
                                     probe.getDefaultDistributionInfo(), context);
                             Assertions.assertEquals(TPartitionType.RANDOM,
                                     fragment.getDataPartition().getType(), context);
-                            if (!localShufflePlanner) {
-                                Assertions.assertNull(join.getStorageDistributionHashType(), context);
-                            }
+                            Assertions.assertSame(StorageHashLayout.NONE, join.getStorageHashLayout(), context);
                         } else {
                             Assertions.assertEquals(HashType.IDENTITY,
                                     ((HashDistributionInfo) probe.getDefaultDistributionInfo()).getHashType(), context);
@@ -284,7 +312,7 @@ public class IdentitySetOperationTest extends TestWithFeService {
         Assertions.assertEquals(1, sets.size(), sql);
         SetOperationNode set = sets.get(0);
         Assertions.assertTrue(set.isBucketShuffle(), sql);
-        Assertions.assertEquals(hashType, set.getStorageDistributionHashType(), sql);
+        Assertions.assertEquals(hashType, set.getStorageHashLayout().getHashType(), sql);
         List<ExchangeNode> remotes = new ArrayList<>();
         List<LocalExchangeNode> locals = new ArrayList<>();
         for (PlanNode child : set.getChildren()) {

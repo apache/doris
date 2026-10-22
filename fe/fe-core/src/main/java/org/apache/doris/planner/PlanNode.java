@@ -1124,6 +1124,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
                 || (inheritedShuffled && requireIsNoop);
         translatorContext.setHasShuffleForCorrectnessAncestor(child, childShuffledAncestor);
 
+        // Preserve the bucket target before recursion. A subtree (for example a bucket join
+        // below a broadcast join) may upgrade to execution hash while being rewritten. Its
+        // new output has no storage layout, but this parent's bucket requirement still names
+        // the original layout and may need a local exchange to restore it.
+        StorageHashLayout bucketTarget = require.preferType() == LocalExchangeType.BUCKET_HASH_SHUFFLE
+                ? child.getStorageHashLayout() : StorageHashLayout.NONE;
+
         // 2. Recurse child (Layer 2: child declares its own require/output)
         Pair<PlanNode, LocalExchangeType> childOutput =
                 child.enforceAndDeriveLocalExchange(translatorContext, this, require);
@@ -1136,7 +1143,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         if (passToOneAtSerialBoundary && childOutput.second != LocalExchangeType.PASS_TO_ONE) {
             childOutput = Pair.of(
                     createLocalExchange(translatorContext, childOutput.first,
-                            LocalExchangeType.PASS_TO_ONE, null),
+                            LocalExchangeType.PASS_TO_ONE, null, null),
                     LocalExchangeType.PASS_TO_ONE);
         }
 
@@ -1189,51 +1196,27 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // 5. Resolve exchange type and create LE node
         LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(require);
         List<Expr> distributeExprs = getLocalExchangeDistributeExprs(childIndex, selfOrInheritedShuffled);
-        PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType, distributeExprs);
+        HashDistributionInfo.HashType targetHashType = preferType == LocalExchangeType.BUCKET_HASH_SHUFFLE
+                ? bucketTarget.getHashType() : null;
+        PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType,
+                distributeExprs, targetHashType);
         return Pair.of(leNode, preferType);
     }
 
     /**
-     * Return the effective storage hash type when this subtree has one unambiguous bucket layout.
-     * Unary nodes preserve their child's layout; multi-input nodes preserve it only when every
-     * child reports the same layout.
+     * Derive the output's storage hash layout. Ordinary unary nodes preserve their input;
+     * multi-input nodes merge all inputs, retaining conflicts even through layout-less inputs.
+     * Exchanges and probe-preserving joins override this one derivation to define their boundary.
      */
-    public HashDistributionInfo.HashType getStorageDistributionHashType() {
-        HashDistributionInfo.HashType hashType = null;
-        for (PlanNode child : children) {
-            HashDistributionInfo.HashType childHashType = child.getStorageDistributionHashType();
-            if (childHashType == null) {
-                return null;
-            }
-            if (hashType != null && hashType != childHashType) {
-                return null;
-            }
-            hashType = childHashType;
+    public StorageHashLayout getStorageHashLayout() {
+        if (children.isEmpty()) {
+            return StorageHashLayout.NONE;
         }
-        return hashType;
-    }
-
-    /**
-     * Collect storage bucket layouts contributing to this fragment's output distribution, distinguishing
-     * mixed layouts from subtrees without a bucket layout. Exchanges stop at the sender boundary, and
-     * broadcast joins collect only the probe, matching each operator's output layout inference.
-     */
-    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
-        HashDistributionInfo.HashType own = getOwnStorageHashType();
-        if (own != null) {
-            hashTypes.add(own);
+        StorageHashLayout layout = children.get(0).getStorageHashLayout();
+        for (int i = 1; i < children.size(); i++) {
+            layout = layout.merge(children.get(i).getStorageHashLayout());
         }
-        for (PlanNode child : children) {
-            child.collectStorageHashTypes(hashTypes);
-        }
-    }
-
-    /**
-     * The layout this node itself contributes, or null when the node only aggregates its
-     * children's layouts (the default) or has no bucket layout at all.
-     */
-    protected HashDistributionInfo.HashType getOwnStorageHashType() {
-        return null;
+        return layout;
     }
 
     /**
@@ -1247,16 +1230,15 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
      * exchange sink. Only applies to local-shuffle (pooling scan) fragments.
      */
     protected PlanNode createLocalExchange(PlanTranslatorContext translatorContext,
-            PlanNode child, LocalExchangeType exchangeType, List<Expr> distributeExprs) {
+            PlanNode child, LocalExchangeType exchangeType, List<Expr> distributeExprs,
+            HashDistributionInfo.HashType targetHashType) {
         if (fragment != null && fragment.useSerialSource(translatorContext.getConnectContext())
                 && exchangeType.isHeavyOperation() && child.isSerialNode()) {
-            PlanNode ptNode = new LocalExchangeNode(translatorContext.nextPlanNodeId(),
+            child = new LocalExchangeNode(translatorContext.nextPlanNodeId(),
                     child, LocalExchangeType.PASSTHROUGH, null);
-            return new LocalExchangeNode(translatorContext.nextPlanNodeId(), ptNode,
-                    exchangeType, distributeExprs);
         }
         return new LocalExchangeNode(translatorContext.nextPlanNodeId(), child,
-                exchangeType, distributeExprs);
+                exchangeType, distributeExprs, targetHashType);
     }
 
     /**

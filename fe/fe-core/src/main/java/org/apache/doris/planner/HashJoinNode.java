@@ -28,7 +28,6 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -134,24 +133,13 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     @Override
-    public HashDistributionInfo.HashType getStorageDistributionHashType() {
+    public StorageHashLayout getStorageHashLayout() {
         if (distrMode == DistributionMode.BROADCAST) {
-            // A broadcast join does not repartition the probe side. Its output therefore keeps the
-            // probe child's storage bucket layout; the replicated build side must not participate
-            // in layout inference.
-            return children.get(0).getStorageDistributionHashType();
+            // Replicating the build does not change the probe's storage layout. Preserve
+            // NONE/UNKNOWN/CONFLICT too, rather than including the build to fill a missing tag.
+            return children.get(0).getStorageHashLayout();
         }
-        return super.getStorageDistributionHashType();
-    }
-
-    @Override
-    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
-        if (distrMode == DistributionMode.BROADCAST) {
-            // Match output layout inference: exclude the build even when the probe has no bucket layout.
-            children.get(0).collectStorageHashTypes(hashTypes);
-        } else {
-            super.collectStorageHashTypes(hashTypes);
-        }
+        return super.getStorageHashLayout();
     }
 
     @Override

@@ -36,7 +36,6 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import java.util.Collections;
-import java.util.Set;
 
 /**
  * Receiver side of a 1:n data stream. Logically, an ExchangeNode consumes the data
@@ -90,16 +89,11 @@ public class ExchangeNode extends PlanNode {
     }
 
     @Override
-    public HashDistributionInfo.HashType getStorageDistributionHashType() {
-        return distributionHashType;
-    }
-
-    @Override
-    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
-        // Children belong to the sender fragment. Only bucket exchanges declare a receiver storage bucket layout.
-        if (partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
-            hashTypes.add(distributionHashType);
-        }
+    public StorageHashLayout getStorageHashLayout() {
+        // Children belong to the sender fragment. An execution exchange establishes no
+        // receiver storage layout, regardless of the sender's algorithm or our legacy tag.
+        return partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED
+                ? StorageHashLayout.known(distributionHashType) : StorageHashLayout.NONE;
     }
 
     public void setDistributionHashType(HashDistributionInfo.HashType distributionHashType) {

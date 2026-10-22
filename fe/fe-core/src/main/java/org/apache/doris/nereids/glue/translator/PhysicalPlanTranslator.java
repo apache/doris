@@ -322,6 +322,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
+        // Fragment boundaries and receiver/probe layouts are now final. Reject ambiguity before
+        // instance assignment or local exchanges can replace an input's output distribution.
+        for (PlanFragment fragment : context.getPlanFragments()) {
+            fragment.validateStorageHashLayout();
+        }
+
         if (isSimpleQuery(physicalPlan)) {
             // the simple query maybe has two fragments or one fragment
             rootFragment.setForceSingleInstance();

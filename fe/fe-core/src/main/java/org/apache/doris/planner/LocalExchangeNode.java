@@ -31,6 +31,8 @@ import org.apache.doris.thrift.TLocalPartitionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import com.google.common.base.Preconditions;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -39,10 +41,9 @@ import java.util.List;
 public class LocalExchangeNode extends PlanNode {
     public static final String EXCHANGE_NODE = "LOCAL-EXCHANGE";
 
-    private LocalExchangeType exchangeType;
-    // storage bucketing hash for BUCKET_HASH_SHUFFLE; inherited from the upstream ExchangeNode's
-    // bucket-shuffle distribution. Defaults to CRC32 (legacy behavior).
-    private HashDistributionInfo.HashType distributionHashType = HashDistributionInfo.HashType.CRC32;
+    private final LocalExchangeType exchangeType;
+    // Only bucket exchanges have a target storage algorithm. Other exchanges never invent one.
+    private final HashDistributionInfo.HashType distributionHashType;
 
     /**
      * use for Nereids only.
@@ -53,6 +54,11 @@ public class LocalExchangeNode extends PlanNode {
 
     public LocalExchangeNode(PlanNodeId id, PlanNode inputNode, LocalExchangeType exchangeType,
             List<Expr> distributeExprs) {
+        this(id, inputNode, exchangeType, distributeExprs, null);
+    }
+
+    public LocalExchangeNode(PlanNodeId id, PlanNode inputNode, LocalExchangeType exchangeType,
+            List<Expr> distributeExprs, HashDistributionInfo.HashType targetHashType) {
         super(id, inputNode, EXCHANGE_NODE);
         this.offset = 0;
         this.limit = -1;
@@ -60,11 +66,14 @@ public class LocalExchangeNode extends PlanNode {
         this.children.add(inputNode);
         this.exchangeType = exchangeType;
         this.fragment = inputNode.getFragment();
-        // Preserve the effective storage layout through passthrough/unary nodes as well as direct
-        // ExchangeNode and OlapScanNode children.
-        HashDistributionInfo.HashType childHashType = inputNode.getStorageDistributionHashType();
-        if (childHashType != null) {
-            this.distributionHashType = childHashType;
+        Preconditions.checkArgument((exchangeType == LocalExchangeType.BUCKET_HASH_SHUFFLE)
+                        == (targetHashType != null),
+                "Only bucket local exchanges must have an explicit target storage hash type");
+        this.distributionHashType = targetHashType;
+        if (exchangeType.isHashShuffle() || exchangeType == LocalExchangeType.BROADCAST) {
+            // These nodes replace the output layout. Validate before doing so: a local
+            // exchange is not a fragment boundary and must not hide an invalid input subtree.
+            inputNode.getStorageHashLayout().checkNoConflict("Local exchange input");
         }
 
         List<Expr> hashExprs = distributeExprs;
@@ -113,13 +122,19 @@ public class LocalExchangeNode extends PlanNode {
     }
 
     @Override
-    public HashDistributionInfo.HashType getStorageDistributionHashType() {
-        return distributionHashType;
-    }
-
-    @Override
-    protected HashDistributionInfo.HashType getOwnStorageHashType() {
-        return distributionHashType;
+    public StorageHashLayout getStorageHashLayout() {
+        switch (exchangeType) {
+            case BUCKET_HASH_SHUFFLE:
+                return StorageHashLayout.known(distributionHashType);
+            case LOCAL_EXECUTION_HASH_SHUFFLE:
+            case GLOBAL_EXECUTION_HASH_SHUFFLE:
+            case BROADCAST:
+                return StorageHashLayout.NONE;
+            default:
+                // Fan-out/fan-in and local merge do not choose a new storage algorithm.
+                // Derive from the child instead of caching a tag that can hide NONE or CONFLICT.
+                return getChild(0).getStorageHashLayout();
+        }
     }
 
     private List<Expr> distributeExprLists() {

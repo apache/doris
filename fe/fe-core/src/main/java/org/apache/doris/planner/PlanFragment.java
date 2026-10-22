@@ -26,7 +26,6 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
@@ -319,22 +318,17 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return parallelExecNum;
     }
 
+    public StorageHashLayout validateStorageHashLayout() {
+        StorageHashLayout layout = planRoot == null ? StorageHashLayout.NONE : planRoot.getStorageHashLayout();
+        return layout.checkNoConflict("fragment " + fragmentId);
+    }
+
     public TPlanFragment toThrift() {
         TPlanFragment result = new TPlanFragment();
+        // Translation validates the same contract before distribution/local-exchange planning.
+        // Re-derive once here to assert it after plan rewrites, including passthrough insertion.
+        StorageHashLayout layout = validateStorageHashLayout();
         if (planRoot != null) {
-            // Reject a genuinely mixed-layout fragment before serializing its plan: a null root
-            // derivation can mean either "no bucketed storage here" (schema scans, empty sets)
-            // or "both CRC32 and IDENTITY under this root". Only the mixed case is dangerous:
-            // without a fragment-level hash type, BE-native bucket local exchanges fall back to
-            // CRC32 and would silently mis-bucket identity-routed rows.
-            if (planRoot.getStorageDistributionHashType() == null) {
-                Set<HashDistributionInfo.HashType> declared = new HashSet<>();
-                planRoot.collectStorageHashTypes(declared);
-                Preconditions.checkState(declared.size() <= 1,
-                        "fragment mixes distribution hash types %s; bucket local exchanges need one "
-                                + "unambiguous storage layout, re-align the inputs explicitly",
-                        declared);
-            }
             result.setPlan(planRoot.treeToThrift());
         }
         if (outputExprs != null) {
@@ -348,10 +342,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         } else {
             result.setPartition(dataPartitionForThrift.toThrift());
         }
-        HashDistributionInfo.HashType hashType = planRoot == null
-                ? null : planRoot.getStorageDistributionHashType();
-        if (hashType != null) {
-            result.setDistributionHashType(DataPartition.toTHashType(hashType));
+        if (layout.isKnown()) {
+            result.setDistributionHashType(DataPartition.toTHashType(layout.getHashType()));
         }
 
         // TODO chenhao , calculated by cost
