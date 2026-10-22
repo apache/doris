@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.GeographyType;
 import org.apache.doris.nereids.types.GeometryType;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -123,6 +124,42 @@ public class SpatialConstructorFunctionTest {
         Assertions.assertEquals(geometry, angle.expectedInputTypes().get(0));
         Assertions.assertEquals(geography, angle.expectedInputTypes().get(1));
         Assertions.assertEquals(geometry, angle.expectedInputTypes().get(2));
+    }
+
+    @Test
+    public void testSpatialAreaPreservesMetadataDuringCoercion() {
+        for (DataType type : List.of(new GeometryType("OGC:CRS84"), new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"),
+                new GeographyType("EPSG:3857", "spherical"),
+                new GeographyType("OGC:CRS84", "vincenty"))) {
+            for (boolean nullable : List.of(false, true)) {
+                for (Expression argument : List.of(new SlotReference("shape", type, nullable),
+                        new NullLiteral(type))) {
+                    for (ScalarFunction function : List.of(new StAreaSquareMeters(argument),
+                            new StAreaSquareKm(argument))) {
+                        Expression coerced = TypeCoercionUtils.processBoundFunction(function);
+                        Assertions.assertSame(argument, coerced.child(0));
+                        Assertions.assertEquals(type, function.expectedInputTypes().get(0));
+                        Assertions.assertEquals(DoubleType.INSTANCE, coerced.getDataType());
+                        Assertions.assertTrue(coerced.nullable());
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testAreaRetainsLegacyStringAndNullSignatures() {
+        for (Expression argument : List.of(new SlotReference("legacy", VarcharType.SYSTEM_DEFAULT),
+                new StringLiteral("legacy geometry"), NullLiteral.INSTANCE)) {
+            for (ScalarFunction function : List.of(new StAreaSquareMeters(argument),
+                    new StAreaSquareKm(argument))) {
+                Expression coerced = TypeCoercionUtils.processBoundFunction(function);
+                Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, function.expectedInputTypes().get(0));
+                Assertions.assertEquals(DoubleType.INSTANCE, coerced.getDataType());
+                Assertions.assertTrue(coerced.nullable());
+            }
+        }
     }
 
     @Test

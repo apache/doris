@@ -1658,8 +1658,8 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromText<StPolygon>>>();
     factory.register_function<GeoFunction<StGeoFromText<StPolygonFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StPolyFromText>>>();
-    factory.register_function<GeoFunction<StAreaSquareMeters>>();
-    factory.register_function<GeoFunction<StAreaSquareKm>>();
+    factory.register_function<SpatialWkbGeoFunction<StAreaSquareMeters>>();
+    factory.register_function<SpatialWkbGeoFunction<StAreaSquareKm>>();
     factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<SpatialWkbConstructorFunction<StGeoFromWkb<StGeomFromWKB>>>();
     factory.register_function<

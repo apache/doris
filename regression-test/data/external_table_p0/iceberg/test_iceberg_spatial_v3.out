@@ -281,6 +281,16 @@ id	referenced_crs_values	1.0	1.0	0.0
 8	true	true	\N	\N	\N	\N	\N	\N
 9	false	false	POINT (1 NaN)	POINT (1 NaN)	ST_POINT	1	NaN	0101000000000000000000F03F000000000000F87F
 
+-- !spatial_area_columns --
+11	24733723015.469	24733.723015	true
+8	\N	\N	\N
+
+-- !spatial_area_constants --
+0	0	\N	\N
+
+-- !spatial_area_legacy --
+24733723015.469	24733.723015	\N	\N
+
 -- !raw_file_bytes --
 1	01010000000000000000408F400000000000409F40	0101000000000000000000F03F0000000000000040
 

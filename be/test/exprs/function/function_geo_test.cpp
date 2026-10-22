@@ -300,6 +300,35 @@ static Status execute_geography_test(const std::string& name, const Strings& val
     return function->execute(nullptr, *block, numbers, result, 1);
 }
 
+TEST(VGeoFunctionsTest, GeographyAreaPreservesNullableEvaluation) {
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    const auto point = spatial_test_wkb("0101000000000000000000F03F0000000000000040");
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    for (const auto& name : {"st_area_square_meters", "st_area_square_km"}) {
+        auto column = type->create_column();
+        column->insert_default();
+        column->insert_data(point.data(), point.size());
+        auto nulls = ColumnUInt8::create();
+        nulls->get_data().assign({1, 0});
+        ColumnsWithTypeAndName arguments {
+                {ColumnNullable::create(std::move(column), std::move(nulls)), make_nullable(type),
+                 "geography"}};
+        auto function =
+                SimpleFunctionFactory::instance().get_function(name, arguments, result_type);
+        ASSERT_NE(function, nullptr);
+        Block block;
+        block.insert(arguments.front());
+        block.insert({nullptr, result_type, "result"});
+        const auto status = function->execute(nullptr, block, {0}, 1, 2);
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        EXPECT_TRUE(result.is_null_at(0));
+        ASSERT_FALSE(result.is_null_at(1));
+        EXPECT_DOUBLE_EQ(
+                assert_cast<const ColumnFloat64&>(result.get_nested_column()).get_data()[1], 0);
+    }
+}
+
 TEST(VGeoFunctionsTest, IsoDimensionsAreStoredButNotCalculated) {
     const Strings points {
             "01E9030000000000000000F03F00000000000000400000000000000840",

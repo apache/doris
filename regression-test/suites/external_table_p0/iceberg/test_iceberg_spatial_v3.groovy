@@ -870,6 +870,34 @@ public class CreateIcebergSpatialV3Table {
                ST_GeometryType(geom), ST_X(geom), ST_Y(geog), hex(ST_AsBinary(geom))
         from spatial_wkb_values
     """
+    // Exercise FE binding on scanned Geography columns, not only direct BE function calls.
+    order_qt_spatial_area_columns """select id,
+        round(ST_Area_Square_Meters(geog), 3), round(ST_Area_Square_Km(geog), 6),
+        abs(ST_Area_Square_Meters(geog) / 1000000 - ST_Area_Square_Km(geog)) < 0.000001
+        from spatial_wkb_values where id in (8, 11)"""
+    qt_spatial_area_constants """select
+        ST_Area_Square_Meters(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')),
+        ST_Area_Square_Km(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')),
+        ST_Area_Square_Meters(cast(NULL as geography)),
+        ST_Area_Square_Km(cast(NULL as geography))"""
+    qt_spatial_area_legacy """select
+        round(ST_Area_Square_Meters(ST_Polygon('POLYGON ((0 0, 2 0, 0 2, 0 0))')), 3),
+        round(ST_Area_Square_Km(ST_Polygon('POLYGON ((0 0, 2 0, 0 2, 0 0))')), 6),
+        ST_Area_Square_Meters(NULL), ST_Area_Square_Km(NULL)"""
+    for (String function : ["ST_Area_Square_Meters", "ST_Area_Square_Km"]) {
+        for (String source : ["spatial_wkb_values", "projected_values"]) {
+            test {
+                sql """select ${function}(geom) from ${source} where id = 1"""
+                exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+            }
+        }
+        for (String source : ["projected_values", "referenced_crs_values"]) {
+            test {
+                sql """select ${function}(geog) from ${source} where id = 1"""
+                exception "requires GEOGRAPHY(OGC:CRS84, spherical)"
+            }
+        }
+    }
     test {
         sql """select ST_Length(geog) from spatial_wkb_values where id = 1"""
         exception "does not support this Geography WKB shape"
@@ -932,7 +960,8 @@ public class CreateIcebergSpatialV3Table {
             hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)), ST_GeometryType(geom)
             from spatial_zm_copy order by id""")
     }
-    for (String query : ["ST_Length(geog)", "ST_Distance(geog, geog)", "ST_Azimuth(geog, geog)"]) {
+    for (String query : ["ST_Length(geog)", "ST_Distance(geog, geog)", "ST_Azimuth(geog, geog)",
+            "ST_Area_Square_Meters(geog)", "ST_Area_Square_Km(geog)"]) {
         test {
             sql """select ${query} from spatial_zm_values where id = 1"""
             exception "does not support this Geography WKB shape"
