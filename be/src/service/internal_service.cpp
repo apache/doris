@@ -810,8 +810,8 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
                         .write_file_cache = false,
                         .sync_file_data = false,
                 },
-                file_options.azure_client_config.has_value() ? &*file_options.azure_client_config
-                                                             : nullptr);
+                file_options.__isset.azure_client_config ? &file_options.azure_client_config
+                                                         : nullptr);
         using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
             st = std::forward<T>(res).error();
