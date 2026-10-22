@@ -38,6 +38,10 @@ Status Krb5InterfaceImpl::kt_resolve(krb5_context context, const char* name, krb
     return _check_error(code, context, "Failed to resolve keytab");
 }
 
+const char* Krb5InterfaceImpl::cc_default_name(krb5_context context) {
+    return krb5_cc_default_name(context);
+}
+
 Status Krb5InterfaceImpl::cc_resolve(krb5_context context, const char* name, krb5_ccache* ccache) {
     krb5_error_code code = krb5_cc_resolve(context, name, ccache);
     return _check_error(code, context, "Failed to resolve credential cache");

@@ -166,35 +166,30 @@ protected:
 };
 } // namespace
 
-TEST(KafkaPropertiesTest, ManagedLoginStartsRefreshAndBindsDistinctCaches) {
+TEST(KafkaPropertiesTest, ManagedLoginStartsRefreshInDefaultCacheMode) {
     KafkaMockTicketMgr manager;
-    std::shared_ptr<kerberos::KerberosTicketCache> first, second, shared;
-    std::unique_ptr<RdKafka::Conf> a(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
-    std::unique_ptr<RdKafka::Conf> b(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
-    ASSERT_TRUE(configure_kafka_security(*a, {}).ok());
-    ASSERT_TRUE(configure_kafka_security(*b, {}).ok());
-    ASSERT_TRUE(
-            configure_kafka_kerberos(*a, "alice@REALM", "/managed/1.keytab", manager, &first).ok());
-    ASSERT_TRUE(
-            configure_kafka_kerberos(*b, "bob@REALM", "/managed/2.keytab", manager, &second).ok());
-    ASSERT_NE(first, second);
-    std::string a_path, b_path, principal, interval;
-    ASSERT_EQ(RdKafka::Conf::CONF_OK, a->get("sasl.kerberos.ticket.cache", a_path));
-    ASSERT_EQ(RdKafka::Conf::CONF_OK, b->get("sasl.kerberos.ticket.cache", b_path));
-    EXPECT_EQ("FILE:" + first->get_ticket_cache_path(), a_path);
-    EXPECT_EQ("FILE:" + second->get_ticket_cache_path(), b_path);
-    EXPECT_NE(a_path, b_path);
-    ASSERT_EQ(RdKafka::Conf::CONF_OK, a->get("sasl.kerberos.principal", principal));
-    EXPECT_EQ("alice@REALM", principal);
-    ASSERT_EQ(RdKafka::Conf::CONF_OK, a->get("sasl.kerberos.min.time.before.relogin", interval));
-    EXPECT_EQ("0", interval);
-    // Reusing an identity must retain the same cache and its renewal worker.
-    ASSERT_TRUE(configure_kafka_kerberos(*a, "alice@REALM", "/managed/1.keytab", manager, &shared)
+    std::shared_ptr<kerberos::KerberosTicketCache> cache, shared;
+    std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+    ASSERT_TRUE(configure_kafka_security(*conf, {}).ok());
+    ASSERT_TRUE(configure_kafka_kerberos(*conf, "alice@REALM", "/managed/1.keytab", manager, &cache)
                         .ok());
-    EXPECT_EQ(first, shared);
+    ASSERT_TRUE(cache->get_config().use_default_cache());
+    EXPECT_EQ(cache, manager.get_ticket_cache("alice@REALM", "/managed/1.keytab", true));
+    EXPECT_EQ(nullptr, manager.get_ticket_cache("alice@REALM", "/managed/1.keytab"));
+    std::string principal, interval;
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, conf->get("sasl.kerberos.principal", principal));
+    EXPECT_EQ("alice@REALM", principal);
+    ASSERT_EQ(RdKafka::Conf::CONF_OK, conf->get("sasl.kerberos.min.time.before.relogin", interval));
+    EXPECT_EQ("0", interval);
+    // Only upstream librdkafka properties are needed; the same identity reuses
+    // its native refresh worker without creating a private Kafka cache binding.
+    ASSERT_TRUE(
+            configure_kafka_kerberos(*conf, "alice@REALM", "/managed/1.keytab", manager, &shared)
+                    .ok());
+    EXPECT_EQ(cache, shared);
 }
 
-TEST(KafkaPropertiesTest, FailedManagedLoginDoesNotBindOrPublishCache) {
+TEST(KafkaPropertiesTest, FailedManagedLoginDoesNotPublishCache) {
     KafkaMockTicketMgr manager;
     manager.fail_login = true;
     std::shared_ptr<kerberos::KerberosTicketCache> cache;
@@ -204,7 +199,7 @@ TEST(KafkaPropertiesTest, FailedManagedLoginDoesNotBindOrPublishCache) {
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("KDC unavailable"), std::string::npos);
     EXPECT_EQ(nullptr, cache);
-    EXPECT_EQ(nullptr, manager.get_ticket_cache("user@REALM", "/managed/1.keytab"));
+    EXPECT_EQ(nullptr, manager.get_ticket_cache("user@REALM", "/managed/1.keytab", true));
 }
 
 } // namespace doris

@@ -127,8 +127,8 @@ Status KerberosTicketMgr::get_or_set_ticket_cache(
 }
 
 std::shared_ptr<KerberosTicketCache> KerberosTicketMgr::get_ticket_cache(
-        const std::string& principal, const std::string& keytab_path) {
-    std::string key = KerberosConfig::get_hash_code(principal, keytab_path);
+        const std::string& principal, const std::string& keytab_path, bool use_default_cache) {
+    std::string key = KerberosConfig::get_hash_code(principal, keytab_path, use_default_cache);
 
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _ticket_caches.find(key);

@@ -37,7 +37,8 @@ class KerberosTicketMgr;
 Status configure_kafka_security(RdKafka::Conf& conf,
                                 const std::map<std::string, std::string>& properties);
 // keytab_path must already have been resolved by SmallFileMgr. Keep the returned
-// cache alive until the Kafka consumer (and all of its connections) is destroyed.
+// refresh worker alive until the Kafka consumer is destroyed. Tickets are written
+// to the process default cache, preserving the existing shared-cache semantics.
 Status configure_kafka_kerberos(RdKafka::Conf& conf, const std::string& principal,
                                 const std::string& keytab_path,
                                 kerberos::KerberosTicketMgr& manager,

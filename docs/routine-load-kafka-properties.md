@@ -46,17 +46,22 @@ when a keytab is supplied. Raw BE keytab paths are rejected. The BE still needs
 operator-configured Kerberos realm/KDC settings and network access to the KDC.
 
 After resolving the managed file, Doris's native Kerberos ticket manager calls
-libkrb5 to acquire tickets. It maintains separate caches for different
-principal/keytab pairs and refreshes tickets at half their lifetime or the
-configured refresh interval, whichever is shorter. A refresh failure is logged
-and retried on the next poll. Consumers retain the cache while they are alive.
+libkrb5 to acquire tickets and writes the process default credential cache,
+selected by the operator's `KRB5CCNAME` or Kerberos configuration. The unmodified
+librdkafka/SASL client discovers credentials through its existing default-cache
+behavior. Doris does not change `KRB5CCNAME` while jobs are running.
 
-Doris's librdkafka patch binds each GSSAPI connection to credentials acquired
-from that consumer's cache using `gss_acquire_cred_from` and `SASL_GSS_CREDS`.
-Connections acquire fresh credential handles on reconnect, picking up renewed
-tickets. No process-wide `KRB5CCNAME` switching is used. Cache acquisition or
-binding failure fails authentication instead of selecting another job's identity.
-The internal `sasl.kerberos.ticket.cache` property cannot be set through SQL.
+Doris refreshes tickets at half their lifetime or the configured refresh
+interval, whichever is shorter. A refresh failure is logged and retried on the
+next poll. Consumers retain their native refresh worker while they are alive.
+Default-cache writers are serialized, and releasing a worker does not delete the
+default cache. Other users of the ticket manager retain its private-cache mode.
+
+This preserves the existing shared-cache limitation: jobs using different
+identities on one BE can overwrite the same default cache during login or
+refresh. This change does not provide per-job credential isolation. Use a common
+Kafka identity for jobs sharing a default cache; multi-identity isolation is
+outside the scope of this fix.
 
 `sasl.kerberos.kinit.cmd` remains forbidden. The librdkafka
 `sasl.kerberos.min.time.before.relogin` option accepts only the literal `0` and
@@ -76,7 +81,7 @@ cache; in that mode the operator remains responsible for ticket renewal.
   the job. ALTER merges properties and cannot remove an existing rejected key.
 - FE explicitly sends the zero Kerberos refresh interval to protect requests
   sent to older BEs during a rolling upgrade. Native automatic login requires
-  upgraded BEs; an older BE cannot consume the new per-job ticket cache. Upgrade
+  upgraded BEs; an older BE does not run the native refresh worker. Upgrade
   eligible BEs before relying on managed keytab login.
 - Upgraded BEs validate the complete property map before applying any custom
   setting, covering metadata probes and tasks from older FEs. They disable
@@ -84,8 +89,7 @@ cache; in that mode the operator remains responsible for ticket renewal.
 - Both sides should be upgraded. An old FE sending work to an old BE retains
   its previous behavior until one of those components is upgraded.
 
-Rebuild the `librdkafka-2.16.0` third-party dependency with the updated Doris patch
-before building BE. An unpatched library fails the mandatory cache-binding
-configuration; it does not silently fall back to the process cache.
+This fix adds no librdkafka patch or custom librdkafka property and requires no
+third-party dependency rebuild beyond the normal Doris build requirements.
 
 No Thrift field IDs, enum values, or persisted data formats change.

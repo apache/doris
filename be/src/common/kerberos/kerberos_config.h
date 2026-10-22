@@ -53,15 +53,24 @@ public:
     // Get the minimum time before refresh in seconds
     int32_t get_min_time_before_refresh_second() const { return _min_time_before_refresh_second; }
 
-    std::string get_hash_code() const { return _get_hash_code(_principal, _keytab_path); }
+    // Kafka uses the same default cache as the unmodified SASL client. Other
+    // users retain the existing manager-owned cache files.
+    void set_use_default_cache(bool value) { _use_default_cache = value; }
+    bool use_default_cache() const { return _use_default_cache; }
+
+    std::string get_hash_code() const {
+        return get_hash_code(_principal, _keytab_path, _use_default_cache);
+    }
 
     // Use principal and keytab to generate a hash code.
-    static std::string get_hash_code(const std::string& principal, const std::string& keytab);
+    static std::string get_hash_code(const std::string& principal, const std::string& keytab,
+                                     bool use_default_cache = false);
 
 private:
     static std::string _get_hash_code(const std::string& principal, const std::string& keytab);
 
 private:
+    bool _use_default_cache = false;
     // Kerberos principal name (e.g., "user@REALM.COM")
     std::string _principal;
     // Path to the Kerberos keytab file

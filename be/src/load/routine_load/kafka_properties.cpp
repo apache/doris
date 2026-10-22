@@ -95,19 +95,15 @@ Status configure_kafka_kerberos(RdKafka::Conf& conf, const std::string& principa
                                 std::shared_ptr<kerberos::KerberosTicketCache>* ticket_cache) {
     kerberos::KerberosConfig config;
     config.set_principal_and_keytab(principal, keytab_path);
+    config.set_use_default_cache(true);
     std::shared_ptr<kerberos::KerberosTicketCache> cache;
     RETURN_IF_ERROR(manager.get_or_set_ticket_cache(config, &cache));
-    // This internal property is deliberately absent from the SQL allowlist.
-    // The patched Cyrus provider acquires credentials from this cache for each
-    // connection, so two consumers never change each other's default identity.
+    // Unmodified librdkafka discovers the process default Kerberos cache.
+    // Native login and renewal therefore write that cache, just as kinit did.
+    // This retains the existing shared-cache behavior, not per-job isolation.
     std::string error;
     if (conf.set("sasl.kerberos.principal", principal, error) != RdKafka::Conf::CONF_OK) {
         return Status::InternalError("PAUSE: failed to set Kafka Kerberos principal: {}", error);
-    }
-    if (conf.set("sasl.kerberos.ticket.cache", "FILE:" + cache->get_ticket_cache_path(), error) !=
-        RdKafka::Conf::CONF_OK) {
-        return Status::InternalError("PAUSE: failed to bind Kafka Kerberos ticket cache: {}",
-                                     error);
     }
     *ticket_cache = std::move(cache);
     return Status::OK();

@@ -26,6 +26,7 @@ public:
     Status init_context(krb5_context* context) override;
     Status parse_name(krb5_context context, const char* name, krb5_principal* principal) override;
     Status kt_resolve(krb5_context context, const char* name, krb5_keytab* keytab) override;
+    const char* cc_default_name(krb5_context context) override;
     Status cc_resolve(krb5_context context, const char* name, krb5_ccache* ccache) override;
     Status get_init_creds_opt_alloc(krb5_context context, krb5_get_init_creds_opt** opt) override;
     Status get_init_creds_keytab(krb5_context context, krb5_creds* creds, krb5_principal client,

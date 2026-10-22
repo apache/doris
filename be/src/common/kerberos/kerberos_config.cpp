@@ -27,8 +27,11 @@ namespace doris::kerberos {
 KerberosConfig::KerberosConfig()
         : _refresh_interval_second(3600), _min_time_before_refresh_second(600) {}
 
-std::string KerberosConfig::get_hash_code(const std::string& principal, const std::string& keytab) {
-    return _get_hash_code(principal, keytab);
+std::string KerberosConfig::get_hash_code(const std::string& principal, const std::string& keytab,
+                                          bool use_default_cache) {
+    // A Kafka default-cache request must not reuse a private cache for the same
+    // principal/keytab; the unmodified Kafka client cannot discover that file.
+    return (use_default_cache ? "default:" : "") + _get_hash_code(principal, keytab);
 }
 
 std::string KerberosConfig::_get_hash_code(const std::string& principal,
