@@ -347,9 +347,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
 
     // read data, verify the data correct
     OlapReaderStatistics stats;
-    StorageReadOptions opts;
-    opts.stats = &stats;
-    opts.tablet_schema = rowset->tablet_schema();
+    StorageReadOptions opts(stats);
 
     std::unique_ptr<RowwiseIterator> iter;
     std::shared_ptr<ReadSchema> schema = create_full_schema(rowset->tablet_schema());

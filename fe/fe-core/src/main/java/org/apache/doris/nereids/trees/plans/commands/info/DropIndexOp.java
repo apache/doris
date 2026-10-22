@@ -125,8 +125,8 @@ public class DropIndexOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Dropping secondary index is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Dropping secondary index is allowed for changelog tables.
         return true;
     }
 

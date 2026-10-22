@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_ivm_union_delete_same_base") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     sql """DROP MATERIALIZED VIEW IF EXISTS ivm_udsb_mv"""
     sql """DROP TABLE IF EXISTS ivm_udsb_events"""
 
@@ -31,9 +33,8 @@ suite("test_ivm_union_delete_same_base") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 

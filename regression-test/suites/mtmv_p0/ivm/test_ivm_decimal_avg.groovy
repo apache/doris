@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_ivm_decimal_avg", "mtmv") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     def tableName = "test_ivm_decimal_avg_base"
     def mvName = "test_ivm_decimal_avg_mv"
 
@@ -33,9 +35,8 @@ suite("test_ivm_decimal_avg", "mtmv") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 

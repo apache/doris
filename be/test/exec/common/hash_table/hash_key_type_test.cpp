@@ -24,8 +24,18 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 
 namespace doris {
+
+TEST(HashKeyTypeTest, BinaryKeysAreNotSupported) {
+    auto type = std::make_shared<DataTypeVarbinary>();
+    for (const auto& key : DataTypes {type, make_nullable(type)}) {
+        EXPECT_THROW(get_hash_key_type({key}), Exception);
+        EXPECT_THROW(get_hash_key_type({key, std::make_shared<DataTypeInt32>()}), Exception);
+        EXPECT_THROW(get_hash_key_type({std::make_shared<DataTypeInt32>(), key}), Exception);
+    }
+}
 
 TEST(HashKeyTypeTest, FixedWidthStructUsesSerializedKey) {
     const auto group_key = make_nullable(std::make_shared<DataTypeInt32>());

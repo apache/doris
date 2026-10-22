@@ -31,9 +31,8 @@ suite("test_ivm_refresh_dry_run") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         )
     """
@@ -48,7 +47,7 @@ suite("test_ivm_refresh_dry_run") {
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
-        AS SELECT k1, COUNT(*) AS cnt, SUM(v1) AS sum_v1
+        AS SELECT /*+ SET_VAR(query_timeout=180) */ k1, COUNT(*) AS cnt, SUM(v1) AS sum_v1
            FROM test_ivm_refresh_dry_run_base
            GROUP BY k1
     """

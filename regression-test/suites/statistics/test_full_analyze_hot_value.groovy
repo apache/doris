@@ -133,42 +133,67 @@ suite("test_full_analyze_hot_value") {
     // All 100 rows have the same value " : ;a", so it should appear with ratio 1.0
     assertEquals("' : ;a':1.0", result[0][17])
 
-    // Test 5: Sample analyze collects hot_value by default.
+    // Test 5: A sample analyze whose sample request exceeds the table row count falls back to a
+    // full scan and uses the linear estimator, which does not collect hot_value.
     sql """drop stats full_hot_skew"""
     sql """analyze table full_hot_skew with sample rows 400 with sync"""
     result = sql """show column stats full_hot_skew(value1)"""
     logger.info("Test5 result: " + result)
     assertEquals(1, result.size())
-    assertTrue(result[0][17].contains(":"), "Sample analyze should also collect hot_value")
-    hotValues = result[0][17].split(";")
-    assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0].trim() == "'1':0.5" || hotValues[0].trim() == "'0':0.5")
-    assertTrue(hotValues[1].trim() == "'1':0.5" || hotValues[1].trim() == "'0':0.5")
+    assertEquals("null", String.valueOf(result[0][17]))
 
-    // Test 6: Sample analyze rejects WITH HOT VALUE because it always collects hot_value.
-    test {
-        sql """analyze table full_hot_skew with sample rows 400 with sync with hot value"""
-        exception "Sample analyze always collects hot value"
-    }
-
-    // Test 7: Explicit full analyze produces same hot_value as sample analyze for same data.
+    // Test 6: WITH HOT VALUE is accepted on a sample analyze and has no effect here: hot values are
+    // collected only for the columns the DUJ1 estimator serves, and full_hot_skew is small enough
+    // that its sample analyze falls back to a full scan (rendered with the linear template), which
+    // does not collect them.
     sql """drop stats full_hot_skew"""
-    sql """analyze table full_hot_skew with sync with hot value"""
-    def fullResult = sql """show column stats full_hot_skew(value1)"""
+    sql """analyze table full_hot_skew with sample rows 400 with sync with hot value"""
+    result = sql """show column stats full_hot_skew(value1)"""
+    logger.info("Test6 result: " + result)
+    assertEquals(1, result.size())
+    assertEquals("null", String.valueOf(result[0][17]))
+
+    // Test 7: Explicit full analyze produces the same hot_value as a sample analyze that really
+    // samples. The column value is uniform, so the sampled rows always carry the same
+    // distribution as the whole table, and the table is larger than the requested sample rows,
+    // so sample analyze uses the DUJ1 estimator instead of falling back to a full scan.
+    sql """drop table if exists full_hot_sample_agree"""
+    sql """CREATE TABLE full_hot_sample_agree (
+            key1 int NULL,
+            value1 varchar(50) NULL
+        )ENGINE=OLAP
+        DUPLICATE KEY(`key1`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`key1`) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """insert into full_hot_sample_agree select number, " : ;a" from numbers("number"="10000")"""
+    wait_row_count_reported("test_full_analyze_hot_value", "full_hot_sample_agree", 0, 4, "10000")
+
+    sql """analyze table full_hot_sample_agree with sync with hot value"""
+    def fullResult = sql """show column stats full_hot_sample_agree(value1)"""
     logger.info("Test7 full result: " + fullResult)
     assertEquals(1, fullResult.size())
-    assertTrue(fullResult[0][17].contains(":"))
-    def fullParts = fullResult[0][17].split(";").collect { it.trim() }.sort()
+    assertEquals("' : ;a':1.0", fullResult[0][17])
 
-    sql """drop stats full_hot_skew"""
-    sql """analyze table full_hot_skew with sample rows 40000 with sync"""
-    def sampleResult = sql """show column stats full_hot_skew(value1)"""
+    sql """drop stats full_hot_sample_agree"""
+    sql """analyze table full_hot_sample_agree with sample rows 400 with sync"""
+    def sampleResult = sql """show column stats full_hot_sample_agree(value1)"""
     logger.info("Test7 sample result: " + sampleResult)
     assertEquals(1, sampleResult.size())
-    assertTrue(sampleResult[0][17].contains(":"))
-    // Both full and sample should produce the same hot_value entries (order may differ)
-    def sampleParts = sampleResult[0][17].split(";").collect { it.trim() }.sort()
-    assertEquals(fullParts, sampleParts)
+    // Both full and sample should produce the same hot_value entry.
+    assertEquals(fullResult[0][17], sampleResult[0][17])
+
+    // WITH HOT VALUE is accepted on a sample analyze and does not interfere with the estimator:
+    // this table really samples, so DUJ1 still collects the hot value.
+    sql """drop stats full_hot_sample_agree"""
+    sql """analyze table full_hot_sample_agree with sample rows 400 with sync with hot value"""
+    result = sql """show column stats full_hot_sample_agree(value1)"""
+    logger.info("Test7 sample with hot value result: " + result)
+    assertEquals(1, result.size())
+    assertEquals("' : ;a':1.0", result[0][17])
 
     // Test 8: Explicit full analyze on empty table should produce an empty hot_value string.
     sql """drop table if exists full_hot_empty"""

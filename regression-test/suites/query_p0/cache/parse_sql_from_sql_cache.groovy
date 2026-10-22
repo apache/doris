@@ -681,6 +681,7 @@ suite("parse_sql_from_sql_cache") {
 
                         def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
                         scp_udf_file_to_all_be(jarPath)
+                        scp_udf_file_to_all_fe(jarPath)
                         try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
                         try_sql("DROP TABLE IF EXISTS test_javaudf_string")
 

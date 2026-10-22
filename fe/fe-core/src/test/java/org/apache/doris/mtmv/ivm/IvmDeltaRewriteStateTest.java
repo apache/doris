@@ -43,7 +43,7 @@ import java.util.Optional;
 class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
 
     @Test
-    void testSequenceEncodesRefreshVersionAndDeltaIndex() {
+    void testSequenceEncodesSequencePrefixAndDeltaIndex() {
         IvmDeltaRewriteState state = new IvmDeltaRewriteState(
                 ImmutableMap.of(), false, 7L, BigIntType.INSTANCE, ImmutableMap.of());
 
@@ -155,7 +155,7 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
                     new RandomDistributionInfo(1));
             table.addPartition(partition);
         }
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return table;
     }
@@ -172,7 +172,7 @@ class IvmDeltaRewriteStateTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testLargeIntSequenceEncodesRefreshVersionAndDeltaIndex() {
+    void testLargeIntSequenceEncodesSequencePrefixAndDeltaIndex() {
         IvmDeltaRewriteState state = new IvmDeltaRewriteState(
                 ImmutableMap.of(), false, 7L, LargeIntType.INSTANCE, ImmutableMap.of());
 

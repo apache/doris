@@ -65,6 +65,10 @@ header:
     # the whole file and compares it to this one line for line, so a header would read back
     # as extra rows; it prints the regenerated path on mismatch instead.
     - "fe/fe-core/src/test/resources/access-control-behavior-baseline.txt"
+    # Hive-generated CSV oracle. The FE test compares every line with regenerated
+    # data, and both BE readers consume every line as a record; a header would
+    # become unexpected test data. Exclude only this fixture, not all TSV files.
+    - "fe/fe-connector/fe-connector-hive/src/test/resources/hive-csv-oracle.tsv"
     # Golden protocol traffic. MysqlPacketGoldenTest and FlightResultGoldenTest regenerate
     # each file in full and compare it to this one byte for byte, so a header would read back
     # as unexpected leading content; both tests print the regeneration command on mismatch.
@@ -122,8 +126,7 @@ header:
     - "be/src/util/mustache/mustache.h"
     - "be/src/util/sse2neo.h"
     - "be/src/util/sse2neon.h"
-    - "be/src/util/utf8_check.cpp"
-    - "be/src/storage/index/inverted/analyzer/kuromoji/dict/darts.h"
+    - "be/src/storage/index/inverted/analysis/analyzer/kuromoji/dict/darts.h"
     - "be/src/pch/*"
     - "be/test/data"
     - "be/test/expected_result"
@@ -140,6 +143,10 @@ header:
     - "docker/thirdparties/docker-compose/kerberos/paimon_data/**"
     - "docker/thirdparties/docker-compose/kerberos/sql/**"
     - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
+    # Generated Paimon schema and snapshot metadata. These files are copied verbatim into
+    # MinIO by the Iceberg third-party initializer and cannot carry source comments.
+    - "docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/paimon/**/schema/**"
+    - "docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/paimon/**/snapshot/**"
     - "docker/thirdparties/docker-compose/postgresql/certs/**"
     - "docker/thirdparties/docker-compose/mysql/certs/**"
     - "conf/mysql_ssl_default_certificate/*"

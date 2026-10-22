@@ -17,23 +17,28 @@
 
 package org.apache.doris.arrowflight.protocol;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -44,6 +49,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -58,8 +65,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * An Arrow Flight SQL session is a ConnectContext bound to a FlightProtocolAdapter. The adapter
- * owns what only that protocol has (result cache, endpoints, deferred executors, the pool the
- * session is registered in) and serializes the session's commands, which gRPC does not do.
+ * owns what only that protocol has (result cache, endpoints, deferred executors) and serializes
+ * the session's commands, which gRPC does not do; the session is registered in the one connection
+ * pool every protocol shares, which asks the adapter to release those on teardown.
  */
 public class FlightProtocolAdapterTest {
     private boolean savedRunningUnitTest;
@@ -78,7 +86,10 @@ public class FlightProtocolAdapterTest {
     }
 
     private static ConnectContext flightSession() {
-        return ConnectContext.forFlight("test-peer-identity");
+        // Registrable in the one pool: the pool files a session under its user and asks its Env
+        // for the user's connection limit.
+        return ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100), UserIdentity.ROOT,
+                "test-peer-identity");
     }
 
     // A command that blocks on a latch, run from a plain thread.
@@ -115,7 +126,7 @@ public class FlightProtocolAdapterTest {
         Assertions.assertEquals("test-peer-identity", ctx.getPeerIdentity());
         Assertions.assertSame(adapter.getChannel(), ctx.getFlightSqlChannel());
         Assertions.assertTrue(ctx.isReturnResultFromLocal());
-        Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
 
         // There is no MySQL side to such a session.
         Assertions.assertThrows(IllegalStateException.class, ctx::getMysqlChannel);
@@ -124,7 +135,7 @@ public class FlightProtocolAdapterTest {
     }
 
     @Test
-    public void testSessionRegistersItsTraceIdInTheFlightPool() {
+    public void testSessionRegistersItsTraceIdInThePool() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ConnectContext ctx = flightSession();
         ctx.setConnectScheduler(scheduler);
@@ -133,25 +144,51 @@ public class FlightProtocolAdapterTest {
 
         ctx.setQueryId(queryId);
 
-        Assertions.assertEquals(DebugUtil.printId(queryId),
-                scheduler.getFlightSqlConnectPoolMgr().getQueryIdByTraceId("trace-1"));
-        Assertions.assertEquals("", scheduler.getConnectPoolMgr().getQueryIdByTraceId("trace-1"));
+        Assertions.assertEquals(DebugUtil.printId(queryId), scheduler.getQueryIdByTraceId("trace-1"));
     }
 
     @Test
-    public void testKillUnregistersTheSessionFromTheFlightPool() {
+    public void testKillUnregistersTheSessionFromThePool() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ConnectContext ctx = flightSession();
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
         Assertions.assertSame(ctx, scheduler.getContext(ctx.getConnectionId()));
+        Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
 
         ctx.kill(true);
 
         Assertions.assertTrue(ctx.isKilled());
         Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
+        Assertions.assertNull(scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
     }
+
+    // Every Flight session teardown path meets in the pool's unregisterConnection, which asks the
+    // protocol to release what it holds: the channel-cached results first, then the deferred
+    // executors (tearDown), whether or not the session was ever registered.
+    @Test
+    public void testReleaseSessionClosesTheChannelAndTearsTheSessionDown() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        // A result the client never pulled: off-heap Arrow buffers the channel holds.
+        adapter.getChannel().addOKResult("query-1", "SELECT 1");
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+
+        ctx.releaseProtocolSession();
+
+        // The channel's results are released with their buffers, and the deferred query finalized.
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        // Idempotent: the second release finds nothing to do, throws nothing, and finalizes nothing twice.
+        Assertions.assertDoesNotThrow(ctx::releaseProtocolSession);
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
+
 
     @Test
     public void testCommandsOfOneSessionRunOneAtATime() throws Exception {
@@ -198,6 +235,35 @@ public class FlightProtocolAdapterTest {
         previous.setThreadLocalInfo();
         Assertions.assertSame(ctx, adapter.callCommand(ctx, ConnectContext::get));
         Assertions.assertSame(previous, ConnectContext.get());
+    }
+
+    // A command of the session is activity of its client, whether or not it runs a statement:
+    // wait_timeout starts over. What the last statement recorded is kept, though: a deferred query
+    // of the session is finished later from that record.
+    @Test
+    public void testACommandIsActivityOfTheSession() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        ctx.setStartTime();
+        ctx.updateReturnRows(7);
+        ctx.getBackendSelectionProfile().recordQuerySelection(
+                new BackendSelection.SelectionHint("group_a", BackendSelection.Mode.PREFER, "test"),
+                BackendSelection.QuerySelectionResult.PREFERRED_HIT);
+        long before = ctx.getStartTime();
+        while (System.currentTimeMillis() <= before) {
+            Thread.sleep(1);
+        }
+
+        adapter.runCommand(ctx, () -> { });
+
+        Assertions.assertTrue(ctx.getStartTime() > before);
+        Assertions.assertEquals(ctx.getStartTime(), ctx.getStartTimeInstant().toEpochMilli());
+        Assertions.assertEquals(7, ctx.getReturnRows());
+        Assertions.assertNotNull(ctx.getBackendSelectionProfile().getQuerySummary());
+        // Starting a statement does drop the record, as it always did.
+        ctx.setStartTime();
+        Assertions.assertEquals(0, ctx.getReturnRows());
+        Assertions.assertNull(ctx.getBackendSelectionProfile().getQuerySummary());
     }
 
     @Test
@@ -278,7 +344,9 @@ public class FlightProtocolAdapterTest {
         adapter.beforeQuery(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred);
+        Assertions.assertEquals(Lists.newArrayList(deferred), ctx.getFlightSqlDeferredExecutors());
         adapter.beginRequest();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
         Mockito.verify(deferred).finalizeArrowFlightQuery();
         Assertions.assertEquals(0, adapter.getChannel().resultNum());
         Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());
@@ -353,6 +421,7 @@ public class FlightProtocolAdapterTest {
                 Lists.<List<String>>newArrayList(Lists.newArrayList("v")));
 
         // A statement without a result lets the request go on.
+        adapter.beforeStatement(ctx);
         Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
 
         // A result produced by the last statement is fine ...
@@ -361,10 +430,118 @@ public class FlightProtocolAdapterTest {
         Assertions.assertTrue(adapter.finishStatement(ctx, executor, 1, 2));
         Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType());
 
-        // ... one produced earlier stops the request with the error the client will see.
+        // ... one produced earlier stops the request with the error the client will see. A result
+        // cached on this frontend has nothing to cancel.
         Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
         Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
         Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
+        Mockito.verify(executor, Mockito.never()).cancel(Mockito.any(Status.class));
+
+        // A result left on the backends counts the same as one cached here: the FlightInfo of the
+        // request describes exactly one result, so a query that is not the last statement stops the
+        // request too, wherever its result is -- and the query, which nobody will pull from the
+        // backends, is cancelled there rather than left to the BE's result buffer timer ...
+        adapter.beginRequest();
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.beforeQuery(ctx);
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertFalse(adapter.finishStatement(ctx, executor, 0, 2));
+        Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, ctx.getState().getErrorCode());
+        ArgumentCaptor<Status> cancelReason = ArgumentCaptor.forClass(Status.class);
+        Mockito.verify(executor).cancel(cancelReason.capture());
+        Assertions.assertEquals(TStatusCode.CANCELLED, cancelReason.getValue().getErrorCode());
+        // ... and as the last statement its result is the request's.
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.beforeQuery(ctx);
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 1, 2));
+        Assertions.assertNotEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        // A query that failed produced no result, wherever it was headed: the request stops with
+        // the query's own error, not with this one.
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.beforeQuery(ctx);
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "the query's own error");
+        Assertions.assertTrue(adapter.finishStatement(ctx, executor, 0, 2));
+        Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, ctx.getState().getErrorCode());
+    }
+
+    // A request that fails after deferring its query (GetFlightInfo failed after planning) returns
+    // no FlightInfo, so no DoGet will pull the result: the query is cancelled on the backends and
+    // its executor finalized, once, in that order.
+    @Test
+    public void testAFailedRequestCancelsTheQueryItDeferred() {
+        ConnectContext ctx = flightSession();
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        Status reason = new Status(TStatusCode.CANCELLED, "get flight info statement failed");
+
+        ctx.cancelFlightSqlDeferredExecutors(reason);
+
+        InOrder inOrder = Mockito.inOrder(deferred);
+        inOrder.verify(deferred).cancel(reason);
+        inOrder.verify(deferred).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        // Nothing left to take: a second call is a no-op.
+        ctx.cancelFlightSqlDeferredExecutors(reason);
+        Mockito.verify(deferred, Mockito.times(1)).cancel(reason);
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
+
+    // Session teardown (CloseSession, the bearer token's expiry, KILL, the timeout checker) does
+    // not wait for the command that may be running: the command goes on, and its query may be
+    // deferred after teardown took everything the list held. Nothing would ever take that
+    // executor -- the session runs no next request, the timeout checker no longer sees it -- so a
+    // torn-down session finalizes what is deferred to it on the spot, and runs no further command.
+    @Test
+    public void testATornDownSessionFinalizesWhatIsDeferredToItOnTheSpot() throws Exception {
+        ConnectScheduler scheduler = new ConnectScheduler(10, 10);
+        ConnectContext ctx = flightSession();
+        ctx.setConnectScheduler(scheduler);
+        scheduler.submit(ctx);
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor before = Mockito.mock(StmtExecutor.class);
+        StmtExecutor late = Mockito.mock(StmtExecutor.class);
+        CountDownLatch commandStarted = new CountDownLatch(1);
+        CountDownLatch tornDown = new CountDownLatch(1);
+        ctx.addFlightSqlDeferredExecutor(before);
+
+        // A command of the session is running, and defers its query once the session is gone.
+        Thread command = new Thread(() -> holdSession(adapter, ctx, () -> {
+            commandStarted.countDown();
+            tornDown.await();
+            ctx.addFlightSqlDeferredExecutor(late);
+        }));
+        command.start();
+        Assertions.assertTrue(commandStarted.await(10, TimeUnit.SECONDS));
+
+        // Teardown (here KILL, the same unregisterConnection as CloseSession and token expiry) goes
+        // through without waiting for the command ...
+        ctx.kill(true);
+        Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
+        Mockito.verify(before).finalizeArrowFlightQuery();
+        Mockito.verify(late, Mockito.never()).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+
+        // ... and what the command defers afterwards is finalized by the command itself, once.
+        tornDown.countDown();
+        command.join(10_000);
+        Assertions.assertFalse(command.isAlive());
+        Mockito.verify(late).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        ctx.closeFlightSqlDeferredExecutors();
+        Mockito.verify(late, Mockito.times(1)).finalizeArrowFlightQuery();
+
+        // A command that gets its turn after teardown does not run on the session, and leaves the
+        // thread as it found it.
+        ConnectContext.remove();
+        FlightRuntimeException e = Assertions.assertThrows(FlightRuntimeException.class,
+                () -> adapter.runCommand(ctx, () -> Assertions.fail("must not run on a torn-down session")));
+        Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code());
+        Assertions.assertTrue(e.status().description().contains("closed"), e.status().description());
+        Assertions.assertNull(ConnectContext.get());
     }
 
     @Test

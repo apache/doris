@@ -178,6 +178,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.shuffleSendBytes).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.spillWriteBytesToLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.spillReadBytesFromLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.spillWriteBytesToRemoteStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.spillReadBytesFromRemoteStorage).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.scanBytesFromLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.scanBytesFromRemoteStorage).append(AUDIT_TABLE_COL_SEPARATOR);
 
@@ -212,6 +214,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // resource
         appendField(logBuffer, event.workloadGroup);
         appendField(logBuffer, event.cloudClusterName);
+
+        // protocol
+        appendField(logBuffer, event.protocol);
 
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;

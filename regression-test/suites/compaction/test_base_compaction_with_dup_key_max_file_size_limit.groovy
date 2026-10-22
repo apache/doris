@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
     def tableName = "test_base_compaction_with_dup_key_max_file_size_limit"
+    def originalDisableAutoCompaction = null
+    def originalBaseCompactionFileSizeLimit = null
 
-    // use customer table of tpch_sf100
-    def rows = 15000000
+    // Use customer table of tpch_sf100. The table is recreated for every run, so each call must
+    // load one complete copy and advance the exact expected row count.
+    def rowsPerLoad = 15000000
+    def expectedRows = 0
+    def compactionTimeoutSeconds = 1200
     def load_tpch_sf100_customer = {
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
-        def rowCount = sql "select count(*) from ${tableName}"
         def s3BucketName = getS3BucketName()
         def s3WithProperties = """WITH S3 (
             |"AWS_ACCESS_KEY" = "${getS3AK()}",
@@ -36,10 +38,9 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             |"exec_mem_limit" = "8589934592",
             |"load_parallelism" = "3")""".stripMargin()
         sql "ADMIN SET FRONTEND CONFIG ('max_bytes_per_broker_scanner' = '161061273600')"
-        if (rowCount[0][0] != rows) {
-            def loadLabel = tableName + "_" + uniqueID
-            // load data from cos
-            def loadSql = """
+        def loadLabel = tableName + "_" + uniqueID
+        // load data from cos
+        def loadSql = """
             LOAD LABEL ${loadLabel}(
                 DATA INFILE("s3://${s3BucketName}/regression/tpch/sf100/customer.tbl")
                 INTO TABLE ${tableName}
@@ -47,74 +48,35 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
                 (c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, temp)
             )
             """
-            loadSql = loadSql + s3WithProperties
-            sql loadSql
+        loadSql = loadSql + s3WithProperties
+        sql loadSql
 
-            // check load state
-            while (true) {
-                def stateResult = sql "show load where Label = '${loadLabel}'"
-                logger.info("load result is ${stateResult}")
-                def loadState = stateResult[stateResult.size() - 1][2].toString()
-                if ("CANCELLED".equalsIgnoreCase(loadState)) {
-                    throw new IllegalStateException("load ${loadLabel} failed.")
-                } else if ("FINISHED".equalsIgnoreCase(loadState)) {
-                    rows += 15000000
-                    break
-                }
-                sleep(5000)
+        // check load state
+        while (true) {
+            def stateResult = sql "show load where Label = '${loadLabel}'"
+            logger.info("load result is ${stateResult}")
+            def loadState = stateResult[stateResult.size() - 1][2].toString()
+            if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                throw new IllegalStateException("load ${loadLabel} failed.")
+            } else if ("FINISHED".equalsIgnoreCase(loadState)) {
+                expectedRows += rowsPerLoad
+                break
             }
+            sleep(5000)
         }
     }
     try {
-        String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
-
-        def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
-            // trigger compactions for all tablets in ${tableName}
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X POST http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run?tablet_id=")
-            sb.append(tablet_id)
-            sb.append("&compact_type=${compact_type}")
-
-            String command = sb.toString()
-            logger.info(command)
-            def process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
-            if (!disableAutoCompaction) {
-                return "Success, " + out
-            }
-            assertEquals(code, 0)
-            return out
-        }
-
-        def getBaseCompactionStatus = { be_host, be_http_port, tablet_id ->
-            def (statusCode, statusOut, statusErr) = be_show_tablet_status(be_host, be_http_port, tablet_id)
-            logger.info("Show compaction status: code=" + statusCode + ", out=" + statusOut + ", err=" + statusErr)
-            assertEquals(0, statusCode)
-            return parseJson(statusOut.trim())["last base status"].toString()
-        }
+        originalDisableAutoCompaction = get_be_param("disable_auto_compaction")
+        originalBaseCompactionFileSizeLimit = get_be_param("base_compaction_dup_key_max_file_size_mbytes")
+        set_be_param("disable_auto_compaction", "true")
+        // The first base compaction builds the large base rowset used by the assertion below.
+        // Keep the limit out of the way during setup; otherwise cloud base compaction filters the
+        // large input rowsets before it can build that base rowset.
+        set_be_param("base_compaction_dup_key_max_file_size_mbytes", "10240")
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
@@ -149,7 +111,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-1] 0
         //      [2-2] 1G nooverlapping
         // cp: 3
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_and_wait_compaction(tableName, "cumulative", compactionTimeoutSeconds)
 
         // rowsets:
         //      [0-1] 0
@@ -163,14 +125,13 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [2-2] 1G nooverlapping
         //      [3-3] 1G nooverlapping
         // cp: 4
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_and_wait_compaction(tableName, "cumulative", compactionTimeoutSeconds)
 
-        // The conditions for base compaction have been satisfied.
-        // Since the size of first input rowset is 0, there is no file size limitation. (maybe fix it?)
+        // Build the large base rowset while the temporary 10GB limit keeps the size gate disabled.
         // rowsets:
         //      [0-3] 2G nooverlapping
         // cp: 4
-        trigger_and_wait_compaction(tableName, "base")
+        trigger_and_wait_compaction(tableName, "base", compactionTimeoutSeconds)
 
         // rowsets:
         //      [0-3] 2G nooverlapping
@@ -182,35 +143,61 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-3] 2G nooverlapping
         //      [4-4] 1G nooverlapping
         // cp: 5
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_and_wait_compaction(tableName, "cumulative", compactionTimeoutSeconds)
 
-        // Due to the limit of config::base_compaction_dup_key_max_file_size_mbytes(1G),
-        // can not do base compaction, return E-808
+        // The rowset layout is complete. Enable the limit only for the operation under test so it
+        // cannot interfere with construction of the large base rowset.
+        set_be_param("base_compaction_dup_key_max_file_size_mbytes", "512")
+
+        // The first input rowset is now larger than the 512MB limit, so the size gate filters it
+        // and manual base compaction must be rejected with E-808.
         // rowsets:
         //      [0-3] 2G nooverlapping
         //      [4-4] 1G nooverlapping
         // cp: 5
-        String trigger_backend_host = backendId_to_backendIP[trigger_backend_id]
-        String trigger_backend_http_port = backendId_to_backendHttpPort[trigger_backend_id]
-        def baseCompactionResult = triggerCompaction(trigger_backend_host, trigger_backend_http_port,
-                    "base", tablet_id)
-        String lastBaseStatus = baseCompactionResult
-        if (!baseCompactionResult.contains("E-808")) {
-            // Manual compaction may return success after its 2s async wait before
-            // the background task records BE_NO_SUITABLE_VERSION.
-            for (int i = 0; i < 300; i++) {
-                lastBaseStatus = getBaseCompactionStatus(trigger_backend_host, trigger_backend_http_port, tablet_id)
-                if (lastBaseStatus.contains("E-808")) {
+        def (beforeCode, beforeOut, beforeErr) = be_show_tablet_status(
+                backendId_to_backendIP[trigger_backend_id],
+                backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+        assertEquals(0, beforeCode,
+                "Get tablet status failed before base compaction: out=${beforeOut}, err=${beforeErr}")
+        def beforeBaseStatus = parseJson(beforeOut.trim())
+        def (compactionCode, compactionOut, compactionErr) = be_run_base_compaction(
+                backendId_to_backendIP[trigger_backend_id],
+                backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+        logger.info("Run expected-to-fail base compaction: code=${compactionCode}, out=${compactionOut}, err=${compactionErr}")
+        assertEquals(0, compactionCode)
+        String baseStatus = compactionOut
+        if (!baseStatus.contains("E-808")) {
+            // Cloud accepts the request before the compaction task reports the size-gate rejection.
+            // Poll the tablet status for this invocation instead of requiring E-808 in the POST response.
+            for (int retry = 0; retry < 60; retry++) {
+                def (statusCode, statusOut, statusErr) = be_show_tablet_status(
+                        backendId_to_backendIP[trigger_backend_id],
+                        backendId_to_backendHttpPort[trigger_backend_id], tablet_id, 5, 1)
+                assertEquals(0, statusCode,
+                        "Get tablet status failed after base compaction: out=${statusOut}, err=${statusErr}")
+                def currentStatus = parseJson(statusOut.trim())
+                baseStatus = currentStatus["last base status"].toString()
+                boolean statusChanged = ["last base schedule time", "last base failure time", "last base status"].any {
+                    beforeBaseStatus[it] != currentStatus[it]
+                }
+                if (statusChanged && baseStatus.contains("E-808")) {
                     break
                 }
-                sleep(1000)
+                sleep(500)
             }
         }
-        assertTrue(lastBaseStatus.contains("E-808"),
-                "base compaction result does not contain E-808, result=${baseCompactionResult}, lastBaseStatus=${lastBaseStatus}");
+        assertTrue(baseStatus.contains("E-808"),
+                "Expected E-808 from base compaction, POST response=${compactionOut}, final status=${baseStatus}")
 
         def rowCount = sql "select count(*) from ${tableName}"
-        assertTrue(rowCount[0][0] != rows)
+        assertEquals(expectedRows as long, rowCount[0][0] as long)
     } finally {
+        if (originalBaseCompactionFileSizeLimit != null) {
+            set_original_be_param("base_compaction_dup_key_max_file_size_mbytes", originalBaseCompactionFileSizeLimit)
+        }
+        if (originalDisableAutoCompaction != null) {
+            set_original_be_param("disable_auto_compaction", originalDisableAutoCompaction)
+        }
     }
 }

@@ -23,6 +23,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
@@ -40,19 +41,21 @@ CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRe
 CloudGroupRowsetBuilder::CloudGroupRowsetBuilder(CloudStorageEngine& engine,
                                                  const WriteRequest& group_build_req,
                                                  const WriteRequest& sub_data_req,
-                                                 const WriteRequest& sub_row_binlog_req,
+                                                 const WriteRequest& sub_changelog_req,
                                                  RuntimeProfile* profile)
         : CloudRowsetBuilder(engine, group_build_req, profile) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
            sub_data_req.write_req_type == WriteRequestType::DATA &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+           sub_changelog_req.write_req_type == WriteRequestType::CHANGELOG);
     _data_builder = std::make_shared<CloudRowsetBuilder>(engine, sub_data_req, profile);
-    _row_binlog_builder = std::make_shared<CloudRowsetBuilder>(engine, sub_row_binlog_req, profile);
+    _changelog_builder = std::make_shared<CloudRowsetBuilder>(engine, sub_changelog_req, profile);
 }
 
 CloudRowsetBuilder::~CloudRowsetBuilder() {
     // Clear file cache immediately when load fails
     if (_is_init && _rowset != nullptr && _rowset->rowset_meta()->rowset_state() == PREPARED) {
+        TEST_SYNC_POINT_CALLBACK("CloudRowsetBuilder::~CloudRowsetBuilder:before_clear_cache",
+                                 this);
         _rowset->clear_cache();
     }
 }
@@ -70,9 +73,9 @@ Status CloudRowsetBuilder::init() {
             }
         }
         RETURN_IF_ERROR(init_mow_context(mow_context));
-    } else if (_req.write_req_type == WriteRequestType::ROW_BINLOG) {
-        // Row binlog tablets use txn_delete_bitmap_cache for local make-visible.
-        // The real binlog delete bitmap is derived when the base tablet calculates delete bitmap.
+    } else if (_req.write_req_type == WriteRequestType::CHANGELOG) {
+        // Changelog tablets use txn_delete_bitmap_cache for local make-visible. The real changelog
+        // delete bitmap is derived when the base tablet calculates delete bitmap.
         _delete_bitmap = std::make_shared<DeleteBitmap>(_req.tablet_id);
     }
     RETURN_IF_ERROR(check_tablet_version_count());
@@ -89,6 +92,7 @@ Status CloudRowsetBuilder::init() {
     context.txn_id = _req.txn_id;
     context.txn_expiration = _req.txn_expiration;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.db_id = _req.table_schema_param->db_id();
     context.table_id = _req.table_schema_param->table_id();
     context.rowset_state = PREPARED;
@@ -99,15 +103,15 @@ Status CloudRowsetBuilder::init() {
     context.tablet_schema_hash = _req.schema_hash;
     context.index_id = _req.index_id;
     context.tablet = _tablet;
-    if (_req.write_req_type == WriteRequestType::ROW_BINLOG || !_attach_rowset_ids.empty()) {
+    if (_req.write_req_type == WriteRequestType::CHANGELOG || !_attach_rowset_ids.empty()) {
         context.enable_segcompaction = false;
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    context.write_binlog_opt().enable = _req.write_req_type == WriteRequestType::ROW_BINLOG;
-    context.file_cache_ttl_sec = _tablet->ttl_seconds();
+    context.write_changelog_opt().enable = _req.write_req_type == WriteRequestType::CHANGELOG;
+    context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     context.storage_resource = _engine.get_storage_resource(_req.storage_vault_id);
     if (!context.storage_resource) {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",
@@ -117,7 +121,8 @@ Status CloudRowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _rowset_id = context.rowset_id;
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",
@@ -129,23 +134,22 @@ Status CloudRowsetBuilder::init() {
 }
 
 Status CloudGroupRowsetBuilder::init() {
-    RETURN_IF_ERROR(_row_binlog_builder->init());
-    RETURN_IF_ERROR(
-            _data_builder->attach_pending_rs_guard_to_txn(_row_binlog_builder->rowset_id()));
+    RETURN_IF_ERROR(_changelog_builder->init());
+    RETURN_IF_ERROR(_data_builder->attach_pending_rs_guard_to_txn(_changelog_builder->rowset_id()));
     RETURN_IF_ERROR(_data_builder->init());
     _tablet = _data_builder->tablet_sptr();
 
     std::unique_ptr<GroupRowsetWriter> group_writer;
     RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
     group_writer->set_data_writer(_data_builder->rowset_writer());
-    group_writer->set_row_binlog_writer(_row_binlog_builder->rowset_writer());
+    group_writer->set_changelog_writer(_changelog_builder->rowset_writer());
     RETURN_IF_ERROR(group_writer->init(_data_builder->rowset_writer()->context()));
 
     {
         const auto& data_ctx = _data_builder->rowset_writer()->context();
-        auto& binlog_ctx =
-                const_cast<RowsetWriterContext&>(_row_binlog_builder->rowset_writer()->context());
-        auto& cfg = binlog_ctx.write_binlog_opt().write_binlog_config();
+        auto& changelog_ctx =
+                const_cast<RowsetWriterContext&>(_changelog_builder->rowset_writer()->context());
+        auto& cfg = changelog_ctx.write_changelog_opt().write_changelog_config();
         cfg.source.tablet_schema = data_ctx.tablet_schema;
         cfg.source.partial_update_info = data_ctx.partial_update_info;
         cfg.source.mow_context = data_ctx.mow_context;
@@ -160,7 +164,7 @@ Status CloudGroupRowsetBuilder::init() {
 }
 
 Status CloudGroupRowsetBuilder::build_rowset() {
-    RETURN_IF_ERROR(_row_binlog_builder->build_rowset());
+    RETURN_IF_ERROR(_changelog_builder->build_rowset());
     return _data_builder->build_rowset();
 }
 
@@ -172,32 +176,38 @@ Status CloudGroupRowsetBuilder::wait_calc_delete_bitmap() {
     return _data_builder->wait_calc_delete_bitmap();
 }
 
+Status CloudGroupRowsetBuilder::cancel(const Status& st) {
+    RETURN_IF_ERROR(_data_builder->cancel(st));
+    RETURN_IF_ERROR(_changelog_builder->cancel(st));
+    return BaseRowsetBuilder::cancel(st);
+}
+
 void CloudGroupRowsetBuilder::update_tablet_stats() {
     _data_builder->update_tablet_stats();
-    _row_binlog_builder->update_tablet_stats();
+    _changelog_builder->update_tablet_stats();
 }
 
 Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t table_id) {
     return _engine.meta_mgr().commit_rowset(*_data_builder->rowset_meta(), job_id, table_id,
-                                            nullptr, _row_binlog_builder->rowset_meta().get());
+                                            nullptr, _changelog_builder->rowset_meta().get());
 }
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {
-    RowBinlogTxnInfo attach_row_binlog;
-    attach_row_binlog.rowset = _row_binlog_builder->rowset();
-    attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
+    ChangelogTxnInfo attach_changelog;
+    attach_changelog.rowset = _changelog_builder->rowset();
+    attach_changelog.tablet = _changelog_builder->tablet_sptr();
     if (_data_builder->tablet()->enable_unique_key_merge_on_write()) {
-        attach_row_binlog.delete_bitmap =
-                std::make_shared<DeleteBitmap>(_row_binlog_builder->tablet()->tablet_id());
+        attach_changelog.delete_bitmap =
+                std::make_shared<DeleteBitmap>(_changelog_builder->tablet()->tablet_id());
     }
-    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(attach_row_binlog));
+    RETURN_IF_ERROR(_data_builder->attach_changelog_to_txn(attach_changelog));
     RETURN_IF_ERROR(_data_builder->set_txn_related_info());
-    return _row_binlog_builder->set_txn_related_info();
+    return _changelog_builder->set_txn_related_info();
 }
 
 void CloudGroupRowsetBuilder::set_skip_writing_rowset_metadata(bool skip) {
     _data_builder->set_skip_writing_rowset_metadata(skip);
-    _row_binlog_builder->set_skip_writing_rowset_metadata(skip);
+    _changelog_builder->set_skip_writing_rowset_metadata(skip);
 }
 
 Status CloudRowsetBuilder::check_tablet_version_count() {
@@ -250,7 +260,7 @@ Status CloudRowsetBuilder::commit_rowset(const std::string& job_id, int64_t tabl
 }
 
 Status CloudRowsetBuilder::set_txn_related_info() {
-    if (_tablet->enable_unique_key_merge_on_write() || _tablet->is_row_binlog_tablet()) {
+    if (_tablet->enable_unique_key_merge_on_write() || _tablet->is_changelog_tablet()) {
         // For empty rowsets when skip_writing_empty_rowset_metadata=true,
         // store only a lightweight marker instead of full rowset info.
         // This allows CalcDeleteBitmapTask to detect and skip gracefully,
@@ -275,7 +285,7 @@ Status CloudRowsetBuilder::set_txn_related_info() {
         }
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
-                _req.txn_expiration, _partial_update_info, _attach_row_binlog);
+                _req.txn_expiration, _partial_update_info, _attach_changelog);
     } else {
         // TSO-enabled rowsets must become visible from MS rowset meta.
         if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->is_tso_enabled()) {

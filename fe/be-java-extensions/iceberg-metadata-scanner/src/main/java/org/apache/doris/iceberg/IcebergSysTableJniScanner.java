@@ -27,6 +27,7 @@ import com.google.common.base.Preconditions;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
+import org.apache.iceberg.types.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +45,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
     private final int requiredFieldCount;
+    private final Type[] icebergTypes;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
 
@@ -57,6 +59,13 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 "required_fields should not be empty");
         String[] requiredFields = requiredFieldsParam.split(",");
         this.requiredFieldCount = requiredFields.length;
+        this.icebergTypes = new Type[requiredFieldCount];
+        for (int i = 0; i < requiredFieldCount; i++) {
+            // Resolve types by name, but read projected ROWS by position below. StaticDataTask.schema()
+            // can be the full schema even when its rows contain only the requested fields.
+            this.icebergTypes[i] = scanTask.schema().findType(requiredFields[i]);
+            Preconditions.checkNotNull(icebergTypes[i], "Missing Iceberg metadata field %s", requiredFields[i]);
+        }
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -104,7 +113,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
                 // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
                 Object value = row.get(i, Object.class);
-                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
+                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone, icebergTypes[i]);
                 appendData(i, columnValue);
             }
             rows++;

@@ -35,7 +35,8 @@ suite("txn_insert") {
         if (fes.size() > 1) {
             for (def fe : fes) {
                 if (fe.IsMaster == "false" && fe.Alive == "true") {
-                    return "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
+                    return getServerPrepareJdbcUrl("jdbc:mysql://${fe.Host}:${fe.QueryPort}/",
+                            "regression_test_insert_p0_transaction", false).replace("&useServerPrepStmts=true", "")
                 }
             }
         }

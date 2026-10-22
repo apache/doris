@@ -25,7 +25,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "storage/index/index_iterator.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/predicate/comparison_predicate.h"
 
 namespace doris {

@@ -363,6 +363,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // run the hive branch and never be cast. Change objects are null — the guard fires on the handle type
         // before any param is touched.
         md.renameTable(session, foreignHandle, "new");
+        md.setTableProperties(session, foreignHandle, Collections.emptyMap());
         md.addColumn(session, foreignHandle, null, null);
         md.addColumns(session, foreignHandle, Collections.emptyList());
         md.dropColumn(session, foreignHandle, "c");
@@ -420,6 +421,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // Group-1: ALTER-DDL for a hive handle throws the EXACT inherited SPI-default message (byte-parity with
         // pre-override behavior) without building or consulting the sibling.
         assertThrowsMessage(() -> md.renameTable(session, hive, "n"), "RENAME TABLE not supported");
+        assertThrowsMessage(() -> md.setTableProperties(session, hive, Collections.emptyMap()),
+                "SET TABLE PROPERTIES not supported");
         assertThrowsMessage(() -> md.addColumn(session, hive, null, null), "ADD COLUMN not supported");
         assertThrowsMessage(() -> md.addColumns(session, hive, Collections.emptyList()), "ADD COLUMNS not supported");
         assertThrowsMessage(() -> md.dropColumn(session, hive, "c"), "DROP COLUMN not supported");
@@ -505,6 +508,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                 ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
@@ -519,6 +523,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "Top-N lazy must survive the delegation as a per-table capability");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
                 "nested-column prune must survive the delegation as a per-table capability");
+        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH),
+                "an iceberg-on-HMS table must inherit the field-id access path capability, or its nested "
+                        + "access paths stay name-based while BE matches them by iceberg field id");
         Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING),
                 "storage predicate pruning must survive the delegation as a per-table capability");
         Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
@@ -735,8 +742,8 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // The exact set + order of ALTER-DDL / validate methods the foreign-handle write test drives (Rule-9
         // completeness lock for §4.4 W1: dropping a guard, or adding one that should not forward, fails the test).
         static final List<String> EXPECTED_WRITE_METHODS = Collections.unmodifiableList(Arrays.asList(
-                "renameTable", "addColumn", "addColumns", "dropColumn", "renameColumn", "modifyColumn",
-                "reorderColumns", "addNestedColumn", "dropNestedColumn", "renameNestedColumn",
+                "renameTable", "setTableProperties", "addColumn", "addColumns", "dropColumn", "renameColumn",
+                "modifyColumn", "reorderColumns", "addNestedColumn", "dropNestedColumn", "renameNestedColumn",
                 "modifyNestedColumn", "modifyColumnComment",
                 "createOrReplaceBranch", "createOrReplaceTag", "dropBranch", "dropTag",
                 "addPartitionField", "dropPartitionField", "replacePartitionField",
@@ -935,6 +942,12 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         @Override
         public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
             calls.add("renameTable");
+        }
+
+        @Override
+        public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+                Map<String, String> properties) {
+            calls.add("setTableProperties");
         }
 
         @Override

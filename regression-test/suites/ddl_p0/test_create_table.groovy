@@ -58,7 +58,7 @@ suite("sql_create_time_range_table") {
             DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES ( "replication_num" = "1");
         """
-        exception "Disable to create table"
+        exception "`VARIANT` type column named with a `.` character"
     }
 
     // DDL/DML return 1 row and 1 column, the only value is update row count
@@ -86,6 +86,6 @@ suite("sql_create_time_range_table") {
             DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES ( "replication_num" = "1");
         """
-        exception "Disable to create table"
+        exception "`VARIANT` type column named with a `.` character"
     }
 }

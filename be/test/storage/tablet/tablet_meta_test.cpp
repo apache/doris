@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +30,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock_rowset.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -81,6 +83,24 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, ChangelogTtlMetadataRoundTrip) {
+    TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                           TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    tablet_meta.set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 60, 1024, 10, BinlogFormatPB::CHANGELOG, false);
+    tablet_meta.set_binlog_config(binlog_config);
+
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+    ASSERT_TRUE(tablet_meta_pb.has_binlog_config());
+    EXPECT_EQ(60, tablet_meta_pb.binlog_config().ttl_seconds());
+
+    TabletMeta restored;
+    restored.init_from_pb(tablet_meta_pb);
+    EXPECT_TRUE(restored.binlog_config().has_changelog_ttl());
+    EXPECT_EQ(60, restored.binlog_config().ttl_seconds());
+}
+
 TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(1);
@@ -106,6 +126,48 @@ TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
     EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
     EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
               serialized.schema().inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, DisableAutoCompactionDoesNotMutateSharedSchema) {
+    TabletMetaPB pb;
+    pb.set_tablet_id(101);
+    pb.set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    pb.mutable_schema()->set_schema_version(8123);
+    pb.mutable_schema()->set_disable_auto_compaction(true);
+
+    TabletMeta changed;
+    changed.init_from_pb(pb);
+    pb.set_tablet_id(102);
+    TabletMeta unchanged;
+    unchanged.init_from_pb(pb);
+    ASSERT_EQ(changed.tablet_schema(), unchanged.tablet_schema());
+    auto shared_schema = unchanged.tablet_schema();
+
+    changed.set_disable_auto_compaction(false);
+    EXPECT_FALSE(changed.disable_auto_compaction());
+    EXPECT_TRUE(unchanged.disable_auto_compaction());
+    EXPECT_EQ(shared_schema, changed.tablet_schema());
+    EXPECT_FALSE(shared_schema->disable_auto_compaction());
+
+    // A later cache lookup must still agree with the original persisted configuration.
+    TabletMeta loaded_later;
+    loaded_later.init_from_pb(pb);
+    EXPECT_TRUE(loaded_later.disable_auto_compaction());
+
+    TabletMetaPB serialized;
+    changed.to_meta_pb(&serialized, false);
+    TabletMeta restored;
+    restored.init_from_pb(serialized);
+    EXPECT_FALSE(restored.disable_auto_compaction());
+    EXPECT_EQ(changed, restored);
+    TabletMeta copied(changed);
+    EXPECT_FALSE(copied.disable_auto_compaction());
+
+    changed.set_disable_auto_compaction(true);
+    EXPECT_TRUE(changed.disable_auto_compaction());
+    EXPECT_FALSE(copied.disable_auto_compaction());
+    EXPECT_NE(changed, copied);
+    EXPECT_EQ(changed.tablet_schema(), unchanged.tablet_schema());
 }
 
 TEST(TabletMetaTest, LegacySchemaInvertedIndexFormatIsFallback) {
@@ -476,6 +538,43 @@ TEST(TabletMetaTest, TestDeleteBitmapSubsetAndAggWithSegmentList) {
     EXPECT_EQ(segment_delete_bitmap.cardinality(), 1);
     EXPECT_TRUE(segment_delete_bitmap.contains(103));
     EXPECT_NE(subset_delete_map.get({rowset_id, 0, 9}, &segment_delete_bitmap), 0);
+}
+
+TEST(TabletMetaTest, FileCacheTtlExpirationTime) {
+    TabletMeta meta;
+
+    // No TTL configured: nothing to protect.
+    meta.set_creation_time(UnixSeconds() - 10);
+    meta.set_ttl_seconds(0);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Unknown creation time cannot anchor a deadline.
+    meta.set_creation_time(0);
+    meta.set_ttl_seconds(3600);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Live tablet: the deadline is creation time + ttl, an absolute timestamp.
+    int64_t ctime = UnixSeconds() - 10;
+    meta.set_creation_time(ctime);
+    meta.set_ttl_seconds(3600);
+    EXPECT_EQ(ctime + 3600, meta.file_cache_ttl_expiration_time());
+
+    // Past the deadline: report no TTL, so callers stamp new blocks as NORMAL instead of
+    // putting them in the TTL queue for the expiration sweep to take back out.
+    meta.set_creation_time(UnixSeconds() - 3600);
+    meta.set_ttl_seconds(60);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // Exactly at the deadline counts as expired.
+    int64_t now = UnixSeconds();
+    meta.set_creation_time(now - 60);
+    meta.set_ttl_seconds(60);
+    EXPECT_EQ(0, meta.file_cache_ttl_expiration_time());
+
+    // A ttl large enough to overflow must not wrap into a past deadline.
+    meta.set_creation_time(UnixSeconds());
+    meta.set_ttl_seconds(std::numeric_limits<int64_t>::max());
+    EXPECT_EQ(std::numeric_limits<int64_t>::max(), meta.file_cache_ttl_expiration_time());
 }
 
 } // namespace doris

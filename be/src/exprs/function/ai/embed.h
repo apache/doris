@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/ai/ai_functions.h"
+#include "util/defer_op.h"
 #include "util/jsonb_utils.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -44,8 +45,22 @@ public:
 
     using PreparedFunctionImpl::execute;
 
+    AIResource select_ai_resource(const TAIResource& resource, PrimitiveType input_type) const {
+        bool has_complete_multimodal_embed_properties = _has_complete_resource_properties(
+                resource.embed_mm_endpoint, resource.embed_mm_provider_type,
+                resource.embed_mm_model_name, resource.embed_mm_api_key);
+        if (input_type == PrimitiveType::TYPE_JSONB && has_complete_multimodal_embed_properties) {
+            return AIResource::from_multimodal_embed(resource);
+        }
+        bool has_complete_embed_properties = _has_complete_resource_properties(
+                resource.embed_endpoint, resource.embed_provider_type, resource.embed_model_name,
+                resource.embed_api_key);
+        return has_complete_embed_properties ? AIResource::from_embed(resource)
+                                             : AIResource(resource);
+    }
+
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t input_rows_count, const TAIResource& config,
+                   uint32_t result, size_t input_rows_count, const AIResource& config,
                    std::shared_ptr<AIAdapter>& adapter) const {
         if (arguments.size() != 2) {
             return Status::InvalidArgument("Function EMBED expects 2 arguments, but got {}",
@@ -62,6 +77,8 @@ public:
             VectorizedUtils::update_null_map(result_null_map->get_data(),
                                              nullable.get_null_map_data(), is_const);
         }
+
+        record_input(context, input_rows_count, result_null_map);
 
         if (result_null_map &&
             !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
@@ -94,6 +111,14 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionEmbed>(); }
 
 private:
+    static bool _has_complete_resource_properties(std::string_view endpoint,
+                                                  std::string_view provider_type,
+                                                  std::string_view model_name,
+                                                  std::string_view api_key) {
+        return !endpoint.empty() && !provider_type.empty() && !model_name.empty() &&
+               (provider_type == "LOCAL" || !api_key.empty());
+    }
+
     static int32_t _get_embed_max_batch_size(FunctionContext* context) {
         QueryContext* query_ctx = context->state()->get_query_ctx();
         DORIS_CHECK(query_ctx != nullptr);
@@ -102,7 +127,7 @@ private:
     }
 
     Status _execute_text_embed(FunctionContext* context, Block& block, uint32_t result,
-                               size_t input_rows_count, const TAIResource& config,
+                               size_t input_rows_count, const AIResource& config,
                                std::shared_ptr<AIAdapter>& adapter, const ColumnPtr& input_column,
                                ColumnUInt8::MutablePtr result_null_map) const {
         auto col_result = ColumnArray::create(
@@ -159,7 +184,7 @@ private:
     }
 
     Status _execute_multimodal_embed(FunctionContext* context, Block& block, uint32_t result,
-                                     size_t input_rows_count, const TAIResource& config,
+                                     size_t input_rows_count, const AIResource& config,
                                      std::shared_ptr<AIAdapter>& adapter,
                                      const ColumnPtr& input_column,
                                      ColumnUInt8::MutablePtr result_null_map) const {
@@ -222,7 +247,7 @@ private:
     // Sends one embedding request with a prebuilt request body and validates returned row count.
     Status _execute_prebuilt_embedding_request(const std::string& request_body,
                                                std::vector<std::vector<float>>& results,
-                                               size_t expected_size, const TAIResource& config,
+                                               size_t expected_size, const AIResource& config,
                                                std::shared_ptr<AIAdapter>& adapter,
                                                FunctionContext* context) const {
         std::string response;
@@ -240,6 +265,14 @@ private:
         RETURN_IF_ERROR(
                 this->send_request_to_llm(request_body, response, config, adapter, context));
 
+        const auto& statistics = get_executor(context)->statistics();
+        const auto parse_start = statistics ? MonotonicNanos() : 0;
+        bool parse_failed = true;
+        Defer record_parse([&] {
+            if (statistics) {
+                statistics->record_parse(MonotonicNanos() - parse_start, parse_failed);
+            }
+        });
         RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("AI returned empty result");
@@ -249,13 +282,14 @@ private:
                     "AI embedding returned {} results, but {} inputs were sent", results.size(),
                     expected_size);
         }
+        parse_failed = false;
         return Status::OK();
     }
 
     // EMBED-private helper.
     // Flushes one accumulated text embedding batch into the output array column.
     Status _flush_text_embedding_batch(std::vector<std::string>& batch_prompts,
-                                       ColumnArray& col_result, const TAIResource& config,
+                                       ColumnArray& col_result, const AIResource& config,
                                        std::shared_ptr<AIAdapter>& adapter,
                                        FunctionContext* context) const {
         if (batch_prompts.empty()) {
@@ -279,7 +313,7 @@ private:
     Status _flush_multimodal_embedding_batch(std::vector<MultimodalType>& batch_media_types,
                                              std::vector<std::string>& batch_media_content_types,
                                              std::vector<std::string>& batch_media_urls,
-                                             ColumnArray& col_result, const TAIResource& config,
+                                             ColumnArray& col_result, const AIResource& config,
                                              std::shared_ptr<AIAdapter>& adapter,
                                              FunctionContext* context) const {
         if (batch_media_urls.empty()) {

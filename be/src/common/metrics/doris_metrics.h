@@ -119,8 +119,8 @@ public:
 
     IntCounter* base_compaction_task_running_total = nullptr;
     IntCounter* base_compaction_task_pending_total = nullptr;
-    IntCounter* binlog_compaction_task_running_total = nullptr;
-    IntCounter* binlog_compaction_task_pending_total = nullptr;
+    IntCounter* changelog_compaction_task_running_total = nullptr;
+    IntCounter* changelog_compaction_task_pending_total = nullptr;
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
 
@@ -172,7 +172,7 @@ public:
     IntGauge* tablet_size_based_max_compaction_score = nullptr;
     IntGauge* tablet_time_series_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
-    IntGauge* tablet_binlog_max_compaction_score = nullptr;
+    IntGauge* tablet_changelog_max_compaction_score = nullptr;
 
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
@@ -248,6 +248,11 @@ public:
     UIntGauge* upload_total_byte = nullptr;
     IntCounter* upload_rowset_count = nullptr;
     IntCounter* upload_fail_count = nullptr;
+
+    UIntGauge* load_light_work_pool_queue_size = nullptr;
+    UIntGauge* load_light_work_active_threads = nullptr;
+    UIntGauge* load_light_work_pool_max_queue_size = nullptr;
+    UIntGauge* load_light_work_max_threads = nullptr;
 
     UIntGauge* light_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_pool_queue_size = nullptr;

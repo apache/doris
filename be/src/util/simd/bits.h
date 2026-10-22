@@ -289,6 +289,12 @@ inline bool contain_one(const uint8_t* __restrict data, size_t size) {
             return true;
         }
     }
+#elif defined(__ARM_NEON) && defined(__aarch64__)
+    for (; i + 16 <= size; i += 16) {
+        if (vmaxvq_u8(vld1q_u8(data + i)) != 0) {
+            return true;
+        }
+    }
 #endif
     for (; i < size; ++i) {
         if (data[i]) {
@@ -313,6 +319,12 @@ inline bool contain_zero(const uint8_t* __restrict data, size_t size) {
     for (; i + 16 <= size; i += 16) {
         __m128i chunk = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
         if (_mm_movemask_epi8(_mm_cmpeq_epi8(chunk, zero)) != 0) {
+            return true;
+        }
+    }
+#elif defined(__ARM_NEON) && defined(__aarch64__)
+    for (; i + 16 <= size; i += 16) {
+        if (vminvq_u8(vld1q_u8(data + i)) == 0) {
             return true;
         }
     }

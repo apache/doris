@@ -405,4 +405,9 @@ suite("map_agg") {
             group  by k1
         ) a order by k1; 
     """
- }
+
+    test {
+        sql "select map_agg_v1(`v1`, `v3`) from `test_map_agg_datetime`"
+        exception "Can not found function 'map_agg_v1'"
+    }
+}

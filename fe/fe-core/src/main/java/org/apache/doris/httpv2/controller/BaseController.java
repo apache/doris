@@ -117,8 +117,11 @@ public class BaseController {
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
 
-            if (Config.isCloudMode() && checkAuth) {
-                checkInstanceOverdue(currentUser);
+            // The cookie branch below requires ADMIN_OR_NODE whenever checkAuth is set, in every deployment
+            // mode, so this branch must as well: which of the two ways a caller authenticates must not change
+            // what it is allowed to reach. Only the overdue fence is specific to cloud mode.
+            if (checkAuth) {
+                checkInstanceOverdueIfCloud(currentUser);
                 checkGlobalAuth(ctx, PrivPredicate.ADMIN_OR_NODE);
             }
 
@@ -355,8 +358,13 @@ public class BaseController {
     // return currentUserIdentity from Doris auth
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo, HttpServletRequest request)
             throws UnauthorizedException {
+
+        if (Env.getCurrentEnv().getAuth().getAuthenticationBinding(authInfo.fullUserName, authInfo.remoteIp) != null) {
+            throw new UnauthorizedException("Authentication-bound users must authenticate through their integration");
+        }
         CertificateAuthDecision certDecision = tryCertificateAuth(authInfo, request);
-        if (certDecision.shouldSkipPasswordVerification()) {
+        if (certDecision.shouldSkipPasswordVerification()
+                && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
             return certDecision.getUserIdentity();
         }
 

@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -29,6 +30,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -36,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public class AlterMTMV implements Writable {
     @SerializedName("ot")
@@ -58,6 +61,16 @@ public class AlterMTMV implements Writable {
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
     @SerializedName("ii")
     private IvmInfo ivmInfo;
+    @SerializedName("pst")
+    private Map<String, MTMVPartitionState> partitionStates;
+    // MV partitions whose refresh snapshot the same change dropped; see MTMV.markIvmPartitionsInvalidated.
+    @SerializedName("rsp")
+    private Set<String> removedSnapshotPartitions;
+    // Set when the states above are the entries a change touched rather than the map itself, which a replay
+    // merges into the states the MV holds instead of replacing them. A payload written before this member
+    // existed carries the whole map, and an absent member reads as false, which is the replacing behavior.
+    @SerializedName("mps")
+    private boolean mergePartitionStates;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -146,6 +159,31 @@ public class AlterMTMV implements Writable {
 
     public void setIvmInfo(IvmInfo ivmInfo) {
         this.ivmInfo = ivmInfo == null ? null : new IvmInfo(ivmInfo);
+    }
+
+    public Map<String, MTMVPartitionState> getPartitionStates() {
+        return partitionStates;
+    }
+
+    public void setPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
+        this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+    }
+
+    public boolean isMergePartitionStates() {
+        return mergePartitionStates;
+    }
+
+    public void setMergePartitionStates(boolean mergePartitionStates) {
+        this.mergePartitionStates = mergePartitionStates;
+    }
+
+    public Set<String> getRemovedSnapshotPartitions() {
+        return removedSnapshotPartitions;
+    }
+
+    public void setRemovedSnapshotPartitions(Set<String> removedSnapshotPartitions) {
+        this.removedSnapshotPartitions = removedSnapshotPartitions == null ? null
+                : Sets.newLinkedHashSet(removedSnapshotPartitions);
     }
 
     @Override

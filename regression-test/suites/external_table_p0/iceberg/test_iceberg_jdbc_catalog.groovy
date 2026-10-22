@@ -28,6 +28,10 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
         return;
     }
 
+    // This suite was written against the dynamic overwrite scope (the previous default). Pin it explicitly
+    // now that iceberg_partition_overwrite_mode defaults to 'static'.
+    sql """ set iceberg_partition_overwrite_mode = 'dynamic' """
+
     // Get test environment configuration
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -153,7 +157,15 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
 
         // Test: Create database
         sql """DROP DATABASE IF EXISTS ${db_name} FORCE"""
-        sql """CREATE DATABASE ${db_name}"""
+        // A JDBC catalog stores namespace properties, but would only record a location without placing
+        // new tables under it.
+        test {
+            sql """CREATE DATABASE ${db_name} PROPERTIES (
+                    'location' = 's3://warehouse/rejected_database_location/'
+                )"""
+            exception "database property 'location' for iceberg catalog type: jdbc"
+        }
+        sql """CREATE DATABASE ${db_name} PROPERTIES ('owner' = 'doris')"""
         
         def databases = sql """SHOW DATABASES"""
         assertTrue(databases.toString().contains(db_name))
@@ -311,7 +323,7 @@ suite("test_iceberg_jdbc_catalog", "p0,external") {
                 
                 String mysql_db_name = "mysql_test_db"
                 sql """DROP DATABASE IF EXISTS ${mysql_db_name} FORCE"""
-                sql """CREATE DATABASE ${mysql_db_name}"""
+                sql """CREATE DATABASE ${mysql_db_name} PROPERTIES ('owner' = 'doris')"""
                 sql """USE ${mysql_db_name}"""
                 
                 sql """DROP TABLE IF EXISTS test_mysql_catalog"""

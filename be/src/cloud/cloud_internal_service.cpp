@@ -125,6 +125,19 @@ void submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_po
         int64_t failed = 0;
         g_cloud_sync_tablet_meta_requests_total << 1;
         for (const auto tablet_id : request->tablet_ids()) {
+            if (request->discover_changelog_ttl()) {
+                if (config::disable_auto_compaction || !config::enable_feature_changelog) {
+                    ++skipped;
+                    continue;
+                }
+                auto st = engine->submit_changelog_ttl(tablet_id, true);
+                if (st.ok()) {
+                    ++synced;
+                } else {
+                    ++failed;
+                }
+                continue;
+            }
             auto tablet = engine->tablet_mgr().get_tablet_if_cached(tablet_id);
             if (!tablet) {
                 ++skipped;
@@ -711,6 +724,10 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    // Startup restore needs the caller's tablet; older clients omit rowset_meta.
+    if (request->has_rowset_meta()) {
+        ctx.tablet_id = request->rowset_meta().tablet_id();
+    }
     const size_t file_size =
             request->has_file_size()
                     ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))
@@ -1092,7 +1109,8 @@ void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& 
                                   int64_t segment_id, std::shared_ptr<CloudTablet> tablet,
                                   std::shared_ptr<bthread::CountdownEvent> wait, Version version,
                                   int64_t segment_size, int64_t request_ts, int64_t handle_ts,
-                                  std::string job_id_str, int64_t upstream_trigger_ts_ms) {
+                                  std::string job_id_str, int64_t upstream_trigger_ts_ms,
+                                  uint64_t generation) {
     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
         auto sleep_time = dp->param<int>("sleep", 3);
         LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
@@ -1139,7 +1157,7 @@ void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& 
                      << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
     }
     if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, st, 1,
-                                               0)
+                                               0, generation)
                 .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
         VLOG_DEBUG << "warmup rowset " << version.to_string() << "(" << rowset_id.to_string()
                    << ") completed";
@@ -1156,7 +1174,7 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
                                          std::shared_ptr<bthread::CountdownEvent> wait,
                                          Version version, uint64_t idx_size, int64_t request_ts,
                                          int64_t handle_ts, std::string job_id_str,
-                                         int64_t upstream_trigger_ts_ms) {
+                                         int64_t upstream_trigger_ts_ms, uint64_t generation) {
     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
         auto sleep_time = dp->param<int>("sleep", 3);
         LOG_INFO(
@@ -1197,7 +1215,7 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
                      << " rowset_id: " << rowset_id << ", error: " << st;
     }
     if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, st, 0,
-                                               1)
+                                               1, generation)
                 .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
         VLOG_DEBUG << "warmup rowset " << version.to_string() << "(" << rowset_id.to_string()
                    << ") completed";
@@ -1270,9 +1288,11 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                       << " us, tablet_id: " << rs_meta.tablet_id()
                       << ", rowset_id: " << rowset_id.to_string();
         }
-        int64_t expiration_time = tablet_meta->ttl_seconds();
+        int64_t expiration_time = tablet_meta->file_cache_ttl_expiration_time();
 
-        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
+        const auto generation =
+                tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN);
+        if (!generation) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()
                       << ", skip it";
             g_warmup_ed_downstream_progress_tracker.record_task_done(job_id_str,
@@ -1308,7 +1328,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                     handle_segment_download_done(
                                             st, tablet_id, rowset_id, segment_id, tablet, wait,
                                             version, segment_size, request_ts, handle_ts,
-                                            job_id_str, upstream_trigger_ts_ms);
+                                            job_id_str, upstream_trigger_ts_ms, *generation);
                                 },
                         .tablet_id = tablet_id};
 
@@ -1339,14 +1359,14 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                     handle_inverted_index_download_done(
                                             st, tablet_id, rowset_id, segment_id, index_path,
                                             tablet, wait, version, idx_size, request_ts, handle_ts,
-                                            job_id_str, upstream_trigger_ts_ms);
+                                            job_id_str, upstream_trigger_ts_ms, *generation);
                                 },
                         .tablet_id = tablet_id,
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
                 tablet->update_rowset_warmup_state_inverted_idx_num(
-                        WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, 1);
+                        WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, 1, *generation);
                 if (wait) {
                     wait->add_count();
                 }

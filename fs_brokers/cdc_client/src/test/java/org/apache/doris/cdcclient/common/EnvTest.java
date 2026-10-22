@@ -18,11 +18,23 @@
 package org.apache.doris.cdcclient.common;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import org.apache.doris.cdcclient.exception.CommonException;
+import org.apache.doris.cdcclient.service.PipelineCoordinator;
+import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Method;
+import java.util.Collections;
 
 class EnvTest {
 
@@ -32,6 +44,72 @@ class EnvTest {
         env.setBackendHttpTlsEnabled(false);
         env.setBackendHttpSkipHostnameVerification(false);
         env.setBackendHttpTlsCaCertificatePath(null);
+    }
+
+    @Test
+    void tvfRequestReplacesReaderOwnedByPreviousTask() throws Exception {
+        Env env = Env.getCurrentEnv();
+        PipelineCoordinator coordinator = new PipelineCoordinator(1);
+        Method closeTvfReader =
+                PipelineCoordinator.class.getDeclaredMethod(
+                        "closeTvfReader", FetchRecordRequest.class, SourceReader.class);
+        closeTvfReader.setAccessible(true);
+        FetchRecordRequest firstRequest = tvfRequest("68168001", "first");
+        FetchRecordRequest secondRequest = tvfRequest("68168001", "second");
+        SourceReader first = env.getReaderAndClaim(firstRequest, firstRequest.getTaskId());
+        try {
+            SourceReader second = env.getReaderAndClaim(secondRequest, secondRequest.getTaskId());
+            assertNotSame(first, second);
+            closeTvfReader.invoke(coordinator, firstRequest, first);
+            assertSame(second, env.getReaderIfPresent(secondRequest.getJobId()));
+            closeTvfReader.invoke(coordinator, secondRequest, second);
+            assertNull(env.getReaderIfPresent(secondRequest.getJobId()));
+        } finally {
+            SourceReader reader = env.getReaderIfPresent(secondRequest.getJobId());
+            if (reader != null) {
+                reader.release(secondRequest);
+            }
+            env.close(secondRequest.getJobId());
+        }
+    }
+
+    @Test
+    void failedTvfPreparationRemovesClaimedReader() {
+        Env env = Env.getCurrentEnv();
+        FetchRecordRequest request = tvfRequest("68168002", "task");
+        try {
+            CommonException exception =
+                    assertThrows(
+                            CommonException.class,
+                            () -> new PipelineCoordinator(1).fetchRecordStream(request));
+            assertEquals("miss meta offset", exception.getCause().getMessage());
+            assertNull(env.getReaderIfPresent(request.getJobId()));
+        } finally {
+            SourceReader reader = env.getReaderIfPresent(request.getJobId());
+            if (reader != null) {
+                reader.release(request);
+            }
+            env.close(request.getJobId());
+        }
+    }
+
+    @Test
+    void fromToStillReusesReaderUnlessRebuildRequested() {
+        Env env = Env.getCurrentEnv();
+        WriteRecordRequest request = new WriteRecordRequest();
+        request.setJobId("from-to-reader-reuse");
+        request.setDataSource("POSTGRES");
+        request.setConfig(Collections.emptyMap());
+        SourceReader first = env.getReaderAndClaim(request, "first");
+        try {
+            assertSame(first, env.getReaderAndClaim(request, "second"));
+            request.setRebuildReader(true);
+            assertNotSame(first, env.getReaderAndClaim(request, "third"));
+        } finally {
+            env.getReaderIfPresent(request.getJobId()).release(request);
+            first.release(request);
+            env.close(request.getJobId());
+        }
     }
 
     @Test
@@ -72,5 +150,14 @@ class EnvTest {
         env.setBackendHttpSkipHostnameVerification(true);
 
         assertTrue(env.isBackendHttpSkipHostnameVerification());
+    }
+
+    private FetchRecordRequest tvfRequest(String jobId, String taskId) {
+        FetchRecordRequest request = new FetchRecordRequest();
+        request.setJobId(jobId);
+        request.setTaskId(taskId);
+        request.setDataSource("POSTGRES");
+        request.setConfig(Collections.emptyMap());
+        return request;
     }
 }

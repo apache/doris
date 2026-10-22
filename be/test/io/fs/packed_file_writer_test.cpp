@@ -275,4 +275,27 @@ TEST_F(PackedFileWriterTest, EmptyAppend) {
     EXPECT_EQ(writer.bytes_appended(), 0);
 }
 
+TEST_F(PackedFileWriterTest, GetPackedSliceLocationThroughFileWriterInterface) {
+    // Callers only hold a FileWriter, which may be a wrapper around PackedFileWriter,
+    // so the location must be reachable through the virtual interface.
+    MockFileWriterForMerge plain_writer("plain_file");
+    ASSERT_TRUE(plain_writer.close(false).ok());
+    FileWriter* plain = &plain_writer;
+    PackedSliceLocation location;
+    location.packed_file_path = "stale";
+    ASSERT_TRUE(plain->get_packed_slice_location(&location).ok());
+    EXPECT_TRUE(location.packed_file_path.empty());
+
+    PackedFileWriter packed_writer(std::move(_inner_writer), Path("large_file"), _append_info);
+    FileWriter* writer = &packed_writer;
+    std::string data(150, 'x');
+    ASSERT_TRUE(writer->append(Slice(data)).ok());
+    ASSERT_TRUE(writer->close(false).ok());
+    ASSERT_EQ(writer->state(), FileWriter::State::CLOSED);
+
+    location.packed_file_path = "stale";
+    ASSERT_TRUE(writer->get_packed_slice_location(&location).ok());
+    EXPECT_TRUE(location.packed_file_path.empty());
+}
+
 } // namespace doris::io

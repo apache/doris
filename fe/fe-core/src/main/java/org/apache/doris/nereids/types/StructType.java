@@ -20,7 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -117,7 +118,10 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
             }
             return true;
         }
-        return target instanceof CharacterType;
+        // DataTypeStructSerDe::to_string concatenates field text with structural delimiters but
+        // does not escape delimiter-like field content. The resulting STRING is not a unique
+        // representation of the source STRUCT and must not be treated as an injective cast.
+        return false;
     }
 
     @Override
@@ -194,5 +198,10 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     @Override
     public String toString() {
         return "STRUCT<" + fields.stream().map(StructField::toString).collect(Collectors.joining(",")) + ">";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

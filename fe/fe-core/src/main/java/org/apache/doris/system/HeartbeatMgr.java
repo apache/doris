@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -67,6 +68,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -80,6 +82,10 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
     private final ExecutorService abortTxnExecutor;
+    private final ExecutorService changelogTtlExecutor;
+    private final AtomicBoolean changelogTtlRefreshPending = new AtomicBoolean();
+    private long lastChangelogTtlRefreshMs;
+
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -90,6 +96,9 @@ public class HeartbeatMgr extends MasterDaemon {
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
                 Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
+        // ATTN(changelog-rename): formerly "row-binlog-ttl-reference"
+        this.changelogTtlExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1,
+                "changelog-ttl-reference", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -109,6 +118,24 @@ public class HeartbeatMgr extends MasterDaemon {
         masterInfo.set(tMasterInfo);
     }
 
+    // Called by the dedicated refresh worker, never by a heartbeat sender. The CAS discards
+    // a result acquired across a master transition (setMaster replaces the object).
+    public static boolean refreshChangelogTtlReferenceTso() {
+        TMasterInfo before = masterInfo.get();
+        if (before == null || !Config.enable_feature_changelog) {
+            return false;
+        }
+        try {
+            long tso = Env.getCurrentTSOService().getTSO();
+            TMasterInfo after = new TMasterInfo(before);
+            after.setChangelogTtlReferenceTso(Math.max(before.getChangelogTtlReferenceTso(), tso));
+            return masterInfo.compareAndSet(before, after);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to refresh changelog TTL reference; keep previous boundary", e);
+            return false;
+        }
+    }
+
     /**
      * At each round:
      * 1. send heartbeat to all nodes
@@ -116,6 +143,19 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        long now = System.currentTimeMillis();
+        if (now - lastChangelogTtlRefreshMs >= 15000 && changelogTtlRefreshPending.compareAndSet(false, true)) {
+            lastChangelogTtlRefreshMs = now;
+            changelogTtlExecutor.submit(() -> {
+                try {
+                    if (Env.getCurrentEnv().isMaster()) {
+                        refreshChangelogTtlReferenceTso();
+                    }
+                } finally {
+                    changelogTtlRefreshPending.set(false);
+                }
+            });
+        }
         if (Config.isCloudMode() && masterInfo.get() != null) {
             masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
         }
@@ -217,9 +257,13 @@ public class HeartbeatMgr extends MasterDaemon {
                     } else {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
-                        if (!isReplay && System.currentTimeMillis() - be.getLastUpdateMs()
-                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L
-                                && be.getLastUpdateMs() > 0) {
+                        long lostTimeMs = System.currentTimeMillis() - be.getLastUpdateMs();
+                        long timeoutMs = Config.abort_txn_after_lost_heartbeat_time_second * 1000L;
+                        boolean nonNormalCloudCluster = Config.isCloudMode()
+                                && !ClusterStatus.NORMAL.name().equals(be.getCloudClusterStatus());
+                        // Bound repeated MS scans for inactive clusters to [timeoutMs, 2 * timeoutMs).
+                        if (!isReplay && be.getLastUpdateMs() > 0 && lostTimeMs >= timeoutMs
+                                && (!nonNormalCloudCluster || lostTimeMs < 2 * timeoutMs)) {
                             submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
                                     .abortTxnWhenCoordinateBeDown(be.getId(), be.getHost(), 100), "down");
                         }
@@ -372,9 +416,12 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    BackendHbResponse response = new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                    response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
+                            && tBackendInfo.isSupportsPaimonRustReader());
+                    return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()

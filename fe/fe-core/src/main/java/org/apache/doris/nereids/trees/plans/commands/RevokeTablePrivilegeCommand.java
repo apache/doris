@@ -38,6 +38,7 @@ import org.apache.commons.collections4.MapUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -59,10 +60,10 @@ public class RevokeTablePrivilegeCommand extends Command implements ForwardWithS
     public RevokeTablePrivilegeCommand(List<AccessPrivilegeWithCols> accessPrivileges, TablePattern tablePattern,
             Optional<UserIdentity> userIdentity, Optional<String> role) {
         super(PlanType.REVOKE_TABLE_PRIVILEGE_COMMAND);
-        this.accessPrivileges = accessPrivileges;
-        this.tablePattern = tablePattern;
-        this.userIdentity = userIdentity;
-        this.role = role;
+        this.accessPrivileges = Objects.requireNonNull(accessPrivileges, "accessPrivileges is null");
+        this.tablePattern = Objects.requireNonNull(tablePattern, "tablePattern is null");
+        this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity is null");
+        this.role = Objects.requireNonNull(role, "role is null");
     }
 
     @Override
@@ -100,9 +101,7 @@ public class RevokeTablePrivilegeCommand extends Command implements ForwardWithS
         }
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
-        if (tablePattern != null) {
-            GrantTablePrivilegeCommand.checkTablePrivileges(privileges, tablePattern, colPrivileges);
-        }
+        GrantTablePrivilegeCommand.checkTablePrivileges(privileges, tablePattern, colPrivileges);
     }
 
     @Override

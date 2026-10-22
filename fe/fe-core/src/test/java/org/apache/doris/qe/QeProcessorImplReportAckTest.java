@@ -22,6 +22,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -58,6 +59,19 @@ class QeProcessorImplReportAckTest {
     }
 
     @Test
+    void rejectsPaimonReportWithoutCoordinator() {
+        TReportExecStatusParams params = params(new TUniqueId(12345, 6));
+        params.unsetIcebergCommitDatas();
+        params.setPaimonCommitMessages(Collections.singletonList(
+                new TPaimonCommitMessage().setPayload(new byte[] {1})));
+
+        TReportExecStatusResult result = report(params);
+
+        Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isExternalFileCommitDataAccepted());
+    }
+
+    @Test
     void rejectsExternalReportWhenHandlerThrows() throws Exception {
         TUniqueId queryId = new TUniqueId(12345, 2);
         Coordinator coordinator = register(queryId);
@@ -87,6 +101,27 @@ class QeProcessorImplReportAckTest {
         Coordinator coordinator = register(queryId);
         Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
         TReportExecStatusParams params = params(queryId);
+
+        TReportExecStatusResult first = report(params);
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        registeredQueryId = null;
+        TReportExecStatusResult retry = report(params);
+
+        Assertions.assertTrue(first.isExternalFileCommitDataAccepted());
+        Assertions.assertTrue(retry.isExternalFileCommitDataAccepted());
+        Assertions.assertEquals(TStatusCode.OK, retry.getStatus().getStatusCode());
+        Mockito.verify(coordinator, Mockito.times(1)).updateFragmentExecStatus(params);
+    }
+
+    @Test
+    void retriesAcceptedPaimonReportAfterCoordinatorRemoval() throws Exception {
+        TUniqueId queryId = new TUniqueId(12345, 7);
+        Coordinator coordinator = register(queryId);
+        Mockito.when(coordinator.updateFragmentExecStatus(Mockito.any())).thenReturn(true);
+        TReportExecStatusParams params = params(queryId);
+        params.unsetIcebergCommitDatas();
+        params.setPaimonCommitMessages(Collections.singletonList(
+                new TPaimonCommitMessage().setPayload(new byte[] {1})));
 
         TReportExecStatusResult first = report(params);
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
