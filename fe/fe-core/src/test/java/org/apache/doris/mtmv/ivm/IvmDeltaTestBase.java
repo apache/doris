@@ -53,6 +53,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -65,11 +66,13 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -143,6 +146,24 @@ abstract class IvmDeltaTestBase {
         registerTestStreams(table);
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
+    }
+
+    /** Builds the regular post-refresh snapshot scan of a delta scan's base table. */
+    protected LogicalPlan buildPostSnapshotScan(LogicalOlapTableStreamScan streamScan) {
+        OlapTable baseTable = streamScan.getTable().getBaseTable();
+        LogicalOlapScan scan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(),
+                baseTable,
+                ImmutableList.of("test_db"),
+                ImmutableList.of(),
+                baseTable.getPartitionIds(),
+                baseTable.getBaseIndexId(),
+                PreAggStatus.unset(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                Optional.empty(),
+                ImmutableList.of());
+        return BindRelation.checkAndAddDeleteSignFilter(scan, ConnectContext.get(), baseTable);
     }
 
     private OlapTableStreamWrapper buildStreamWrapper(OlapTable baseTable) {
