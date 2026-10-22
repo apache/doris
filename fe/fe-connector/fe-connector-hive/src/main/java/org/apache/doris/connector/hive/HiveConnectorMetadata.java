@@ -626,7 +626,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
                     ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                     ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
-                    ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
+                    ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
+                    ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS));
 
     /**
      * Reflects the {@link #SIBLING_INHERITABLE_CAPABILITIES} subset of the owning sibling connector's
@@ -636,7 +637,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * (hive) connector-wide set OR the table's own set, and NEVER consults the sibling connector directly, so
      * without this reflection an iceberg-on-HMS table would silently lose every such capability the iceberg
      * sibling declares connector-wide (auto-analyze / Top-N lazy / nested-column prune / storage predicate
-     * pruning / nested column DDL).
+     * pruning / nested column DDL / write-only defaults).
      * Returns the sibling schema unchanged when nothing is inherited and the sibling declared nothing itself
      * (e.g. a hudi sibling, which declares no capabilities at all).
      */
