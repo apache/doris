@@ -25,8 +25,10 @@
 #include "common/status.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/olap_scanner.h"
+#include "exprs/function/search/search_predicate_collector.h"
 #include "io/io_common.h"
 #include "runtime/query_context.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/base_tablet.h"
@@ -83,6 +85,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
     for (auto&& [tablet, version] : _tablets) {
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
+        auto tablet_collection_statistics =
+                _create_tablet_collection_statistics(entire_read_source);
 
         if (config::is_cloud_mode()) {
             // FIXME(plat1ko): Avoid pointer cast
@@ -147,7 +151,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                                  .delete_predicates = entire_read_source.delete_predicates,
                                  .delete_bitmap = entire_read_source.delete_bitmap},
                                 take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
-                                                              tablet->tablet_id())));
+                                                              tablet->tablet_id()),
+                                tablet_collection_statistics));
 
                         partitial_read_source = {};
                         split = RowSetSplits(reader->clone());
@@ -194,7 +199,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                                     .delete_predicates = entire_read_source.delete_predicates,
                                     .delete_bitmap = entire_read_source.delete_bitmap},
                                    take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
-                                                                 tablet->tablet_id())));
+                                                                 tablet->tablet_id()),
+                                   tablet_collection_statistics));
         }
     }
 
@@ -211,6 +217,8 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
     for (auto&& [tablet, version] : _tablets) {
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
+        auto tablet_collection_statistics =
+                _create_tablet_collection_statistics(entire_read_source);
 
         if (config::is_cloud_mode()) {
             // FIXME(plat1ko): Avoid pointer cast
@@ -256,7 +264,8 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
                              .delete_predicates = entire_read_source.delete_predicates,
                              .delete_bitmap = entire_read_source.delete_bitmap},
                             take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
-                                                          tablet->tablet_id())));
+                                                          tablet->tablet_id()),
+                            tablet_collection_statistics));
 
                     // Reset for next scanner
                     partitial_read_source = TabletReadSource();
@@ -293,7 +302,8 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
                                     .delete_predicates = entire_read_source.delete_predicates,
                                     .delete_bitmap = entire_read_source.delete_bitmap},
                                    take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
-                                                                 tablet->tablet_id())));
+                                                                 tablet->tablet_id()),
+                                   tablet_collection_statistics));
         }
     }
 
@@ -340,9 +350,25 @@ Status ParallelScannerBuilder::_load() {
     return Status::OK();
 }
 
+std::shared_ptr<TabletCollectionStatistics>
+ParallelScannerBuilder::_create_tablet_collection_statistics(
+        const TabletReadSource& entire_read_source) const {
+    if (!_share_tablet_collection_statistics) {
+        return nullptr;
+    }
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.reserve(entire_read_source.rs_splits.size());
+    for (const auto& rs_split : entire_read_source.rs_splits) {
+        rowsets.emplace_back(rs_split.rs_reader->rowset());
+    }
+    return std::make_shared<TabletCollectionStatistics>(
+            std::move(rowsets), std::make_unique<SearchPredicateCollector>());
+}
+
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-        TabletReadSource&& read_source, io::FileCacheStatistics&& initial_file_cache_stats) {
+        TabletReadSource&& read_source, io::FileCacheStatistics&& initial_file_cache_stats,
+        std::shared_ptr<TabletCollectionStatistics> tablet_collection_statistics) {
     OlapScanner::Params params {
             _state,
             _scanner_profile.get(),
@@ -353,6 +379,7 @@ std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
             std::move(initial_file_cache_stats),
             _limit,
             _is_preaggregation,
+            std::move(tablet_collection_statistics),
     };
     return OlapScanner::create_shared(_parent, std::move(params));
 }

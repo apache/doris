@@ -1227,6 +1227,38 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
+// Scanners of one tablet each copy the tablet's statistics, so they must score identically.
+TEST_F(CollectionStatisticsDetailedTest, CopyCollectedFromScoresLikeSource) {
+    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_tokens(L"content", 5000);
+    stats_->set_term_doc_freq(L"content", L"jobs", 37);
+
+    CollectionStatistics copy;
+    copy.copy_collected_from(*stats_);
+
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_idf(L"content", L"jobs"),
+                    stats_->get_or_calculate_idf(L"content", L"jobs"));
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_avg_dl(L"content"),
+                    stats_->get_or_calculate_avg_dl(L"content"));
+
+    // The copy does not share the source's counters or derived caches.
+    stats_->set_term_doc_freq(L"content", L"jobs", 900);
+    CollectionStatistics recopied;
+    recopied.copy_collected_from(*stats_);
+    EXPECT_NE(recopied.get_or_calculate_idf(L"content", L"jobs"),
+              copy.get_or_calculate_idf(L"content", L"jobs"));
+}
+
+TEST(TabletCollectionStatisticsTest, CollectsOnceAndCopiesToEveryCaller) {
+    TabletCollectionStatistics tablet_statistics({}, nullptr);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    CollectionStatistics first;
+    CollectionStatistics second;
+    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, &first).ok());
+    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, &second).ok());
+}
+
 // SNII scoring requires only positions and norms; statistics come directly from the stats block.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
     auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
