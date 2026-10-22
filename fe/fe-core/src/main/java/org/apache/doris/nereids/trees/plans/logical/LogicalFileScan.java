@@ -150,6 +150,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         this.relationSnapshot = relationSnapshot;
         this.annTopN = annTopN;
     }
+
     /**
      * Constructor for LogicalFileScan, kept for subclasses that were not updated with a table alias.
      */
