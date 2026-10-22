@@ -38,6 +38,7 @@
 #include "format_v2/lance/lance_session_manager.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_points.h"
 
 namespace doris::format::lance {
 
@@ -915,7 +916,17 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     return Status::OK();
 }
 
+Status LanceTableReader::_check_row_id_prefilter_stop() const {
+    RETURN_IF_CANCELLED(_runtime_state);
+    // Downstream early completion stops a scanner without cancelling the whole query.
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        return Status::EndOfFile("stop Lance row-id prefilter");
+    }
+    return Status::OK();
+}
+
 Status LanceTableReader::_read_row_id_prefilter(const std::string& filter, RowIdPrefilter* result) {
+    RETURN_IF_ERROR(_check_row_id_prefilter_stop());
     // A query-local cache shares this list between index-segment readers. Bound it to 512 KiB
     // of IDs; broader predicates retain Lance's native filtering instead of growing a C++ list.
     constexpr size_t MAX_ROW_IDS = 64 * 1024;
@@ -945,6 +956,7 @@ Status LanceTableReader::_read_row_id_prefilter(const std::string& filter, RowId
         return lance_error("set Lance row-id prefilter statistics callback");
     }
     ArrowArrayStream stream {};
+    RETURN_IF_ERROR(_check_row_id_prefilter_stop());
     if (lance_scanner_to_arrow_stream(scanner.get(), &stream) != 0) {
         if (stream.release != nullptr) stream.release(&stream);
         return lance_error("open Lance row-id prefilter stream");
@@ -958,9 +970,12 @@ Status LanceTableReader::_read_row_id_prefilter(const std::string& filter, RowId
     auto reader = std::move(imported).ValueUnsafe();
     std::vector<uint64_t> row_ids;
     while (true) {
-        RETURN_IF_CANCELLED(_runtime_state);
+        RETURN_IF_ERROR(_check_row_id_prefilter_stop());
         std::shared_ptr<arrow::RecordBatch> batch;
         auto status = reader->ReadNext(&batch);
+        DBUG_EXECUTE_IF("LanceTableReader.row_id_prefilter.after_read",
+                        DBUG_RUN_CALLBACK(batch == nullptr));
+        RETURN_IF_ERROR(_check_row_id_prefilter_stop());
         if (!status.ok()) {
             return Status::InternalError("read Lance row-id prefilter: {}", status.message());
         }
@@ -997,6 +1012,7 @@ Status LanceTableReader::_apply_row_id_prefilter(LanceScanner* scanner, bool* ap
         request.search_filter.format != TSearchFilterFormat::SUBSTRAIT) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_check_row_id_prefilter_stop());
     SCOPED_TIMER(_row_id_prefilter_time);
     const auto& filter = request.search_filter.payload;
     const auto& uri = _opened_dataset_key->uri;
@@ -1011,6 +1027,12 @@ Status LanceTableReader::_apply_row_id_prefilter(LanceScanner* scanner, bool* ap
                 [&] {
                     auto value = std::make_unique<RowIdPrefilter>();
                     value->status = _read_row_id_prefilter(filter, value.get());
+                    if (!value->status.ok()) {
+                        // IOContext stop is reader-local. Never cache an interrupted list or EOF
+                        // that could terminate another active reader sharing this key.
+                        local.status = value->status;
+                        return static_cast<RowIdPrefilter*>(nullptr);
+                    }
                     return value.release();
                 },
                 &hit);
@@ -1018,6 +1040,8 @@ Status LanceTableReader::_apply_row_id_prefilter(LanceScanner* scanner, bool* ap
     } else {
         local.status = _read_row_id_prefilter(filter, &local);
     }
+    RETURN_IF_ERROR(local.status);
+    RETURN_IF_ERROR(_check_row_id_prefilter_stop());
     RETURN_IF_ERROR(result->status);
     if (!result->row_ids.has_value()) {
         COUNTER_UPDATE(_row_id_prefilter_fallbacks, 1);

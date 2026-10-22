@@ -87,6 +87,7 @@ private:
         // Empty selects no rows; nullopt keeps the provider's native filter for a broad result.
         std::optional<std::vector<uint64_t>> row_ids;
     };
+    Status _check_row_id_prefilter_stop() const;
     Status _read_row_id_prefilter(const std::string& filter, RowIdPrefilter* result);
     Status _apply_row_id_prefilter(LanceScanner* scanner, bool* applied);
     void _init_scanner_profile();

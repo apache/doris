@@ -79,9 +79,11 @@
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format_v2/lance/lance_reader_helper.h"
+#include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/timezone_utils.h"
 #include "util/url_coding.h"
@@ -288,13 +290,14 @@ void add_output_columns(Block* block, const Columns& columns) {
 
 Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
                    RuntimeState* runtime_state, RuntimeProfile* profile,
-                   TFileScanRangeParams* scan_params, VExprContextSPtrs conjuncts = {}) {
+                   TFileScanRangeParams* scan_params, VExprContextSPtrs conjuncts = {},
+                   std::shared_ptr<io::IOContext> io_ctx = nullptr) {
     return reader->init({
             .projected_columns = projected_columns,
             .conjuncts = std::move(conjuncts),
             .format = FileFormat::LANCE,
             .scan_params = scan_params,
-            .io_ctx = nullptr,
+            .io_ctx = std::move(io_ctx),
             .runtime_state = runtime_state,
             .scanner_profile = profile,
     });
@@ -765,6 +768,85 @@ TEST(LanceTableReaderFullTextSearchTest, RowIdPrefilterPreservesGlobalScoresAndE
         EXPECT_EQ(iteration == 0 ? 6 : 0, profile.get_counter("LanceRowIdPrefilterRows")->value());
         EXPECT_EQ(0, profile.get_counter("LanceRowIdPrefilterFallbacks")->value());
         EXPECT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(LanceTableReaderFullTextSearchTest, StoppedPrefilterDoesNotPolluteSharedCache) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    auto range = make_full_text_search_range(uri, fixture, "body_fts");
+    auto params = make_full_text_search_params("lance", 8, 0);
+    std::string payload;
+    ASSERT_TRUE(base64_decode(
+            "Ch4IARIaL2Z1bmN0aW9uc19jb21wYXJpc29uLnlhbWwSERoPCAEaC2d0ZTphbnlfYW55GisKHBoaGgQKAhACIg"
+            "oaCBIGCgISACIAIgYaBAoCOAMaC2ZpbHRlcl9tYXNrIjsKBnJvd19pZAoFdGl0bGUKBGJvZHkKCGNhdGVnb3J5"
+            "EhoKBDoCEAIKBGICEAIKBGICEAIKBGICEAIYAjoPEEYqC2RvcmlzLWxhbmNl",
+            &payload));
+    TSearchFilter filter;
+    filter.__set_format(TSearchFilterFormat::SUBSTRAIT);
+    filter.__set_payload(payload);
+    params.lance_scan_params.external_search_request.__set_search_filter(filter);
+    params.lance_scan_params.external_search_request.__set_prefilter(true);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_score", TYPE_FLOAT, true)};
+    TQueryOptions options;
+    options.__set_batch_size(2);
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    state.set_query_options(options);
+    // A local scanner stop is not query cancellation and must not affect another reader.
+    for (int stop_point = 0; stop_point < 3; ++stop_point) {
+        ShardedKVCache cache(1);
+        auto io_ctx = std::make_shared<io::IOContext>();
+        io_ctx->should_stop = stop_point == 0;
+        int reads = 0;
+        {
+            const bool previous_debug_points = config::enable_debug_points;
+            config::enable_debug_points = true;
+            const std::string point = "LanceTableReader.row_id_prefilter.after_read";
+            DebugPoints::instance()->add_with_callback(
+                    point, std::function<void(bool)>([&](bool eof) {
+                        ++reads;
+                        if ((stop_point == 1 && reads == 2) || (stop_point == 2 && eof)) {
+                            io_ctx->should_stop = true;
+                        }
+                    }));
+            Defer cleanup {[&] {
+                DebugPoints::instance()->remove(point);
+                config::enable_debug_points = previous_debug_points;
+            }};
+            RuntimeProfile profile("lance_stopped_prefilter");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params, {}, io_ctx).ok());
+            const auto status = prepare_range(&reader, range, std::nullopt, &cache);
+            EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status.to_string();
+            EXPECT_FALSE(state.is_cancelled());
+            EXPECT_EQ(0, profile.get_counter("LanceRowIdPrefilterRows")->value());
+            EXPECT_EQ(0, profile.get_counter("LanceRowIdPrefilterFallbacks")->value());
+            EXPECT_TRUE(reader.close().ok());
+        }
+        if (stop_point < 2) {
+            EXPECT_EQ(stop_point == 0 ? 0 : 2, reads);
+        } else {
+            EXPECT_GT(reads, 1);
+        }
+        for (int iteration = 0; iteration < 2; ++iteration) {
+            RuntimeProfile profile("lance_active_prefilter");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_range(&reader, range, std::nullopt, &cache).ok());
+            Block output;
+            add_output_columns(&output, columns);
+            const auto rows = read_full_text_search_rows(&reader, &output);
+            ASSERT_EQ(2, rows.size());
+            for (const auto& [id, score] : rows) {
+                EXPECT_GE(id, 3);
+            }
+            EXPECT_EQ(6, profile.get_counter("LanceRowIdPrefilterRows")->value());
+            EXPECT_EQ(iteration, profile.get_counter("LanceRowIdPrefilterCacheHits")->value());
+            EXPECT_TRUE(reader.close().ok());
+        }
     }
 }
 
