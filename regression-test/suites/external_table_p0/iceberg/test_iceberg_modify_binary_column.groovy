@@ -84,6 +84,7 @@ suite("test_iceberg_modify_binary_column", "p0,external,iceberg,external_docker,
             named_struct('a', X'AB', 'b', 1), [X'01020304'], map('k', X'02'))"""
     // DESC shows column and STRUCT field comments too.
     sql """set show_column_comment_in_describe = true"""
+    // DESC preserves Iceberg requiredness: digest is non-nullable until the ALTER below.
     qt_desc_before """DESC ${tableName}"""
     // The required column, ARRAY element and MAP value reject NULL.
     test {

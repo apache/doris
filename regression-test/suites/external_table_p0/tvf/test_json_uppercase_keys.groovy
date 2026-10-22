@@ -20,30 +20,43 @@ suite("test_json_uppercase_keys", "p0,external") {
     String sk = getS3SK()
     String s3Endpoint = getS3Endpoint()
     String bucket = context.config.otherConfigs.get("s3BucketName")
-    String uri = "https://${bucket}.${s3Endpoint}/regression/tvf/test_json_uppercase_keys/case_keys.jsonl"
+    // Upload the fixture to a per-run key: missing objects yield a dummy schema, and shared keys race on cleanup.
+    String key = "regression/tvf/test_json_uppercase_keys/${UUID.randomUUID()}/case_keys.jsonl"
+    File fixture = new File(context.dataPath, "test_json_uppercase_keys/case_keys.jsonl")
+    def client = getS3Client()
+    String uri = "https://${bucket}.${s3Endpoint}/${key}"
 
-    order_qt_json_uppercase_keys """
-        select id, city, metric from
-        s3(
-            "URI" = "${uri}",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
-            "FORMAT" = "json",
-            "read_json_by_line" = "true",
-            "fuzzy_parse" = "true",
-            "use_path_style" = "false") order by id;
-    """
+    try {
+        client.putObject(bucket, key, fixture)
+        order_qt_json_uppercase_keys """
+            select id, city, metric from
+            s3(
+                "URI" = "${uri}",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}",
+                "FORMAT" = "json",
+                "read_json_by_line" = "true",
+                "fuzzy_parse" = "true",
+                "use_path_style" = "false") order by id;
+        """
 
-    order_qt_json_uppercase_keys_with_jsonpaths """
-        select id, city, metric from
-        s3(
-            "URI" = "${uri}",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
-            "FORMAT" = "json",
-            "read_json_by_line" = "true",
-            "fuzzy_parse" = "true",
-            "jsonpaths" = '["\$.ID", "\$.City", "\$.Metric"]',
-            "use_path_style" = "false") order by id;
-    """
+        order_qt_json_uppercase_keys_with_jsonpaths """
+            select id, city, metric from
+            s3(
+                "URI" = "${uri}",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}",
+                "FORMAT" = "json",
+                "read_json_by_line" = "true",
+                "fuzzy_parse" = "true",
+                "jsonpaths" = '["\$.ID", "\$.City", "\$.Metric"]',
+                "use_path_style" = "false") order by id;
+        """
+    } finally {
+        try {
+            client.deleteObject(bucket, key)
+        } finally {
+            client.shutdown()
+        }
+    }
 }
