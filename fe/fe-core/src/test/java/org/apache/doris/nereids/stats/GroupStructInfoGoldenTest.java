@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
@@ -1170,6 +1171,12 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("join_mark_semi",
                 "a mark semi join: it preserves every left row and produces a marker column",
                 GroupStructInfoGoldenTest::joinMarkSemi));
+        cases.add(new PlanCase("outer_join_definition_below",
+                "a group by over a value computed on the nullable side of an outer join",
+                GroupStructInfoGoldenTest::outerJoinDefinitionBelow));
+        cases.add(new PlanCase("outer_join_definition_above",
+                "the same value computed above the outer join: it is not null extended",
+                GroupStructInfoGoldenTest::outerJoinDefinitionAbove));
         cases.add(new PlanCase("join_plain_semi",
                 "the same semi join without the marker: it filters the unmatched left rows",
                 GroupStructInfoGoldenTest::joinPlainSemi));
@@ -1791,6 +1798,41 @@ public class GroupStructInfoGoldenTest {
         }
         return describe(new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, hash,
                 ImmutableList.<Expression>of(), t, u, null));
+    }
+
+    private static GroupStructInfo outerJoinDefinitionBelow() {
+        return outerJoinDefinition(true);
+    }
+
+    private static GroupStructInfo outerJoinDefinitionAbove() {
+        return outerJoinDefinition(false);
+    }
+
+    /**
+     * `coalesce(u.v, 0)` computed on the nullable side of an outer join (it is NULL for the rows the join
+     * does not match) against the same expression computed above the join: only the first plan has a
+     * null-extended definition.
+     */
+    private static GroupStructInfo outerJoinDefinition(boolean below) {
+        LogicalOlapScan t = scan(0, "t");
+        LogicalOlapScan u = scan(1, "u");
+        Expression value = u.getOutput().get(1);
+        Coalesce coalesce = new Coalesce(value, new IntegerLiteral(0));
+        Expression groupBy = coalesce;
+        Plan child = u;
+        if (below) {
+            Alias x = new Alias(coalesce, "x");
+            child = new LogicalProject<>(ImmutableList.<NamedExpression>of(
+                    u.getOutput().get(0), x), u);
+            groupBy = x.toSlot();
+        }
+        LogicalJoin<LogicalOlapScan, Plan> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.<Expression>of(new EqualTo(t.getOutput().get(0), u.getOutput().get(0))),
+                ImmutableList.<Expression>of(), t, child, null);
+        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(ImmutableList.of(groupBy),
+                ImmutableList.<NamedExpression>of(groupBy instanceof NamedExpression
+                        ? (NamedExpression) groupBy : new Alias(groupBy, "g")), true, Optional.empty(), join);
+        return describe(aggregate);
     }
 
     private static GroupStructInfo joinWithAResidualConstant() {

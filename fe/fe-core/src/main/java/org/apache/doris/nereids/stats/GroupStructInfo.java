@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -77,6 +79,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 
@@ -822,7 +825,13 @@ public class GroupStructInfo {
         return Collections.unmodifiableMap(definitions);
     }
 
-    /** The definitions the children of a node expose: a join forwards the columns of both sides. */
+    /**
+     * The definitions the children of a node expose. A join forwards the columns of both sides, but a
+     * side an outer join null-extends does not forward the value it computed: for the rows the join does
+     * not match, the whole side is NULL, and a definition which can turn NULL into a non-NULL value
+     * (a coalesce, an `is null`, a udf, ...) therefore has a different value above the join. Such a
+     * definition is wrapped with the id of the boundary it crossed (see {@link NullExtended}).
+     */
     private static Map<ExprId, Expression> childColumnDefinitions(Node node) {
         if (node.children.size() == 1) {
             return node.children.get(0).node.columnDefinitions;
@@ -831,10 +840,94 @@ public class GroupStructInfo {
             return Collections.emptyMap();
         }
         Map<ExprId, Expression> definitions = new LinkedHashMap<>();
-        for (Child child : node.children) {
-            definitions.putAll(child.node.columnDefinitions);
+        for (int index = 0; index < node.children.size(); index++) {
+            boolean nullExtended = isNullExtendedSide(node, index);
+            Map<ExprId, Expression> childDefinitions = node.children.get(index).node.columnDefinitions;
+            for (Map.Entry<ExprId, Expression> definition : childDefinitions.entrySet()) {
+                Expression expression = definition.getValue();
+                definitions.put(definition.getKey(), nullExtended
+                        && canConvertNullToNonNull(expression)
+                        ? new NullExtended(node.nullExtensionBoundaryId, expression)
+                        : expression);
+            }
         }
         return Collections.unmodifiableMap(definitions);
+    }
+
+    /** Whether a join null-extends the columns of the given child. */
+    private static boolean isNullExtendedSide(Node node, int index) {
+        if (node.kind != Kind.JOIN || node.flattenable || node.nullExtensionBoundaryId < 0) {
+            return false;
+        }
+        switch (node.joinType) {
+            case LEFT_OUTER_JOIN:
+                return index == 1;
+            case RIGHT_OUTER_JOIN:
+                return index == 0;
+            case FULL_OUTER_JOIN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Whether an expression can turn a NULL input into a non-NULL value, which is what makes the value it
+     * computes different above a null-extension boundary (the same classification the outer join push
+     * down uses, extended over the whole tree: a composite expression is affected when any part of it is,
+     * and a udf is treated conservatively because its null behaviour is unknown).
+     */
+    private static boolean canConvertNullToNonNull(Expression expression) {
+        if (expression instanceof NullToNonNullFunction || expression instanceof Udf) {
+            return true;
+        }
+        for (Expression child : expression.children()) {
+            if (canConvertNullToNonNull(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A definition which crossed a null extension: the value it denotes is NULL for the rows the join did
+     * not match, whatever the wrapped expression computes, so the expression alone would name the same
+     * value for both plans. The id names the boundary (see Node#nullExtensionBoundaryId).
+     */
+    private static final class NullExtended extends Expression {
+        private final int boundaryId;
+        private final Expression child;
+
+        private NullExtended(int boundaryId, Expression child) {
+            this.boundaryId = boundaryId;
+            this.child = child;
+        }
+
+        @Override
+        public List<Expression> children() {
+            return Collections.singletonList(child);
+        }
+
+        @Override
+        public NullExtended withChildren(List<Expression> children) {
+            return children.size() == 1 && children.get(0) == child
+                    ? this : new NullExtended(boundaryId, children.get(0));
+        }
+
+        @Override
+        public boolean nullable() {
+            return true;
+        }
+
+        @Override
+        public DataType getDataType() {
+            return child.getDataType();
+        }
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            return visitor.visit(this, context);
+        }
     }
 
     /**
@@ -1216,6 +1309,13 @@ public class GroupStructInfo {
          * number of rows with the same conditions, so the flag is part of the identity.
          */
         private boolean markJoin;
+        /**
+         * The id of the null extension this node introduces (an outer join which null-extends a side), -1
+         * for every other node. The id is assigned in build order inside one description, so the consumer
+         * of a definition which crossed this node can name it; the description is memoized on the group,
+         * so the estimation path and the EXPLAIN path see the same ids.
+         */
+        private int nullExtensionBoundaryId = -1;
         /** JOIN: the type of a join which is not flattened. */
         private JoinType joinType;
         /** TOPN / LIMIT: the bound. */
@@ -1501,6 +1601,9 @@ public class GroupStructInfo {
             Node node = new Node(Kind.JOIN);
             node.joinType = join.getJoinType();
             node.markJoin = join.isMarkJoin();
+            if (join.getJoinType().isOuterJoin()) {
+                node.nullExtensionBoundaryId = ctx.nextBoundaryId++;
+            }
             node.conditions = joinConditions(join);
             node.children = children(ge, ctx, 0);
             if (node.children == null) {
@@ -2784,6 +2887,9 @@ public class GroupStructInfo {
             // decides which values are counted, i.e. how many rows a predicate above the aggregation keeps
             return className + "<distinct>";
         }
+        if (expression instanceof NullExtended) {
+            return "NullExtended<" + ((NullExtended) expression).boundaryId + ">";
+        }
         if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
             // the session which evaluates the expression decides how an epoch value is read: the same
             // arguments keep a different number of rows in another time zone
@@ -3038,6 +3144,11 @@ public class GroupStructInfo {
     /** The state of one build: it describes the sub tree of the group it was started at. */
     private static class Ctx {
 
+        /**
+         * The id the next null extension boundary of this description gets (see
+         * {@link Node#nullExtensionBoundaryId}).
+         */
+        private int nextBoundaryId;
         private boolean valid = true;
         /** why the description was refused: the first reason wins, it is shown by EXPLAIN */
         private String reason = "";
