@@ -18,16 +18,22 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmUtil;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMax;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -38,39 +44,66 @@ import java.util.List;
 import java.util.Map;
 
 class IvmAggMaxProcessorTest extends IvmAggProcessorTestBase {
+    private static final long TOP_K = 8;
+
     @Test
-    void testMaxUsesDeleteFallbackGuard() {
+    void testMaxTopKDeltaAndApply() {
         IvmAggMaxProcessor processor = new IvmAggMaxProcessor();
         Assertions.assertTrue(processor.supportsOriginalFunction(new Max(value)));
         Assertions.assertEquals(IvmAggFunctionKind.MAX, processor.handledFunctionKind());
-        Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT, IvmAggStateKey.MAX_COUNT),
+        Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT, IvmAggStateKey.MAX_TOPK),
                 processor.hiddenStateKeys(new Max(value)));
 
-        IvmAggTarget target = target(3, IvmAggFunctionKind.MAX, "max_v", IntegerType.INSTANCE,
-                ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE),
-                        IvmAggStateKey.MAX_COUNT, slot(IvmUtil.ivmAggHiddenColumnName(3, "MAX_COUNT"),
-                                BigIntType.INSTANCE)),
-                valueArg());
+        IvmAggTarget target = newMaxTarget(TOP_K);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
-        Assertions.assertEquals(5, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof Max);
+        Assertions.assertEquals(3, outputs.size());
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMaxCount);
+        Assertions.assertTrue(outputs.get(1).child(0) instanceof TopKMaxCount);
         Assertions.assertTrue(outputs.get(1).getName().contains("DELMAX"));
         Assertions.assertTrue(outputs.get(2).child(0) instanceof Sum);
-        Assertions.assertTrue(outputs.get(3).child(0) instanceof CountAtMax);
-        Assertions.assertTrue(outputs.get(4).child(0) instanceof CountAtMax);
 
         Map<String, Expression> finalByName = apply(processor, target,
                 ImmutableList.of(slot("max_v", IntegerType.INSTANCE),
                         slot("__ivm_count", BigIntType.INSTANCE),
-                        slot(IvmUtil.ivmAggHiddenColumnName(3, "MAX_COUNT"), BigIntType.INSTANCE)),
+                        target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK)),
                 mappedDeltaSlots(processor, target, outputs), slot("delta_group_count", BigIntType.INSTANCE));
+        Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK).getName());
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof TopKMergeMax));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof AssertTrue));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof Cardinality));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof ElementAt));
         Expression visible = finalByName.get("max_v");
-        Assertions.assertTrue(visible.anyMatch(node -> node instanceof AssertTrue));
-        Assertions.assertTrue(visible.anyMatch(node -> node instanceof LessThanEqual));
-        Assertions.assertTrue(visible.anyMatch(node -> node instanceof CaseWhen));
-        Assertions.assertTrue(finalByName.containsKey(IvmUtil.ivmAggHiddenColumnName(3, "MAX_COUNT")));
-        Expression hiddenCount = finalByName.get(IvmUtil.ivmAggHiddenColumnName(3, "MAX_COUNT"));
-        Assertions.assertTrue(containsSlotSubtract(hiddenCount, "EXTREME_INS_COUNT", "EXTREME_DEL_COUNT"),
-                "MAX count initialization must subtract matching deletes");
+        Assertions.assertTrue(visible.anyMatch(node -> node instanceof ElementAt));
+        Assertions.assertTrue(visible.anyMatch(node -> node instanceof GreaterThan));
+        Assertions.assertTrue(finalByName.containsKey("__ivm_count"));
+    }
+
+    @Test
+    void testMaxExtremeOnlyMode() {
+        IvmAggMaxProcessor processor = new IvmAggMaxProcessor();
+        IvmAggTarget target = newMaxTarget(0);
+        List<NamedExpression> outputs = deltaOutputs(processor, target);
+        Assertions.assertEquals(3, outputs.size());
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMaxCount);
+
+        Map<String, Expression> finalByName = apply(processor, target,
+                ImmutableList.of(slot("max_v", IntegerType.INSTANCE),
+                        slot("__ivm_count", BigIntType.INSTANCE),
+                        target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK)),
+                mappedDeltaSlots(processor, target, outputs), slot("delta_group_count", BigIntType.INSTANCE));
+        Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK).getName());
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof CreateNamedStruct));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof AssertTrue));
+        Expression visible = finalByName.get("max_v");
+        Assertions.assertTrue(visible.anyMatch(node -> node instanceof Greatest));
+    }
+
+    private IvmAggTarget newMaxTarget(long topK) {
+        StructType stateType = TopKCountFunction.resultType(IntegerType.INSTANCE);
+        return target(2, IvmAggFunctionKind.MAX, "max_v", IntegerType.INSTANCE,
+                ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE),
+                        IvmAggStateKey.MAX_TOPK,
+                        slot(IvmUtil.ivmAggHiddenColumnName(2, "MAX_TOPK"), stateType)),
+                valueArg(), topK);
     }
 }

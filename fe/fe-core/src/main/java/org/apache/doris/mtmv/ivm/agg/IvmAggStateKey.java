@@ -22,6 +22,6 @@ public enum IvmAggStateKey {
     COUNT,
     SUM,
     BITMAP_UNION,
-    MIN_COUNT,
-    MAX_COUNT
+    MIN_TOPK,
+    MAX_TOPK
 }

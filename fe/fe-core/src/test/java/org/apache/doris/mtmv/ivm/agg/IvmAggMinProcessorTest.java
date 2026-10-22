@@ -18,16 +18,22 @@
 package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmUtil;
-import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMin;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -38,39 +44,69 @@ import java.util.List;
 import java.util.Map;
 
 class IvmAggMinProcessorTest extends IvmAggProcessorTestBase {
+    private static final long TOP_K = 8;
+
     @Test
-    void testMinUsesDeleteFallbackGuard() {
+    void testMinTopKDeltaAndApply() {
         IvmAggMinProcessor processor = new IvmAggMinProcessor();
         Assertions.assertTrue(processor.supportsOriginalFunction(new Min(value)));
         Assertions.assertEquals(IvmAggFunctionKind.MIN, processor.handledFunctionKind());
-        Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT, IvmAggStateKey.MIN_COUNT),
+        Assertions.assertEquals(ImmutableList.of(IvmAggStateKey.COUNT, IvmAggStateKey.MIN_TOPK),
                 processor.hiddenStateKeys(new Min(value)));
 
-        IvmAggTarget target = target(2, IvmAggFunctionKind.MIN, "min_v", IntegerType.INSTANCE,
-                ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE),
-                        IvmAggStateKey.MIN_COUNT, slot(IvmUtil.ivmAggHiddenColumnName(2, "MIN_COUNT"),
-                                BigIntType.INSTANCE)),
-                valueArg());
+        IvmAggTarget target = newMinTarget(TOP_K);
         List<NamedExpression> outputs = deltaOutputs(processor, target);
-        Assertions.assertEquals(5, outputs.size());
-        Assertions.assertTrue(outputs.get(0).child(0) instanceof Min);
+        // Insert-side top-K, delete-side top-K, and the signed non-NULL row count.
+        Assertions.assertEquals(3, outputs.size());
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMinCount);
+        Assertions.assertTrue(outputs.get(1).child(0) instanceof TopKMinCount);
         Assertions.assertTrue(outputs.get(1).getName().contains("DELMIN"));
         Assertions.assertTrue(outputs.get(2).child(0) instanceof Sum);
-        Assertions.assertTrue(outputs.get(3).child(0) instanceof CountAtMin);
-        Assertions.assertTrue(outputs.get(4).child(0) instanceof CountAtMin);
 
         Map<String, Expression> finalByName = apply(processor, target,
                 ImmutableList.of(slot("min_v", IntegerType.INSTANCE),
                         slot("__ivm_count", BigIntType.INSTANCE),
-                        slot(IvmUtil.ivmAggHiddenColumnName(2, "MIN_COUNT"), BigIntType.INSTANCE)),
+                        target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK)),
                 mappedDeltaSlots(processor, target, outputs), slot("delta_group_count", BigIntType.INSTANCE));
+        Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK).getName());
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof TopKMergeMin));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof AssertTrue));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof Cardinality),
+                "the merge guard must check whether any value survived");
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof ElementAt));
         Expression visible = finalByName.get("min_v");
-        Assertions.assertTrue(visible.anyMatch(node -> node instanceof AssertTrue));
-        Assertions.assertTrue(visible.anyMatch(node -> node instanceof GreaterThanEqual));
-        Assertions.assertTrue(visible.anyMatch(node -> node instanceof CaseWhen));
-        Assertions.assertTrue(finalByName.containsKey(IvmUtil.ivmAggHiddenColumnName(2, "MIN_COUNT")));
-        Expression hiddenCount = finalByName.get(IvmUtil.ivmAggHiddenColumnName(2, "MIN_COUNT"));
-        Assertions.assertTrue(containsSlotSubtract(hiddenCount, "EXTREME_INS_COUNT", "EXTREME_DEL_COUNT"),
-                "MIN count initialization must subtract matching deletes");
+        Assertions.assertTrue(visible.anyMatch(node -> node instanceof ElementAt));
+        Assertions.assertTrue(visible.anyMatch(node -> node instanceof GreaterThan));
+        Assertions.assertTrue(finalByName.containsKey("__ivm_count"));
+    }
+
+    @Test
+    void testMinExtremeOnlyMode() {
+        IvmAggMinProcessor processor = new IvmAggMinProcessor();
+        IvmAggTarget target = newMinTarget(0);
+        List<NamedExpression> outputs = deltaOutputs(processor, target);
+        Assertions.assertEquals(3, outputs.size());
+        Assertions.assertTrue(outputs.get(0).child(0) instanceof TopKMinCount);
+
+        Map<String, Expression> finalByName = apply(processor, target,
+                ImmutableList.of(slot("min_v", IntegerType.INSTANCE),
+                        slot("__ivm_count", BigIntType.INSTANCE),
+                        target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK)),
+                mappedDeltaSlots(processor, target, outputs), slot("delta_group_count", BigIntType.INSTANCE));
+        Expression state = finalByName.get(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK).getName());
+        // The hidden column stays a typed struct: an empty list plus the current extreme.
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof CreateNamedStruct));
+        Assertions.assertTrue(state.anyMatch(node -> node instanceof AssertTrue));
+        Expression visible = finalByName.get("min_v");
+        Assertions.assertTrue(visible.anyMatch(node -> node instanceof Least));
+    }
+
+    private IvmAggTarget newMinTarget(long topK) {
+        StructType stateType = TopKCountFunction.resultType(IntegerType.INSTANCE);
+        return target(2, IvmAggFunctionKind.MIN, "min_v", IntegerType.INSTANCE,
+                ImmutableMap.of(IvmAggStateKey.COUNT, slot("__ivm_count", BigIntType.INSTANCE),
+                        IvmAggStateKey.MIN_TOPK,
+                        slot(IvmUtil.ivmAggHiddenColumnName(2, "MIN_TOPK"), stateType)),
+                valueArg(), topK);
     }
 }

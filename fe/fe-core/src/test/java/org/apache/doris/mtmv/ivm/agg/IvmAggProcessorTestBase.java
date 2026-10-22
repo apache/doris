@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -90,9 +91,17 @@ abstract class IvmAggProcessorTestBase {
 
     protected IvmAggTarget target(int ordinal, IvmAggFunctionKind kind, String visibleName,
             DataType visibleType, Map<IvmAggStateKey, Slot> hiddenSlots, List<Expression> args) {
+        return target(ordinal, kind, visibleName, visibleType, hiddenSlots, args,
+                IvmUtil.DEFAULT_MINMAX_TOP_K);
+    }
+
+    protected IvmAggTarget target(int ordinal, IvmAggFunctionKind kind, String visibleName,
+            DataType visibleType, Map<IvmAggStateKey, Slot> hiddenSlots, List<Expression> args,
+            long minMaxTopK) {
         // No value-state carrier, and the visible column keeps its own name: these targets keep their
         // value in the visible column.
-        return new IvmAggTarget(ordinal, kind, slot(visibleName, visibleType), hiddenSlots, null, false, args);
+        return new IvmAggTarget(ordinal, kind, slot(visibleName, visibleType), hiddenSlots, null, false, args,
+                minMaxTopK);
     }
 
     protected Slot slot(String name, DataType dataType) {

@@ -19,18 +19,17 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMin;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 
-/** MIN-specific extreme comparisons and delta state. */
+/** MIN-specific top-K state, delta and merge. */
 class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     IvmAggMinProcessor() {
-        super(IvmAggFunctionKind.MIN, IvmAggStateKey.MIN_COUNT, "DELMIN");
+        super(IvmAggFunctionKind.MIN, IvmAggStateKey.MIN_TOPK, "DELMIN");
     }
 
     @Override
@@ -39,28 +38,21 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression buildExtremeAggregate(Expression input) {
-        return new Min(input);
+    protected AggregateFunction buildTopKAggregate(Expression input, long topK) {
+        return new TopKMinCount(input, new BigIntLiteral(topK));
     }
 
     @Override
-    protected Expression buildExtremeCountAggregate(Expression input) {
-        return new CountAtMin(input);
+    protected Expression buildMerge(Expression oldValues, Expression oldBound,
+            Expression insertValues, Expression insertBound, Expression deleteValues, Expression deleteBound,
+            Expression oldCount, Expression deltaCount, long topK) {
+        return new TopKMergeMin(oldValues, oldBound, insertValues, insertBound,
+                deleteValues, deleteBound, oldCount, deltaCount, new BigIntLiteral(topK));
     }
 
     @Override
-    protected Expression insertedIsBetter(Expression deltaInsert, Slot oldExtreme) {
-        return new LessThan(deltaInsert, oldExtreme);
-    }
-
-    @Override
-    protected Expression deletedExtremeIsAtLeastOld(Expression deltaDelete, Slot oldExtreme) {
-        return new GreaterThanEqual(deltaDelete, oldExtreme);
-    }
-
-    @Override
-    protected Expression deletedExtremeIsBeyondInsert(Expression deltaDelete, Expression deltaInsert) {
-        return new GreaterThan(deltaDelete, deltaInsert);
+    protected Expression betterExtreme(Expression oldExtreme, Expression insertedExtreme) {
+        return new Least(oldExtreme, insertedExtreme);
     }
 
     @Override
