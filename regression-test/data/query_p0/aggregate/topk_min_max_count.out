@@ -109,32 +109,35 @@ e	0	0	{"values":[{"value":0, "count":5}], "bound":null}	{"values":[{"value":0, "
 {"values":[{"value":1, "count":1}], "bound":null}	{"values":[{"value":1, "count":1}], "bound":null}
 
 -- !merge_min_complete --
-{"values":[{"value":1, "count":2}, {"value":2, "count":1}, {"value":4, "count":1}], "bound":null, "n":4, "exhausted":0}
+{"values":[{"value":1, "count":2}, {"value":2, "count":1}, {"value":4, "count":1}], "bound":null}
 
 -- !merge_max_complete --
-{"values":[{"value":5, "count":1}, {"value":4, "count":1}, {"value":3, "count":1}, {"value":2, "count":1}], "bound":null, "n":4, "exhausted":0}
+{"values":[{"value":5, "count":1}, {"value":4, "count":1}, {"value":3, "count":1}, {"value":2, "count":1}], "bound":null}
 
 -- !merge_min_pre_image_bound --
-{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":2, "n":3, "exhausted":0}
+{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":2}
 
 -- !merge_min_insert_bound --
-{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":2, "n":3, "exhausted":0}
+{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":2}
 
 -- !merge_min_delete_bound --
-{"values":[{"value":1, "count":1}], "bound":2, "n":2, "exhausted":0}
+{"values":[{"value":1, "count":1}], "bound":2}
 
 -- !merge_min_exhausted --
-{"values":[], "bound":2, "n":1, "exhausted":1}
+{"values":[], "bound":2}
 
 -- !merge_min_empty_after_delete --
-{"values":[], "bound":null, "n":0, "exhausted":0}
+{"values":[], "bound":null}
 
 -- !merge_min_truncate_to_k --
-{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":2, "n":4, "exhausted":0}
+{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":2}
+
+-- !merge_min_pos_equals_k --
+{"values":[{"value":1, "count":1}, {"value":2, "count":1}], "bound":5}
 
 -- !merge_max_truncate_to_k --
-{"values":[{"value":4, "count":1}, {"value":3, "count":1}], "bound":3, "n":4, "exhausted":0}
+{"values":[{"value":4, "count":1}, {"value":3, "count":1}], "bound":3}
 
 -- !merge_all_null --
-{"values":[], "bound":null, "n":0, "exhausted":0}
+{"values":[], "bound":null}
 
