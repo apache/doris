@@ -900,6 +900,87 @@ TEST_F(DNSCacheTest, invalidation_resolves_replaced_pod_and_clears_negative_cach
     EXPECT_EQ(ip, "10.0.0.3");
 }
 
+TEST_F(DNSCacheTest, newer_invalidation_survives_authoritative_background_failure) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    std::atomic<int> calls {0};
+    CountDownLatch resolving(1);
+    CountDownLatch finish_lookup(1);
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        int call = calls.fetch_add(1);
+        if (call == 1) {
+            resolving.count_down();
+            finish_lookup.wait();
+            *error = EAI_NONAME;
+            return Status::InternalError<false>("older NXDOMAIN result");
+        }
+        *error = 0;
+        ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    std::thread background([&] { cache.refresh_for_test(); });
+    resolving.wait();
+    cache.invalidate("be.test");
+    finish_lookup.count_down();
+    background.join();
+
+    EXPECT_EQ(cache.negative_cache_size_for_test(), 0u);
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(calls.load(), 3);
+}
+
+TEST_F(DNSCacheTest, warm_reader_waits_for_forced_refresh) {
+    for (bool fail_refresh : {false, true}) {
+        SCOPED_TRACE(fail_refresh ? "fallback after failure" : "replacement IP");
+        std::atomic<int> calls {0};
+        CountDownLatch resolving(1);
+        CountDownLatch finish_lookup(1);
+        DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+            int call = calls.fetch_add(1);
+            if (call != 0) {
+                resolving.count_down();
+                finish_lookup.wait();
+                if (fail_refresh) {
+                    *error = EAI_AGAIN;
+                    return Status::InternalError<false>("temporary resolver failure");
+                }
+            }
+            *error = 0;
+            ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+            return Status::OK();
+        });
+        std::string first_ip;
+        ASSERT_TRUE(cache.get("be.test", &first_ip).ok());
+        cache.invalidate("be.test");
+        Status first_status;
+        std::thread first([&] { first_status = cache.get("be.test", &first_ip); });
+        resolving.wait();
+        CountDownLatch second_started(1);
+        std::string second_ip;
+        std::promise<Status> second_status;
+        auto result = second_status.get_future();
+        std::thread second([&] {
+            second_started.count_down();
+            second_status.set_value(cache.get("be.test", &second_ip));
+        });
+        second_started.wait();
+        auto before_release = result.wait_for(std::chrono::milliseconds(100));
+        finish_lookup.count_down();
+        first.join();
+        second.join();
+
+        EXPECT_EQ(before_release, std::future_status::timeout);
+        EXPECT_TRUE(first_status.ok());
+        EXPECT_TRUE(result.get().ok());
+        EXPECT_EQ(first_ip, fail_refresh ? "10.0.0.1" : "10.0.0.2");
+        EXPECT_EQ(second_ip, first_ip);
+        EXPECT_EQ(calls.load(), 2);
+    }
+}
+
 TEST_F(DNSCacheTest, invalidation_preserves_fallback_during_transient_dns_failure) {
     config::dns_cache_max_consecutive_failures = 1;
     config::dns_cache_negative_ttl_seconds = 3600;

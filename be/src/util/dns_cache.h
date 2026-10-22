@@ -155,6 +155,8 @@ private:
     std::unordered_map<std::string, std::string> cache;
     // Cached hostnames that must be resolved again before their next use.
     std::unordered_set<std::string> _refresh_pending;
+    // Claimed explicit refreshes: keep warm readers waiting until their result is published.
+    std::unordered_set<std::string> _refresh_inflight;
     // Serialize lookups for one hostname without holding the cache mutex over DNS I/O.
     // Entries exist only while a lookup is running or waiting.
     std::unordered_map<std::string, std::shared_ptr<std::mutex>> _refresh_locks;

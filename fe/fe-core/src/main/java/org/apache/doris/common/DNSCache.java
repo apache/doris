@@ -37,6 +37,7 @@ public class DNSCache {
 
     private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
     private final Set<String> refreshPending = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, Object> refreshInFlight = new ConcurrentHashMap<>();
     private final ScheduledExecutorService executor = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "dns_cache_pool", true);
 
@@ -59,19 +60,30 @@ public class DNSCache {
      * @return The IP address for the given hostname.
      */
     public String get(String hostname) {
-        String cachedIp = cache.get(hostname);
-        if (cachedIp != null && !refreshPending.contains(hostname)) {
-            return cachedIp;
-        }
-        return cache.compute(hostname, (host, currentIp) -> {
-            // Claim before DNS I/O so an invalidation arriving during this lookup is
-            // retained for the next get(). Concurrent lookups of this host serialize here.
-            boolean needsRefresh = refreshPending.remove(host);
-            if (currentIp == null || needsRefresh) {
-                return resolveHostname(host);
+        if (!refreshPending.contains(hostname) && !refreshInFlight.containsKey(hostname)) {
+            // Read the IP after the markers: a refresh may have just published a new value.
+            String cachedIp = cache.get(hostname);
+            if (cachedIp != null) {
+                return cachedIp;
             }
-            return currentIp;
-        });
+        }
+        Object refresh = new Object();
+        try {
+            return cache.compute(hostname, (host, currentIp) -> {
+                // Mark in-flight before claiming pending work, so warm readers cannot
+                // bypass this computation and reuse the old IP while DNS is running.
+                refreshInFlight.put(host, refresh);
+                boolean needsRefresh = refreshPending.remove(host);
+                if (currentIp == null || needsRefresh) {
+                    return resolveHostname(host);
+                }
+                return currentIp;
+            });
+        } finally {
+            // compute has published the result. A following computation may already
+            // own this marker, so remove only this call's token.
+            refreshInFlight.remove(hostname, refresh);
+        }
     }
 
     public void invalidate(String hostname) {
@@ -124,7 +136,8 @@ public class DNSCache {
             // Use the same per-host serialization as forced lookups. An older refresh
             // must not overwrite a newer resolved address with its captured fallback.
             cache.computeIfPresent(hostname, (host, currentIp) -> {
-                refreshPending.remove(host);
+                // Leave explicit invalidations pending for get(); a periodic refresh
+                // must not let warm readers bypass a requested forced lookup.
                 String resolvedIp = resolveHostname(host);
                 if (!resolvedIp.equals(currentIp)) {
                     LOG.info("IP for hostname {} has changed from {} to {}", host, currentIp, resolvedIp);
