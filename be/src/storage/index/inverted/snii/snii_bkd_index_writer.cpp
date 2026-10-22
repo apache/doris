@@ -103,8 +103,7 @@ Status SniiBkdIndexColumnWriter::_add_value(const uint8_t* value, uint32_t docid
             ::doris::snii::Slice(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()));
 }
 
-Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const uint8_t* values,
-                                            size_t count) {
+Status SniiBkdIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     DORIS_CHECK(values != nullptr || count == 0);
     const auto* cursor = values;
     for (size_t i = 0; i < count; ++i) {

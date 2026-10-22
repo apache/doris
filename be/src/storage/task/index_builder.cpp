@@ -1095,26 +1095,22 @@ Status IndexBuilder::_add_array(const std::vector<std::pair<int64_t, int64_t>>& 
 
 namespace {
 
-// The storage cells of n rows of `column` from row_pos on, CHAR padded to its length when
-// pad_char.
-const uint8_t* prepare_index_cells(const TabletColumn& column, const IColumn& nested,
-                                   size_t row_pos, size_t n, StorageBuffers& buffers,
-                                   bool pad_char) {
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        using CharLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>;
-        // _add_column hands over only runs without NULL rows.
-        return pad_char
-                       ? CharLayout::column_to_storage(nested, row_pos, n, column.length(), buffers)
-                       : CharLayout::column_to_storage(nested, row_pos, n, buffers);
-    }
-    return column_to_storage(column.type(), nested, row_pos, n, buffers);
-}
-
+// Feeds rows [row_pos, row_pos + count) of `nested`, a run without NULL rows, to `writer` as
+// their storage cells, CHAR padded to its length when pad_char.
 Status add_index_values(segment_v2::IndexColumnWriter& writer, const TabletColumn& column,
                         const IColumn& nested, size_t row_pos, size_t count,
                         StorageBuffers& buffers, bool pad_char) {
-    const uint8_t* values = prepare_index_cells(column, nested, row_pos, count, buffers, pad_char);
-    return writer.add_values(column.name(), values, count);
+    using CharLayout = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>;
+    const uint8_t* values = nullptr;
+    if (column.type() != FieldType::OLAP_FIELD_TYPE_CHAR) {
+        values = column_to_storage(column.type(), nested, row_pos, count, buffers);
+    } else if (pad_char) {
+        values = CharLayout::column_to_storage(nested, row_pos, count, column.length(),
+                                               /*null_map=*/nullptr, buffers);
+    } else {
+        values = CharLayout::column_to_storage(nested, row_pos, count, buffers);
+    }
+    return writer.add_values(values, count);
 }
 
 } // namespace

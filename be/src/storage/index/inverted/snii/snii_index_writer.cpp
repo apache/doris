@@ -285,8 +285,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const uint8_t* values,
-                                         size_t count) {
+Status SniiIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }

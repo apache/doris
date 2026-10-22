@@ -177,7 +177,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
-        status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -276,7 +276,7 @@ public:
 
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
-        status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -340,7 +340,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
-        status = column_writer->add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -2953,10 +2953,10 @@ public:
         if (leading_nulls > 0) {
             EXPECT_TRUE(column_writer->add_nulls(leading_nulls).ok());
         }
-        EXPECT_TRUE(column_writer
-                            ->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
-                                         values.size())
-                            .ok());
+        EXPECT_TRUE(
+                column_writer
+                        ->add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size())
+                        .ok());
         if (trailing_nulls > 0) {
             EXPECT_TRUE(column_writer->add_nulls(trailing_nulls).ok());
         }
@@ -3414,7 +3414,6 @@ public:
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
             status = column_writer->add_values(
-                    column.name(),
                     reinterpret_cast<const uint8_t*>(reinterpret_cast<const void*>(&v)), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
@@ -4209,7 +4208,6 @@ public:
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
             status = column_writer->add_values(
-                    column.name(),
                     reinterpret_cast<const uint8_t*>(reinterpret_cast<const void*>(&v)), 1);
             EXPECT_TRUE(status.ok()) << status;
         }

@@ -271,9 +271,10 @@ Status emit_changelog_block(const ChangelogDeriveContext& c, const Block* after_
     for (size_t ordinal = 0; ordinal < c.normal_source_cids.size(); ++ordinal) {
         const uint32_t source_cid = c.normal_source_cids[ordinal];
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;
-        // The changelog schema declares every AFTER value column nullable, so a NOT
-        // NULL source column has to be wrapped: a nullable ARRAY, MAP or STRUCT
-        // writer refuses a column that is not Nullable. Keys keep their own nullability.
+        // The changelog schema declares every AFTER value column nullable and `out` keeps that
+        // type when a column is replaced, so a NOT NULL source column is wrapped to match it; a
+        // nullable ARRAY, MAP or STRUCT writer would refuse it otherwise. Keys keep their own
+        // nullability.
         if (!c.source_schema->column(source_cid).is_key()) {
             after_column = make_nullable(after_column);
         }

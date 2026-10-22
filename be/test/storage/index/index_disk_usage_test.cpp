@@ -260,16 +260,16 @@ protected:
     static void feed_text(IndexColumnWriter* writer) {
         std::vector<Slice> values = {Slice("hello world"), Slice("quick brown fox"),
                                      Slice("hello quick fox")};
-        ASSERT_TRUE(writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
-                                       values.size())
-                            .ok());
+        ASSERT_TRUE(
+                writer->add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size())
+                        .ok());
     }
 
     static void feed_numbers(IndexColumnWriter* writer) {
         std::vector<int32_t> values = {42, 100, 42, 200};
-        ASSERT_TRUE(writer->add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
-                                       values.size())
-                            .ok());
+        ASSERT_TRUE(
+                writer->add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size())
+                        .ok());
     }
 
     // Writes the given indexes of one segment and returns the index path prefix.
@@ -346,9 +346,9 @@ protected:
             storage.push_back(sentences[i % sentences.size()] + " doc" + std::to_string(i));
         }
         std::vector<Slice> values(storage.begin(), storage.end());
-        ASSERT_TRUE(writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
-                                       values.size())
-                            .ok());
+        ASSERT_TRUE(
+                writer->add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size())
+                        .ok());
     }
 
     static std::vector<IndexDiskUsageRecord> collect_snii(const std::string& prefix,

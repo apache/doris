@@ -73,7 +73,7 @@ public:
               _item_writer(item_writer),
               _expected_items(expected_items) {}
     Status init() override { return Status::OK(); }
-    Status add_values(const std::string, const uint8_t*, size_t) override {
+    Status add_values(const uint8_t*, size_t) override {
         return Status::NotSupported("Expected array input");
     }
     Status add_nulls(uint32_t) override { return Status::NotSupported("Expected array input"); }

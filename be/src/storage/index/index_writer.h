@@ -52,7 +52,7 @@ public:
 
     // Aligned storage values: fixed-width cells or Slice descriptors. The writer's
     // field type determines the layout; count is the number of values.
-    virtual Status add_values(const std::string name, const uint8_t* values, size_t count) = 0;
+    virtual Status add_values(const uint8_t* values, size_t count) = 0;
 
     // One document per array row. null_map describes items, and adjacent offsets
     // give each row's item count. Values use the same storage layout as add_values.

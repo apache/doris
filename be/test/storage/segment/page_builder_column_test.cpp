@@ -156,7 +156,7 @@ struct ReferenceCells {
                 const uint8_t* cell = nullptr;
                 if constexpr (FT == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     cell = StorageLayout<FT>::column_to_storage(column, i, 1, char_length,
-                                                                buffers[i]);
+                                                                /*null_map=*/nullptr, buffers[i]);
                 } else {
                     cell = column_to_storage(storage_type, column, i, 1, buffers[i]);
                 }

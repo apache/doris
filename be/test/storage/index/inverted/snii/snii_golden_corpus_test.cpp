@@ -390,8 +390,8 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
         std::vector<Slice> slices;
         slices.reserve(batch.size());
         for (const auto& row : batch) slices.emplace_back(row);
-        RETURN_IF_ERROR(writer.add_values(kColumn, reinterpret_cast<const uint8_t*>(slices.data()),
-                                          slices.size()));
+        RETURN_IF_ERROR(
+                writer.add_values(reinterpret_cast<const uint8_t*>(slices.data()), slices.size()));
         batch.clear();
         return Status::OK();
     };

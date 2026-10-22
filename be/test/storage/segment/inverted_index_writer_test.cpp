@@ -703,7 +703,7 @@ public:
         std::vector<Slice> values = {Slice("hello world"), Slice("testing value"),
                                      Slice("sample data")};
 
-        status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -761,7 +761,7 @@ public:
                                      Slice("apple"), // Duplicate to test frequency
                                      Slice("date")};
 
-        status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -828,7 +828,7 @@ public:
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
 
-        status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -901,7 +901,7 @@ public:
         // Add integer values
         std::vector<int32_t> values = {42, 100, 42, 200, 300};
 
-        status = column_writer->add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -980,7 +980,7 @@ public:
                 Slice("regular")      // Duplicate to test frequency
         };
 
-        status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                            values.size());
         EXPECT_TRUE(status.ok()) << status;
 
@@ -1115,12 +1115,10 @@ TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
     const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
                                          std::numeric_limits<int64_t>::max()};
     ASSERT_TRUE(column_writer->add_nulls(2).ok());
-    ASSERT_TRUE(column_writer->add_values("dt", reinterpret_cast<const uint8_t*>(values.data()), 2)
-                        .ok());
+    ASSERT_TRUE(column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()), 2).ok());
     ASSERT_TRUE(column_writer->add_nulls(1).ok());
     ASSERT_TRUE(
-            column_writer->add_values("dt", reinterpret_cast<const uint8_t*>(values.data() + 2), 3)
-                    .ok());
+            column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data() + 2), 3).ok());
     ASSERT_TRUE(column_writer->add_nulls(2).ok());
     ASSERT_TRUE(column_writer->finish().ok());
     ASSERT_TRUE(index_file_writer->begin_close().ok());
@@ -1222,12 +1220,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     };
 
     // Add values to both writers
-    status = column_writer_enabled->add_values(
-            "c2", reinterpret_cast<const uint8_t*>(values.data()), values.size());
+    status = column_writer_enabled->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                               values.size());
     EXPECT_TRUE(status.ok()) << status;
 
-    status = column_writer_disabled->add_values(
-            "c2", reinterpret_cast<const uint8_t*>(values.data()), values.size());
+    status = column_writer_disabled->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                                values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and close both writers
@@ -1366,15 +1364,14 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
 
     // Test with empty values array to trigger certain error paths
     std::vector<Slice> empty_values;
-    status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(empty_values.data()),
-                                       0);
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(empty_values.data()), 0);
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with very large strings that might trigger ignore_above behavior
     std::vector<Slice> large_values;
     std::string large_string(100000, 'a'); // Very large string
     large_values.push_back(Slice(large_string));
-    status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(large_values.data()),
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(large_values.data()),
                                        large_values.size());
     EXPECT_TRUE(status.ok()) << status;
 
@@ -1420,8 +1417,7 @@ TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
 
     const Slice value("value");
     Status status;
-    EXPECT_NO_THROW(
-            status = writer.add_values(column.name(), reinterpret_cast<const uint8_t*>(&value), 1));
+    EXPECT_NO_THROW(status = writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
@@ -1830,7 +1826,7 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
 
     // Add some values to create index files
     std::vector<Slice> values = {Slice("test1"), Slice("test2"), Slice("test3")};
-    status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                        values.size());
     EXPECT_TRUE(status.ok()) << status;
 
@@ -1893,7 +1889,7 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     std::vector<int32_t> values = {std::numeric_limits<int32_t>::min(), 0,
                                    std::numeric_limits<int32_t>::max()};
 
-    status = column_writer->add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                        values.size());
     EXPECT_TRUE(status.ok()) << status;
 
@@ -1954,7 +1950,7 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
 
     // Add some values to ensure files are created
     std::vector<Slice> values = {Slice("test1"), Slice("test2")};
-    status = column_writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+    status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
                                        values.size());
     EXPECT_TRUE(status.ok()) << status;
 
@@ -1983,9 +1979,7 @@ TEST_F(InvertedIndexWriterTest, SniiCharKeywordUsesLogicalValue) {
             column, "snii_char_keyword_logical_value", 3,
             [&](IndexColumnWriter* writer) {
                 const Slice value(padded_value);
-                ASSERT_TRUE(writer->add_values(column.name(),
-                                               reinterpret_cast<const uint8_t*>(&value), 1)
-                                    .ok());
+                ASSERT_TRUE(writer->add_values(reinterpret_cast<const uint8_t*>(&value), 1).ok());
             },
             &file_reader, &logical);
 
@@ -2052,9 +2046,7 @@ TEST_F(InvertedIndexWriterTest, SniiVarcharKeywordPreservesNulBytes) {
             column, "snii_varchar_keyword_preserves_nul", 32,
             [&](IndexColumnWriter* writer) {
                 const Slice value(value_with_nul);
-                ASSERT_TRUE(writer->add_values(column.name(),
-                                               reinterpret_cast<const uint8_t*>(&value), 1)
-                                    .ok());
+                ASSERT_TRUE(writer->add_values(reinterpret_cast<const uint8_t*>(&value), 1).ok());
             },
             &file_reader, &logical);
 

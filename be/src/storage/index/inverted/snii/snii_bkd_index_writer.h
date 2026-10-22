@@ -62,7 +62,7 @@ public:
     ~SniiBkdIndexColumnWriter() override;
 
     Status init() override;
-    Status add_values(const std::string name, const uint8_t* values, size_t count) override;
+    Status add_values(const uint8_t* values, size_t count) override;
     Status add_array_values(size_t field_size, const uint8_t* value_ptr, const uint8_t* null_map,
                             const uint64_t* offsets_ptr, size_t count) override;
     Status add_nulls(uint32_t count) override;

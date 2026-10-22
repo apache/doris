@@ -153,7 +153,7 @@ protected:
             segment_v2::SniiIndexColumnWriter writer(&index_file_writer, index,
                                                      FieldType::OLAP_FIELD_TYPE_VARCHAR);
             RETURN_IF_ERROR(writer.init());
-            RETURN_IF_ERROR(writer.add_values("p", reinterpret_cast<const uint8_t*>(slices.data()),
+            RETURN_IF_ERROR(writer.add_values(reinterpret_cast<const uint8_t*>(slices.data()),
                                               slices.size()));
             RETURN_IF_ERROR(writer.finish());
         }

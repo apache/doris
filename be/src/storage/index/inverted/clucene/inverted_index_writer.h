@@ -67,11 +67,11 @@ public:
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field);
     void new_field_value(const char* s, size_t len, lucene::document::Field* field);
     void new_field_char_value(const char* s, size_t len, lucene::document::Field* field);
-    Status add_values(const std::string fn, const uint8_t* values, size_t count) override;
+    Status add_values(const uint8_t* values, size_t count) override;
     Status add_array_values(size_t field_size, const uint8_t* value_ptr,
                             const uint8_t* nested_null_map, const uint64_t* offsets_ptr,
                             size_t count) override;
-    Status add_numeric_values(const CppType* values, size_t count);
+    Status add_numeric_values(const void* values, size_t count);
     Status add_value(const CppType& value);
     int64_t size() const override;
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);

@@ -330,7 +330,7 @@ TEST_F(AnnIndexWriterTest, TestAddScalarRows) {
     ASSERT_TRUE(writer->init().ok());
 
     // The inherited scalar entry remains a no-op; vectors use add_array.
-    EXPECT_TRUE(writer->add_values("", nullptr, 0).ok());
+    EXPECT_TRUE(writer->add_values(nullptr, 0).ok());
 }
 
 TEST_F(AnnIndexWriterTest, TestAddNulls) {

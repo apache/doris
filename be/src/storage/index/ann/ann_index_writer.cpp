@@ -86,7 +86,7 @@ Status AnnIndexColumnWriter::init() {
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::add_values(const std::string fn, const uint8_t* values, size_t count) {
+Status AnnIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     return Status::OK();
 }
 

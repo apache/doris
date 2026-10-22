@@ -242,8 +242,8 @@ void write_segment(const std::string& path, const TabletIndex& index_meta,
             slices.emplace_back(*corpus[i]);
             ++i;
         }
-        assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(slices.data()),
-                                    slices.size()));
+        assert_ok(
+                writer.add_values(reinterpret_cast<const uint8_t*>(slices.data()), slices.size()));
     }
 
     assert_ok(writer.finish());

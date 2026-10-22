@@ -236,8 +236,7 @@ void add_batch(SniiIndexColumnWriter* writer, const std::vector<std::string>& ro
     for (const std::string& row : rows) {
         slices.emplace_back(row);
     }
-    assert_ok(writer->add_values("c1", reinterpret_cast<const uint8_t*>(slices.data()),
-                                 slices.size()));
+    assert_ok(writer->add_values(reinterpret_cast<const uint8_t*>(slices.data()), slices.size()));
 }
 
 // The fixed corpus: two add batches with add_nulls runs interleaved.

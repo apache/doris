@@ -3374,7 +3374,7 @@ public:
     Status init() override { return Status::OK(); }
     explicit RecordingIndexColumnWriter(FieldType type = FieldType::OLAP_FIELD_TYPE_CHAR)
             : _type(type) {}
-    Status add_values(const std::string name, const uint8_t* data, size_t n) override {
+    Status add_values(const uint8_t* data, size_t n) override {
         last_values = data;
         max_batch_size = std::max(max_batch_size, n);
         for (size_t i = 0; i < n; ++i) {
@@ -3691,8 +3691,7 @@ TEST_F(IndexBuilderTest, FloatingPointBuildIndexBorrowsCleanRunsAndPreservesSour
                 builder._add_column({0, 1}, field, *values, nulls.data(), rows, /*pad_char=*/true)
                         .ok());
         EXPECT_GT(builder._buffers.bytes.allocated_bytes(), 0);
-        EXPECT_EQ(recorded->last_values,
-                  reinterpret_cast<const uint8_t*>(builder._buffers.bytes.data()));
+        EXPECT_EQ(recorded->last_values, builder._buffers.bytes.data());
         EXPECT_EQ(recorded->values[rows + 512],
                   std::string(reinterpret_cast<const char*>(&nan), sizeof(nan)));
         EXPECT_EQ(std::bit_cast<UInt>(values->get_data()[512]), std::bit_cast<UInt>(payload_nan));

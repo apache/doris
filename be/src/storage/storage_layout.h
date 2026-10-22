@@ -71,7 +71,7 @@ struct StorageLayout;
 // Where a batch conversion puts what it cannot borrow: converted fixed-width values and
 // serialised payloads in `bytes`, the Slice descriptors of the byte types in `cells`.
 struct StorageBuffers {
-    PaddedPODArray<char> bytes;
+    PaddedPODArray<uint8_t> bytes;
     PaddedPODArray<Slice> cells;
 
     size_t allocated_bytes() const { return bytes.allocated_bytes() + cells.allocated_bytes(); }
@@ -159,10 +159,9 @@ struct Bytes {
 
 } // namespace storage_layout_detail
 
-#define DORIS_STORAGE_LAYOUT_BIT_CAST(FT)                                                   \
-    template <>                                                                             \
-    struct StorageLayout<FieldType::FT> : storage_layout_detail::BitCast<FieldType::FT> {}; \
-    extern template struct storage_layout_detail::BitCast<FieldType::FT>;
+#define DORIS_STORAGE_LAYOUT_BIT_CAST(FT) \
+    template <>                           \
+    struct StorageLayout<FieldType::FT> : storage_layout_detail::BitCast<FieldType::FT> {};
 
 DORIS_STORAGE_LAYOUT_BIT_CAST(OLAP_FIELD_TYPE_BOOL)
 DORIS_STORAGE_LAYOUT_BIT_CAST(OLAP_FIELD_TYPE_TINYINT)
@@ -193,6 +192,26 @@ template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_DOUBLE>
         : storage_layout_detail::FloatingPoint<FieldType::OLAP_FIELD_TYPE_DOUBLE> {};
 
+// The batch conversions of the layouts above are instantiated once, in storage_layout.cpp.
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_BOOL>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_TINYINT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_SMALLINT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_INT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_BIGINT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_LARGEINT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_DECIMAL32>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_DECIMAL64>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_DECIMAL256>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_DATEV2>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_IPV4>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_IPV6>;
+extern template struct storage_layout_detail::BitCast<FieldType::OLAP_FIELD_TYPE_UUID>;
 extern template struct storage_layout_detail::FloatingPoint<FieldType::OLAP_FIELD_TYPE_FLOAT>;
 extern template struct storage_layout_detail::FloatingPoint<FieldType::OLAP_FIELD_TYPE_DOUBLE>;
 
@@ -259,25 +278,19 @@ struct StorageLayout<FieldType::OLAP_FIELD_TYPE_VARIANT> : storage_layout_detail
 
 // CHAR(N) is stored zero padded to N bytes, while a block holds it unpadded: the writers
 // pad the values they store or index with the length-taking column_to_storage. Padding
-// copies a value into an N-byte slot, so the range must hold no NULL row: a NULL row can hold
-// a value longer than N, as load does not check NULL rows. The Bytes one stays for the SNII
+// copies a value into an N-byte slot, so it never reads a NULL row: a NULL row can hold a
+// value longer than N, as load does not check NULL rows. The Bytes one stays for the SNII
 // index, which is fed CHAR as it reads back.
 template <>
 struct StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR> : storage_layout_detail::Bytes {
     using storage_layout_detail::Bytes::column_to_storage;
 
-    // Pads every value of the range, which holds no NULL row, into buffers.bytes and points
-    // the cells at them.
+    // Pads every non-NULL row of the range into its own `length` zeroed bytes and points its
+    // cell at them; a NULL row keeps an empty cell. null_map[i] is the NULL flag of row
+    // row_pos + i, and null_map is nullptr when the range holds no NULL row.
     static const uint8_t* column_to_storage(const IColumn& column, size_t row_pos, size_t n,
-                                            size_t length, StorageBuffers& buffers);
-
-    // Makes buffers hold n slots of `length` zeroed bytes and n empty cells, for pad_into.
-    static void prepare_slots(size_t n, size_t length, StorageBuffers& buffers);
-
-    // Pads rows [row_pos, row_pos + n), none of them NULL, into the prepared slots from `slot`
-    // on and points their cells at them.
-    static void pad_into(const IColumn& column, size_t row_pos, size_t n, size_t length,
-                         size_t slot, StorageBuffers& buffers);
+                                            size_t length, const uint8_t* null_map,
+                                            StorageBuffers& buffers);
 
     static void append_padded(StringRef value, size_t length, std::string* out) {
         DCHECK_LE(value.size, length);

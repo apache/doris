@@ -78,7 +78,7 @@ const uint8_t* FloatingPoint<FT>::column_to_storage(const IColumn& column, size_
         const StorageValue value = to_storage(values[i]);
         memcpy(bytes.data() + i * sizeof(StorageValue), &value, sizeof(StorageValue));
     }
-    return reinterpret_cast<const uint8_t*>(bytes.data());
+    return bytes.data();
 }
 
 const uint8_t* Bytes::column_to_storage(const IColumn& column, size_t row_pos, size_t n,
@@ -108,7 +108,7 @@ const uint8_t* serialize_batch(const IColumn& column, size_t row_pos, size_t n,
     auto& cells = buffers.cells;
     bytes.resize(total_size);
     cells.resize(n);
-    char* out = bytes.data();
+    uint8_t* out = bytes.data();
     for (size_t i = 0; i < n; ++i) {
         const size_t size = write(values[i], out);
         cells[i] = Slice(out, size);
@@ -147,55 +147,47 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::column_to_storage
         const IColumn& column, size_t row_pos, size_t n, StorageBuffers& buffers) {
     buffers.bytes.resize(n * sizeof(StorageValue));
     storage_layout_detail::repack_from_column<FieldType::OLAP_FIELD_TYPE_DATE>(
-            column, row_pos, n, reinterpret_cast<uint8_t*>(buffers.bytes.data()));
-    return reinterpret_cast<const uint8_t*>(buffers.bytes.data());
+            column, row_pos, n, buffers.bytes.data());
+    return buffers.bytes.data();
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_DATETIME>::column_to_storage(
         const IColumn& column, size_t row_pos, size_t n, StorageBuffers& buffers) {
     buffers.bytes.resize(n * sizeof(StorageValue));
     storage_layout_detail::repack_from_column<FieldType::OLAP_FIELD_TYPE_DATETIME>(
-            column, row_pos, n, reinterpret_cast<uint8_t*>(buffers.bytes.data()));
-    return reinterpret_cast<const uint8_t*>(buffers.bytes.data());
+            column, row_pos, n, buffers.bytes.data());
+    return buffers.bytes.data();
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_DECIMAL>::column_to_storage(
         const IColumn& column, size_t row_pos, size_t n, StorageBuffers& buffers) {
     buffers.bytes.resize(n * sizeof(StorageValue));
     storage_layout_detail::repack_from_column<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
-            column, row_pos, n, reinterpret_cast<uint8_t*>(buffers.bytes.data()));
-    return reinterpret_cast<const uint8_t*>(buffers.bytes.data());
+            column, row_pos, n, buffers.bytes.data());
+    return buffers.bytes.data();
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage(
-        const IColumn& column, size_t row_pos, size_t n, size_t length, StorageBuffers& buffers) {
-    prepare_slots(n, length, buffers);
-    pad_into(column, row_pos, n, length, 0, buffers);
-    return reinterpret_cast<const uint8_t*>(buffers.cells.data());
-}
-
-void StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::prepare_slots(size_t n, size_t length,
-                                                                   StorageBuffers& buffers) {
+        const IColumn& column, size_t row_pos, size_t n, size_t length, const uint8_t* null_map,
+        StorageBuffers& buffers) {
     ColumnString::check_chars_length(n * length, n);
     buffers.bytes.resize(n * length);
     // Erase old padding when a reused slot changes, e.g. "abcd" -> "a" in CHAR(4).
     memset(buffers.bytes.data(), 0, buffers.bytes.size());
-    // Every cell, a reused one too, starts empty; pad_into points the padded ones at their slots.
-    buffers.cells.assign(n, Slice());
-}
-
-void StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::pad_into(const IColumn& column, size_t row_pos,
-                                                              size_t n, size_t length, size_t slot,
-                                                              StorageBuffers& buffers) {
-    DCHECK_LE(slot + n, buffers.cells.size());
+    buffers.cells.resize(n);
     const auto& strings = assert_cast<const ColumnString&>(column);
     for (size_t i = 0; i < n; ++i) {
+        if (null_map != nullptr && null_map[i] != 0) {
+            buffers.cells[i] = Slice();
+            continue;
+        }
         const auto value = strings.get_data_at(row_pos + i);
         DCHECK_LE(value.size, length);
-        char* data = buffers.bytes.data() + (slot + i) * length;
+        uint8_t* data = buffers.bytes.data() + i * length;
         memcpy(data, value.data, value.size);
-        buffers.cells[slot + i] = Slice(data, length);
+        buffers.cells[i] = Slice(data, length);
     }
+    return reinterpret_cast<const uint8_t*>(buffers.cells.data());
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_BITMAP>::column_to_storage(
@@ -203,8 +195,8 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_BITMAP>::column_to_stora
     return storage_layout_detail::serialize_batch<ColumnBitmap>(
             column, row_pos, n, buffers,
             [](const BitmapValue& value) { return value.getSizeInBytes(); },
-            [](const BitmapValue& value, char* out) {
-                value.write_to(out);
+            [](const BitmapValue& value, uint8_t* out) {
+                value.write_to(reinterpret_cast<char*>(out));
                 return value.getSizeInBytes();
             });
 }
@@ -214,9 +206,7 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_HLL>::column_to_storage(
     return storage_layout_detail::serialize_batch<ColumnHLL>(
             column, row_pos, n, buffers,
             [](const HyperLogLog& value) { return value.max_serialized_size(); },
-            [](const HyperLogLog& value, char* out) {
-                return value.serialize(reinterpret_cast<uint8_t*>(out));
-            });
+            [](const HyperLogLog& value, uint8_t* out) { return value.serialize(out); });
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>::column_to_storage(
@@ -224,9 +214,7 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>::column_
     return storage_layout_detail::serialize_batch<ColumnQuantileState>(
             column, row_pos, n, buffers,
             [](const QuantileState& value) { return value.get_serialized_size(); },
-            [](const QuantileState& value, char* out) {
-                return value.serialize(reinterpret_cast<uint8_t*>(out));
-            });
+            [](const QuantileState& value, uint8_t* out) { return value.serialize(out); });
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_AGG_STATE>::column_to_storage(

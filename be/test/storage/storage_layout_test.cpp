@@ -266,11 +266,11 @@ void expect_floating_point_range_views() {
 
     // Reusing a buffer from an earlier NaN range must not force later clean rows
     // through it. The NaNs surrounding [1, 4) are outside the requested range.
-    const std::string previous_buffer(buffers.bytes.data(), buffers.bytes.size());
+    const std::string previous_buffer(buffers.bytes.begin(), buffers.bytes.end());
     const auto allocated_bytes = buffers.bytes.allocated_bytes();
     EXPECT_EQ(StorageLayout<FT>::column_to_storage(*column, 1, 3, buffers), source + sizeof(Value));
     EXPECT_EQ(buffers.bytes.allocated_bytes(), allocated_bytes);
-    EXPECT_EQ(std::string(buffers.bytes.data(), buffers.bytes.size()), previous_buffer);
+    EXPECT_EQ(std::string(buffers.bytes.begin(), buffers.bytes.end()), previous_buffer);
 }
 
 } // namespace
@@ -332,26 +332,28 @@ TEST(StorageLayoutTest, CharIsPaddedIntoReusedBytes) {
         strings->insert_data(value.data(), value.size());
     }
     StorageBuffers buffers;
-    const auto* cells =
-            reinterpret_cast<const Slice*>(Layout::column_to_storage(*strings, 1, 2, 4, buffers));
+    const auto* cells = reinterpret_cast<const Slice*>(
+            Layout::column_to_storage(*strings, 1, 2, 4, nullptr, buffers));
     EXPECT_EQ(cells, buffers.cells.data());
     EXPECT_EQ(cells[0].to_string(), "abcd");
     EXPECT_EQ(cells[1].to_string(), std::string("xy\0\0", 4));
     // A reused buffer must not keep the bytes of a longer earlier value.
     const auto* bytes = buffers.bytes.data();
-    cells = reinterpret_cast<const Slice*>(Layout::column_to_storage(*strings, 3, 1, 4, buffers));
+    cells = reinterpret_cast<const Slice*>(
+            Layout::column_to_storage(*strings, 3, 1, 4, nullptr, buffers));
     EXPECT_EQ(buffers.bytes.data(), bytes);
     EXPECT_EQ(cells[0].to_string(), std::string("a\0\0\0", 4));
 
-    // pad_into fills only the prepared slots it is given; the others stay zero and empty.
-    Layout::prepare_slots(3, 4, buffers);
-    Layout::pad_into(*strings, 2, 1, 4, /*slot=*/1, buffers);
-    EXPECT_EQ(std::string(buffers.bytes.data(), buffers.bytes.size()),
-              std::string("\0\0\0\0xy\0\0\0\0\0\0", 12));
-    EXPECT_TRUE(buffers.cells[0].empty());
-    EXPECT_EQ(buffers.cells[1].data, buffers.bytes.data() + 4);
-    EXPECT_EQ(buffers.cells[1].size, 4);
-    EXPECT_TRUE(buffers.cells[2].empty());
+    // A NULL row keeps an empty, zeroed slot, and its value is never read: "outside" is
+    // longer than CHAR(4).
+    const uint8_t null_map[] = {1, 0, 1};
+    cells = reinterpret_cast<const Slice*>(
+            Layout::column_to_storage(*strings, 0, 3, 4, null_map, buffers));
+    EXPECT_TRUE(cells[0].empty());
+    EXPECT_EQ(cells[1].to_string(), "abcd");
+    EXPECT_TRUE(cells[2].empty());
+    EXPECT_EQ(std::string(buffers.bytes.begin(), buffers.bytes.end()),
+              std::string("\0\0\0\0abcd\0\0\0\0", 12));
 
     // The Bytes overload stores a value as it is, which the SNII index is fed.
     cells = reinterpret_cast<const Slice*>(Layout::column_to_storage(*strings, 3, 1, buffers));
@@ -423,10 +425,11 @@ TEST(StorageLayoutTest, ObjectBatchSerialisesEveryValue) {
     EXPECT_EQ(cells, buffers.cells.data());
     const auto& values = bitmaps->get_data();
     // The payloads sit back to back in the batch's bytes.
-    EXPECT_EQ(cells[0].data, buffers.bytes.data());
+    const auto* bytes = reinterpret_cast<const char*>(buffers.bytes.data());
+    EXPECT_EQ(cells[0].data, bytes);
     size_t total_size = 0;
     for (size_t row = 0; row < 3; ++row) {
-        EXPECT_EQ(cells[row].data, buffers.bytes.data() + total_size) << "row " << row;
+        EXPECT_EQ(cells[row].data, bytes + total_size) << "row " << row;
         EXPECT_EQ(cells[row].size, values[row].getSizeInBytes()) << "row " << row;
         EXPECT_EQ(BitmapValue(cells[row].data).to_string(), values[row].to_string());
         total_size += cells[row].size;

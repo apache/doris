@@ -240,9 +240,9 @@ protected:
         for (const auto& row : kRows) {
             values.emplace_back(row);
         }
-        ASSERT_TRUE(writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
-                                       values.size())
-                            .ok());
+        ASSERT_TRUE(
+                writer->add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size())
+                        .ok());
         ASSERT_TRUE(writer->finish().ok());
         ASSERT_TRUE(index_file_writer->begin_close().ok());
         ASSERT_TRUE(index_file_writer->finish_close().ok());

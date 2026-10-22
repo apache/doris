@@ -173,8 +173,7 @@ void write_segment(const std::string& prefix, const TabletIndex& meta,
             for (size_t k = i; k < j; ++k) {
                 run.push_back(rows[k].value);
             }
-            assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(run.data()),
-                                        run.size()));
+            assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(run.data()), run.size()));
         }
         i = j;
     }
@@ -319,8 +318,7 @@ TEST_F(SniiBkdAdapterTest, SealingDrainsTheStagedDataWhileTheProducerIsStillAliv
             values.push_back(row.value);
         }
     }
-    assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
-                                values.size()));
+    assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
     assert_ok(writer.finish());
     // Sanity: its absence below must mean the seal drained it, not that it was
     // never staged.
@@ -417,8 +415,7 @@ TEST_F(SniiBkdAdapterTest, EncodesThroughTheIndexFieldTypeNotTheWidestOne) {
     assert_ok(writer.init());
     // Straddles zero so the sign-bit flip is the thing under test.
     const std::vector<int32_t> values = {-2147483648, -1, 0, 1, 2147483647, -5, 5};
-    assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
-                                values.size()));
+    assert_ok(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());

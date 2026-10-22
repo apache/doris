@@ -309,27 +309,6 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     return Status::OK();
 }
 
-namespace {
-
-// How the states of an AGG_STATE column are stored when its aggregate function serialises
-// them to `type`: strings as VARCHAR, bitmaps as BITMAP, fixed-length objects as AGG_STATE.
-FieldType agg_state_storage_type(PrimitiveType type) {
-    switch (type) {
-    case PrimitiveType::TYPE_STRING:
-        return FieldType::OLAP_FIELD_TYPE_VARCHAR;
-    case PrimitiveType::TYPE_BITMAP:
-        return FieldType::OLAP_FIELD_TYPE_BITMAP;
-    case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
-    case PrimitiveType::INVALID_TYPE:
-        return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
-    default:
-        throw Exception(ErrorCode::INTERNAL_ERROR, "AGG_STATE has no scalar storage for type {}",
-                        type_to_string(type));
-    }
-}
-
-} // namespace
-
 Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
                                              const TabletColumn* column,
                                              io::FileWriter* file_writer,
@@ -339,9 +318,16 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
         type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT || type == PrimitiveType::TYPE_BITMAP) {
-        *writer = std::unique_ptr<ColumnWriter>(
-                new ScalarColumnWriter(opts, std::make_shared<TabletColumn>(*column), file_writer,
-                                       agg_state_storage_type(type)));
+        // The states are stored as the function serialises them: strings as VARCHAR, bitmaps
+        // as BITMAP, fixed-length objects through AGG_STATE's own layout.
+        FieldType storage_type = FieldType::OLAP_FIELD_TYPE_AGG_STATE;
+        if (type == PrimitiveType::TYPE_STRING) {
+            storage_type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
+        } else if (type == PrimitiveType::TYPE_BITMAP) {
+            storage_type = FieldType::OLAP_FIELD_TYPE_BITMAP;
+        }
+        *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
+                opts, std::make_shared<TabletColumn>(*column), file_writer, storage_type));
     } else if (type == PrimitiveType::TYPE_ARRAY) {
         RETURN_IF_ERROR(create_array_writer(opts, column, file_writer, writer));
     } else if (type == PrimitiveType::TYPE_MAP) {
@@ -505,8 +491,7 @@ Status ScalarColumnWriter::init() {
                         Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
                             return Status::OK();
                         }
-                        Status add_values(const std::string name, const uint8_t* values,
-                                          size_t count) override {
+                        Status add_values(const uint8_t* values, size_t count) override {
                             return Status::OK();
                         }
                         Status add_array_values(size_t field_size, const uint8_t* values,
@@ -573,7 +558,7 @@ const uint8_t* ScalarColumnWriter::prepare_cells(const IColumn& values, size_t r
     if (_storage_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
         // Padded to the column's length, which is what the segment stores.
         return StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage(
-                values, row_pos, num_rows, get_column()->length(), _buffers);
+                values, row_pos, num_rows, get_column()->length(), /*null_map=*/nullptr, _buffers);
     }
     return column_to_storage(_storage_type, values, row_pos, num_rows, _buffers);
 }
@@ -654,7 +639,7 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
     }
     if (_opts.need_inverted_index) {
         for (const auto& builder : _inverted_index_builders) {
-            RETURN_IF_ERROR(builder->add_values(get_column()->name(), data, *num_written));
+            RETURN_IF_ERROR(builder->add_values(data, *num_written));
         }
     }
     if (_opts.need_bloom_filter) {
