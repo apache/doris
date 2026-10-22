@@ -246,6 +246,10 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
             return Status::Aborted("Missing vital param: table_name");
         }
 
+        // TODO: Balance this reservation when setup fails before a callback exists
+        // (e.g. _get_or_create_query_ctx()). Otherwise child contexts stay registered
+        // and load_status_future never completes. Distinguish this from later failures
+        // that already invoke the callback before exec_plan_fragment() returns an error.
         _inflight_cnt++;
         TPipelineFragmentParamsList mocked;
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
