@@ -212,7 +212,7 @@ std::vector<std::optional<std::string>> build_corpus() {
 }
 
 // Feed the corpus to a real SniiIndexColumnWriter and produce a real .idx file. Consecutive
-// non-NULL rows form one add_values batch and consecutive NULL rows one add_nulls batch, matching
+// non-NULL rows form one add batch and consecutive NULL rows one add_nulls batch, matching
 // how SegmentWriter calls the writer in production.
 void write_segment(const std::string& path, const TabletIndex& index_meta,
                    const std::vector<std::optional<std::string>>& corpus) {
@@ -242,7 +242,8 @@ void write_segment(const std::string& path, const TabletIndex& index_meta,
             slices.emplace_back(*corpus[i]);
             ++i;
         }
-        assert_ok(writer.add_values("c1", slices.data(), slices.size()));
+        assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(slices.data()),
+                                    slices.size()));
     }
 
     assert_ok(writer.finish());

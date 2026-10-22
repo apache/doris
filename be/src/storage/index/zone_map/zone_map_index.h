@@ -95,7 +95,7 @@ public:
 
     virtual ~ZoneMapIndexWriter() = default;
 
-    virtual void add_values(const void* values, size_t count) = 0;
+    virtual void add_values(const uint8_t* values, size_t count) = 0;
 
     virtual void add_nulls(uint32_t count) = 0;
 
@@ -122,7 +122,7 @@ public:
                                        typename PrimitiveTypeTraits<Type>::StorageFieldType>;
     explicit TypedZoneMapIndexWriter(DataTypePtr&& data_type);
 
-    void add_values(const void* values, size_t count) override;
+    void add_values(const uint8_t* values, size_t count) override;
 
     void add_nulls(uint32_t count) override { _page_zone_map.has_null = true; }
 

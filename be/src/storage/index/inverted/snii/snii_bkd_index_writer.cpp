@@ -90,7 +90,7 @@ Status SniiBkdIndexColumnWriter::init() {
     return ::doris::snii::bkd::BkdBuilder::create(options, &_builder);
 }
 
-Status SniiBkdIndexColumnWriter::_add_value(const void* value, uint32_t docid) {
+Status SniiBkdIndexColumnWriter::_add_value(const uint8_t* value, uint32_t docid) {
     DORIS_CHECK(_builder != nullptr);
     std::string encoded;
     _value_key_coder->full_encode_ascending(value, &encoded);
@@ -103,10 +103,10 @@ Status SniiBkdIndexColumnWriter::_add_value(const void* value, uint32_t docid) {
             ::doris::snii::Slice(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()));
 }
 
-Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const void* values,
+Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const uint8_t* values,
                                             size_t count) {
     DORIS_CHECK(values != nullptr || count == 0);
-    const auto* cursor = static_cast<const uint8_t*>(values);
+    const auto* cursor = values;
     for (size_t i = 0; i < count; ++i) {
         RETURN_IF_ERROR(_add_value(cursor, _rid));
         cursor += _value_size;
@@ -115,9 +115,9 @@ Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const vo
     return Status::OK();
 }
 
-Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
+Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* value_ptr,
                                                   const uint8_t* null_map,
-                                                  const uint8_t* offsets_ptr, size_t count) {
+                                                  const uint64_t* offsets_ptr, size_t count) {
     if (count == 0) {
         return Status::OK();
     }
@@ -128,8 +128,8 @@ Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const void*
     // reinterpret the payload.
     DORIS_CHECK_EQ(field_size, _value_size);
 
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
-    const auto* elements = static_cast<const uint8_t*>(value_ptr);
+    const auto* offsets = offsets_ptr;
+    const auto* elements = value_ptr;
     size_t element = 0;
     for (size_t i = 0; i < count; ++i) {
         const size_t row_elements = offsets[i + 1] - offsets[i];

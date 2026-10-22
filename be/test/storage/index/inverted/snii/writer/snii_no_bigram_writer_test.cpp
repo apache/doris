@@ -240,7 +240,9 @@ protected:
         for (const auto& row : kRows) {
             values.emplace_back(row);
         }
-        ASSERT_TRUE(writer->add_values("c2", values.data(), values.size()).ok());
+        ASSERT_TRUE(writer->add_values("c2", reinterpret_cast<const uint8_t*>(values.data()),
+                                       values.size())
+                            .ok());
         ASSERT_TRUE(writer->finish().ok());
         ASSERT_TRUE(index_file_writer->begin_close().ok());
         ASSERT_TRUE(index_file_writer->finish_close().ok());
@@ -274,9 +276,9 @@ protected:
             values.emplace_back(row);
         }
         const std::vector<uint64_t> offsets = {0, 1, 2, 3};
-        ASSERT_TRUE(writer->add_array_values(field_type_size(item_column.type()), values.data(),
-                                             /*nested_null_map=*/nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()),
+        ASSERT_TRUE(writer->add_array_values(field_type_size(item_column.type()),
+                                             reinterpret_cast<const uint8_t*>(values.data()),
+                                             /*nested_null_map=*/nullptr, offsets.data(),
                                              kRows.size())
                             .ok());
         ASSERT_TRUE(writer->finish().ok());

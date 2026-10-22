@@ -194,7 +194,8 @@ TEST(GramIndexSectionSizesTest, ReportsDictAndPostingSplit) {
         for (const auto& r : corpus) {
             slices.emplace_back(*r);
         }
-        assert_ok(writer.add_values("c1", slices.data(), slices.size()));
+        assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(slices.data()),
+                                    slices.size()));
         assert_ok(writer.finish());
         assert_ok(ifw.begin_close());
         assert_ok(ifw.finish_close());

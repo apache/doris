@@ -143,7 +143,8 @@ protected:
         for (const auto& value : _values) {
             slices.emplace_back(value);
         }
-        RETURN_IF_ERROR(writer.add_values("p", slices.data(), slices.size()));
+        RETURN_IF_ERROR(writer.add_values("p", reinterpret_cast<const uint8_t*>(slices.data()),
+                                          slices.size()));
         return writer.finish();
     }
 

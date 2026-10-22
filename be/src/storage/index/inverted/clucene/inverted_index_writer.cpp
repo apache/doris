@@ -372,8 +372,10 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 }
 
 template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, const void* values,
-                                                         size_t count) {
+// Preserve the existing scalar write logic while changing its input type.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn,
+                                                         const uint8_t* values, size_t count) {
     if constexpr (field_is_slice_type(field_type)) {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_field_is_nullptr",
                         { _field = nullptr; })
@@ -383,36 +385,36 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
             LOG(ERROR) << "field or index writer is null in inverted index writer.";
             return Status::InternalError("field or index writer is null in inverted index writer");
         }
-        const auto* v = (Slice*)values;
+        const auto* strings = reinterpret_cast<const Slice*>(values);
         for (size_t i = 0; i < count; ++i) {
-            // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-            if ((!_should_analyzer && v->get_size() > _ignore_above) ||
-                (_should_analyzer && v->empty())) {
+            const auto& value = strings[i];
+            // Only ignore_above UNTOKENIZED strings and empty strings not tokenized.
+            const bool ignore = _should_analyzer ? value.size == 0 : value.size > _ignore_above;
+            if (ignore) {
                 RETURN_IF_ERROR(add_null_document());
             } else {
-                RETURN_IF_ERROR(new_inverted_index_field(v->get_data(), v->get_size()));
+                RETURN_IF_ERROR(new_inverted_index_field(value.data, value.size));
                 RETURN_IF_ERROR(add_document());
             }
-            ++v;
             _rid++;
         }
     } else if constexpr (field_is_numeric_type(field_type)) {
-        RETURN_IF_ERROR(add_numeric_values(values, count));
+        RETURN_IF_ERROR(add_numeric_values(reinterpret_cast<const CppType*>(values), count));
     }
     return Status::OK();
 }
 
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size,
-                                                               const void* value_ptr,
+                                                               const uint8_t* value_ptr,
                                                                const uint8_t* nested_null_map,
-                                                               const uint8_t* offsets_ptr,
+                                                               const uint64_t* offsets_ptr,
                                                                size_t count) {
     if (count == 0) {
         // no values to add inverted index
         return Status::OK();
     }
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+    const auto* offsets = offsets_ptr;
     if constexpr (field_is_slice_type(field_type)) {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_index_writer_is_nullptr",
                         { _index_writer = nullptr; })
@@ -433,7 +435,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                 if (nested_null_map && nested_null_map[j] == 1) {
                     continue;
                 }
-                auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
+                const auto* v = reinterpret_cast<const Slice*>(value_ptr + j * field_size);
                 if ((!_should_analyzer && v->get_size() > _ignore_above) ||
                     (_should_analyzer && v->empty())) {
                     // is here a null value?
@@ -554,12 +556,11 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
 }
 
 template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_numeric_values(const void* values, size_t count) {
-    auto p = reinterpret_cast<const CppType*>(values);
+Status InvertedIndexColumnWriter<field_type>::add_numeric_values(const CppType* values,
+                                                                 size_t count) {
     for (size_t i = 0; i < count; ++i) {
-        RETURN_IF_ERROR(add_value(*p));
+        RETURN_IF_ERROR(add_value(values[i]));
         _rid++;
-        p++;
         _row_ids_seen_for_bkd++;
     }
     return Status::OK();

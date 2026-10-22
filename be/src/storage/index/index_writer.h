@@ -50,10 +50,14 @@ public:
     IndexColumnWriter() = default;
     virtual ~IndexColumnWriter() = default;
 
-    virtual Status add_values(const std::string name, const void* values, size_t count) = 0;
+    // Aligned storage values: fixed-width cells or Slice descriptors. The writer's
+    // field type determines the layout; count is the number of values.
+    virtual Status add_values(const std::string name, const uint8_t* values, size_t count) = 0;
 
-    virtual Status add_array_values(size_t field_size, const void* value_ptr,
-                                    const uint8_t* null_map, const uint8_t* offsets_ptr,
+    // One document per array row. null_map describes items, and adjacent offsets
+    // give each row's item count. Values use the same storage layout as add_values.
+    virtual Status add_array_values(size_t field_size, const uint8_t* value_ptr,
+                                    const uint8_t* null_map, const uint64_t* offsets_ptr,
                                     size_t count) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;

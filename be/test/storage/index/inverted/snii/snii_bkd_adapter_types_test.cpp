@@ -179,7 +179,8 @@ TYPED_TEST(SniiBkdAdapterTypesTest, AdapterPreservesValueToRowAssociation) {
     assert_ok(writer.init());
     // ONE call over a contiguous CppType array: exactly how the segment writer
     // hands a run of rows over, and the shape the stride has to walk.
-    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(values.data()),
+                                values.size()));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());

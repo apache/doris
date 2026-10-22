@@ -106,7 +106,8 @@ void write_segment(const std::string& path, const TabletIndex& meta,
     for (const std::string& row : rows) {
         slices.emplace_back(row);
     }
-    assert_ok(writer.add_values("c1", slices.data(), slices.size()));
+    assert_ok(writer.add_values("c1", reinterpret_cast<const uint8_t*>(slices.data()),
+                                slices.size()));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());
