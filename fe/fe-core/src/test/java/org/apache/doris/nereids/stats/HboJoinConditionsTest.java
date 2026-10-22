@@ -114,6 +114,27 @@ public class HboJoinConditionsTest {
                 .toString(), HboJoinConditions.fingerprintOf(join).get());
     }
 
+    @Test
+    public void testTheSideOfAnOuterSelfJoinIsPartOfTheExpansionKey() {
+        // `t a LEFT JOIN t b ON a.k = b.v` and the same join on `a.v = b.k` read the same table and the
+        // same columns, yet they keep a different number of rows: the operand of the left side is written
+        // first, so the two pairs stay apart
+        LogicalOlapScan a = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalOlapScan b = PlanConstructor.newLogicalOlapScan(1, "t", 0);
+        String leftV = canonical(JoinType.LEFT_OUTER_JOIN,
+                new EqualTo(a.getOutput().get(0), b.getOutput().get(1)), a, b);
+        String rightV = canonical(JoinType.LEFT_OUTER_JOIN,
+                new EqualTo(a.getOutput().get(1), b.getOutput().get(0)), a, b);
+        Assertions.assertNotEquals(leftV, rightV, "the reversed columns of an outer self join share a key");
+        // the same pair written in either order keeps one key
+        Assertions.assertEquals(leftV, canonical(JoinType.LEFT_OUTER_JOIN,
+                new EqualTo(b.getOutput().get(1), a.getOutput().get(0)), a, b));
+        // an inner join is commutative: its count does not depend on which occurrence is the left one
+        Assertions.assertEquals(
+                canonical(JoinType.INNER_JOIN, new EqualTo(a.getOutput().get(0), b.getOutput().get(1)), a, b),
+                canonical(JoinType.INNER_JOIN, new EqualTo(a.getOutput().get(1), b.getOutput().get(0)), a, b));
+    }
+
     private static String canonical(JoinType type, EqualTo equal, LogicalOlapScan left, LogicalOlapScan right) {
         return HboJoinConditions.canonicalOf(new LogicalJoin<>(type,
                 ImmutableList.<Expression>of(equal), ImmutableList.<Expression>of(), left, right, null)).get();
