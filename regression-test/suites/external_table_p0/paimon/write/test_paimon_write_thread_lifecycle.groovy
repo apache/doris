@@ -38,30 +38,21 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
     }
     assertFalse(backendEndpoints.isEmpty())
 
-    def jvmThreadCounts = {
-        backendEndpoints.collectEntries { backendId, endpoint ->
-            [(backendId): (get_be_metric(endpoint[0], endpoint[1], "jvm_thread", "count") as long)]
-        }
-    }
-    def processThreadCounts = {
+    // Native execution workers remain attached to the JVM until they exit, so total JVM
+    // thread growth does not identify a writer leak. Track the writer-owned executor instead.
+    // Linux /proc comm names are truncated to 15 bytes; this prefix also matches
+    // PaimonJniWriter's "doris-paimon-compaction-thread-N" after truncation.
+    def writerThreadCounts = {
         backendEndpoints.collectEntries { backendId, endpoint ->
             def body = Http.GET("http://${endpoint[0]}:${endpoint[1]}/api/be_process_thread_num",
                     false, false).toString()
-            def item = parseJson(body).find { row -> row[0].toString() == "total_thread_count" }
-            assertNotNull(item)
-            [(backendId): item[1].toString().toLong()]
+            def rows = parseJson(body)
+            def total = rows.find { row -> row[0].toString() == "total_thread_count" }
+            assertNotNull(total)
+            def writers = rows.findAll { row -> row[0].toString().startsWith("doris-paimon-") }
+                    .collectEntries { row -> [(row[0].toString()): row[1].toString().toLong()] }
+            [(backendId): [total: total[1].toString().toLong(), writers: writers]]
         }
-    }
-    def minimumThreadCounts = { counter ->
-        def minimums = null
-        for (int sample = 0; sample < 5; sample++) {
-            def counts = counter()
-            minimums = minimums == null ? counts : counts.collectEntries { backendId, count ->
-                [(backendId): Math.min(minimums[backendId], count)]
-            }
-            sleep(1000)
-        }
-        minimums
     }
 
     spark_paimon_multi """
@@ -95,74 +86,32 @@ suite("test_paimon_write_thread_lifecycle", "p0,external,paimon,nonConcurrent") 
     sql """use ${dbName}"""
 
     try {
-        def jvmPhases = []
-        def processPhases = []
-        int nextRound = 0
-        def writeAndSamplePhase = {
-            for (int round = nextRound; round < nextRound + 12; round++) {
+        int roundsPerPhase = 12
+        int phaseCount = 10
+        for (int phase = 0; phase < phaseCount; phase++) {
+            for (int round = phase * roundsPerPhase; round < (phase + 1) * roundsPerPhase; round++) {
                 sql """
                     INSERT INTO t_thread_lifecycle
                     SELECT number + ${round * 1000}, repeat('x', 32)
                     FROM numbers("number" = "1000")
                 """
             }
-            nextRound += 12
-            sleep(5000)
-            jvmPhases.add(minimumThreadCounts(jvmThreadCounts))
-            processPhases.add(minimumThreadCounts(processThreadCounts))
-            logger.info("Paimon thread phase ${jvmPhases.size()}: jvm=${jvmPhases[-1]}, "
-                    + "process=${processPhases[-1]}")
-        }
 
-        // Native workers can initialize after the first writes. Require a stable window instead
-        // of treating a single increase followed by a plateau as a continuously leaking writer.
-        def stableWindow = { phases, long tolerance ->
-            backendEndpoints.keySet().every { backendId ->
-                def counts = phases.takeRight(3).collect { sample -> sample[backendId] as long }
-                counts.max() - counts.min() <= tolerance
+            // Each writer owns its compaction executor and closes it with the sink. Require all
+            // of those threads to exit after every phase, without a baseline that can absorb leaks.
+            def counts = [:]
+            try {
+                awaitUntil(30) {
+                    counts = writerThreadCounts()
+                    counts.values().every { sample -> sample.writers.values().every { count -> count == 0 } }
+                }
+            } finally {
+                logger.info("Paimon writer threads after phase ${phase + 1}: ${counts}")
             }
         }
-        boolean warmedUp = false
-        for (int phase = 0; phase < 6; phase++) {
-            writeAndSamplePhase()
-            if (jvmPhases.size() >= 3 && stableWindow(jvmPhases, 2L)
-                    && stableWindow(processPhases, 4L)) {
-                warmedUp = true
-                break
-            }
-        }
-        assertTrue(warmedUp, "Thread counts did not stabilize during bounded warm-up: "
-                + "jvm=${jvmPhases}, process=${processPhases}")
 
-        int warmupPhases = jvmPhases.size()
-        def baseline = { phases ->
-            backendEndpoints.keySet().collectEntries { backendId ->
-                [(backendId): phases.takeRight(3).collect { sample -> sample[backendId] as long }.min()]
-            }
-        }
-        def jvmBaseline = baseline(jvmPhases)
-        def processBaseline = baseline(processPhases)
-        // Freeze the low-water marks before additional writes. Moving the baseline on each phase
-        // would hide slow, persistent leaks that fit within the per-window sampling tolerance.
-        for (int phase = 0; phase < 6; phase++) {
-            writeAndSamplePhase()
-        }
-
-        assertEquals(nextRound * 1000L,
+        assertEquals(phaseCount * roundsPerPhase * 1000L,
                 (sql """SELECT COUNT(*) FROM t_thread_lifecycle""")[0][0] as long)
-
-        // Use the final two low-water marks to tolerate one isolated background-thread spike.
-        // Six validation phases also expose one new process thread per phase starting after warm-up.
-        backendEndpoints.keySet().each { backendId ->
-            def jvmCounts = jvmPhases.collect { sample -> sample[backendId] as long }
-            def processCounts = processPhases.collect { sample -> sample[backendId] as long }
-            assertTrue(jvmCounts.drop(warmupPhases).takeRight(2).min() <= jvmBaseline[backendId] + 2,
-                    "JVM threads grew after warm-up on backend ${backendId}: "
-                    + "baseline=${jvmBaseline[backendId]}, phases=${jvmCounts}")
-            assertTrue(processCounts.drop(warmupPhases).takeRight(2).min() <= processBaseline[backendId] + 4,
-                    "Process threads grew after warm-up on backend ${backendId}: "
-                    + "baseline=${processBaseline[backendId]}, phases=${processCounts}")
-        }
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

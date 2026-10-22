@@ -442,7 +442,7 @@ protected:
     }
 
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
-                                   const std::string& segment_path) {
+                                   const std::string& segment_path, size_t column_ordinal = 0) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -461,13 +461,14 @@ protected:
         segment_v2::IndexFileWriter file_writer(fs, index_path_prefix, "legacy_v3", 0,
                                                 InvertedIndexStorageFormatPB::V3,
                                                 std::move(compound_file));
-        const auto index_metas = tablet_schema->inverted_indexs(1);
+        const auto& column = tablet_schema->column(column_ordinal);
+        const auto index_metas = tablet_schema->inverted_indexs(column.unique_id());
         DORIS_CHECK(index_metas.size() == 1);
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
-        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
-                &tablet_schema->column(0), &column_writer, &file_writer, index_metas[0]));
+        RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
+                                                              index_metas[0]));
         std::vector<Slice> values {Slice("alpha beta")};
-        RETURN_IF_ERROR(column_writer->add_values("content", values.data(), values.size()));
+        RETURN_IF_ERROR(column_writer->add_values(column.name(), values.data(), values.size()));
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
         return file_writer.finish_close();
@@ -667,6 +668,7 @@ protected:
         uint64_t sum_total_term_freq = 0;
         bool has_positions = true;
         bool has_norms = true;
+        bool is_analyzed = true;
         bool single_term_normalizer = false;
     };
 
@@ -676,8 +678,8 @@ protected:
         for (const auto& field : fields) {
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
                     field.field_name, field.index_doc_count, field.sum_total_term_freq,
-                    field.has_positions, field.has_norms, field.single_term_normalizer,
-                    segment_accumulator));
+                    field.has_positions, field.has_norms, segment_accumulator, field.is_analyzed,
+                    field.single_term_normalizer));
         }
         return Status::OK();
     }
@@ -886,6 +888,48 @@ TEST_F(CollectionStatisticsTest, LegacyV3SegmentsUsePhysicalScoringStatistics) {
     expect_collected_term(L"1", L"alpha", 2);
 }
 
+TEST_F(CollectionStatisticsTest, MissingFieldIndexPreservesOtherFieldStatistics) {
+    auto schema = create_legacy_v3_schema();
+    TabletColumn other = schema->column(0);
+    other.set_unique_id(2);
+    other.set_name("other");
+    schema->append_column(other);
+    TabletIndex other_index = *schema->inverted_indexs(1).front();
+    other_index._index_id = 2;
+    other_index._col_unique_ids = {2};
+    schema->append_index(std::move(other_index));
+    const std::string first = test_dir_ + "/only_content.dat";
+    const std::string second = test_dir_ + "/only_other.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(schema, first, 0).ok());
+    ASSERT_TRUE(write_legacy_v3_segment(schema, second, 1).ok());
+
+    auto meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(schema, meta);
+    rowset->set_num_segments(2);
+    rowset->set_segment_path(0, first);
+    rowset->set_segment_path(1, second);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+    TSearchClause content;
+    content.__set_clause_type("TERM");
+    content.__set_field_name("content");
+    content.__set_value("alpha");
+    TSearchClause other_clause = content;
+    other_clause.__set_field_name("other");
+    TSearchClause root;
+    root.__set_clause_type("OR");
+    root.__set_children({content, other_clause});
+    ASSERT_TRUE(stats_->collect(runtime_state_.get(), splits, schema, create_search_contexts(root),
+                                nullptr)
+                        .ok());
+    // Neither segment contains both indexes. Both existing fields must contribute exactly once,
+    // regardless of which missing index the unordered field iteration encounters first.
+    expect_collected_stats(L"1", 2, 2);
+    expect_collected_stats(L"2", 2, 2);
+    expect_collected_term(L"1", L"alpha", 1);
+    expect_collected_term(L"2", L"alpha", 1);
+}
+
 TEST_F(CollectionStatisticsTest, LegacyV3SkipsMissingSegmentAfterCollectingAvailableStatistics) {
     auto tablet_schema = create_legacy_v3_schema();
     const std::string first_segment_path = test_dir_ + "/legacy_v3_0.dat";
@@ -975,26 +1019,45 @@ TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
     expect_no_collected_tokens(L"1");
 }
 
-// An index that is not analyzed never writes norms, and its scoring statistics are collected as
-// before.
-TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsCollectsScoring) {
     auto tablet_schema = create_legacy_v3_schema({});
     const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
     ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
 
+    const std::string second_path = test_dir_ + "/legacy_v3_keyword_1.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, second_path).ok());
+
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
     auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
-    rowset->set_num_segments(1);
+    rowset->set_num_segments(2);
     rowset->set_segment_path(0, segment_path);
+    rowset->set_segment_path(1, second_path);
     auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
     std::vector<RowSetSplits> splits {RowSetSplits(reader)};
 
-    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
-                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+    for (const auto* clause_type : {"TERM", "PHRASE", "EXACT"}) {
+        const Status status =
+                stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                create_search_contexts(clause_type, "alpha beta"), nullptr);
 
-    ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(L"1", 1, 0);
-    expect_collected_term(L"1", L"alpha beta", 1);
+        ASSERT_TRUE(status.ok()) << status;
+        expect_collected_stats(L"1", 2, 2);
+        expect_collected_term(L"1", L"alpha beta", 2);
+        EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.0F);
+    }
+}
+
+TEST_F(CollectionStatisticsTest, SniiKeywordStatsAllowMissingPositionsAndNorms) {
+    auto resolved = resolve_snii_scoring_segment(3, 3, false, false, false);
+    ASSERT_TRUE(resolved.has_value()) << resolved.error();
+    EXPECT_EQ(resolved->doc_count, 3);
+    EXPECT_EQ(resolved->token_count, 3);
+    SniiScoringFieldInput input(L"1", 3, 3, false);
+    input.has_positions = false;
+    input.is_analyzed = false;
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {input}).ok());
+    expect_collected_stats(L"1", 3, 3);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.0F);
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
@@ -1198,6 +1261,38 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
+// Scanners of one tablet each copy the tablet's statistics, so they must score identically.
+TEST_F(CollectionStatisticsDetailedTest, CopyCollectedFromScoresLikeSource) {
+    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_tokens(L"content", 5000);
+    stats_->set_term_doc_freq(L"content", L"jobs", 37);
+
+    CollectionStatistics copy;
+    copy.copy_collected_from(*stats_);
+
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_idf(L"content", L"jobs"),
+                    stats_->get_or_calculate_idf(L"content", L"jobs"));
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_avg_dl(L"content"),
+                    stats_->get_or_calculate_avg_dl(L"content"));
+
+    // The copy does not share the source's counters or derived caches.
+    stats_->set_term_doc_freq(L"content", L"jobs", 900);
+    CollectionStatistics recopied;
+    recopied.copy_collected_from(*stats_);
+    EXPECT_NE(recopied.get_or_calculate_idf(L"content", L"jobs"),
+              copy.get_or_calculate_idf(L"content", L"jobs"));
+}
+
+TEST(TabletCollectionStatisticsTest, CollectsOnceAndCopiesToEveryCaller) {
+    TabletCollectionStatistics tablet_statistics({}, nullptr);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    CollectionStatistics first;
+    CollectionStatistics second;
+    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, &first).ok());
+    EXPECT_TRUE(tablet_statistics.copy_to(nullptr, tablet_schema, {}, nullptr, &second).ok());
+}
+
 // SNII scoring requires only positions and norms; statistics come directly from the stats block.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
     auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
@@ -1230,9 +1325,10 @@ TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutPositions)
 }
 
 TEST(CollectionStatisticsSniiScoringTest, ResolveAcceptsSingleTermNormalizerWithoutPositions) {
-    auto result = resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
-                                               /*has_norms=*/false,
-                                               /*single_term_normalizer=*/true);
+    auto result =
+            resolve_snii_scoring_segment(3, 2, /*has_positions=*/false,
+                                         /*has_norms=*/false,
+                                         /*is_analyzed=*/true, /*single_term_normalizer=*/true);
 
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result->doc_count, 3U);
@@ -1939,7 +2035,9 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     index_pb.set_index_name("kw_idx");
     index_pb.set_index_type(IndexType::INVERTED);
     index_pb.add_col_unique_id(kColUid);
-    // No "parser" property -> should_analyzer returns false
+    // An explicit keyword parser inherits phrase support but is still not analyzed.
+    (*index_pb.mutable_properties())["parser"] = "none";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
     TabletIndex index;
     index.init_from_pb(index_pb);
     tablet_schema->append_index(std::move(index));
@@ -2377,7 +2475,7 @@ TEST_F(CollectionStatisticsTest, SearchArrayStringSelectsFulltextLeafIndex) {
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 20);
 }
 
-TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
+TEST_F(CollectionStatisticsTest, SearchExactUsesKeywordIndexWithAnalyzedBindingHint) {
     auto tablet_schema = create_tablet_schema_with_keyword_and_fulltext_indexes();
     TSearchClause clause;
     clause.clause_type = "EXACT";
@@ -2397,8 +2495,8 @@ TEST_F(CollectionStatisticsTest, SearchExactIgnoresAnalyzedBindingHint) {
             runtime_state_.get(), create_search_contexts(std::move(clause), {std::move(binding)}),
             tablet_schema, &collect_infos);
 
-    ASSERT_TRUE(status.ok()) << status.msg();
-    ASSERT_EQ(collect_infos.size(), 1u);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(collect_infos.size(), 1U);
     ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
     EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 10);
     EXPECT_EQ(collect_infos.begin()->second.unique_terms,
@@ -2775,6 +2873,35 @@ TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyCompone
 
     const std::map<std::string, std::string> valid = {{"parser", "english"}};
     EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
+}
+
+TEST(SearchPredicateCollectorTest, MatchAllDoesNotRequireFieldStatistics) {
+    TSearchClause clause;
+    clause.clause_type = "MATCH_ALL_DOCS";
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(clause, nullptr, nullptr, {}, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
+}
+
+TEST(SearchPredicateCollectorTest, LucenePureExclusionAllowsFieldlessMatchAll) {
+    TSearchClause all;
+    all.clause_type = "MATCH_ALL_DOCS";
+    all.__set_occur(TSearchOccur::SHOULD);
+    TSearchClause excluded;
+    excluded.clause_type = "WILDCARD";
+    excluded.__set_field_name("body");
+    excluded.__set_value("hit*");
+    excluded.__set_occur(TSearchOccur::MUST_NOT);
+    TSearchClause root;
+    root.clause_type = "OCCUR_BOOLEAN";
+    root.__set_children({all, excluded});
+    SearchPredicateCollector collector;
+    CollectInfoMap infos;
+    auto status = collector.collect_from_clause(root, nullptr, nullptr, {}, &infos);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(infos.empty());
 }
 
 } // namespace doris

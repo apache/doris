@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -132,7 +131,7 @@ import java.util.stream.Collectors;
  *   <li>MOW (UNIQUE_KEYS + merge-on-write): hash(uk columns) → deterministic
  *   <li>Excluded AGG_KEYS table: hash(agg key columns) → deterministic
  *   <li>DUP_KEYS: row lsn column (__DORIS_ROW_LSN_COL__) is the identity key → deterministic.
- *       DUP tables with row binlog always carry this hidden column at create time, so it is
+ *       DUP tables with changelog always carry this hidden column at create time, so it is
  *       treated like a UNIQUE table's key columns.
  *   <li>Other key types: not supported, throws.
  * </ul>
@@ -278,8 +277,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // unsupported: any plan node not explicitly whitelisted below
     @Override
     public Plan visit(Plan plan, NormalizeContext context) {
-        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, "IVM does not support plan node: "
-                + plan.getClass().getSimpleName());
+        throw IvmNormalizeCommonChecker.unsupportedNode(plan);
     }
 
     // whitelisted: only OlapScan — inject IVM row-id at index 0
@@ -287,7 +285,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
         OlapTable table = scan.getTable();
         ScanRowId scanRowId = computeScanRowIdAndKeys(table, scan);
-        IvmUtil.validateBinlogEnabled(excludedTriggerTables, scan);
+        IvmUtil.validateChangelogEnabled(excludedTriggerTables, scan);
         Alias rowIdAlias = new Alias(scanRowId.mergedRowIdExpr, Column.IVM_ROW_ID_COL);
         rewriteResult.addRowId(rowIdAlias.toSlot(), scanRowId.deterministic);
         // When the scanned table's only key column is its own IVM row-id (a cascading MV
@@ -307,7 +305,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             outputsBuilder.add(renamedBaseRowIdAlias);
         }
         outputsBuilder.addAll(scan.getOutput().stream()
-                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
+                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName())
+                        && !IvmUtil.isBaseScanStorageColumnToMask(slot.getName()))
                 .collect(ImmutableList.toImmutableList()));
         List<NamedExpression> outputs = outputsBuilder.build();
         LogicalProject<?> result = new LogicalProject<>(outputs, scan);
@@ -348,10 +347,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // whitelisted: project — recurse into child, then propagate row-id if not already present
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, NormalizeContext context) {
-        if (project.isDistinct()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support DISTINCT project.");
-        }
+        IvmNormalizeCommonChecker.checkProject(project);
         Plan newChild = project.child().accept(this, context);
         List<NamedExpression> baseOutputs = materializeDroppedAggState(
                 rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects(), context.isFirstNonSink));
@@ -464,16 +460,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, NormalizeContext context) {
         JoinType joinType = join.getJoinType();
-        if (!joinType.isInnerOrCrossJoin() && !joinType.isOuterJoin()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support join type: " + joinType
-                            + ". Only INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN, RIGHT_OUTER_JOIN"
-                            + " and FULL_OUTER_JOIN are supported.");
-        }
-        if (join.isMarkJoin()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support mark join (subquery with disjunction).");
-        }
+        IvmNormalizeCommonChecker.checkJoin(join, IvmNormalizeCommonChecker.UNIQ_JOIN_TYPES);
         NormalizeContext childContext = context.enterJoin();
         Plan newLeft = join.left().accept(this, childContext);
         Plan newRight = join.right().accept(this, childContext);
@@ -598,14 +585,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
      */
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, NormalizeContext context) {
-        if (union.getQualifier() != Qualifier.ALL) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
-        }
-        if (!union.getConstantExprsList().isEmpty()) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM does not support UNION ALL with constant expressions.");
-        }
+        IvmNormalizeCommonChecker.checkUnion(union);
 
         NormalizeContext childContext = context.afterNonSink();
         boolean useUnionKeys = useFullKeys && !context.isInsideAggregate;
@@ -928,7 +908,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
-        IvmUtil.validateUserOutputColumnNames(sink.getOutputExprs());
+        IvmNormalizeCommonChecker.checkResultSinkOutputNames(sink);
         Plan newChild = sink.child().accept(this, context);
         List<NamedExpression> baseOutputs = materializeDroppedAggState(
                 rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs(), context.isFirstNonSink));
@@ -1298,10 +1278,10 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
      * Computes the scan-level IVM row-id expression, the remaining identity key slots, and
      * whether the row-id is deterministic:
      * - UNIQUE_KEYS (MOW or excluded): (row-id over the uk slots, uk slots minus row-id, true)
-     * - DUP_KEYS with row binlog: (row-id over the row lsn column, [row lsn slot], true).
+     * - DUP_KEYS with changelog: (row-id over the row lsn column, [row lsn slot], true).
      *   The row lsn slot is the identity key, exactly like a UNIQUE table's key columns.
-     * - DUP_KEYS without row binlog: (uuid_numeric(), empty, false) — legacy fallback;
-     *   validateBinlogEnabled rejects such tables unless they are excluded trigger tables.
+     * - DUP_KEYS without changelog: (uuid_numeric(), empty, false) — legacy fallback;
+     *   validateChangelogEnabled rejects such tables unless they are excluded trigger tables.
      * - Excluded AGG_KEYS: (row-id over the agg-key slots, agg-key slots, true)
      * - Other key types: throws IvmException
      *
@@ -1326,14 +1306,14 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             }
             keyColNames = baseSchemaKeyColNames(table);
         } else if (keysType == KeysType.DUP_KEYS) {
-            if (!table.getBinlogConfig().isEnableForStreaming()) {
-                // A DUP table without row binlog has no __DORIS_ROW_LSN_COL__ column.
-                // Keep the legacy non-deterministic uuid row-id; validateBinlogEnabled
+            if (!table.hasChangelog()) {
+                // A DUP table without changelog has no __DORIS_ROW_LSN_COL__ column.
+                // Keep the legacy non-deterministic uuid row-id; validateChangelogEnabled
                 // rejects such tables right after this.
                 return new ScanRowId(new UuidNumeric(), ImmutableList.of(), false, Optional.empty());
             }
-            // DUP_KEYS with row binlog always carries __DORIS_ROW_LSN_COL__ at create time
-            // (binlog is not yet released, so no legacy table lacks it). The row lsn is the
+            // DUP_KEYS with changelog always carries __DORIS_ROW_LSN_COL__ at create time
+            // (changelog is not yet released, so no legacy table lacks it). The row lsn is the
             // stable per-row identity of a detail table, equivalent to a UNIQUE table's key
             // columns, and flows through the same deterministic row-id construction.
             keyColNames = ImmutableSet.of(Column.ROW_LSN_COL);

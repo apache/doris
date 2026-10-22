@@ -35,8 +35,7 @@ suite("test_cloud_table_stream_schema_change") {
         PROPERTIES (
             "replication_num" = "1",
             "light_schema_change" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql """
@@ -115,7 +114,7 @@ suite("test_cloud_table_stream_schema_change") {
 
     test {
         sql "ALTER TABLE schema_source MODIFY COLUMN blocked VARCHAR(10)"
-        exception "Not allowed to perform current operation on Table With binlog<row>"
+        exception "Not allowed to perform current operation on Table With changelog"
     }
     qt_failed_schema_change_does_not_create_delta "SELECT count(*) FROM schema_stream"
 

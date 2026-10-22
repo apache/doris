@@ -23,16 +23,22 @@
 // brpc's header uses the butil types above without including their definitions.
 #include <brpc/builtin/prometheus_metrics_service.h>
 
-#include <cstdlib>
+#include <cstdint>
 #include <sstream>
 #include <string>
 
 #include "common/config.h"
 #include "common/version_internal.h"
+#include "cpp/version_metrics.h"
 
 namespace doris {
 
 TEST(DebugUtilTest, BeVersionMetricIsExportedWithBuildLabels) {
+    EXPECT_EQ(26000100ULL, encode_version_metric_value(26, 0, 1, 0));
+    EXPECT_EQ(26000101ULL, encode_version_metric_value(26, 0, 1, 1));
+    EXPECT_LT(encode_version_metric_value(4, 99, 0, 0), encode_version_metric_value(5, 0, 0, 0));
+    EXPECT_FALSE(is_valid_version_metric_component(100));
+
     config::bvar_max_dump_multi_dimension_metric_num = "5000";
     init_be_version_metrics();
 
@@ -40,12 +46,9 @@ TEST(DebugUtilTest, BeVersionMetricIsExportedWithBuildLabels) {
     ASSERT_EQ(0, brpc::DumpPrometheusMetricsToIOBuf(&output));
     const std::string body = output.to_string();
 
-    std::stringstream value;
-    value << version::doris_build_version_major() << 0 << version::doris_build_version_minor() << 0
-          << version::doris_build_version_patch();
-    if (version::doris_build_version_hotfix() > 0) {
-        value << 0 << version::doris_build_version_hotfix();
-    }
+    const uint64_t value = encode_version_metric_value(
+            version::doris_build_version_major(), version::doris_build_version_minor(),
+            version::doris_build_version_patch(), version::doris_build_version_hotfix());
 
     std::stringstream sample;
     sample << "doris_be_version{version=\"" << version::doris_build_version() << "\",major=\""
@@ -53,8 +56,7 @@ TEST(DebugUtilTest, BeVersionMetricIsExportedWithBuildLabels) {
            << version::doris_build_version_minor() << "\",patch=\""
            << version::doris_build_version_patch() << "\",hotfix=\""
            << version::doris_build_version_hotfix() << "\",short_hash=\""
-           << version::doris_build_short_hash() << "\"} "
-           << std::strtoull(value.str().c_str(), nullptr, 10);
+           << version::doris_build_short_hash() << "\"} " << value;
 
     EXPECT_NE(std::string::npos, body.find("# TYPE doris_be_version gauge")) << body;
     EXPECT_NE(std::string::npos, body.find(sample.str())) << body;

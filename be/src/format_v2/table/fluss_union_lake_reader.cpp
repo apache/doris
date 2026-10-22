@@ -175,6 +175,7 @@ Status FlussUnionLakeReader::init(format::TableReadOptions&& options) {
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = _file_slot_descs,
             // Aggregate pushdown is withheld from the lake half on purpose. A COUNT answered from
             // paimon's own file metadata would count the very rows this reader is about to suppress,
@@ -353,27 +354,25 @@ Status FlussUnionLakeReader::_load_suppression_keys(const format::SplitReadOptio
     // Length-prefixed so that no boundary between the fixed prefix and the tail can be reinterpreted
     // as part of the tail itself. One scan node reads one table, so the tail alone identifies it.
     const auto cache_key = fmt::format("fluss_union_tail:{}:{}", tail.spec.size(), tail.spec);
+    Status read_status = Status::OK();
     bool cache_hit = false;
     auto* cached = options.cache->get<SuppressionKeys>(
-            cache_key, []() -> SuppressionKeys* { return nullptr; }, &cache_hit);
-    if (cached == nullptr) {
-        // A tail read is network I/O. KVCache invokes its create callback while holding a shard
-        // mutex, so do that I/O before the insertion attempt; otherwise one slow bucket blocks every
-        // unrelated tail that hashes to the same shard.
-        auto loaded = std::make_unique<SuppressionKeys>();
-        RETURN_IF_ERROR(_read_tail_keys(tail, loaded.get()));
-        update_counter(_tail_keys_read_counter, loaded->records);
-
-        bool raced_cache_hit = false;
-        cached = options.cache->get<SuppressionKeys>(
-                cache_key, [&]() -> SuppressionKeys* { return loaded.release(); },
-                &raced_cache_hit);
-        cache_hit = raced_cache_hit;
-        if (!raced_cache_hit) {
-            update_counter(_tail_keys_retained_counter, cast_set<int64_t>(cached->keys.rows()));
-        }
-    }
+            cache_key,
+            [&]() -> SuppressionKeys* {
+                auto loaded = std::make_unique<SuppressionKeys>();
+                read_status = _read_tail_keys(tail, loaded.get());
+                if (!read_status.ok()) {
+                    return nullptr;
+                }
+                update_counter(_tail_keys_read_counter, loaded->records);
+                return loaded.release();
+            },
+            &cache_hit);
+    RETURN_IF_ERROR(read_status);
     DORIS_CHECK(cached != nullptr);
+    if (!cache_hit) {
+        update_counter(_tail_keys_retained_counter, cast_set<int64_t>(cached->keys.rows()));
+    }
     if (cache_hit) {
         update_counter(_tail_cache_hit_counter, 1);
     }
@@ -468,6 +467,7 @@ Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* 
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
     }));
     // Not the adaptive size the lake half is being read at: this is a bounded pass over key columns
     // only, and its batches have nothing to do with how wide the lake's rows turned out to be.

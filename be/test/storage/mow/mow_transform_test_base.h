@@ -244,7 +244,7 @@ protected:
         context.read_schema = read_schema;
         static_cast<void>(read_schema->init_from_tablet_schema(*schema,
                                                                /*merge_by_sequence_mapping=*/false,
-                                                               /*map_row_binlog_columns=*/false));
+                                                               /*map_changelog_columns=*/false));
         context.need_ordered_result = true;
         OlapReaderStatistics statistics;
         context.stats = &statistics;
@@ -426,19 +426,20 @@ protected:
     }
 
     // A MoW tablet over the engine's data dir; no rowsets are registered with it.
-    // The two tablets a row-binlog write really uses: the source tablet, and the
-    // independent binlog tablet whose own schema is the derived binlog schema
+    // The two tablets a changelog write really uses: the source tablet, and the
+    // independent changelog tablet whose own schema is the derived changelog schema
     // (source keys + visible columns, then TSO/LSN/OP). Built through the
     // engine's tablet manager so both are exactly what the write path sees.
-    struct BinlogTablets {
+    struct ChangelogTablets {
         TabletSharedPtr source;
-        TabletSharedPtr binlog;
+        TabletSharedPtr changelog;
     };
 
-    BinlogTablets create_binlog_tablets(int64_t tablet_id, TKeysType::type keys_type, bool mow) {
+    ChangelogTablets create_changelog_tablets(int64_t tablet_id, TKeysType::type keys_type,
+                                              bool mow) {
         // Three columns (one key, two values) so a narrow partial-update block
         // can sit strictly between num_key_columns and num_columns, which the
-        // binlog MoW derive requires.
+        // changelog MoW derive requires.
         auto request =
                 testutil::create_tablet_request(tablet_id, /*schema_hash=*/1, /*partition_id=*/10,
                                                 /*short_key_column_count=*/1, keys_type,
@@ -448,35 +449,35 @@ protected:
         if (mow) {
             request.__set_enable_unique_key_merge_on_write(true);
         }
-        testutil::enable_row_binlog(&request);
-        RuntimeProfile profile("binlog_ut");
+        testutil::enable_changelog(&request);
+        RuntimeProfile profile("changelog_ut");
         EXPECT_TRUE(_engine->create_tablet(request, &profile).ok());
 
-        auto binlog_request = request;
-        binlog_request.tablet_id = tablet_id + kBinlogTabletIdOffset;
-        binlog_request.tablet_schema = testutil::create_row_binlog_tablet_schema(
+        auto changelog_request = request;
+        changelog_request.tablet_id = tablet_id + kChangelogTabletIdOffset;
+        changelog_request.tablet_schema = testutil::create_changelog_tablet_schema(
                 request.tablet_schema, request.tablet_schema.schema_hash + 1);
-        binlog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_ROW_BINLOG);
-        // hidden source columns are dropped from the binlog schema, so the
+        changelog_request.__set_tablet_role(TTabletRole::TABLET_ROLE_CHANGELOG);
+        // hidden source columns are dropped from the changelog schema, so the
         // indices pointing at them must not follow along
-        binlog_request.tablet_schema.__set_delete_sign_idx(-1);
-        binlog_request.tablet_schema.__set_sequence_col_idx(-1);
-        // AFTER value columns are nullable in a real binlog schema, even when the
+        changelog_request.tablet_schema.__set_delete_sign_idx(-1);
+        changelog_request.tablet_schema.__set_sequence_col_idx(-1);
+        // AFTER value columns are nullable in a real changelog schema, even when the
         // source column is NOT NULL. The TSO/LSN/op columns keep the nullability
-        // create_row_binlog_tablet_schema gave them.
-        for (auto& column : binlog_request.tablet_schema.columns) {
-            if (!column.is_key && column.column_name != BINLOG_TSO_COL &&
-                column.column_name != BINLOG_LSN_COL && column.column_name != BINLOG_OP_COL) {
+        // create_changelog_tablet_schema gave them.
+        for (auto& column : changelog_request.tablet_schema.columns) {
+            if (!column.is_key && column.column_name != CHANGELOG_TSO_COL &&
+                column.column_name != CHANGELOG_LSN_COL && column.column_name != CHANGELOG_OP_COL) {
                 column.__set_is_allow_null(true);
             }
         }
-        EXPECT_TRUE(_engine->create_tablet(binlog_request, &profile).ok());
+        EXPECT_TRUE(_engine->create_tablet(changelog_request, &profile).ok());
 
         return {_engine->tablet_manager()->get_tablet(tablet_id),
-                _engine->tablet_manager()->get_tablet(binlog_request.tablet_id)};
+                _engine->tablet_manager()->get_tablet(changelog_request.tablet_id)};
     }
 
-    // The per-segment LSN range the binlog derive consumes (one LSN per row).
+    // The per-segment LSN range the changelog derive consumes (one LSN per row).
     static AllocatedLsnVectorSharedPtr make_seg_lsn(size_t num_rows, int64_t start = 1000) {
         auto lsn_ids = std::make_shared<std::vector<int64_t>>();
         for (size_t i = 0; i < num_rows; ++i) {
@@ -485,11 +486,11 @@ protected:
         return lsn_ids;
     }
 
-    // (k1 key, v1, v2, delete-sign) UNIQUE_KEYS MoW source schema for the binlog
+    // (k1 key, v1, v2, delete-sign) UNIQUE_KEYS MoW source schema for the changelog
     // partial-update path. It has three visible columns so a narrow PU block can
     // sit strictly between num_key_columns and num_columns, and a delete-sign
     // column (with a default) which the fixed-PU fill requires.
-    TabletSchemaSPtr create_binlog_pu_source_schema() {
+    TabletSchemaSPtr create_changelog_pu_source_schema() {
         TabletSchemaPB pb;
         pb.set_keys_type(UNIQUE_KEYS);
         pb.set_num_short_key_columns(1);
@@ -517,7 +518,7 @@ protected:
         add_col(1, "v1", "INT", false, true, std::to_string(0));
         add_col(2, "v2", "INT", false, true, std::to_string(0));
         // the delete-sign column is hidden, so num_visible_columns stays 3 and
-        // the binlog schema's num_columns (3 + TSO/LSN/OP) rule holds.
+        // the changelog schema's num_columns (3 + TSO/LSN/OP) rule holds.
         add_col(3, DELETE_SIGN, "TINYINT", false, false, std::to_string(0), /*visible=*/false);
         pb.set_delete_sign_idx(3);
 
@@ -707,8 +708,8 @@ protected:
     }
 
     static constexpr int64_t kTabletId = 90001;
-    // keeps a binlog tablet's id clear of its source tablet's
-    static constexpr int64_t kBinlogTabletIdOffset = 10000;
+    // keeps a changelog tablet's id clear of its source tablet's
+    static constexpr int64_t kChangelogTabletIdOffset = 10000;
 
     StorageEngine* _engine = nullptr;
     std::unique_ptr<DataDir> _data_dir;

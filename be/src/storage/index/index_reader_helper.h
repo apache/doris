@@ -103,36 +103,12 @@ public:
         return iter->get_reader(InvertedIndexReaderType::STRING_TYPE) != nullptr;
     }
 
+    // MATCH filters score analyzed phrase indexes and single-term normalizers.
     static bool is_need_similarity_score(InvertedIndexQueryType query_type,
-                                         const TabletIndex* index_meta) {
-        if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
-            const auto& properties = index_meta->properties();
-            if (get_parser_phrase_support_string_from_properties(properties) ==
-                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
-                is_normalizer_only(properties)) {
-                return true;
-            }
-        }
-        return false;
-    }
+                                         const TabletIndex* index_meta);
 
     static bool is_need_similarity_score(TExprOpcode::type query_type,
-                                         const TabletIndex* index_meta) {
-        if (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
-            query_type == TExprOpcode::MATCH_PHRASE ||
-            query_type == TExprOpcode::MATCH_PHRASE_PREFIX) {
-            const auto& properties = index_meta->properties();
-            if (get_parser_phrase_support_string_from_properties(properties) ==
-                        INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
-                is_normalizer_only(properties)) {
-                return true;
-            }
-        }
-        return false;
-    }
+                                         const TabletIndex* index_meta);
 };
 
 } // namespace doris::segment_v2

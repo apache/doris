@@ -95,6 +95,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
+    public static final String INDEX_DISK_USAGE_MAX_TABLETS = "index_disk_usage_max_tablets";
+    public static final String INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS =
+            "index_disk_usage_position_detail_max_tablets";
     public static final String MAX_FILE_SCANNERS_CONCURRENCY = "max_file_scanners_concurrency";
     public static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     public static final String MIN_SCANNERS_CONCURRENCY = "min_scanners_concurrency";
@@ -585,6 +588,7 @@ public class SessionVariable implements Serializable, Writable {
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
+    public static final String ENABLE_PAIMON_WRITE_CHAR_PADDING = "enable_paimon_write_char_padding";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -1170,6 +1174,15 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkMaxScannersConcurrency", description = "The max threads to read "
             + "data of ScanNode, default 4")
     public int maxScannersConcurrency = 4;
+
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, needForward = true, description = "The max number "
+            + "of tablets index_disk_usage may scan in one query, default 20000")
+    public int indexDiskUsageMaxTablets = 20000;
+
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, needForward = true,
+            description = "The max number of tablets index_disk_usage may scan when position_detail is enabled, "
+            + "default 10000")
+    public int indexDiskUsagePositionDetailMaxTablets = 10000;
 
     @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true,
             checker = "checkMaxFileScannersConcurrency", description = "The max threads to "
@@ -2585,6 +2598,15 @@ public class SessionVariable implements Serializable, Writable {
     // Default 0 means use config::iceberg_sink_max_file_size
     @VarAttrDef.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
     public long icebergWriteTargetFileSizeBytes = 0L;
+
+    // Read by the Paimon connector under this name (PaimonWritePlanProvider.ENABLE_CHAR_PADDING).
+    @VarAttrDef.VarAttr(
+            name = ENABLE_PAIMON_WRITE_CHAR_PADDING,
+            description = "Whether INSERT into a Paimon table pads CHAR(n) values with spaces to n characters, "
+                    + "nested values and static partition values included, as Spark and Flink do. Turn it off to "
+                    + "write them unpadded, as Doris did before, for a table whose CHAR keys an earlier Doris wrote.",
+            needForward = true)
+    public boolean enablePaimonWriteCharPadding = true;
 
     @VarAttrDef.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,

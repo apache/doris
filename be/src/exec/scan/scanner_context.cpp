@@ -418,6 +418,12 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
          (_is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
         _set_scanner_done();
         _is_finished = true;
+    } else if (scan_task != nullptr && !scan_task->is_eos() && _is_shared_scan_limit_exhausted()) {
+        // Scanners of this operator have already produced the whole shared LIMIT, so this scanner
+        // would only return empty blocks until the outstanding work drains. Park it instead of
+        // resubmitting it. The finish check above did not fire, so a completed or in-flight task
+        // remains to wake the operator, and the context finishes once nothing is in flight.
+        push_pending_scan_task(std::move(scan_task), l);
     } else if (scan_task != nullptr) {
         // Check the terminal state before scheduling more work. In particular, after the shared
         // LIMIT is exhausted, submitting another Context runnable can turn a completed query into
@@ -867,7 +873,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     if (!_pending_tasks.empty()) {
         // Do not submit more pending scanners after the shared LIMIT is exhausted while
         // completed or in-flight tasks can still make progress. If neither exists, allow pending
-        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        // scanners to be submitted so they can complete without reading and wake the pipeline
+        // task, which finishes the context once nothing is in flight.
         if (_is_shared_scan_limit_exhausted() &&
             (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;

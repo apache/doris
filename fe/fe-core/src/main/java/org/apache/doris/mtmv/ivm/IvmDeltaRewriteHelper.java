@@ -514,7 +514,7 @@ public class IvmDeltaRewriteHelper {
 
     /**
      * Projects an incremental delta scan's output onto the slots of the scan it replaces, keeping their
-     * ExprIds so the plan above keeps binding to them. A delta scan is expanded from the row binlog, which
+     * ExprIds so the plan above keeps binding to them. A delta scan is expanded from the changelog, which
      * does not carry {@code __DORIS_ROW_LSN_COL__}: its value is the stream's lsn virtual column, which is
      * mapped back so the normalized plan's row-id, where it has one, keeps evaluating to the row lsn.
      */

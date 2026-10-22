@@ -18,7 +18,7 @@ in `IvmInfo`.
   pinned down by a plan signature. `IvmNormalizeUniqKeysMTMV` lays it out; `IvmDeltaRewriter` and the delta
   handlers maintain it.
 - **Append-only detail** (a plain DUP table): every base table is an append-only detail table -- a DUP table
-  whose row binlog is on, so its rows are only ever appended -- and the query holds no aggregate and no outer
+  whose changelog is on, so its rows are only ever appended -- and the query holds no aggregate and no outer
   join. Such an MV holds the query's own rows: no IVM hidden column, no merge-on-write property, no sequence
   column, no plan signature, and a refresh that only appends. `IvmNormalizeDupKeysMTMV` checks the query, and
   `IvmDupDeltaRewriter` builds its delta, which is the query rewritten to read each base table's stream.
@@ -38,8 +38,8 @@ What follows from the detail model, including where a user can see the differenc
   retry would only misdescribe a broken premise.
 - `REFRESH ... INCREMENTAL WITH DRY RUN` returns the MV's own columns only. There is no sequence column and no
   delete sign for the unique-key model's shape to add.
-- A chained MV over a detail MV needs that upstream MV to carry row binlog (`binlog.enable=true` on the MV
-  itself), which keeps the chain append-only at both levels. The MV then carries its own binlog's hidden
+- A chained MV over a detail MV needs that upstream MV to carry a changelog (`changelog.enable=true` on the MV
+  itself), which keeps the chain append-only at both levels. The MV then carries its own changelog's hidden
   columns, which the storage layer fills in as it writes each row.
 - `SHOW CREATE` prints DUPLICATE KEY, and what it prints rebuilds an MV of the same model.
 
@@ -56,6 +56,24 @@ Run all IVM regression suites under `regression-test/suites/mtmv_p0/ivm/`:
 ```
 
 This runs every suite in the `ivm` subdirectory. New IVM suites are added over time — the `-d mtmv_p0/ivm` flag automatically picks them up.
+
+### Disable Transparent Rewrite
+
+A newly added IVM suite must turn both transparent-rewrite paths off before it runs any statement:
+
+```groovy
+sql "SET enable_materialized_view_rewrite = false"
+sql "SET enable_dml_materialized_view_rewrite = false"
+```
+
+Both default to true. The first is what makes an MV-verifying suite meaningful: such a suite checks the MV by
+re-running the MV's own definition SQL over the base tables, and with the rewrite on that query is answered
+from the MV itself, so both sides of the comparison move together and the suite can no longer fail. The second
+stops a base-table `INSERT`/`UPDATE`/`DELETE` from being redirected into the MV, which would leave the
+incremental path the suite exists to exercise unused.
+
+The one exception is a suite whose subject *is* the rewrite: it keeps whatever setting it needs to assert that
+an MV is hit, and says so where it does.
 
 ### FE Unit Tests
 
@@ -79,9 +97,9 @@ can pick up the first one's stream, whose base table is gone: `getIvmStream` the
 "IVM stream is unavailable or references a different base table". Give each test an MV id of its own
 (`mtmv.setId(...)`), as `IvmDeltaRewriterTest` and `IvmDupDeltaRewriterTest` do.
 
-## Important: Binlog/Stream Status
+## Important: Changelog/Stream Status
 
-Stream-based binlog capture is implemented for IVM incremental refresh:
+Stream-based changelog capture is implemented for IVM incremental refresh:
 
 - Delta scans use `LogicalOlapTableStreamScan` with `isIncrementalScan=true`.
 - `IvmDeltaRewriteHelper.isIncrementalDeltaScan()` identifies delta scans.
@@ -114,10 +132,24 @@ This does not remove the separate row-id correctness requirement for outer joins
 side row-id must remain deterministic because null-row repair branches use it across the pre/post
 snapshot boundary. A DUP_KEYS scan takes its row-id from `__DORIS_ROW_LSN_COL__`
 (`IvmNormalizeUniqKeysMTMV#computeScanRowIdAndKeys`), which is deterministic, so it is allowed on either
-side. Only the legacy fallback for a DUP_KEYS table without row binlog -- the non-deterministic
-`uuid_numeric()` row-id, which `validateBinlogEnabled` rejects unless the table is an excluded
+side. Only the legacy fallback for a DUP_KEYS table without changelog -- the non-deterministic
+`uuid_numeric()` row-id, which `validateChangelogEnabled` rejects unless the table is an excluded
 trigger table -- is still rejected on the retained side. FULL OUTER JOIN requires deterministic
 row-ids on both sides.
+
+## Shared Acceptance Gates
+
+Both normalize paths and the append-only detail delta rewriter accept the same query shapes, and the
+gates that reject the rest live in one place, `IvmNormalizeCommonChecker` (a DISTINCT project, a
+UNION DISTINCT or constant-arm UNION ALL, a reserved output column name, an unsupported node type).
+Add a new acceptance gate there rather than to a single class, or the paths drift apart on what they
+accept -- which is how the join gate below went unshared.
+
+The join gate carries a per-model accepted set (the detail model maintains only inner and cross joins,
+the unique-key model also the outer joins) but is otherwise shared, and it tests the mark-join mark as
+well as the join type. The mark is orthogonal to the type -- an apply rewrite puts one on a LEFT_SEMI,
+a LEFT_ANTI, or a CROSS join -- so a type-only test accepts a mark join whose type happens to be an
+accepted one, and a mark join can stop matching a row the MV already holds.
 
 ## Recursive Delta Rewrite
 
@@ -263,9 +295,9 @@ The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase
 
 ## Backward Compatibility
 
-IVM is not publicly available until January 2027. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views, nor with the binlog/stream data they consume. Breaking changes to IVM metadata, DDL format, binlog format, or the internal storage layout are acceptable without migration support: a view created by an earlier build may be dropped and recreated instead of migrated, and a change that only affects such a view is not a correctness defect to be fixed here.
+IVM is not publicly available until January 2027. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views, nor with the changelog/stream data they consume. Breaking changes to IVM metadata, DDL format, changelog format, or the internal storage layout are acceptable without migration support: a view created by an earlier build may be dropped and recreated instead of migrated, and a change that only affects such a view is not a correctness defect to be fixed here.
 
-## Regression Test Guide: Binlog Operations
+## Regression Test Guide: Changelog Operations
 
 When writing IVM regression tests, base tables should use MOW (Merge-on-Write unique key) tables
 for delete testing. The real stream scan exposes the change-type metadata automatically
@@ -274,7 +306,7 @@ for delete testing. The real stream scan exposes the change-type metadata automa
 ### Base Table Setup
 
 Base tables with MOW primary key can generate `INSERT`, `UPDATE`, and `DELETE` operations
-in the binlog stream. The `CREATE MTMV ... REFRESH INCREMENTAL` command auto-creates an
+in the changelog stream. The `CREATE MTMV ... REFRESH INCREMENTAL` command auto-creates an
 internal stream for each base table.
 
 ### Important Notes

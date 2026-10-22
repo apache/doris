@@ -1042,12 +1042,12 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
                                                        &read_options.io_ctx);
     }
 
-    if (col.name() == BINLOG_TSO_COL || col.name() == COMMIT_TSO_COL) {
+    if (col.name() == CHANGELOG_TSO_COL || col.name() == COMMIT_TSO_COL) {
         const int64_t start_tso = read_options.commit_tso.start_tso();
         const int64_t end_tso = read_options.commit_tso.end_tso();
         // Version [0-0] identifies a pre-publish physical read, such as segment compaction while a
         // RowsetWriter is still open. Its TSO is intentionally [-1--1], so preserve the on-disk
-        // COMMIT_TSO_COL=0 or BINLOG_TSO_COL=NULL placeholder instead of synthesizing a value.
+        // COMMIT_TSO_COL=0 or CHANGELOG_TSO_COL=NULL placeholder instead of synthesizing a value.
         if (read_options.version == Version(0, 0) && start_tso == -1 && end_tso == -1) {
             if (!_column_meta_accessor->has_column_uid(col_uid)) {
                 return Status::InternalError("could not find {} column", col.name());

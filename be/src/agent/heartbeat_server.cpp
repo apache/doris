@@ -56,7 +56,8 @@ namespace doris {
 namespace {
 // Store the sampled value independently: bvar's sampler also runs before cluster
 // initialization and after cluster teardown.
-bvar::Status<int64_t> row_binlog_ttl_reference("row_binlog_ttl_reference_tso", 0);
+// ATTN(changelog-rename): formerly "row_binlog_ttl_reference_tso"
+bvar::Status<int64_t> changelog_ttl_reference("changelog_ttl_reference_tso", 0);
 } // namespace
 
 HeartbeatServer::HeartbeatServer(ClusterInfo* cluster_info)
@@ -339,10 +340,9 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     // A delayed epoch from the same master address must not authorize cleanup.
-    if (master_info.epoch == _fe_epoch && master_info.__isset.row_binlog_ttl_reference_tso) {
-        _cluster_info->advance_row_binlog_ttl_reference_tso(
-                master_info.row_binlog_ttl_reference_tso);
-        row_binlog_ttl_reference.set_value(_cluster_info->row_binlog_ttl_reference_tso());
+    if (master_info.epoch == _fe_epoch && master_info.__isset.changelog_ttl_reference_tso) {
+        _cluster_info->advance_changelog_ttl_reference_tso(master_info.changelog_ttl_reference_tso);
+        changelog_ttl_reference.set_value(_cluster_info->changelog_ttl_reference_tso());
     }
 
     if (need_report) {

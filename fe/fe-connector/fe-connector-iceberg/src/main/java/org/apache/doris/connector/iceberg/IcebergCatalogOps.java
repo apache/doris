@@ -44,6 +44,7 @@ import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.View;
@@ -318,7 +319,17 @@ public interface IcebergCatalogOps {
                 LOG.warn("Iceberg catalog does not support namespaces");
                 return Collections.emptyList();
             }
-            return listNestedNamespaces(rootNamespace());
+            Namespace root = rootNamespace();
+            try {
+                return listNestedNamespaces(root);
+            } catch (NoSuchNamespaceException e) {
+                // Hadoop creates the warehouse lazily with the first namespace. Its absent implicit
+                // root is an empty catalog, unlike a missing named or REST root; I/O errors still fail.
+                if (catalog instanceof HadoopCatalog && root.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                throw e;
+            }
         }
 
         /**
@@ -512,6 +523,9 @@ public interface IcebergCatalogOps {
         public void addColumn(String dbName, String tableName, IcebergColumnChange column,
                 ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
+                if (column.getType().isVariantType()) {
+                    IcebergWriterHelper.validateVariantColumn(table, column.getName());
+                }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
                         table.schema().asStruct(), "", column.getName(), null, "add");
                 UpdateSchema updateSchema = table.updateSchema();
@@ -526,6 +540,11 @@ public interface IcebergCatalogOps {
         @Override
         public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
             withTable(dbName, tableName, table -> {
+                for (IcebergColumnChange column : columns) {
+                    if (column.getType().isVariantType()) {
+                        IcebergWriterHelper.validateVariantColumn(table, column.getName());
+                    }
+                }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
                 UpdateSchema updateSchema = table.updateSchema();
                 for (IcebergColumnChange column : columns) {
@@ -577,7 +596,17 @@ public interface IcebergCatalogOps {
                 // #65329 omit-preserves: an omitted COMMENT keeps the field's current doc rather than clearing it
                 // (mirror of IcebergNestedColumnEvolution.modifyColumn / legacy IcebergMetadataOps).
                 String targetComment = commentSpecified ? column.getComment() : current.doc();
-                if (newType.isPrimitiveType()) {
+                if (current.type().isVariantType() != newType.isVariantType()) {
+                    throw new DorisConnectorException("Cannot change column type involving Iceberg VARIANT: "
+                            + column.getName() + ": " + current.type() + " -> " + newType);
+                }
+                if (newType.isVariantType()) {
+                    // A VARIANT modify changes only metadata, so it does not check the file format: an existing
+                    // v3 ORC table can hold a VARIANT column although Doris writes VARIANT values only to Parquet.
+                    if (!Objects.equals(current.doc(), targetComment)) {
+                        updateSchema.updateColumnDoc(currentName, targetComment);
+                    }
+                } else if (newType.isPrimitiveType()) {
                     // Reject a complex -> primitive change with a clean message before iceberg's updateColumn leaks
                     // a raw type-diff error — parity with IcebergNestedColumnEvolution.modifyColumn / legacy
                     // IcebergMetadataOps (symmetric with the non-complex -> complex guard below).

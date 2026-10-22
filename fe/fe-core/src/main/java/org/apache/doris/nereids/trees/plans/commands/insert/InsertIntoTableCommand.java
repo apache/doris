@@ -353,9 +353,9 @@ public class InsertIntoTableCommand extends Command
 
             List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
             if (!infos.isEmpty()) {
-                if (!Config.enable_feature_binlog) {
+                if (!Config.enable_feature_changelog) {
                     throw new AnalysisException("Insert plan with Table stream failed."
-                            + " should enable binlog feature in FE config.");
+                            + " should enable changelog feature in FE config.");
                 }
                 // put offset into executor
                 insertExecutor.setStreamUpdateInfos(infos);

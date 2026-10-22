@@ -40,7 +40,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/s3_file_system.h"
 #include "json2pb/json_to_pb.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
@@ -249,8 +249,8 @@ TEST_F(CloudCompactionTest, failure_cumu_compaction_tablet_sleep_test) {
     ASSERT_EQ(tablets.size(), 0);
 }
 
-TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) {
-    auto filter_out = [](CloudTablet* t) { return !t->is_row_binlog_tablet(); };
+TEST_F(CloudCompactionTest, changelog_compaction_max_score_ignores_normal_tablets) {
+    auto filter_out = [](CloudTablet* t) { return !t->is_changelog_tablet(); };
     CloudTabletMgr mgr(_engine);
 
     auto normal_meta = std::make_shared<TabletMeta>(*_tablet_meta);
@@ -261,23 +261,23 @@ TEST_F(CloudCompactionTest, binlog_compaction_max_score_ignores_normal_tablets) 
     normal_tablet->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(normal_tablet);
 
-    auto binlog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
-    binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    CloudTabletSPtr binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
-    binlog_tablet->tablet_meta()->_tablet_id = 10002;
-    binlog_tablet->tablet_meta()->set_disable_auto_compaction(false);
-    binlog_tablet->_approximate_cumu_num_deltas = 7;
-    mgr.put_tablet_for_UT(binlog_tablet);
+    auto changelog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
+    changelog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    CloudTabletSPtr changelog_tablet = std::make_shared<CloudTablet>(_engine, changelog_meta);
+    changelog_tablet->tablet_meta()->_tablet_id = 10002;
+    changelog_tablet->tablet_meta()->set_disable_auto_compaction(false);
+    changelog_tablet->_approximate_cumu_num_deltas = 7;
+    mgr.put_tablet_for_UT(changelog_tablet);
 
     CompactionScoreStats score_stats;
     std::vector<std::shared_ptr<CloudTablet>> tablets {};
-    Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::CUMU_BINLOG_COMPACTION,
-                                                filter_out, &tablets, &score_stats);
+    Status st = mgr.get_topn_tablets_to_compact(1, CompactionType::CHANGELOG_COMPACTION, filter_out,
+                                                &tablets, &score_stats);
 
     ASSERT_EQ(st, Status::OK());
     ASSERT_TRUE(score_stats.scanned);
     ASSERT_EQ(tablets.size(), 1);
-    EXPECT_EQ(tablets.front()->tablet_id(), binlog_tablet->tablet_id());
+    EXPECT_EQ(tablets.front()->tablet_id(), changelog_tablet->tablet_id());
     EXPECT_EQ(score_stats.max_score, 7);
     EXPECT_EQ(score_stats.size_based_max_score, 0);
     EXPECT_EQ(score_stats.time_series_max_score, 0);
@@ -362,7 +362,8 @@ TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_updates_policy_metri
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 13);
 }
 
-TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_binlog_metric) {
+TEST_F(CloudCompactionTest,
+       generate_cloud_changelog_compaction_tasks_updates_only_changelog_metric) {
     CloudTabletMgr& mgr = _engine.tablet_mgr();
 
     auto normal_meta = std::make_shared<TabletMeta>(*_tablet_meta);
@@ -373,40 +374,40 @@ TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_
     normal_tablet->_approximate_cumu_num_deltas = 10;
     mgr.put_tablet_for_UT(normal_tablet);
 
-    auto binlog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
-    binlog_meta->_tablet_id = 11003;
-    binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    auto binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
-    binlog_tablet->tablet_meta()->set_disable_auto_compaction(false);
-    binlog_tablet->_approximate_cumu_num_deltas = 7;
-    mgr.put_tablet_for_UT(binlog_tablet);
+    auto changelog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
+    changelog_meta->_tablet_id = 11003;
+    changelog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    auto changelog_tablet = std::make_shared<CloudTablet>(_engine, changelog_meta);
+    changelog_tablet->tablet_meta()->set_disable_auto_compaction(false);
+    changelog_tablet->_approximate_cumu_num_deltas = 7;
+    mgr.put_tablet_for_UT(changelog_tablet);
 
     auto* metrics = DorisMetrics::instance();
     metrics->tablet_cumulative_max_compaction_score->set_value(101);
     metrics->tablet_size_based_max_compaction_score->set_value(102);
     metrics->tablet_time_series_max_compaction_score->set_value(103);
-    metrics->tablet_binlog_max_compaction_score->set_value(104);
+    metrics->tablet_changelog_max_compaction_score->set_value(104);
 
     auto tablets = _engine.generate_cloud_compaction_tasks_for_test(
-            CompactionType::CUMU_BINLOG_COMPACTION, true);
+            CompactionType::CHANGELOG_COMPACTION, true);
 
     ASSERT_EQ(tablets.size(), 1);
-    ASSERT_EQ(tablets[0]->tablet_id(), binlog_tablet->tablet_id());
-    ASSERT_EQ(metrics->tablet_binlog_max_compaction_score->value(), 7);
+    ASSERT_EQ(tablets[0]->tablet_id(), changelog_tablet->tablet_id());
+    ASSERT_EQ(metrics->tablet_changelog_max_compaction_score->value(), 7);
     ASSERT_EQ(metrics->tablet_cumulative_max_compaction_score->value(), 101);
     ASSERT_EQ(metrics->tablet_size_based_max_compaction_score->value(), 102);
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 103);
 }
 
-TEST_F(CloudCompactionTest, binlog_compaction_producer_ignores_ccr_switch) {
+TEST_F(CloudCompactionTest, changelog_compaction_producer_ignores_ccr_switch) {
     const bool old_enable_feature_binlog = config::enable_feature_binlog;
     const bool old_disable_auto_compaction = config::disable_auto_compaction;
-    const int32_t old_binlog_compaction_task_num_per_disk =
-            config::binlog_compaction_task_num_per_disk;
+    const int32_t old_changelog_compaction_task_num_per_disk =
+            config::changelog_compaction_task_num_per_disk;
     Defer restore_config {[&]() {
         config::enable_feature_binlog = old_enable_feature_binlog;
         config::disable_auto_compaction = old_disable_auto_compaction;
-        config::binlog_compaction_task_num_per_disk = old_binlog_compaction_task_num_per_disk;
+        config::changelog_compaction_task_num_per_disk = old_changelog_compaction_task_num_per_disk;
     }};
 
     ASSERT_TRUE(ThreadPoolBuilder("BaseCompactionTaskThreadPoolTest")
@@ -419,32 +420,32 @@ TEST_F(CloudCompactionTest, binlog_compaction_producer_ignores_ccr_switch) {
                         .set_max_threads(1)
                         .build(&_engine._cumu_compaction_thread_pool)
                         .ok());
-    ASSERT_TRUE(ThreadPoolBuilder("BinlogCompactionTaskThreadPoolTest")
+    ASSERT_TRUE(ThreadPoolBuilder("ChangelogCompactionTaskThreadPoolTest")
                         .set_min_threads(1)
                         .set_max_threads(1)
-                        .build(&_engine._binlog_compaction_thread_pool)
+                        .build(&_engine._changelog_compaction_thread_pool)
                         .ok());
 
-    auto binlog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
-    binlog_meta->_tablet_id = 11004;
-    binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    auto binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
-    binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
-    binlog_tablet->_approximate_cumu_num_deltas = 7;
-    _engine.tablet_mgr().put_tablet_for_UT(binlog_tablet);
+    auto changelog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
+    changelog_meta->_tablet_id = 11004;
+    changelog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    auto changelog_tablet = std::make_shared<CloudTablet>(_engine, changelog_meta);
+    changelog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    changelog_tablet->_approximate_cumu_num_deltas = 7;
+    _engine.tablet_mgr().put_tablet_for_UT(changelog_tablet);
 
     config::enable_feature_binlog = false;
     config::disable_auto_compaction = false;
-    config::binlog_compaction_task_num_per_disk = 0;
-    auto* metric = DorisMetrics::instance()->tablet_binlog_max_compaction_score;
+    config::changelog_compaction_task_num_per_disk = 0;
+    auto* metric = DorisMetrics::instance()->tablet_changelog_max_compaction_score;
     metric->set_value(0);
     _engine._stop_background_threads_latch.count_down();
-    _engine._binlog_compaction_tasks_producer_callback();
+    _engine._changelog_compaction_tasks_producer_callback();
     EXPECT_EQ(metric->value(), 7);
 
     config::disable_auto_compaction = true;
     metric->set_value(11);
-    _engine._binlog_compaction_tasks_producer_callback();
+    _engine._changelog_compaction_tasks_producer_callback();
     EXPECT_EQ(metric->value(), 11);
 }
 
@@ -720,20 +721,20 @@ static std::shared_ptr<TestableCloudCumulativeCompaction> create_inflight_cumu_c
     return compaction;
 }
 
-TEST_F(CloudCompactionTest, row_binlog_ttl_snapshot_selects_expired_rowset) {
+TEST_F(CloudCompactionTest, changelog_ttl_snapshot_selects_expired_rowset) {
     auto tablet_meta = create_cloud_compaction_test_tablet_meta(10000);
-    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::CHANGELOG, false);
     tablet_meta->set_binlog_config(binlog_config);
     constexpr int64_t kReferenceMs = 100000;
     const int64_t reference_tso = kReferenceMs << kTsoLogicalBits;
-    _cluster_info->advance_row_binlog_ttl_reference_tso(reference_tso);
+    _cluster_info->advance_changelog_ttl_reference_tso(reference_tso);
     auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
     TestableCloudCumulativeCompaction compaction(_engine, tablet);
 
-    compaction.snapshot_row_binlog_ttl();
-    const int64_t cutoff = row_binlog_ttl_cutoff_tso(reference_tso, 10);
-    ASSERT_EQ(compaction._row_binlog_ttl_cutoff_tso, cutoff);
+    compaction.snapshot_changelog_ttl();
+    const int64_t cutoff = changelog_ttl_cutoff_tso(reference_tso, 10);
+    ASSERT_EQ(compaction._changelog_ttl_cutoff_tso, cutoff);
 
     auto expired = create_rowset(Version(2, 2), 1, false, 1024);
     expired->rowset_meta()->set_num_rows(1);
@@ -744,55 +745,55 @@ TEST_F(CloudCompactionTest, row_binlog_ttl_snapshot_selects_expired_rowset) {
 
     ASSERT_TRUE(tablet_meta->add_rs_meta(expired->rowset_meta()).ok());
     EXPECT_LE(tablet->get_cloud_cumu_compaction_score(), 0);
-    EXPECT_TRUE(tablet->scan_expired_row_binlog_rowsets());
+    EXPECT_TRUE(tablet->scan_expired_changelog_rowsets());
 
-    EXPECT_FALSE(compaction.pick_expired_row_binlog_rowset({expired, retained}));
+    EXPECT_FALSE(compaction.pick_expired_changelog_rowset({expired, retained}));
     tablet->_timestamped_version_tracker.add_version(Version(0, 1));
     tablet->_timestamped_version_tracker.add_version(expired->version());
-    EXPECT_TRUE(compaction.pick_expired_row_binlog_rowset({expired, retained}));
+    EXPECT_TRUE(compaction.pick_expired_changelog_rowset({expired, retained}));
     ASSERT_EQ(compaction._input_rowsets.size(), 1);
     EXPECT_EQ(compaction._input_rowsets.front(), expired);
 }
 
-TEST_F(CloudCompactionTest, row_binlog_ttl_prevents_cumulative_point_from_skipping_expired) {
+TEST_F(CloudCompactionTest, changelog_ttl_prevents_cumulative_point_from_skipping_expired) {
     auto old_parallel_cumu_compaction = config::enable_parallel_cumu_compaction;
     Defer restore_config(
             [&] { config::enable_parallel_cumu_compaction = old_parallel_cumu_compaction; });
     config::enable_parallel_cumu_compaction = true;
 
     auto tablet_meta = create_cloud_compaction_test_tablet_meta(10001);
-    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
-    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_CHANGELOG_POLICY));
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::CHANGELOG, false);
     tablet_meta->set_binlog_config(binlog_config);
-    _cluster_info->advance_row_binlog_ttl_reference_tso(2000L << kTsoLogicalBits);
+    _cluster_info->advance_changelog_ttl_reference_tso(2000L << kTsoLogicalBits);
     auto expired = create_rowset(Version(2, 2), 1, false, 128 * 1024 * 1024);
     expired->rowset_meta()->set_num_rows(1);
     expired->rowset_meta()->set_data_disk_size(128 * 1024 * 1024);
     expired->rowset_meta()->set_compaction_level(
-            BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1);
+            ChangelogCumulativeCompactionPolicy::kChangelogCompactionMaxLevel - 1);
     expired->rowset_meta()->set_commit_tso(1000L << kTsoLogicalBits);
     auto tablet = create_cloud_tablet_with_rowsets(_engine, tablet_meta, 2, {expired});
 
     TestableCloudCumulativeCompaction compaction(_engine, tablet);
-    compaction.snapshot_row_binlog_ttl();
+    compaction.snapshot_changelog_ttl();
     auto st = compaction.advance_cumulative_point_before_pick(std::numeric_limits<int64_t>::max());
     EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(tablet->cumulative_layer_point(), 2);
 }
 
-TEST_F(CloudCompactionTest, row_binlog_ttl_picks_expired_rowset_before_cumulative_point) {
+TEST_F(CloudCompactionTest, changelog_ttl_picks_expired_rowset_before_cumulative_point) {
     auto tablet_meta = create_cloud_compaction_test_tablet_meta(10002);
-    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
-    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
-    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::ROW, false);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    tablet_meta->set_compaction_policy(std::string(CUMULATIVE_CHANGELOG_POLICY));
+    BinlogConfig binlog_config(true, 1, 1024, 10, BinlogFormatPB::CHANGELOG, false);
     tablet_meta->set_binlog_config(binlog_config);
-    _cluster_info->advance_row_binlog_ttl_reference_tso(2000L << kTsoLogicalBits);
+    _cluster_info->advance_changelog_ttl_reference_tso(2000L << kTsoLogicalBits);
     auto expired = create_rowset(Version(2, 2), 1, false, 128 * 1024 * 1024);
     expired->rowset_meta()->set_num_rows(1);
     expired->rowset_meta()->set_data_disk_size(128 * 1024 * 1024);
     expired->rowset_meta()->set_compaction_level(
-            BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1);
+            ChangelogCumulativeCompactionPolicy::kChangelogCompactionMaxLevel - 1);
     expired->rowset_meta()->set_commit_tso(1000L << kTsoLogicalBits);
     auto initial = create_rowset(Version(0, 1), 0, false, 0);
     initial->rowset_meta()->set_num_rows(0);

@@ -39,14 +39,38 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace {
+
+Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_stats_searcher(
+        const segment_v2::IndexFileReader& file_reader, const TabletIndex* index,
+        const io::IOContext* io_ctx) {
+    auto compound = file_reader.open(index, io_ctx);
+    if (!compound.has_value()) {
+        // Variant rowsets can contain only `a` or only `b`. Missing `a` must not discard
+        // this segment's available `b` statistics when scoring SEARCH('a:hit OR b:hit').
+        const auto& status = compound.error();
+        if (status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+            status.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
+            return std::shared_ptr<lucene::search::IndexSearcher> {};
+        }
+        return ResultError(status);
+    }
+    auto* reader = lucene::index::IndexReader::open(compound.value().get());
+    return std::make_shared<lucene::search::IndexSearcher>(reader, true);
+}
+
+} // namespace
+
 namespace collection_statistics_detail {
 
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
                                                              uint64_t sum_total_term_freq,
                                                              bool has_positions, bool has_norms,
+                                                             bool is_analyzed,
                                                              bool single_term_normalizer) {
-    // Lowercase-normalized docs-only postings use unit frequency and length for scoring.
-    if ((!has_positions || !has_norms) && !single_term_normalizer) {
+    // Keywords and lowercase-only normalizers can omit both sections: a matched value
+    // contributes one term with unit frequency and length. Other analyzed sources need both.
+    if (is_analyzed && !single_term_normalizer && (!has_positions || !has_norms)) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
                 "SNII scoring requires positions and norms; this segment was written without "
                 "positions or without norms. Norms are left out when the index sets \"norms\" = "
@@ -264,10 +288,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
             const uint64_t segment_doc_count = scoring_stats.doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
                     ws_field_name, segment_doc_count, scoring_stats.token_count,
-                    scoring_stats.has_positions, scoring_stats.has_norms,
-                    segment_v2::IndexReaderHelper::is_normalizer_only(
+                    scoring_stats.has_positions, scoring_stats.has_norms, &segment_accumulator,
+                    segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                             collect_info.index_meta->properties()),
-                    &segment_accumulator));
+                    segment_v2::IndexReaderHelper::is_normalizer_only(
+                            collect_info.index_meta->properties())));
 
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
                 const auto logical_term =
@@ -300,9 +325,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         InvertedIndexCacheHandle inverted_index_cache_handle;
 #endif
 #ifdef BE_TEST
-        auto compound_reader = DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
-        auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-        owned_index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+        owned_index_searcher = DORIS_TRY(open_optional_clucene_stats_searcher(
+                *idx_file_reader, collect_info.index_meta, io_ctx));
+        if (owned_index_searcher == nullptr) {
+            continue; // This field has no index in this segment; collect the other fields.
+        }
         index_searcher = owned_index_searcher.get();
         index_reader = index_searcher->getReader();
 #else
@@ -311,11 +338,13 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
         if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                             &inverted_index_cache_handle)) {
-            auto compound_reader =
-                    DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
-            auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-            size_t reader_size = reader->getTermInfosRAMUsed();
-            auto searcher_ptr = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+            auto searcher_ptr = DORIS_TRY(open_optional_clucene_stats_searcher(
+                    *idx_file_reader, collect_info.index_meta, io_ctx));
+            if (searcher_ptr == nullptr) {
+                continue; // This field has no index in this segment; collect the other fields.
+            }
+            index_reader = searcher_ptr->getReader();
+            size_t reader_size = index_reader->getTermInfosRAMUsed();
             auto* cache_value = new CluceneSearcherCacheValue(std::move(searcher_ptr), reader_size,
                                                               UnixMillis());
             InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
@@ -337,12 +366,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
         // them, together with the field's token count, in the norms. A segment written without
         // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
-        // segments that have norms, so refuse to score the collection, as SNII does. A
-        // single-term normalizer can instead use unit frequency and length.
-        const bool single_term_normalizer = segment_v2::IndexReaderHelper::is_normalizer_only(
-                collect_info.index_meta->properties());
-        // Docs-only lowercase indexes have no norms, but each matching row has one term.
-        if (!scoring_stats.has_norms && !single_term_normalizer &&
+        // segments that have norms, so refuse to score the collection, as SNII does.
+        // Keywords and lowercase-only normalizers instead use unit document length.
+        if (!scoring_stats.has_norms &&
+            !segment_v2::IndexReaderHelper::is_normalizer_only(
+                    collect_info.index_meta->properties()) &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     collect_info.index_meta->properties())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -351,10 +379,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, segment_v2::inverted_index::StringHelper::to_string(ws_field_name));
         }
-        // CLucene omits term totals without norms; one token per row gives a unit-length estimate.
-        _total_num_tokens[ws_field_name] += !scoring_stats.has_norms && single_term_normalizer
-                                                    ? scoring_stats.doc_count
-                                                    : scoring_stats.token_count;
+        _total_num_tokens[ws_field_name] +=
+                scoring_stats.has_norms ? scoring_stats.token_count : scoring_stats.doc_count;
 
         for (const auto& logical_term_bytes : collect_info.unique_terms) {
             const auto logical_term =
@@ -375,11 +401,12 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
 Status CollectionStatistics::admit_snii_scoring_segment(
         const std::wstring& field_name, uint64_t index_doc_count, uint64_t sum_total_term_freq,
-        bool has_positions, bool has_norms, bool single_term_normalizer,
-        SniiScoringSegmentAccumulator* segment_accumulator) {
+        bool has_positions, bool has_norms, SniiScoringSegmentAccumulator* segment_accumulator,
+        bool is_analyzed, bool single_term_normalizer) {
     DORIS_CHECK(segment_accumulator != nullptr);
     auto segment_stats = collection_statistics_detail::resolve_snii_scoring_segment(
-            index_doc_count, sum_total_term_freq, has_positions, has_norms, single_term_normalizer);
+            index_doc_count, sum_total_term_freq, has_positions, has_norms, is_analyzed,
+            single_term_normalizer);
     if (!segment_stats.has_value()) {
         clear();
         return segment_stats.error();
@@ -417,6 +444,33 @@ void CollectionStatistics::clear() {
     _term_doc_freqs.clear();
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
+}
+
+void CollectionStatistics::copy_collected_from(const CollectionStatistics& other) {
+    _total_num_docs = other._total_num_docs;
+    _total_num_tokens = other._total_num_tokens;
+    _term_doc_freqs = other._term_doc_freqs;
+    _avg_dl_by_col.clear();
+    _idf_by_col_term.clear();
+}
+
+Status TabletCollectionStatistics::copy_to(RuntimeState* state,
+                                           const TabletSchemaSPtr& tablet_schema,
+                                           const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                           io::IOContext* io_ctx,
+                                           CollectionStatistics* statistics) {
+    DORIS_CHECK(statistics != nullptr);
+    std::lock_guard lock(_mutex);
+    if (!_collected) {
+        _status = _statistics.collect_full_collection(state, _rowsets, tablet_schema,
+                                                      common_expr_ctxs_push_down, io_ctx);
+        _collected = true;
+        // Do not hold the rowsets any longer than needed.
+        _rowsets.clear();
+    }
+    RETURN_IF_ERROR(_status);
+    statistics->copy_collected_from(_statistics);
+    return Status::OK();
 }
 
 uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& lucene_col_name,

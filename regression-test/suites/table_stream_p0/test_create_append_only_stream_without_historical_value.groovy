@@ -33,9 +33,8 @@ suite("test_create_append_only_stream_without_historical_value", "nonConcurrent"
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "false"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "false"
         )
     """
 
@@ -73,7 +72,7 @@ suite("test_create_append_only_stream_without_historical_value", "nonConcurrent"
             ON TABLE test_stream_without_historical_value_base
             PROPERTIES ("show_initial_rows" = "false")
         """
-        exception "MIN_DELTA table stream requires base mow table to enable binlog.need_historical_value=true"
+        exception "MIN_DELTA table stream requires base mow table to enable changelog.need_historical_value=true"
     }
     test {
         sql """
@@ -84,7 +83,7 @@ suite("test_create_append_only_stream_without_historical_value", "nonConcurrent"
                 "show_initial_rows" = "false"
             )
         """
-        exception "MIN_DELTA table stream requires base mow table to enable binlog.need_historical_value=true"
+        exception "MIN_DELTA table stream requires base mow table to enable changelog.need_historical_value=true"
     }
     test {
         sql """
