@@ -2254,7 +2254,7 @@ TEST(ParquetVariantProjectionTest, FinalizesPhysicalProjectionBeforeFooterPrunin
     thrift_metadata.__set_num_rows(20);
     thrift_metadata.__set_row_groups({row_group, leaf_row_group});
     thrift_metadata.__set_column_orders({order, order, order, order, order});
-    format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata));
 
     auto leaf_projection = format::LocalColumnIndex::partial_local(1);
     leaf_projection.children.push_back(format::LocalColumnIndex::partial_local(2));
@@ -2328,7 +2328,7 @@ TEST(ParquetVariantProjectionTest, ReusesWideNonVariantLeafSetAcrossRowGroups) {
     tparquet::FileMetaData thrift_metadata;
     thrift_metadata.__set_num_rows(ROW_GROUP_COUNT * 10);
     thrift_metadata.__set_row_groups(std::vector<tparquet::RowGroup>(ROW_GROUP_COUNT, row_group));
-    format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata), 0);
+    format::parquet::NativeParquetMetadata metadata(std::move(thrift_metadata));
     format::parquet::ParquetFileContext file_context;
     file_context.native_metadata = &metadata;
     file_context.contains_variant = false;
