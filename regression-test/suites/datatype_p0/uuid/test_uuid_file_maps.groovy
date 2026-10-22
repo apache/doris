@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
 import java.nio.file.Paths
 
 // Checklist: G08 G09 G10 G13 H02 H08.
@@ -24,11 +23,16 @@ suite("test_uuid_file_maps") {
         logger.warn("Please set enable_outfile_to_local to true to run test_uuid_file_maps")
         return
     }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
+    def backends = sql_return_maparray("SHOW BACKENDS").findAll { it.Alive == "true" }
+    assertFalse(backends.isEmpty())
+    def backend = backends[0]
     String securePath = sql_return_maparray(
             "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_file_maps_")
+    def outputDirectory = Paths.get(securePath, "test_uuid_file_maps_${UUID.randomUUID()}")
     try {
+        // OUTFILE runs on a BE, which may be remote from the regression runner.
+        mkdirRemotePathOnAllBE("root", outputDirectory.toString())
+        sql "SET enable_parallel_outfile = false"
         sql "DROP TABLE IF EXISTS uuid_file_maps"
         sql """CREATE TABLE uuid_file_maps (id INT,m MAP<UUID,ARRAY<UUID>>,v MAP<STRING,UUID>)
                DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')"""
@@ -39,8 +43,11 @@ suite("test_uuid_file_maps") {
                (4, {'00000000-0000-0000-0000-000000000000':NULL}, {'zero':'00000000000000000000000000000000'})"""
         qt_source "SELECT * FROM uuid_file_maps ORDER BY id"
         for (String format : ['parquet', 'orc']) {
-            sql """SELECT * FROM uuid_file_maps ORDER BY id
+            def outfile = sql """SELECT * FROM uuid_file_maps ORDER BY id
                    INTO OUTFILE 'file://${outputDirectory}/${format}_' FORMAT AS ${format}"""
+            // Use the BE that actually wrote the file for local TVF reads.
+            backend = backends.find { outfile[0][3].startsWith("file:///${it.Host}/") }
+            assertNotNull(backend)
             String path = "${outputDirectory.fileName}/${format}_*"
             sql "DROP TABLE IF EXISTS uuid_file_maps_reload"
             sql "CREATE TABLE uuid_file_maps_reload LIKE uuid_file_maps"
@@ -52,6 +59,6 @@ suite("test_uuid_file_maps") {
                              FROM uuid_file_maps_reload ORDER BY id"""
         }
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        deleteRemotePathOnAllBE("root", outputDirectory.toString())
     }
 }
