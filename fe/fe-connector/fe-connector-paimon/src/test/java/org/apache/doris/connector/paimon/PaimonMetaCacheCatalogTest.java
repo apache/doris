@@ -295,6 +295,27 @@ class PaimonMetaCacheCatalogTest {
     }
 
     @Test
+    void connectorLookupsHitTheTableCacheUntilTheTableIsInvalidated() throws Exception {
+        // Each statement resolves its table handle several times through CatalogBackedPaimonCatalogOps.
+        // Those lookups must be served from the Doris table cache; only an invalidation of the table
+        // (REFRESH TABLE, a Doris write or DDL all end in CatalogMetaCache) makes the next one reload.
+        RecordingCatalog recording = new RecordingCatalog();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(
+                    PaimonMetaCacheCatalog.tryToCreate(recording.catalog(), owner, 100, 100,
+                            cacheOptions(Duration.ofDays(1), Duration.ofDays(1)), true, false));
+
+            Table first = ops.getTable(TABLE);
+            Assertions.assertSame(first, ops.getTable(TABLE));
+            Assertions.assertEquals(1, recording.tableLoads.get(), "a repeated lookup must not reload the table");
+
+            owner.invalidateTable("db", "t");
+            Assertions.assertNotSame(first, ops.getTable(TABLE));
+            Assertions.assertEquals(2, recording.tableLoads.get());
+        }
+    }
+
+    @Test
     void systemTableIsRebuiltFromTheCachedOriginTable() throws Exception {
         AtomicLong clock = new AtomicLong();
         RecordingCatalog recording = new RecordingCatalog();

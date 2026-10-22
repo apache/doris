@@ -24,9 +24,12 @@
 #include <gtest/gtest.h>
 #include <string.h>
 
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -38,21 +41,27 @@
 #include "core/field.h"
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
+#include "exprs/function/search/function_search.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -1088,6 +1097,177 @@ TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
     arrayTabletColumn.add_sub_column(arraySubColumn);
     const TabletColumn* field = &(arrayTabletColumn);
     test_multi_block_write("multi_block", 0, field);
+}
+
+TEST_F(InvertedIndexArrayTest, SearchExcludesOuterNullArrayPayloadPostings) {
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_query_cache = env->get_inverted_index_query_cache();
+    auto* previous_searcher_cache = env->get_inverted_index_searcher_cache();
+    std::unique_ptr<InvertedIndexQueryCache> query_cache(
+            InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+    std::unique_ptr<InvertedIndexSearcherCache> searcher_cache(
+            InvertedIndexSearcherCache::create_global_instance(1024 * 1024, 1));
+    env->set_inverted_index_query_cache(query_cache.get());
+    env->set_inverted_index_searcher_cache(searcher_cache.get());
+    DEFER({
+        env->set_inverted_index_query_cache(previous_query_cache);
+        env->set_inverted_index_searcher_cache(previous_searcher_cache);
+    });
+
+    TabletColumn column;
+    column.set_unique_id(0);
+    column.set_name("arr1");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    column.set_is_nullable(true);
+    TabletColumn element;
+    element.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    column.add_sub_column(element);
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(26034);
+    index_pb.set_index_name("search_nullable_array");
+    index_pb.add_col_unique_id(0);
+    (*index_pb.mutable_properties())["parser"] = "english";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+    auto fs = io::global_local_filesystem();
+    const std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "search_null_array", 0)));
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(
+            fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer)
+                    .ok());
+    auto index_writer = std::make_unique<IndexFileWriter>(fs, prefix, "search_null_array", 0,
+                                                          InvertedIndexStorageFormatPB::V2,
+                                                          std::move(file_writer));
+    std::unique_ptr<IndexColumnWriter> writer;
+    ASSERT_TRUE(IndexColumnWriter::create(&column, &writer, index_writer.get(), &index_meta).ok());
+    // The ARRAY writer consumes payloads before the outer null map. A NULL
+    // ARRAY can therefore have genuine CLucene term/position postings.
+    std::vector<Slice> values {Slice("hit payload"), Slice("hit payload"), Slice("miss value")};
+    const uint64_t offsets[] = {0, 1, 2, 3};
+    const uint8_t null_map[] = {1, 0, 0};
+    ASSERT_TRUE(writer->add_array_values(sizeof(Slice), values.data(), nullptr,
+                                         reinterpret_cast<const uint8_t*>(offsets), 3)
+                        .ok());
+    ASSERT_TRUE(writer->add_array_nulls(null_map, 3).ok());
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    ASSERT_TRUE(index_writer->finish_close().ok());
+
+    auto file_reader =
+            std::make_shared<IndexFileReader>(fs, prefix, InvertedIndexStorageFormatPB::V2);
+    ASSERT_TRUE(file_reader->init().ok());
+    auto reader = FullTextIndexReader::create_shared(&index_meta, file_reader);
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
+    TQueryOptions query_options;
+    query_options.enable_inverted_index_query_cache = true;
+    query_options.enable_inverted_index_searcher_cache = true;
+    runtime_state.set_query_options(query_options);
+    auto context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    // Scores are only used to verify that filtering preserves the remaining
+    // scorer values. Keep collection statistics deterministic for this fixture.
+    context->collection_statistics->_total_num_docs = 3;
+    context->collection_statistics->_total_num_tokens[L"0"] = 6;
+    context->collection_statistics->_term_doc_freqs[L"0"][L"hit"] = 2;
+    context->collection_statistics->_term_doc_freqs[L"0"][L"payload"] = 2;
+    iterator.set_context(context);
+    auto type = make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {{"arr1", {"0", type}}};
+    std::unordered_map<std::string, IndexIterator*> iterators {{"arr1", &iterator}};
+
+    // Prove this is not an empty-payload NULL fixture: the real reader has a
+    // hit posting for doc 0 and the independently stored NULL bitmap contains it.
+    FieldReaderResolver resolver(types, iterators, context);
+    FieldReaderBinding binding;
+    ASSERT_TRUE(resolver.resolve("arr1", InvertedIndexQueryType::MATCH_ANY_QUERY, &binding).ok());
+    std::unique_ptr<index_query::PostingsCursor> postings;
+    ASSERT_TRUE(binding.index_source->open_term("hit", false, false, &postings).ok());
+    ASSERT_NE(nullptr, postings);
+    roaring::Roaring raw_hits;
+    index_query::PostingsBlock block;
+    bool eof = false;
+    for (;;) {
+        ASSERT_TRUE(postings->next_block(&block, &eof).ok());
+        if (eof) {
+            break;
+        }
+        for (uint64_t ordinal = 0; ordinal < block.size(); ++ordinal) {
+            raw_hits.add(block.doc_at(ordinal));
+        }
+    }
+    ASSERT_TRUE(raw_hits.contains(0));
+    ASSERT_TRUE(raw_hits.contains(1));
+    InvertedIndexQueryCacheHandle null_handle;
+    ASSERT_TRUE(reader->read_null_bitmap(context, &null_handle).ok());
+    ASSERT_NE(nullptr, null_handle.get_bitmap());
+    auto intersection = raw_hits & *null_handle.get_bitmap();
+    ASSERT_EQ(1, intersection.cardinality());
+    ASSERT_TRUE(intersection.contains(0));
+
+    FunctionSearch search;
+    for (bool scoring : {false, true}) {
+        for (const auto& [clause_type, value] :
+             std::vector<std::pair<std::string, std::string>> {{"TERM", "hit"},
+                                                               {"PHRASE", "hit payload"},
+                                                               {"WILDCARD", "h*"},
+                                                               {"WILDCARD", "*"}}) {
+            TSearchClause leaf;
+            leaf.clause_type = clause_type;
+            leaf.__set_field_name("arr1");
+            leaf.__set_value(value);
+            for (bool negate : {false, true}) {
+                TSearchParam param;
+                param.original_dsl = "nullable array payload contract";
+                param.root = leaf;
+                if (negate) {
+                    param.root.clause_type = "NOT";
+                    param.root.__set_children({leaf});
+                }
+                roaring::Roaring expected;
+                if (value == "*") {
+                    expected.add(negate ? 0 : 1);
+                    if (!negate) {
+                        expected.add(2);
+                    }
+                } else {
+                    expected.add(negate ? 0 : 1);
+                    if (negate) {
+                        expected.add(2);
+                    }
+                }
+                // Repeated non-scoring calls exercise cold/warm DSL execution;
+                // scoring bypasses that cache and runs the real CLucene scorer.
+                for (int repetition = 0; repetition < 2; ++repetition) {
+                    context->collection_similarity =
+                            scoring ? std::make_shared<CollectionSimilarity>() : nullptr;
+                    InvertedIndexResultBitmap result;
+                    auto status = search.evaluate_inverted_index_with_search_param(
+                            param, types, iterators, 3, result, true, nullptr, {}, context);
+                    ASSERT_TRUE(status.ok()) << status;
+                    EXPECT_TRUE(*result.get_data_bitmap() == expected)
+                            << clause_type << "/" << value << "/not=" << negate
+                            << "/score=" << scoring;
+                    EXPECT_TRUE(result.get_null_bitmap()->isEmpty());
+                    if (scoring) {
+                        const auto& scores = context->collection_similarity->_bm25_scores;
+                        EXPECT_EQ(expected.cardinality(), scores.size());
+                        for (const auto& [doc, score] : scores) {
+                            EXPECT_TRUE(expected.contains(doc));
+                            EXPECT_TRUE(std::isfinite(score));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 TEST_F(InvertedIndexArrayTest, ArrayInt) {

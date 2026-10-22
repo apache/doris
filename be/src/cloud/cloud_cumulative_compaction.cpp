@@ -21,6 +21,7 @@
 #include <fmt/ranges.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <algorithm>
 #include <random>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -165,6 +166,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
         st = cloud_tablet()->sync_rowsets();
         RETURN_IF_ERROR(st);
     }
+    snapshot_changelog_ttl();
 
     // pick rowsets to compact
     st = pick_rowsets_to_compact();
@@ -366,7 +368,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         } else if (!_enable_parallel_cumu_compaction ||
                    _output_rowset->start_version() == input_cumulative_point) {
             new_cumulative_point =
-                    _engine.cumu_compaction_policy(compaction_policy)
+                    _engine.cumu_compaction_policy(compaction_policy, cloud_tablet()->tablet_id())
                             ->new_cumulative_point(cloud_tablet(), _output_rowset,
                                                    _last_delete_version, input_cumulative_point);
         }
@@ -492,6 +494,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 "CumulativeCompaction.modify_rowsets.trigger_abort_job_failed for tablet_id {}",
                 cloud_tablet()->tablet_id());
     });
+    if (_changelog_ttl_filtered_rows > 0) {
+        compaction_job->set_changelog_ttl_seconds(_changelog_ttl_seconds);
+    }
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -650,8 +655,8 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
         return Status::OK();
     }
 
-    auto compaction_policy =
-            _engine.cumu_compaction_policy(cloud_tablet()->tablet_meta()->compaction_policy());
+    auto compaction_policy = _engine.cumu_compaction_policy(
+            cloud_tablet()->tablet_meta()->compaction_policy(), cloud_tablet()->tablet_id());
     int64_t input_cumulative_point;
     int64_t output_cumulative_point;
     std::vector<RowsetSharedPtr> candidates;
@@ -679,6 +684,10 @@ Status CloudCumulativeCompaction::advance_cumulative_point_before_pick(
         }
 
         auto rowset_meta = rowset->rowset_meta();
+        if (_changelog_ttl_cutoff_tso >= 0 &&
+            changelog_rowset_expired(*rowset_meta, _changelog_ttl_cutoff_tso)) {
+            break;
+        }
         if (rowset_meta->has_delete_predicate()) {
             output_cumulative_point = rowset->end_version() + 1;
             continue;
@@ -711,6 +720,27 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 
     int64_t min_conflict_version = _min_conflict_version;
     int64_t max_conflict_version = _max_conflict_version;
+    if (_changelog_ttl_cutoff_tso >= 0) {
+        std::vector<RowsetSharedPtr> ttl_candidates;
+        {
+            std::shared_lock rlock(_tablet->get_header_lock());
+            _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
+            _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
+            _picked_cumulative_point = cloud_tablet()->cumulative_layer_point();
+            cloud_tablet()->traverse_rowsets_unlocked(
+                    [&ttl_candidates, min_conflict_version,
+                     max_conflict_version](const RowsetSharedPtr& rs) {
+                        if (rs->end_version() < min_conflict_version ||
+                            rs->start_version() > max_conflict_version) {
+                            ttl_candidates.push_back(rs);
+                        }
+                    });
+        }
+        std::ranges::sort(ttl_candidates, Rowset::comparator);
+        if (pick_expired_changelog_rowset(ttl_candidates)) {
+            return Status::OK();
+        }
+    }
     RETURN_IF_ERROR(advance_cumulative_point_before_pick(min_conflict_version));
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
@@ -739,9 +769,12 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
             DCHECK(false) << st;
             return st;
         }
+        if (pick_expired_changelog_rowset(candidates)) {
+            return Status::OK();
+        }
 
         size_t compaction_score = 0;
-        _engine.cumu_compaction_policy(compaction_policy)
+        _engine.cumu_compaction_policy(compaction_policy, cloud_tablet()->tablet_id())
                 ->pick_input_rowsets(cloud_tablet(), candidates, max_score,
                                      config::cumulative_compaction_min_deltas, &_input_rowsets,
                                      &_last_delete_version, &compaction_score);
@@ -824,7 +857,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
 }
 
 Status CloudCumulativeCompaction::prepare_merge_input_rowsets(MergeInputRowsetsResult* result) {
-    if (!_single_rowset_compaction_segment_group_size.has_value()) {
+    if (_changelog_ttl_filtered_rows > 0 ||
+        !_single_rowset_compaction_segment_group_size.has_value()) {
         return Status::OK();
     }
 

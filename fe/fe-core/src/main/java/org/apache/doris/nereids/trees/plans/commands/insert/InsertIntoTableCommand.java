@@ -100,6 +100,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -186,6 +187,15 @@ public class InsertIntoTableCommand extends Command
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    /** Rewrite the original query before planning, preserving INSERT options and the WITH clause. */
+    public InsertIntoTableCommand rewriteQuery(Function<Plan, Plan> rewrite) {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                (LogicalPlan) originLogicalQuery.rewriteUp(rewrite), labelName, insertCtx,
+                cte, needNormalizePlan, branchName);
+        command.setJobId(jobId);
+        return command;
     }
 
     public Optional<Plan> getParsedPlan() {
@@ -343,9 +353,9 @@ public class InsertIntoTableCommand extends Command
 
             List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
             if (!infos.isEmpty()) {
-                if (!Config.enable_feature_binlog) {
+                if (!Config.enable_feature_changelog) {
                     throw new AnalysisException("Insert plan with Table stream failed."
-                            + " should enable binlog feature in FE config.");
+                            + " should enable changelog feature in FE config.");
                 }
                 // put offset into executor
                 insertExecutor.setStreamUpdateInfos(infos);
@@ -621,13 +631,15 @@ public class InsertIntoTableCommand extends Command
                 // commit at the branch (iceberg validates it in beginWrite). The guard above already
                 // rejected @branch for connectors without supportsWriteBranch().
                 branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                pluginCtx.setBoundTargetSchema(((PhysicalConnectorTableSink<?>) physicalSink).getBoundTargetSchema());
                 if (pluginCtx.getStaticPartitionSpec().isEmpty()
                         && originLogicalQuery instanceof UnboundConnectorTableSink) {
                     UnboundConnectorTableSink<?> pluginSink =
                             (UnboundConnectorTableSink<?>) originLogicalQuery;
                     if (pluginSink.hasStaticPartition()) {
                         pluginCtx.setStaticPartitionSpecFromExpressions(
-                                pluginSink.getStaticPartitionKeyValues());
+                                pluginSink.getStaticPartitionKeyValues(),
+                                InsertUtils.connectorWriteSchema(targetTableIf, true));
                     }
                 }
                 return ExecutorFactory.from(planner, dataSink, physicalSink,

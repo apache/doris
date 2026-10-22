@@ -100,6 +100,26 @@ import java.util.Set;
 public class NereidsParserTest extends ParserTestBase {
 
     @Test
+    public void testParsePropertiesRejectsTrailingTokens() {
+        NereidsParser parser = new NereidsParser();
+        for (String suffix : new String[] {" trailing_tokens", " ;", " )", " @", " \"extra\"=\"value\""}) {
+            Assertions.assertThrows(ParseException.class,
+                    () -> parser.parseProperties("\"parser\" = \"unicode\"" + suffix), suffix);
+        }
+    }
+
+    @Test
+    public void testParseProperties() {
+        NereidsParser parser = new NereidsParser();
+        Assertions.assertEquals(ImmutableMap.of("parser", "unicode"),
+                parser.parseProperties("\"parser\" = \"unicode\""));
+        Assertions.assertEquals(ImmutableMap.of("parser", "unicode", "support_phrase", "true"),
+                parser.parseProperties("\"parser\" = \"unicode\", \"support_phrase\" = \"true\""));
+        Assertions.assertEquals(ImmutableMap.of("parser", "unicode"),
+                parser.parseProperties(" \"parser\" = \"unicode\" /* comment */ \n -- comment\n"));
+    }
+
+    @Test
     public void testParseMultiple() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test;;;;SELECT a FROM test;";
@@ -1723,6 +1743,21 @@ public class NereidsParserTest extends ParserTestBase {
         String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(CreateMaterializedViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateSyncMvIfNotExists() {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(
+                "CREATE MATERIALIZED VIEW IF NOT EXISTS mv1 SELECT k1 FROM t2");
+        CreateMaterializedViewCommand command = Assertions.assertInstanceOf(
+                CreateMaterializedViewCommand.class, logicalPlan);
+        Assertions.assertTrue(command.isIfNotExists());
+
+        LogicalPlan withoutClause = parser.parseSingle("CREATE MATERIALIZED VIEW mv1 SELECT k1 FROM t2");
+        CreateMaterializedViewCommand withoutClauseCommand = Assertions.assertInstanceOf(
+                CreateMaterializedViewCommand.class, withoutClause);
+        Assertions.assertFalse(withoutClauseCommand.isIfNotExists());
     }
 
     @Test

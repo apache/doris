@@ -86,6 +86,10 @@ public class IvmRewriteContext {
     // Set by MTMVPlanUtil before normalization: true means the MV unique keys include identity key columns.
     // Null when the rewrite context is created outside the analyzeQuery flow.
     private Boolean useFullKeys;
+    // Set by MTMVPlanUtil before normalization: true means the MV is built on the unique-key model even
+    // where its query would qualify for the append-only detail model. Only creation reads it -- afterwards
+    // the model is what the MV's own key type says -- and, like useFullKeys, null outside analyzeQuery.
+    private Boolean forceMow;
 
     // Whether a read of this statement answered with a base table as of the stream offset, which a snapshot
     // read does for the partitions that hold data the offset has not consumed. Set by the rewrite that binds
@@ -247,5 +251,13 @@ public class IvmRewriteContext {
 
     public void setUseFullKeys(boolean useFullKeys) {
         this.useFullKeys = useFullKeys;
+    }
+
+    public boolean isForceMow() {
+        return forceMow != null && forceMow;
+    }
+
+    public void setForceMow(boolean forceMow) {
+        this.forceMow = forceMow;
     }
 }

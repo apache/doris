@@ -28,6 +28,10 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
+#include "core/data_type_serde/parquet_timestamp.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_timestamp_ns.h"
 #include "util/mysql_row_buffer.h"
@@ -36,6 +40,56 @@
 namespace doris {
 
 namespace {
+
+class TimestampNsParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    TimestampNsParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                               ParquetMaterializationState* state = nullptr)
+            : _data(assert_cast<ColumnTimeStampNs&>(column).get_data()),
+              _context(context),
+              _state(state) {}
+
+    Status consume(const uint8_t* values, size_t count, size_t width) override {
+        const auto old_size = _data.size();
+        for (size_t i = 0; i < count; ++i) {
+            int64_t nanos;
+            Status status;
+            if (_context.physical_type == ParquetPhysicalType::INT96) {
+                DORIS_CHECK_EQ(width, sizeof(ParquetInt96Timestamp));
+                status = parquet_int96_timestamp_nanos(
+                        unaligned_load<ParquetInt96Timestamp>(values + i * width), &nanos);
+            } else if (_context.physical_type == ParquetPhysicalType::INT64) {
+                DORIS_CHECK_EQ(width, sizeof(int64_t));
+                status = parquet_timestamp_nanos(
+                        _context.time_unit, unaligned_load<int64_t>(values + i * width), &nanos);
+            } else {
+                return Status::NotSupported("TIMESTAMP_NS expects Parquet INT64 or INT96");
+            }
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+            _data.emplace_back(nanos);
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnTimeStampNs::Container& _data;
+    const ParquetDecodeContext& _context;
+    ParquetMaterializationState* _state;
+};
+
+class RejectTimestampNsBinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef*, size_t) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as TIMESTAMP_NS");
+    }
+};
 
 Status get_nanos_per_arrow_timestamp_unit(arrow::TimeUnit::type unit, int64_t* nanos_per_unit) {
     switch (unit) {
@@ -345,6 +399,113 @@ Status DataTypeTimeStampNsSerDe::deserialize_column_from_jsonb_vector(
                                                                source_null_map);
 }
 
+Status DataTypeTimeStampNsSerDe::read_parquet_dictionary(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context) const {
+    TimestampNsParquetConsumer consumer(column, context);
+    RejectTimestampNsBinaryConsumer binary;
+    return source.decode_dictionary(consumer, binary);
+}
+
+Status DataTypeTimeStampNsSerDe::read_column_from_parquet(
+        IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context,
+        size_t num_values, ParquetMaterializationState& state) const {
+    TimestampNsParquetConsumer consumer(column, context, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        TimestampNsParquetConsumer dictionary(*state.typed_dictionary, context, &state);
+        RejectTimestampNsBinaryConsumer binary;
+        auto status = source.decode_dictionary(dictionary, binary);
+        state.end_dictionary_conversion(null_map);
+        RETURN_IF_ERROR(status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
+}
+
+Status DataTypeTimeStampNsSerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
+        return Status::NotSupported("TIMESTAMP_NS expects decoded INT64 or INT96 values");
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded TIMESTAMP_NS value buffer is null");
+    }
+    auto unit = ParquetTimeUnit::MICROS;
+    if (view.time_unit == DecodedTimeUnit::MILLIS) {
+        unit = ParquetTimeUnit::MILLIS;
+    } else if (view.time_unit == DecodedTimeUnit::NANOS) {
+        unit = ParquetTimeUnit::NANOS;
+    }
+    auto& data = assert_cast<ColumnTimeStampNs&>(column).get_data();
+    const auto old_size = data.size();
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.emplace_back();
+            continue;
+        }
+        int64_t nanos;
+        auto status =
+                view.value_kind == DecodedValueKind::INT96
+                        ? parquet_int96_timestamp_nanos(
+                                  unaligned_load<ParquetInt96Timestamp>(
+                                          view.values + row * sizeof(ParquetInt96Timestamp)),
+                                  &nanos)
+                        : parquet_timestamp_nanos(
+                                  unit,
+                                  unaligned_load<int64_t>(view.values + row * sizeof(int64_t)),
+                                  &nanos);
+        if (!status.ok()) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return status;
+        }
+        data.emplace_back(nanos);
+    }
+    return Status::OK();
+}
+
+Status DataTypeTimeStampNsSerDe::read_column_from_orc(IColumn& column,
+                                                      const OrcDecodedColumnView& view) const {
+    const auto& batch = assert_cast<const orc::TimestampVectorBatch&>(*view.batch);
+    auto& data = assert_cast<ColumnTimeStampNs&>(column).get_data();
+    const auto old_size = data.size();
+    const auto rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.timestamp_context != nullptr);
+    for (size_t row = 0; row < rows; ++row) {
+        const auto source = orc_serde_utils::orc_source_row_at(row, view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(batch, source)) {
+            data.emplace_back();
+            continue;
+        }
+        const auto nanos = batch.nanoseconds[source];
+        if (nanos < 0 || nanos >= TimeStampNsValue::NANOS_PER_SECOND) {
+            data.resize(old_size);
+            return Status::DataQualityError("Invalid ORC timestamp nanoseconds: {}", nanos);
+        }
+        DateV2Value<DateTimeV2ValueType> civil;
+        const int64_t seconds = batch.data[source];
+        const auto timezone = view.timestamp_context->timezone_for(*view.file_type, seconds);
+        auto status = orc_serde_utils::orc_timestamp_to_datetime(seconds, nanos / 1000, timezone,
+                                                                 false, &civil);
+        TimeStampNsValue value;
+        if (!status.ok() || !value.from_datetime(civil, nanos % 1000)) {
+            data.resize(old_size);
+            return Status::DataQualityError("ORC timestamp is outside the TIMESTAMP_NS range");
+        }
+        data.push_back(value);
+    }
+    return Status::OK();
+}
+
 Status DataTypeTimeStampNsSerDe::write_column_to_arrow(const IColumn& column,
                                                        const NullMap* null_map,
                                                        arrow::ArrayBuilder* array_builder,
@@ -438,7 +599,29 @@ Status DataTypeTimeStampNsSerDe::write_column_to_orc(const std::string& timezone
                                                      orc::ColumnVectorBatch* orc_col_batch,
                                                      int64_t start, int64_t end, Arena& arena,
                                                      const FormatOptions& options) const {
-    return Status::NotSupported("DataTypeTimeStampNsSerDe::write_column_to_orc");
+    const auto& data = assert_cast<const ColumnTimeStampNs&>(column).get_data();
+    auto& batch = assert_cast<orc::TimestampVectorBatch&>(*orc_col_batch);
+    for (int64_t row = start; row < end; ++row) {
+        if (batch.notNull[row] == 0) {
+            continue;
+        }
+        int64_t seconds;
+        auto civil = data[row].to_datetime();
+        if (!civil.unix_timestamp(&seconds, timezone)) {
+            return Status::DataQualityError("Cannot convert TIMESTAMP_NS to ORC timestamp");
+        }
+        const auto nanos = data[row].nanosecond();
+        // Match the other timestamp writers: ORC-645 aliases these fractions across the epoch.
+        if (seconds == -1 && nanos >= 1000000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) "
+                    "seconds without data loss; use Parquet for these values");
+        }
+        batch.data[row] = seconds;
+        batch.nanoseconds[row] = nanos;
+    }
+    batch.numElements = end - start;
+    return Status::OK();
 }
 
 void DataTypeTimeStampNsSerDe::write_one_cell_to_binary(const IColumn& src_column,

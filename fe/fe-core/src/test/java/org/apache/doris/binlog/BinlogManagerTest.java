@@ -159,39 +159,46 @@ public class BinlogManagerTest {
     public void testBinlogConfigEquals() {
         mockedBinlogConfigConstruction.close();
         mockedBinlogConfigConstruction = null;
-        BinlogConfig c1 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, true);
-        BinlogConfig c2 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, true);
-        BinlogConfig c3 = new BinlogConfig(true, 10L, 20L, 30L, BinlogConfig.BinlogFormat.ROW, false);
+        BinlogConfig c1 = new BinlogConfig(true, 10L, 20L, 30L);
+        BinlogConfig c2 = new BinlogConfig(true, 10L, 20L, 30L);
+        BinlogConfig c3 = new BinlogConfig(true, 10L, 20L, 31L);
 
         Assertions.assertEquals(c1, c2);
         Assertions.assertNotEquals(c1, c3);
         Assertions.assertNotEquals(c1, "not_binlog");
+        Assertions.assertEquals(c1, new BinlogConfig(c1));
+        Assertions.assertEquals(c1, BinlogConfig.fromProperties(c1.toProperties()));
+
+        Assertions.assertTrue(c1.isEnableForCCR());
+        c1.setTtlSeconds(20);
+        Assertions.assertNotEquals(c1, c2);
+        Assertions.assertEquals(20L, c1.getTtlSeconds());
+        c1.setEnable(false);
+        Assertions.assertFalse(c1.isEnableForCCR());
     }
 
     @Test
     public void testBinlogConfigShowDDL() {
         mockedBinlogConfigConstruction.close();
         mockedBinlogConfigConstruction = null;
-        BinlogConfig rowCfg = new BinlogConfig(true, 11L, 22L, 33L, BinlogConfig.BinlogFormat.ROW, true);
+        BinlogConfig ccrCfg = new BinlogConfig(true, 11L, 22L, 33L);
         StringBuilder sb = new StringBuilder();
-        rowCfg.appendToShowCreateTable(sb);
+        ccrCfg.appendToShowCreateTable(sb);
         String out = sb.toString();
         Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE + "\" = \"true\""));
         Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS + "\" = \"11\""));
         Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES + "\" = \"22\""));
         Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS
                 + "\" = \"33\""));
-        Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT + "\" = \"ROW\""));
-        Assertions.assertTrue(out.contains(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+        // Only the four CCR keys: the format keys belonged to the configuration changelog.* replaced.
+        Assertions.assertEquals(4, out.split("\"binlog\\.", -1).length - 1, out);
+        Assertions.assertFalse(out.contains(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT));
+        Assertions.assertFalse(out.contains(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE));
 
-        BinlogConfig stmtCfg = new BinlogConfig(true, 11L, 22L, 33L,
-                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, true);
-        sb = new StringBuilder();
-        stmtCfg.appendToShowCreateTable(sb);
-        out = sb.toString();
-        Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT
-                + "\" = \"STATEMENT_AND_SNAPSHOT\""));
-        Assertions.assertFalse(out.contains(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+        ccrCfg.setTtlSeconds(12);
+        sb.setLength(0);
+        ccrCfg.appendToShowCreateTable(sb);
+        Assertions.assertTrue(sb.toString().contains("\"binlog.ttl_seconds\" = \"12\""));
     }
 
     @Test

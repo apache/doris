@@ -64,15 +64,15 @@ std::unique_ptr<FunctionContext> FunctionContext::clone() {
 
 void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {
     switch (scope) {
-    case THREAD_LOCAL:
+    case FunctionStateScope::THREAD_LOCAL:
         _thread_local_fn_state = std::move(ptr);
         break;
-    case FRAGMENT_LOCAL:
+    case FunctionStateScope::FRAGMENT_LOCAL:
         _fragment_local_fn_state = std::move(ptr);
         break;
     default:
         std::stringstream ss;
-        ss << "Unknown FunctionStateScope: " << scope;
+        ss << "Unknown FunctionStateScope: " << static_cast<int>(scope);
         set_error(ss.str().c_str());
     }
 }
@@ -136,9 +136,9 @@ const DataTypePtr FunctionContext::get_return_type() const {
 
 void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     switch (scope) {
-    case THREAD_LOCAL:
+    case FunctionStateScope::THREAD_LOCAL:
         return _thread_local_fn_state.get();
-    case FRAGMENT_LOCAL:
+    case FunctionStateScope::FRAGMENT_LOCAL:
         return _fragment_local_fn_state.get();
     default:
         // TODO: signal error somehow

@@ -67,6 +67,12 @@ suite("test_paimon_ctas_atomicity_negative",
             create table paimon.${dbName}.ctas_target (id int, payload string)
             using paimon
         """
+        assertEquals(0, (spark_paimon """select * from paimon.${dbName}.ctas_target""").size())
+        // Spark's recreation does not invalidate Doris's independent table-name cache.
+        // Establish the empty target before CTAS so refreshing cannot hide CTAS side effects.
+        sql """refresh database ${catalogName}.${dbName}"""
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        assertEquals(0, (sql """select * from ctas_target""").size())
         // IF NOT EXISTS remains a no-op and must not insert into the pre-existing target.
         sql """
             create table if not exists ctas_target engine=paimon

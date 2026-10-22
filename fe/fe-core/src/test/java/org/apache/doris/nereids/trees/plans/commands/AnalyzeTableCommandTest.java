@@ -19,11 +19,15 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -151,13 +155,45 @@ public class AnalyzeTableCommandTest {
     }
 
     @Test
-    void testSampleAnalyzeWithHotValueRejected() {
+    void testSampleAnalyzeWithHotValueAccepted() throws Exception {
+        // WITH HOT VALUE is accepted on a sample analyze: the flag only selects the hot value
+        // template of a full analyze, while a sample analyze collects hot values depending on the
+        // estimator it picks per column at execution time.
+        TableIf table = Mockito.mock(TableIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.when(ctx.getEnv()).thenReturn(env);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalogOrAnalysisException(internalCtl)).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrAnalysisException(CatalogMocker.TEST_DB_NAME)).thenReturn(database);
+        Mockito.when(database.getTableOrAnalysisException(CatalogMocker.TEST_TBL_NAME)).thenReturn(table);
+        Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.eq(internalCtl),
+                Mockito.eq(CatalogMocker.TEST_DB_NAME), Mockito.eq(CatalogMocker.TEST_TBL_NAME),
+                Mockito.eq(PrivPredicate.SELECT))).thenReturn(true);
+
         NereidsParser parser = new NereidsParser();
         AnalyzeTableCommand command = (AnalyzeTableCommand) parser.parseSingle(
                 "ANALYZE TABLE test_db.test_tbl WITH SAMPLE ROWS 100 WITH HOT VALUE");
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> command.validate(ctx));
-        Assertions.assertEquals("Sample analyze always collects hot value", exception.getDetailMessage());
+        Assertions.assertDoesNotThrow(() -> command.validate(ctx));
+        Assertions.assertTrue(command.getAnalyzeProperties().hasCollectHotValue());
+        Assertions.assertEquals(AnalysisInfo.AnalysisMethod.SAMPLE, command.getAnalysisMethod());
+    }
+
+    @Test
+    void testSampleAnalyzeDatabaseWithHotValueAccepted() throws Exception {
+        // The rejection lived in the validate shared by both commands, so ANALYZE DATABASE accepts
+        // the flag as well.
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(env.getCurrentCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrAnalysisException(CatalogMocker.TEST_DB_NAME)).thenReturn(database);
+
+        NereidsParser parser = new NereidsParser();
+        AnalyzeDatabaseCommand command = (AnalyzeDatabaseCommand) parser.parseSingle(
+                "ANALYZE DATABASE test_db WITH SAMPLE ROWS 100 WITH HOT VALUE");
+        Assertions.assertDoesNotThrow(() -> command.validate(ctx));
+        Assertions.assertEquals(AnalysisInfo.AnalysisMethod.SAMPLE, command.getAnalysisMethod());
     }
 
     private Map<String, String> defaultAnalyzeProperties() {

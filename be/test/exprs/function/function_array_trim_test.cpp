@@ -73,15 +73,20 @@ static void check_array_trim_case(const DataSet& data_set, bool const_array, boo
     FunctionUtils function_utils(array_type, {array_type, size_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
     function_context->set_constant_cols(constant_columns);
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
 
     block.insert({nullptr, array_type, "result"});
     const auto result = block.columns() - 1;
     ASSERT_TRUE(function->execute(function_context, block, {0, 1}, result, row_size).ok());
 
-    static_cast<void>(function->close(function_context, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(function->close(function_context, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(
+            function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     MutableColumnPtr expected_column = array_type->create_column();
     for (const auto& row : data_set) {

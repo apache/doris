@@ -29,7 +29,7 @@
 #include "core/column/column_vector.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/snii/query/term_query.h"
+#include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
@@ -711,7 +711,6 @@ class IndexBuilderCommitTsoTest : public IndexBuilderTest,
 protected:
     void check_rowset(const RowsetSharedPtr& rowset) {
         const auto& tso = GetParam();
-        const int64_t expected_tso = tso.has_value() && tso->end_tso() != -1 ? tso->end_tso() : 0;
         EXPECT_EQ(tso.has_value(), rowset->rowset_meta()->has_commit_tso());
         if (tso.has_value()) {
             EXPECT_EQ(*tso, rowset->rowset_meta()->commit_tso());
@@ -725,14 +724,21 @@ protected:
                 rowset->rowset_id(), rowset->tablet_schema(), io::FileReaderOptions {}, &segment);
         ASSERT_TRUE(st.ok()) << st;
         OlapReaderStatistics stats;
-        StorageReadOptions options;
-        options.stats = &stats;
+        StorageReadOptions options(stats);
         options.version = rowset->version();
         options.commit_tso = rowset->rowset_meta()->commit_tso();
         options.io_ctx.reader_type = ReaderType::READER_QUERY;
         segment_v2::ColumnIteratorUPtr iter;
         st = segment->new_column_iterator(rowset->tablet_schema()->column(2), &iter, &options);
+        // Published singleton rowsets with absent or [-1, -1] TSOs must reject reads,
+        // even though index build/drop must preserve that metadata unchanged.
+        if (!tso.has_value() || tso->end_tso() == -1) {
+            EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+            EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos) << st;
+            return;
+        }
         ASSERT_TRUE(st.ok()) << st;
+        const int64_t expected_tso = tso->end_tso();
         segment_v2::ColumnIteratorOptions iter_options;
         iter_options.stats = &stats;
         iter_options.file_reader = segment->file_reader().get();

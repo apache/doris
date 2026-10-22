@@ -38,7 +38,7 @@ suite("test_streaming_insert_job_s3_once") {
         sql """
             CREATE JOB test_streaming_insert_job_s3_once
             PROPERTIES (
-                "s3.ingestion_mode" = "ONCE",
+                "s3.ingestion_mode" = "ONE_TIME",
                 "offset" = '{"fileName":"regression/load/data/example_0.csv"}'
             )
             ON STREAMING DO INSERT INTO test_streaming_insert_job_s3_once_tbl
@@ -53,13 +53,13 @@ suite("test_streaming_insert_job_s3_once") {
                 "s3.secret_key" = "${getS3SK()}"
             )
         """
-        exception "offset is not supported when s3.ingestion_mode is ONCE"
+        exception "offset is not supported when s3.ingestion_mode is ONE_TIME"
     }
 
     sql """
         CREATE JOB test_streaming_insert_job_s3_once
         PROPERTIES (
-            "s3.ingestion_mode" = "ONCE",
+            "s3.ingestion_mode" = "ONE_TIME",
             "s3.max_batch_files" = "1"
         )
         ON STREAMING DO INSERT INTO test_streaming_insert_job_s3_once_tbl

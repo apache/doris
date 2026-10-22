@@ -34,7 +34,6 @@
 #include "common/object_pool.h"
 #include "core/column/column_nothing.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
@@ -188,10 +187,6 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
         auto* pb_path = pslot->add_predicate_access_paths();
         convert_to_protobuf_column_access_path(path, pb_path);
     }
-}
-
-DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    return get_data_type_with_default_argument(type());
 }
 
 MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {

@@ -32,6 +32,15 @@
 
 namespace doris {
 
+struct HttpTransferMetrics {
+    int64_t new_connections = 0;
+    int64_t dns_time_ns = 0;
+    int64_t connect_time_ns = 0;
+    int64_t tls_time_ns = 0;
+    int64_t first_byte_time_ns = 0;
+    int64_t total_time_ns = 0;
+};
+
 // Helper class to access HTTP resource
 class HttpClient {
 public:
@@ -48,6 +57,9 @@ public:
     // this function must call before other function,
     // you can call this multiple times to reuse this object
     Status init(const std::string& url, bool set_fail_on_error = true);
+
+    // Release request-owned options and callbacks while retaining reusable connections.
+    void reset();
 
     void set_method(HttpMethod method);
 
@@ -149,6 +161,15 @@ public:
     // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
     Status get_content_md5(std::string* md5) const;
 
+    CURLcode get_last_curl_code() const { return _last_curl_code; }
+
+    // Metrics for the latest transfer, including failed requests. Read before reset/init.
+    // DNS/first-byte/total are cumulative curl timings; connect/TLS are phase durations.
+    HttpTransferMetrics get_transfer_metrics() const;
+
+    // Read the final response header; clear value when the header is absent.
+    Status get_response_header(const char* name, std::string* value) const;
+
     long get_http_status() const {
         long code;
         curl_easy_getinfo(_curl, CURLINFO_RESPONSE_CODE, &code);
@@ -202,11 +223,14 @@ public:
     }
 
 private:
+    static std::string _get_ca_certificate_path(const std::string& configured_paths);
+    Status _set_ca_certificate_from_config();
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;
+    CURLcode _last_curl_code = CURLE_OK;
     using HttpCallback = std::function<bool(const void* data, size_t length)>;
     const HttpCallback* _callback = nullptr;
     std::function<bool()> _abort_callback;

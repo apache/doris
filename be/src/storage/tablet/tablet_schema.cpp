@@ -17,6 +17,7 @@
 
 #include "storage/tablet/tablet_schema.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
@@ -46,8 +47,8 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_column_object_pool.h"
@@ -576,6 +577,24 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
 }
 
+std::string TabletColumn::debug_string() const {
+    const std::string path = _column_path == nullptr ? "<none>" : _column_path->get_path();
+    return fmt::format(
+            "TabletColumn(uid={}, name={}, type={}, aggregation={}, is_key={}, is_nullable={}, "
+            "length={}, index_length={}, precision={}, frac={}, parent_uid={}, path={}, "
+            "subcolumn_count={}, has_default_value={}, variant={{max_subcolumns_count={}, "
+            "enable_typed_paths_to_sparse={}, max_sparse_column_statistics_size={}, "
+            "sparse_hash_shard_count={}, enable_doc_mode={}, doc_materialization_min_rows={}, "
+            "doc_hash_shard_count={}, enable_nested_group={}}})",
+            _unique_id, _col_name, get_string_by_field_type(_type), _aggregation_name, _is_key,
+            _is_nullable, _length, _index_length, _precision, _frac, _parent_col_unique_id, path,
+            _sub_column_count, _has_default_value, _variant.max_subcolumns_count,
+            _variant.enable_typed_paths_to_sparse, _variant.max_sparse_column_statistics_size,
+            _variant.sparse_hash_shard_count, _variant.enable_doc_mode,
+            _variant.doc_materialization_min_rows, _variant.doc_hash_shard_count,
+            _variant.enable_nested_group);
+}
+
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
@@ -895,12 +914,12 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _commit_tso_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == ROW_LSN_COL)) {
         _row_lsn_col_idx = _num_columns;
-    } else if (UNLIKELY(column.name() == BINLOG_TSO_COL)) {
-        _binlog_tso_col_idx = _num_columns;
-    } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
-        _binlog_lsn_col_idx = _num_columns;
-    } else if (UNLIKELY(column.name() == BINLOG_OP_COL)) {
-        _binlog_op_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == CHANGELOG_TSO_COL)) {
+        _changelog_tso_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == CHANGELOG_LSN_COL)) {
+        _changelog_lsn_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == CHANGELOG_OP_COL)) {
+        _changelog_op_col_idx = _num_columns;
     } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
         _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
@@ -1105,9 +1124,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
     _row_lsn_col_idx = schema.row_lsn_col_idx();
-    _binlog_tso_col_idx = schema.binlog_tso_col_idx();
-    _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
-    _binlog_op_col_idx = schema.binlog_op_col_idx();
+    // The changelog column cids are not persisted; derive them from the column names.
+    _changelog_tso_col_idx = field_index(CHANGELOG_TSO_COL);
+    _changelog_lsn_col_idx = field_index(CHANGELOG_LSN_COL);
+    _changelog_op_col_idx = field_index(CHANGELOG_OP_COL);
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1212,9 +1232,9 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
     _row_lsn_col_idx = -1;
-    _binlog_tso_col_idx = -1;
-    _binlog_lsn_col_idx = -1;
-    _binlog_op_col_idx = -1;
+    _changelog_tso_col_idx = -1;
+    _changelog_lsn_col_idx = -1;
+    _changelog_op_col_idx = -1;
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
@@ -1281,9 +1301,9 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
     _row_lsn_col_idx = -1;
-    _binlog_tso_col_idx = -1;
-    _binlog_lsn_col_idx = -1;
-    _binlog_op_col_idx = -1;
+    _changelog_tso_col_idx = -1;
+    _changelog_lsn_col_idx = -1;
+    _changelog_op_col_idx = -1;
     _cluster_key_uids.clear();
     for (const auto& i : ori_tablet_schema._cluster_key_uids) {
         _cluster_key_uids.push_back(i);
@@ -1313,12 +1333,12 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _commit_tso_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == ROW_LSN_COL)) {
             _row_lsn_col_idx = _num_columns;
-        } else if (UNLIKELY(column->name() == BINLOG_TSO_COL)) {
-            _binlog_tso_col_idx = _num_columns;
-        } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
-            _binlog_lsn_col_idx = _num_columns;
-        } else if (UNLIKELY(column->name() == BINLOG_OP_COL)) {
-            _binlog_op_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == CHANGELOG_TSO_COL)) {
+            _changelog_tso_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == CHANGELOG_LSN_COL)) {
+            _changelog_lsn_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == CHANGELOG_OP_COL)) {
+            _changelog_op_col_idx = _num_columns;
         }
         // Reuse TabletColumn object from pool to reduce memory consumption
         TabletColumnPtr new_column;
@@ -1444,9 +1464,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
     tablet_schema_pb->set_row_lsn_col_idx(_row_lsn_col_idx);
-    tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
-    tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
-    tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
@@ -1798,9 +1815,9 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._skip_bitmap_col_idx != b._skip_bitmap_col_idx) return false;
     if (a._commit_tso_col_idx != b._commit_tso_col_idx) return false;
     if (a._row_lsn_col_idx != b._row_lsn_col_idx) return false;
-    if (a._binlog_tso_col_idx != b._binlog_tso_col_idx) return false;
-    if (a._binlog_lsn_col_idx != b._binlog_lsn_col_idx) return false;
-    if (a._binlog_op_col_idx != b._binlog_op_col_idx) return false;
+    if (a._changelog_tso_col_idx != b._changelog_tso_col_idx) return false;
+    if (a._changelog_lsn_col_idx != b._changelog_lsn_col_idx) return false;
+    if (a._changelog_op_col_idx != b._changelog_op_col_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;

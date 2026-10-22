@@ -89,14 +89,14 @@ Status execute_json_keys_with_path(ColumnPtr path_column, size_t rows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
     auto st = func->execute(fn_ctx, block, {0, 1}, block.columns() - 1, rows);
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     return st;
 }
 
@@ -197,8 +197,8 @@ TEST(FunctionJsonbTEST, JsonbParseConstNullableInputWithNonConstDefaultMultiRows
 
     FunctionUtils fn_utils(return_type, {input_type, default_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto result = block.columns() - 1;
@@ -217,8 +217,8 @@ TEST(FunctionJsonbTEST, JsonbParseConstNullableInputWithNonConstDefaultMultiRows
         EXPECT_EQ(0, result_col->compare_at(i, i, *expected_col, 1));
     }
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -957,9 +957,9 @@ TEST(FunctionJsonbTEST, JsonLength) {
     FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     //     fn_ctx->set_constant_cols(constant_cols);
-    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    auto st = func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
-    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    st = func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     block.insert({nullptr, return_type, "result"});
@@ -990,8 +990,8 @@ TEST(FunctionJsonbTEST, JsonLengthConstNullablePathMultiRows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, rows).ok());
@@ -1021,8 +1021,8 @@ TEST(FunctionJsonbTEST, JsonLengthConstJsonVaryingPathMultiRows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, rows).ok());
@@ -1090,9 +1090,9 @@ TEST(FunctionJsonbTEST, JsonContains) {
     FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     //     fn_ctx->set_constant_cols(constant_cols);
-    auto st = func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    auto st = func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
-    st = func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
+    st = func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL);
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     block.insert({nullptr, return_type, "result"});
@@ -1127,8 +1127,8 @@ TEST(FunctionJsonbTEST, JsonContainsConstNullablePathMultiRows) {
 
     FunctionUtils fn_utils(return_type, {jsonb_type, jsonb_type, path_type}, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1, 2}, 3, rows).ok());
@@ -1160,6 +1160,113 @@ TEST(FunctionJsonbTEST, JsonbModifyMissingPathParent) {
                 {{STRING(R"({"a":[1]})"), STRING("$.a[1]"), STRING("2")}, STRING(R"({"a":[1,2]})")},
         };
         static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, data_set));
+    }
+}
+
+TEST(FunctionJsonbTEST, JsonbModifyNestedMissingMemberKeepsFollowingSiblings) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_JSONB};
+
+    // Adding a missing member to a nested object must keep the members that follow that
+    // object in its ancestors. Before the fix the enclosing object was closed one level
+    // too early, so every following sibling was silently dropped.
+    DataSet data_set = {
+            // Nested empty object followed by a sibling.
+            {{STRING(R"({"a":{},"b":2})"), STRING(R"($.a.c)"), STRING("1")},
+             STRING(R"({"a":{"c":1},"b":2})")},
+            // Non-empty nested object.
+            {{STRING(R"({"a":{"d":4},"b":2})"), STRING(R"($.a.c)"), STRING("1")},
+             STRING(R"({"a":{"d":4,"c":1},"b":2})")},
+            // Control: a sibling written before the nested object was already correct.
+            {{STRING(R"({"b":2,"a":{}})"), STRING(R"($.a.c)"), STRING("1")},
+             STRING(R"({"b":2,"a":{"c":1}})")},
+            // Two nested levels: the premature close dropped the sibling one level up.
+            {{STRING(R"({"a":{"b":{}},"x":1})"), STRING(R"($.a.b.c)"), STRING("1")},
+             STRING(R"({"a":{"b":{"c":1}},"x":1})")},
+            // Following siblings of any type must be preserved.
+            {{STRING(R"({"a":{},"b":[1,2],"c":{"d":3}})"), STRING(R"($.a.e)"), STRING("1")},
+             STRING(R"({"a":{"e":1},"b":[1,2],"c":{"d":3}})")},
+            // An empty key can be the inserted member.
+            {{STRING(R"({"a":{},"b":2})"), STRING(R"($.a."")"), STRING("1")},
+             STRING(R"({"a":{"":1},"b":2})")},
+            // An object element inside an array was not affected; keep it as a guard.
+            {{STRING(R"({"a":[{"x":1}],"b":2})"), STRING(R"($.a[0].y)"), STRING("1")},
+             STRING(R"({"a":[{"x":1,"y":1}],"b":2})")},
+    };
+    for (const auto* func_name : {"jsonb_insert", "jsonb_set", "json_insert", "json_set"}) {
+        static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+    }
+
+    // jsonb_replace rewrites an existing member and already preserved its siblings.
+    DataSet replace_data_set = {
+            {{STRING(R"({"a":{"d":4},"b":2})"), STRING("$.a.d"), STRING("5")},
+             STRING(R"({"a":{"d":5},"b":2})")},
+    };
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_replace", input_types, replace_data_set));
+}
+
+TEST(FunctionJsonbTEST, JsonbModifyMemberPathOnArray) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_JSONB};
+
+    // A member leg never addresses an array element, so a missing member under an array is
+    // not inserted; array legs and quoted literal keys still work.
+    DataSet data_set = {
+            {{STRING("[1]"), STRING("$.a"), STRING("2")}, STRING("[1]")},
+            {{STRING("[]"), STRING("$.a"), STRING("2")}, STRING("[]")},
+            {{STRING("[1]"), STRING(R"($."a.b")"), STRING("2")}, STRING("[1]")},
+            {{STRING("[[1]]"), STRING("$[0].a"), STRING("2")}, STRING("[[1]]")},
+            {{STRING(R"({"a":[1]})"), STRING("$.a.b"), STRING("2")}, STRING(R"({"a":[1]})")},
+            {{STRING("[1]"), STRING("$[1]"), STRING("2")}, STRING("[1,2]")},
+            {{STRING("{}"), STRING(R"($."a.b")"), STRING("2")}, STRING(R"({"a.b":2})")},
+            {{STRING("{}"), STRING(R"($."")"), STRING("2")}, STRING(R"({"":2})")},
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_insert", input_types, data_set));
+    static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, data_set));
+
+    // Quoted "*" and "" name existing literal keys, including as parents of a nested leg.
+    DataSet set_existing = {
+            {{STRING(R"({"*":1,"b":1})"), STRING(R"($."*")"), STRING("2")},
+             STRING(R"({"*":2,"b":1})")},
+            {{STRING(R"({"":1,"b":1})"), STRING(R"($."")"), STRING("2")},
+             STRING(R"({"":2,"b":1})")},
+            {{STRING(R"({"*":{"":1},"b":1})"), STRING(R"($."*"."")"), STRING("2")},
+             STRING(R"({"*":{"":2},"b":1})")},
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>("jsonb_set", input_types, set_existing));
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_replace", input_types, set_existing));
+
+    // jsonb_insert keeps existing literal keys unchanged and only fills a missing nested key.
+    DataSet insert_existing = {
+            {{STRING(R"({"*":1,"b":1})"), STRING(R"($."*")"), STRING("2")},
+             STRING(R"({"*":1,"b":1})")},
+            {{STRING(R"({"":1,"b":1})"), STRING(R"($."")"), STRING("2")},
+             STRING(R"({"":1,"b":1})")},
+            {{STRING(R"({"*":{"":1},"b":1})"), STRING(R"($."*"."")"), STRING("2")},
+             STRING(R"({"*":{"":1},"b":1})")},
+            {{STRING(R"({"b":1,"*":{}})"), STRING(R"($."*"."")"), STRING("2")},
+             STRING(R"({"b":1,"*":{"":2}})")},
+    };
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_insert", input_types, insert_existing));
+
+    // jsonb_replace leaves a missing literal key alone.
+    DataSet replace_missing = {
+            {{STRING(R"({"b":1})"), STRING(R"($."*")"), STRING("2")}, STRING(R"({"b":1})")},
+            {{STRING(R"({"b":1})"), STRING(R"($."")"), STRING("2")}, STRING(R"({"b":1})")},
+    };
+    static_cast<void>(
+            check_function<DataTypeJsonb, true>("jsonb_replace", input_types, replace_missing));
+
+    // An unquoted '*' is still a wildcard and is rejected by every modify function.
+    DataSet wildcard = {
+            {{STRING(R"({"*":1,"b":1})"), STRING("$.*"), STRING("2")}, Null()},
+    };
+    for (const auto* func_name : {"jsonb_insert", "jsonb_set", "jsonb_replace"}) {
+        static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, wildcard, -1,
+                                                              -1, true));
     }
 }
 

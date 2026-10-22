@@ -158,8 +158,9 @@ public final class JdbcQueryBuilder {
             StringJoiner colJoiner = new StringJoiner(", ");
             for (ConnectorColumnHandle col : columns) {
                 if (col instanceof JdbcColumnHandle) {
-                    colJoiner.add(JdbcIdentifierQuoter.quoteRemoteIdentifier(
-                            dbType, ((JdbcColumnHandle) col).getRemoteName()));
+                    JdbcColumnHandle jdbcColumn = (JdbcColumnHandle) col;
+                    colJoiner.add(timestampProjection(JdbcIdentifierQuoter.quoteRemoteIdentifier(
+                            dbType, jdbcColumn.getRemoteName()), jdbcColumn.getType(), 0));
                 }
             }
             String colStr = colJoiner.toString();
@@ -188,6 +189,241 @@ public final class JdbcQueryBuilder {
         }
 
         return sql.toString();
+    }
+
+    private String timestampProjection(String expression, org.apache.doris.connector.spi.ConnectorType type,
+            int depth) {
+        if ("TIMESTAMPTZ".equals(type.getTypeName())) {
+            if (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE) {
+                // MySQL drivers can apply a cached timezone even in getString() for binary results.
+                // A server-side text projection preserves the UTC session fields and microseconds.
+                return "CAST(" + expression + " AS CHAR)";
+            }
+            if (dbType == JdbcDbType.CLICKHOUSE) {
+                return "toUnixTimestamp64Micro(toDateTime64(" + expression + ", 6))";
+            }
+            if (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO) {
+                return "(" + expression + " AT TIME ZONE 'UTC')";
+            }
+        }
+        if ("ARRAY".equals(type.getTypeName()) && containsInstant(type)) {
+            String element = "doris_ts_" + depth;
+            String converted = timestampProjection(element, type.getChildren().get(0), depth + 1);
+            if (dbType == JdbcDbType.CLICKHOUSE) {
+                return "arrayMap(" + element + " -> " + converted + ", " + expression + ")";
+            }
+            if (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO) {
+                return "transform(" + expression + ", " + element + " -> " + converted + ")";
+            }
+        }
+        return expression;
+    }
+
+    private static boolean containsInstant(org.apache.doris.connector.spi.ConnectorType type) {
+        return "TIMESTAMPTZ".equals(type.getTypeName()) || type.getChildren().stream().anyMatch(
+                JdbcQueryBuilder::containsInstant);
+    }
+
+    public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns) {
+        return wrapPassthroughQuery(query, columns, false);
+    }
+
+    public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns,
+            boolean noBackslashEscapes) {
+        return wrapPassthroughQuery(query, columns, () -> noBackslashEscapes);
+    }
+
+    public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns,
+            java.util.function.BooleanSupplier noBackslashEscapes) {
+        if (columns.stream().noneMatch(c -> c instanceof JdbcColumnHandle
+                && containsInstant(((JdbcColumnHandle) c).getType()))
+                || (dbType != JdbcDbType.CLICKHOUSE && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO
+                        && dbType != JdbcDbType.MYSQL && dbType != JdbcDbType.OCEANBASE)) {
+            return query;
+        }
+        // Project before driver decoding: a named-zone DST fold has already lost its offset afterward.
+        StringJoiner projections = new StringJoiner(", ");
+        for (ConnectorColumnHandle column : columns) {
+            JdbcColumnHandle jdbcColumn = (JdbcColumnHandle) column;
+            String name = JdbcIdentifierQuoter.quoteRemoteIdentifier(dbType, jdbcColumn.getRemoteName());
+            projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
+        }
+        // SQL mode requires remote IO only when a MySQL-family statement actually needs wrapping.
+        boolean mysqlNoBackslashEscapes = (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE)
+                && noBackslashEscapes.getAsBoolean();
+        String inner = stripTerminalDelimiter(query.trim(), mysqlNoBackslashEscapes);
+        // WITH SESSION belongs to the Trino statement, not to a derived-table query.
+        int queryStart = dbType == JdbcDbType.TRINO ? trinoSessionQueryStart(inner) : 0;
+        String prefix = inner.substring(0, queryStart);
+        // A trailing SQL line comment must end before the wrapper closes its derived table.
+        return prefix + "SELECT " + projections + " FROM (" + inner.substring(queryStart)
+                + "\n) doris_jdbc_query";
+    }
+
+    private String stripTerminalDelimiter(String sql, boolean noBackslashEscapes) {
+        boolean mysql = dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE;
+        List<Integer> delimiters = new java.util.ArrayList<>();
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+            // MySQL's second dash needs a following whitespace/control character; --1 is arithmetic.
+            } else if ((sql.startsWith("--", i) && (!mysql || (i + 2 < sql.length()
+                    && (Character.isWhitespace(sql.charAt(i + 2)) || Character.isISOControl(sql.charAt(i + 2))))))
+                    || (c == '#'
+                    && (dbType == JdbcDbType.MYSQL || dbType == JdbcDbType.OCEANBASE))) {
+                while (i < sql.length() && sql.charAt(i) != '\n' && sql.charAt(i) != '\r') {
+                    i++;
+                }
+            } else if (sql.startsWith("/*", i)) {
+                int depth = 1;
+                i += 2;
+                while (i < sql.length() && depth > 0) {
+                    if (sql.startsWith("/*", i)) {
+                        depth++;
+                        i += 2;
+                    } else if (sql.startsWith("*/", i)) {
+                        depth--;
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+            } else if (c == '\'' || c == '"' || c == '`') {
+                char quote = c;
+                for (i++; i < sql.length(); i++) {
+                    // SQL mode belongs to the remote connection, not the Doris session.
+                    if (sql.charAt(i) == '\\' && !(mysql && noBackslashEscapes)
+                            && quote != '`' && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO) {
+                        i++;
+                    } else if (sql.charAt(i) == quote) {
+                        if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                            i++;
+                        } else {
+                            i++;
+                            break;
+                        }
+                    }
+                }
+                delimiters.clear();
+            } else {
+                if (c == ';') {
+                    delimiters.add(i);
+                } else {
+                    delimiters.clear();
+                }
+                i++;
+            }
+        }
+        // A statement delimiter may precede trailing comments, which must stay outside SQL literals.
+        // Remove only the terminal delimiter run; interior delimiters still fail as multi-statements.
+        if (delimiters.isEmpty()) {
+            return sql;
+        }
+        StringBuilder result = new StringBuilder(sql);
+        for (int i = delimiters.size() - 1; i >= 0; i--) {
+            result.deleteCharAt(delimiters.get(i));
+        }
+        return result.toString();
+    }
+
+    private static int trinoSessionQueryStart(String sql) {
+        int depth = 0;
+        int prefixWords = 0;
+        for (int i = 0; i < sql.length();) {
+            char c = sql.charAt(i);
+            if (c == '\'' || c == '"') {
+                char quote = c;
+                for (i++; i < sql.length(); i++) {
+                    if (sql.charAt(i) == quote) {
+                        if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+                            i++;
+                        } else {
+                            i++;
+                            break;
+                        }
+                    }
+                }
+            } else if (sql.startsWith("--", i)) {
+                int newline = sql.indexOf('\n', i + 2);
+                i = newline < 0 ? sql.length() : newline + 1;
+            } else if (sql.startsWith("/*", i)) {
+                int comments = 1;
+                i += 2;
+                while (i < sql.length() && comments > 0) {
+                    if (sql.startsWith("/*", i)) {
+                        comments++;
+                        i += 2;
+                    } else if (sql.startsWith("*/", i)) {
+                        comments--;
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+            } else if (c == '(') {
+                depth++;
+                i++;
+            } else if (c == ')') {
+                depth--;
+                i++;
+            } else if (Character.isLetterOrDigit(c) || c == '_') {
+                int start = i++;
+                while (i < sql.length() && (Character.isLetterOrDigit(sql.charAt(i)) || sql.charAt(i) == '_')) {
+                    i++;
+                }
+                if (depth != 0) {
+                    continue;
+                }
+                String word = sql.substring(start, i);
+                if (prefixWords < 2) {
+                    if (!word.equalsIgnoreCase(prefixWords == 0 ? "WITH" : "SESSION")) {
+                        return 0;
+                    }
+                    prefixWords++;
+                } else if (word.equalsIgnoreCase("SELECT") || word.equalsIgnoreCase("WITH")
+                        || word.equalsIgnoreCase("TABLE") || word.equalsIgnoreCase("VALUES")) {
+                    return start;
+                }
+            } else {
+                i++;
+            }
+        }
+        return 0;
+    }
+
+    private static boolean hasInstant(ConnectorExpression expr) {
+        if (expr instanceof ConnectorColumnRef && containsInstant(((ConnectorColumnRef) expr).getType())) {
+            return true;
+        }
+        if (expr instanceof ConnectorLiteral && containsInstant(((ConnectorLiteral) expr).getType())) {
+            return true;
+        }
+        return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasInstant);
+    }
+
+    private static boolean hasWallClockValue(ConnectorExpression expr) {
+        if (expr instanceof ConnectorColumnRef || expr instanceof ConnectorLiteral) {
+            // CAST removal can leave an unzoned literal beside an instant column. Its comparison
+            // still depends on the Doris session zone, unlike the remote connection's UTC zone.
+            ConnectorType type = expr instanceof ConnectorColumnRef
+                    ? ((ConnectorColumnRef) expr).getType() : ((ConnectorLiteral) expr).getType();
+            String name = type.getTypeName();
+            return "DATETIMEV2".equalsIgnoreCase(name) || "DATETIME".equalsIgnoreCase(name)
+                    || "DATEV2".equalsIgnoreCase(name) || "DATE".equalsIgnoreCase(name);
+        }
+        return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasWallClockValue);
+    }
+
+    private static boolean containsBinaryLiteral(ConnectorExpression expr) {
+        return expr instanceof ConnectorLiteral
+                && "VARBINARY".equalsIgnoreCase(((ConnectorLiteral) expr).getType().getTypeName())
+                || expr.getChildren().stream().anyMatch(JdbcQueryBuilder::containsBinaryLiteral);
+    }
+
+    private static boolean hasInstantLiteral(ConnectorExpression expr) {
+        return expr instanceof ConnectorLiteral && containsInstant(((ConnectorLiteral) expr).getType())
+                || expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasInstantLiteral);
     }
 
     private boolean shouldPushDownLimit(long limit, boolean allFiltersCollected,
@@ -258,6 +494,21 @@ public final class JdbcQueryBuilder {
      * Mirrors the old JdbcScanNode.shouldPushDownConjunct() guards.
      */
     private boolean shouldPushDownExpression(ConnectorExpression expr) {
+        // Stripped CASTs lose the Doris session zone when an instant is compared with wall-clock fields.
+        if (hasInstant(expr) && hasWallClockValue(expr)) {
+            return false;
+        }
+        // Remote NULL handling and calendar operations can differ from decoded Doris instants.
+        if ((dbType == JdbcDbType.POSTGRESQL && hasInstant(expr)) || hasInstantLiteral(expr)
+                || (containsFunctionCall(expr) && hasInstant(expr))) {
+            return false;
+        }
+        // These dialects interpret X'...' differently or require a different binary literal syntax.
+        if ((dbType == JdbcDbType.POSTGRESQL || dbType == JdbcDbType.ORACLE
+                || dbType == JdbcDbType.OCEANBASE_ORACLE || dbType == JdbcDbType.SQLSERVER
+                || dbType == JdbcDbType.DB2) && containsBinaryLiteral(expr)) {
+            return false;
+        }
         // Guard: Oracle NULL literal exclusion
         if (!oracleNullPredicatePushDown
                 && (dbType == JdbcDbType.ORACLE || dbType == JdbcDbType.OCEANBASE_ORACLE)
@@ -352,9 +603,9 @@ public final class JdbcQueryBuilder {
     }
 
     private String comparisonToSql(ConnectorComparison comp, Map<String, String> colMapping) {
-        // ClickHouse compares the low 64 bits first; Doris uses unsigned 128-bit order.
+        // ClickHouse and SQL Server UUID ordering differs from Doris unsigned 128-bit order.
         // Equality remains pushable, but remote range filtering would discard valid rows.
-        if (dbType == JdbcDbType.CLICKHOUSE
+        if ((dbType == JdbcDbType.CLICKHOUSE || dbType == JdbcDbType.SQLSERVER)
                 && (isUuidValue(comp.getLeft()) || isUuidValue(comp.getRight()))) {
             switch (comp.getOperator()) {
                 case LT:
@@ -458,7 +709,7 @@ public final class JdbcQueryBuilder {
 
     private String betweenToSql(ConnectorBetween between, Map<String, String> colMapping) {
         // BETWEEN also depends on UUID ordering (including its bounds).
-        if (dbType == JdbcDbType.CLICKHOUSE && (isUuidValue(between.getValue())
+        if ((dbType == JdbcDbType.CLICKHOUSE || dbType == JdbcDbType.SQLSERVER) && (isUuidValue(between.getValue())
                 || isUuidValue(between.getLower()) || isUuidValue(between.getUpper()))) {
             return null;
         }
@@ -572,6 +823,17 @@ public final class JdbcQueryBuilder {
             return "NULL";
         }
         Object val = lit.getValue();
+        if ("UUID".equalsIgnoreCase(lit.getType().getTypeName())
+                && (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO)) {
+            // These engines do not implicitly coerce VARCHAR literals when comparing UUID columns.
+            return "CAST('" + escapeSql((String) val) + "' AS UUID)";
+        }
+        if ("VARBINARY".equalsIgnoreCase(lit.getType().getTypeName())) {
+            // Legacy literals cross the SPI as a lossless Latin-1 carrier, not remote character data.
+            String hex = java.util.HexFormat.of().formatHex(
+                    ((String) val).getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+            return "X'" + hex + "'";
+        }
         if (val instanceof String) {
             return "'" + escapeSql((String) val) + "'";
         } else if (val instanceof Boolean) {

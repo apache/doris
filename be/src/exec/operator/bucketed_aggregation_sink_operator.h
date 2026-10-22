@@ -44,6 +44,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
+    bool is_blockable() const override;
+
 private:
     friend class BucketedAggSinkOperatorX;
 
@@ -119,6 +121,13 @@ public:
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    // Whether an aggregate function (or one of its arguments) may block, e.g. AI_AGG sends a
+    // synchronous HTTP request. Both the sink (update) and the source (merge / finalize) run
+    // these functions, so both tasks must go to the blocking scheduler.
+    // Only valid after prepare(). Reads the operator's own evaluators, which never change
+    // after prepare(), so it is safe to call before the local states are opened.
+    bool has_blockable_aggregate() const;
 
     using DataSinkOperatorX<BucketedAggSinkLocalState>::node_id;
     using DataSinkOperatorX<BucketedAggSinkLocalState>::operator_id;

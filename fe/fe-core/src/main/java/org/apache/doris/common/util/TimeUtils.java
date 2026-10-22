@@ -39,6 +39,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
@@ -140,6 +141,14 @@ public class TimeUtils {
 
     public static ZoneId getDorisZoneId() {
         return getTimeZone().toZoneId();
+    }
+
+    /** Resolve a Doris time-zone name to the canonical ID understood by execution backends. */
+    public static String getCanonicalTimeZone(String timeZone) {
+        ZoneId zoneId = ZoneId.of(timeZone, timeZoneAliasMap);
+        // Java names a zero offset Z (+00:00) or a bare GMT (GMT+00:00). A backend finds those names only in a
+        // zone directory that ships the optional Zulu or GMT file, and it resolves UTC without one.
+        return zoneId.normalized().equals(ZoneOffset.UTC) ? UTC_TIME_ZONE : zoneId.getId();
     }
 
     public static TimeZone getUTCTimeZone() {

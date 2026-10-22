@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
@@ -288,7 +289,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
         ConnectorWritePlanContext writePlanContext = new ConnectorWritePlanContext(
                 session, metadata, handle, provider, null, false, false, false,
-                table.requiresFullSchemaWriteOrder());
+                table.requiresFullSchemaWriteOrder(), Config.max_be_exec_version);
         Mockito.doReturn(writePlanContext).when(sink).getWritePlanContext();
     }
 

@@ -36,13 +36,14 @@ public class ConnectorWritePlanContext {
     private final boolean requiresPartitionLocalSort;
     private final boolean requiresPartitionHashWrite;
     private final boolean requiresFullSchemaWriteOrder;
+    private final int beExecVersion;
 
     /** Creates an immutable context from one connector-provider resolution. */
     public ConnectorWritePlanContext(ConnectorSession session, ConnectorMetadata metadata,
             ConnectorTableHandle tableHandle, ConnectorWritePlanProvider provider,
             ConnectorWriteDistribution distribution, boolean requiresParallelWrite,
             boolean requiresPartitionLocalSort, boolean requiresPartitionHashWrite,
-            boolean requiresFullSchemaWriteOrder) {
+            boolean requiresFullSchemaWriteOrder, int beExecVersion) {
         this.session = session;
         this.metadata = metadata;
         this.tableHandle = tableHandle;
@@ -52,6 +53,7 @@ public class ConnectorWritePlanContext {
         this.requiresPartitionLocalSort = requiresPartitionLocalSort;
         this.requiresPartitionHashWrite = requiresPartitionHashWrite;
         this.requiresFullSchemaWriteOrder = requiresFullSchemaWriteOrder;
+        this.beExecVersion = beExecVersion;
     }
 
     public ConnectorSession getSession() {
@@ -88,5 +90,9 @@ public class ConnectorWritePlanContext {
 
     public boolean requiresFullSchemaWriteOrder() {
         return requiresFullSchemaWriteOrder;
+    }
+
+    public int getBeExecVersion() {
+        return beExecVersion;
     }
 }

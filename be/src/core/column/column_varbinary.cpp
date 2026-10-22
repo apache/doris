@@ -17,6 +17,7 @@
 
 #include "core/column/column_varbinary.h"
 
+#include <crc32c/crc32c.h>
 #include <glog/logging.h>
 
 #include <cstddef>
@@ -29,6 +30,7 @@
 #include "core/column/columns_common.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/sort/sort_block.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -190,6 +192,74 @@ size_t ColumnVarbinary::get_max_row_byte_size() const {
         max_size = std::max(max_size, _data[i].size());
     }
     return max_size + sizeof(uint32_t);
+}
+
+void ColumnVarbinary::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType /*type*/,
+                                             uint32_t rows, uint32_t /*offset*/,
+                                             const uint8_t* __restrict null_data) const {
+    DCHECK(rows == size());
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < rows; ++i) {
+            hashes[i] = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hashes[i]);
+        }
+    } else {
+        for (size_t i = 0; i < rows; ++i) {
+            if (null_data[i] == 0) {
+                hashes[i] = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hashes[i]);
+            }
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    if (null_data == nullptr) {
+        for (size_t i = start; i < end; ++i) {
+            hash = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hash);
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                hash = HashUtil::zlib_crc_hash(_data[i].data(), _data[i].size(), hash);
+            }
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc32c_batch(uint32_t* __restrict hashes,
+                                          const uint8_t* __restrict null_map) const {
+    const size_t rows = size();
+    if (null_map == nullptr) {
+        for (size_t i = 0; i < rows; ++i) {
+            hashes[i] = crc32c_extend(hashes[i], reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                      _data[i].size());
+        }
+    } else {
+        for (size_t i = 0; i < rows; ++i) {
+            if (null_map[i] == 0) {
+                hashes[i] =
+                        crc32c_extend(hashes[i], reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                      _data[i].size());
+            }
+        }
+    }
+}
+
+void ColumnVarbinary::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                                           const uint8_t* __restrict null_map) const {
+    if (null_map == nullptr) {
+        for (size_t i = start; i < end; ++i) {
+            hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                 _data[i].size());
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            if (null_map[i] == 0) {
+                hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(_data[i].data()),
+                                     _data[i].size());
+            }
+        }
+    }
 }
 
 void ColumnVarbinary::serialize(StringRef* keys, size_t num_rows) const {

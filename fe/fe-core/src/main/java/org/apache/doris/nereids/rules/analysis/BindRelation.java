@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.binlog.BinlogUtils;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -27,9 +26,10 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.NameSpaceContext;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
 import org.apache.doris.catalog.TableIf;
@@ -40,6 +40,7 @@ import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
+import org.apache.doris.changelog.ChangelogUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -248,17 +249,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
             CascadesContext cascadesContext) {
+        checkNotLegacyChangelog((OlapTable) table);
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
         StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
         if (changeScanType != null) {
-            table = new RowBinlogTableWrapper((OlapTable) table,
+            OlapTable originTable = (OlapTable) table;
+            Pair<Long, Long> timestampRange = parseTimestampRange(unboundRelation.getScanParams());
+            timestampRange = applyChangelogTtl(timestampRange, originTable, changeScanType,
+                    unboundRelation.getScanParams().getMapParams().containsKey(OlapScanNode.OLAP_START_TIMESTAMP),
+                    cascadesContext.getStatementContext());
+            table = new OlapChangelogTableWrapper((OlapTable) table,
                     CollectionUtils.isEmpty(partIds)
-                            ? makeUniformedTimestampRangeMap(((OlapTable) table).getPartitionIds(),
-                                    parseTimestampRange(unboundRelation.getScanParams())) :
-                            makeUniformedTimestampRangeMap(partIds,
-                                    parseTimestampRange(unboundRelation.getScanParams())));
+                            ? makeUniformedTimestampRangeMap(originTable.getPartitionIds(), timestampRange)
+                            : makeUniformedTimestampRangeMap(partIds, timestampRange));
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
         }
@@ -312,7 +317,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return checkAndAddChangeScanFilter(scan, changeScanType, false);
         }
         // Time-travel (FOR VERSION/TIME AS OF): wrap the scan with a __DORIS_COMMIT_TSO_COL__
-        // predicate (dup) or a base/binlog union (mow).
+        // predicate (dup) or a base/changelog union (mow).
         if (unboundRelation.getTableSnapshot().isPresent()) {
             return buildTimeTravelPlan(scan, (OlapTable) table,
                     unboundRelation.getTableSnapshot().get(), unboundRelation, qualifier,
@@ -335,6 +340,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalOlapTableStreamScan makeOlapTableStreamScan(OlapTableStream olapTableStream,
             UnboundRelation unboundRelation, List<String> qualifier) {
         OlapTable baseTable = (OlapTable) olapTableStream.getBaseTableOrNereidsAnalysisException();
+        checkNotLegacyChangelog(baseTable);
         List<Long> partIds = getPartitionIds(baseTable, unboundRelation, qualifier);
         List<Long> selectedPartitionIds = CollectionUtils.isEmpty(partIds) ? baseTable.getPartitionIds() : partIds;
         OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(olapTableStream, baseTable, selectedPartitionIds);
@@ -366,6 +372,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         // for olap table stream scan we filter delete sign in rewrite phase
         return scan;
+    }
+
+    // A table that still enables changelog through "binlog.format" = "ROW" can only be dropped.
+    private static void checkNotLegacyChangelog(OlapTable table) {
+        if (table.isLegacyChangelog()) {
+            throw new AnalysisException(table.getLegacyChangelogMessage());
+        }
     }
 
     private boolean needGenerateLogicalAggForRandomDistAggTable(LogicalOlapScan olapScan) {
@@ -505,7 +518,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     /**
      * Build the time-travel (FOR VERSION/TIME AS OF) plan for an olap scan.
      * dup: Filter(__DORIS_COMMIT_TSO_COL__ &lt; targetTso), targetTso being the exclusive upper bound.
-     * mow: base(survived rows, tso &lt; targetTso) UNION ALL binlog(before-image of UPDATE_BEFORE/DELETE).
+     * mow: base(survived rows, tso &lt; targetTso) UNION ALL changelog(before-image of UPDATE_BEFORE/DELETE).
      */
     private LogicalPlan buildTimeTravelPlan(LogicalOlapScan scan, OlapTable olapTable,
             TableSnapshot snapshot, UnboundRelation unboundRelation, List<String> qualifier,
@@ -515,18 +528,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
             return addCommitTsoFilter(scan, targetTso, olapTable);
         }
+        // Reconstructing a MoW snapshot needs every before-image since the target TSO.
+        // Reuse MIN_DELTA's explicit-start validation; clamping would silently lose rows.
+        applyChangelogTtl(Pair.of(targetTso, null), olapTable, StreamScanType.MIN_DELTA,
+                true, cascadesContext.getStatementContext());
         return buildMowTimeTravelUnion(scan, olapTable, targetTso, unboundRelation,
                 qualifier, partIds, tabletIds, cascadesContext);
     }
 
     /**
-     * Validate that the table supports time travel: row binlog enabled, dup or mow key type,
-     * and (for mow) historical value recorded in binlog for the union right branch.
+     * Validate that the table supports time travel: changelog enabled, dup or mow key type,
+     * and (for mow) historical value recorded in changelog for the union right branch.
      */
     private void validateTimeTravel(OlapTable olapTable) {
         if (!olapTable.enableTso()) {
-            throw new AnalysisException("FOR VERSION/TIME AS OF requires row binlog "
-                    + "(PROPERTIES('binlog.enable'='true','binlog.format'='ROW')) on table "
+            throw new AnalysisException("FOR VERSION/TIME AS OF requires changelog "
+                    + "(PROPERTIES('changelog.enable'='true')) on table "
                     + olapTable.getQualifiedName());
         }
         KeysType keysType = olapTable.getKeysType();
@@ -536,9 +553,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     + " is " + keysType + ".");
         }
         if (olapTable.isUniqKeyMergeOnWrite()
-                && !olapTable.getBinlogConfig().getNeedHistoricalValue()) {
+                && !olapTable.getChangelogConfig().getNeedHistoricalValue()) {
             throw new AnalysisException("FOR VERSION/TIME AS OF on merge-on-write table requires "
-                    + "binlog.need_historical_value=true. Table " + olapTable.getQualifiedName());
+                    + "changelog.need_historical_value=true. Table " + olapTable.getQualifiedName());
         }
     }
 
@@ -589,8 +606,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     /**
-     * mow time-travel: A|t1 = base(survived rows, tso &lt; targetTso) UNION ALL binlog(before-image of
-     * UPDATE_BEFORE/DELETE from targetTso). The binlog right branch reuses the @incr (MIN_DELTA) machinery;
+     * mow time-travel: A|t1 = base(survived rows, tso &lt; targetTso) UNION ALL changelog(before-image of
+     * UPDATE_BEFORE/DELETE from targetTso). The changelog right branch reuses the @incr (MIN_DELTA) machinery;
      * BE splits each change into rows where UPDATE_BEFORE/DELETE rows already carry the before value.
      */
     private LogicalPlan buildMowTimeTravelUnion(LogicalOlapScan baseScan, OlapTable olapTable,
@@ -611,27 +628,28 @@ public class BindRelation extends OneAnalysisRuleFactory {
         left = addCommitTsoFilter(left, targetTso, olapTable);
         left = projectFromUnboundSlots(new LogicalCheckPolicy<>(left), visibleOutput);
 
-        // right: binlog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
+        // right: changelog MIN_DELTA over tso >= targetTso, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
         // already carry the pre-change value in the (same-named) value columns.
-        RowBinlogTableWrapper binlogTable = new RowBinlogTableWrapper(olapTable, CollectionUtils.isEmpty(partIds)
+        OlapChangelogTableWrapper changelogTable = new OlapChangelogTableWrapper(olapTable,
+                CollectionUtils.isEmpty(partIds)
                 // targetTso is the exclusive upper bound; the right branch reads tso >= targetTso,
                 // seamlessly meeting the left branch's commit_tso < targetTso.
                 ? makeUniformedTimestampRangeMap(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
                 makeUniformedTimestampRangeMap(partIds, Pair.of(targetTso, null)));
-        RelationId binlogRelationId = cascadesContext.getStatementContext().getNextRelationId();
-        LogicalOlapScan binlogScan = CollectionUtils.isEmpty(partIds)
-                ? new LogicalOlapScan(binlogRelationId, binlogTable, qualifier, tabletIds,
+        RelationId changelogRelationId = cascadesContext.getStatementContext().getNextRelationId();
+        LogicalOlapScan changelogScan = CollectionUtils.isEmpty(partIds)
+                ? new LogicalOlapScan(changelogRelationId, changelogTable, qualifier, tabletIds,
                         unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of())
-                : new LogicalOlapScan(binlogRelationId, binlogTable, qualifier, partIds, tabletIds,
+                : new LogicalOlapScan(changelogRelationId, changelogTable, qualifier, partIds, tabletIds,
                         unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
         Map<String, String> incrParams = new HashMap<>();
         incrParams.put(OlapScanNode.OLAP_INCREMENT_TYPE, StreamScanType.MIN_DELTA.name());
         incrParams.put(OlapScanNode.OLAP_START_TIMESTAMP, String.valueOf(targetTso));
-        binlogScan = binlogScan.withTableScanParams(
+        changelogScan = changelogScan.withTableScanParams(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, incrParams, Lists.newArrayList()));
 
-        LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, true);
+        LogicalPlan right = checkAndAddChangeScanFilter(changelogScan, StreamScanType.MIN_DELTA, true);
         right = projectFromUnboundSlots(new LogicalCheckPolicy<>(right), visibleOutput);
 
         // BindExpression binds both branch projections, aligns them by position, and fills the union output.
@@ -694,8 +712,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (scanParams == null || !scanParams.incrementalRead()) {
             return null;
         }
-        if (!olapTable.needRowBinlog()) {
-            throw new AnalysisException("INCR query requires ROW binlog enabled on base table.");
+        if (!olapTable.hasChangelog()) {
+            throw new AnalysisException("INCR query requires changelog enabled on base table.");
         }
         HashSet<String> keys = new HashSet(scanParams.getMapParams().keySet());
         keys.remove(OlapScanNode.OLAP_INCREMENT_TYPE);
@@ -718,10 +736,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         + "enable_unique_key_merge_on_write=true. Table " + olapTable.getQualifiedName()
                         + " is " + olapTable.getKeysType() + ".");
             }
-            if (!olapTable.getBinlogConfig().getNeedHistoricalValue()) {
+            if (!olapTable.getChangelogConfig().getNeedHistoricalValue()) {
                 throw new AnalysisException("MIN_DELTA INCR query requires base table to enable "
-                        + "binlog.need_historical_value=true. Table " + olapTable.getQualifiedName()
-                        + " doesn't enable historical value in row binlog.");
+                        + "changelog.need_historical_value=true. Table " + olapTable.getQualifiedName()
+                        + " doesn't enable historical value in changelog.");
             }
         }
         return streamScanType;
@@ -732,15 +750,28 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // @incr reads a left-closed right-open range [startTso, endTso): BE applies GE/LT directly.
         // composePhysicalTimestamp maps a millisecond to its start (logical counter 0), so GE includes
         // the whole startMs and LT excludes the whole endMs. No +1 shift is needed here.
-        Long startTimestamp = OlapScanNode.parseChangeTimestamp(
-                params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
-        startTimestamp = TSOTimestamp.composePhysicalTimestamp(startTimestamp);
+        // Keep an omitted start distinct from an explicit one until the TTL window is applied.
+        Long startTimestamp = params.containsKey(OlapScanNode.OLAP_START_TIMESTAMP)
+                ? TSOTimestamp.composePhysicalTimestamp(OlapScanNode.parseChangeTimestamp(
+                        params.get(OlapScanNode.OLAP_START_TIMESTAMP)))
+                : null;
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
             endTimestamp = TSOTimestamp.composePhysicalTimestamp(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
+    }
+
+    private Pair<Long, Long> applyChangelogTtl(Pair<Long, Long> range, OlapTable table,
+            StreamScanType scanType, boolean explicitStart, StatementContext statementContext) {
+        if (!table.hasChangelogTtl()) {
+            return Pair.of(range.first == null ? TSOTimestamp.composePhysicalTimestamp(0) : range.first, range.second);
+        }
+        long cutoffTso = TSOTimestamp.calculateCutoff(statementContext.getChangelogReferenceTso(),
+                table.getChangelogConfig().getTtlSeconds());
+        return Pair.of(ChangelogUtils.effectiveStartTso(range.first, cutoffTso,
+                explicitStart && scanType == StreamScanType.MIN_DELTA), range.second);
     }
 
     /**
@@ -947,20 +978,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
             ExternalTable table, String externalCatalog, String externalDb,
             String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
-        String previousCatalog = ctx.getCurrentCatalog().getName();
-        String previousDb = ctx.getDatabase();
+        NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
         String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
         // change catalog and db to external catalog and db,
         // so that we can parse and analyze the view sql in external context.
-        ctx.changeDefaultCatalog(externalCatalog);
-        ctx.setDatabase(externalDb);
         try {
+            ctx.changeDefaultCatalog(externalCatalog);
+            ctx.setDatabase(externalDb);
             return new LogicalView<>(new ExternalView(table, ddlSql),
                     parseAndAnalyzeView(table, convertedSql, cascadesContext));
         } finally {
-            // restore catalog and db in connect context
-            ctx.changeDefaultCatalog(previousCatalog);
-            ctx.setDatabase(previousDb);
+            // Also restore failed namespace entry without masking analysis errors with metadata IO.
+            ctx.restoreNameSpaceContext(previousNamespace);
         }
     }
 
@@ -1066,7 +1095,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                                           StreamScanType scanType, boolean beforeImageOnly) {
         Slot opSlot = null;
         for (Slot slot : scan.getOutput()) {
-            if (slot.getName().equals(Column.BINLOG_OPERATION_COL)) {
+            if (slot.getName().equals(Column.CHANGELOG_OP_COL)) {
                 opSlot = slot;
                 break;
             }
@@ -1074,11 +1103,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (scanType.equals(StreamScanType.APPEND_ONLY)) {
             Preconditions.checkArgument(opSlot != null, "opSlot is null");
             return new LogicalFilter<>(ImmutableSet.of(new EqualTo(opSlot,
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_APPEND))), scan);
+                    new BigIntLiteral(ChangelogUtils.CHANGE_TYPE_APPEND))), scan);
         } else if (beforeImageOnly) {
             return new LogicalFilter<>(ImmutableSet.of(new InPredicate(opSlot, ImmutableList.of(
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_DELETE),
-                    new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE)))), scan);
+                    new BigIntLiteral(ChangelogUtils.CHANGE_TYPE_DELETE),
+                    new BigIntLiteral(ChangelogUtils.CHANGE_TYPE_UPDATE_BEFORE)))), scan);
         }
         return scan;
     }

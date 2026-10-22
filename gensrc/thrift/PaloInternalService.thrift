@@ -678,7 +678,6 @@ struct TFoldConstantParams {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
-    3: optional i64 binlog_tablet_id
 }
 
 struct TFetchDataResult {

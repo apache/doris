@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
+suite("test_paimon_write_variant_errors", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -50,6 +50,17 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             payload VARIANT
         ) USING paimon
         TBLPROPERTIES ('file.format' = 'parquet');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_dml_error;
+        CREATE TABLE paimon.${dbName}.t_variant_dml_error (
+            id INT,
+            payload VARIANT
+        ) USING paimon
+        TBLPROPERTIES (
+            'file.format' = 'parquet',
+            'primary-key' = 'id',
+            'bucket' = '1'
+        );
     """
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -76,58 +87,81 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
                 (2, parse_to_variant('["array-source",2]'))
         """
 
-        // Keep master's common-type semantics: mixed Variant and numeric expressions resolve to DECIMAL.
-        // Object and array Variant values therefore become SQL NULL before the connector sink converts
-        // the scalar result back to Paimon's Variant type.
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 100, payload FROM t_variant_coercion_source WHERE id = 1
-            UNION ALL
-            SELECT 101, 1
-        """
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 102, payload FROM t_variant_coercion_source WHERE id = 2
-            UNION ALL
-            SELECT 103, 1
-        """
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 104, IF(TRUE, payload, 1)
-            FROM t_variant_coercion_source WHERE id = 1
-        """
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 105, IF(TRUE, payload, 1)
-            FROM t_variant_coercion_source WHERE id = 2
-        """
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 106, CASE WHEN TRUE THEN payload ELSE 1 END
-            FROM t_variant_coercion_source WHERE id = 1
-        """
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 107, CASE WHEN TRUE THEN payload ELSE 1 END
-            FROM t_variant_coercion_source WHERE id = 2
-        """
-        sql """
-            INSERT INTO t_variant_error
-            WITH RECURSIVE source(iter, payload) AS (
-                SELECT CAST(0 AS INT), IF(TRUE, payload, 1)
-                FROM t_variant_coercion_source WHERE id = 1
+        // The common type of a Variant and a number is DECIMAL. Writing it would turn an object or array Variant
+        // into SQL NULL before the sink converts the scalar back to Variant, so such writes are rejected.
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 100, payload FROM t_variant_coercion_source WHERE id = 1
                 UNION ALL
-                SELECT CAST(iter + 1 AS INT), CAST(1 AS DECIMAL(38, 9))
-                FROM source WHERE iter < 1
-            )
-            SELECT 108 + iter, payload FROM source
-        """
-        sql """
-            INSERT INTO t_variant_error
-            SELECT 110, generated_payload
-            FROM (SELECT payload FROM t_variant_coercion_source WHERE id = 1) source
-            LATERAL VIEW explode(ARRAY(IF(TRUE, payload, 1))) generated AS generated_payload
-        """
+                SELECT 101, 1
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 102, payload FROM t_variant_coercion_source WHERE id = 2
+                UNION ALL
+                SELECT 103, 1
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 104, IF(TRUE, payload, 1)
+                FROM t_variant_coercion_source WHERE id = 1
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 105, IF(TRUE, payload, 1)
+                FROM t_variant_coercion_source WHERE id = 2
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 106, CASE WHEN TRUE THEN payload ELSE 1 END
+                FROM t_variant_coercion_source WHERE id = 1
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 107, CASE WHEN TRUE THEN payload ELSE 1 END
+                FROM t_variant_coercion_source WHERE id = 2
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                WITH RECURSIVE source(iter, payload) AS (
+                    SELECT CAST(0 AS INT), IF(TRUE, payload, 1)
+                    FROM t_variant_coercion_source WHERE id = 1
+                    UNION ALL
+                    SELECT CAST(iter + 1 AS INT), CAST(1 AS DECIMAL(38, 9))
+                    FROM source WHERE iter < 1
+                )
+                SELECT 108 + iter, payload FROM source
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_error
+                SELECT 110, generated_payload
+                FROM (SELECT payload FROM t_variant_coercion_source WHERE id = 1) source
+                LATERAL VIEW explode(ARRAY(IF(TRUE, payload, 1))) generated AS generated_payload
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
 
         sql """
             INSERT INTO t_variant_error VALUES
@@ -168,37 +202,51 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             row.collect { value -> value == null ? null : value.toString() }
         })
 
-        def sparkCoercionRows = spark_paimon """
-            SELECT id, to_json(payload)
-            FROM paimon.${dbName}.t_variant_error
-            WHERE id BETWEEN 100 AND 110
-            ORDER BY id
-        """
-        assertEquals([
-                ["100", null],
-                ["101", "1"],
-                ["102", null],
-                ["103", "1"],
-                ["104", null],
-                ["105", null],
-                ["106", null],
-                ["107", null],
-                ["108", null],
-                ["109", "1"],
-                ["110", null]
-        ], sparkCoercionRows.collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        })
-
-        // Invalid JSON is preserved as a Variant string unless the global
-        // throw-on-invalid-JSON option is enabled.
+        // try_parse_to_variant returns NULL for text that is not a JSON document.
         order_qt_variant_after_errors """
             SELECT id, payload IS NULL,
                    CAST(payload['recovered'] AS BOOLEAN),
                    payload
             FROM t_variant_error
-            WHERE id BETWEEN 20 AND 30
             ORDER BY id
+        """
+
+        // UPDATE and MERGE write their rows through the same check. A Variant compared with a scalar in the
+        // condition of an IF or a CASE only chooses the value written, so it is no lossy write.
+        sql """
+            INSERT INTO t_variant_dml_error VALUES
+                (1, parse_to_variant('{"kind":"object"}')),
+                (2, parse_to_variant('["array",2]'))
+        """
+        test {
+            sql """UPDATE t_variant_dml_error SET payload = IF(TRUE, payload, 1) WHERE id = 1"""
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        test {
+            sql """
+                MERGE INTO t_variant_dml_error t
+                USING (
+                    SELECT 1 AS id, parse_to_variant('{"kind":"lossy-merge"}') AS payload
+                    UNION ALL
+                    SELECT 2 AS id, 1 AS payload
+                ) s
+                ON t.id = s.id
+                WHEN MATCHED THEN UPDATE SET payload = s.payload
+            """
+            exception "VARIANT write cannot safely convert input column 'payload'"
+        }
+        sql """
+            UPDATE t_variant_dml_error
+            SET payload = IF(payload['kind'] = 'object', parse_to_variant('{"kind":"updated"}'), payload)
+            WHERE id = 1
+        """
+        sql """
+            INSERT INTO t_variant_dml_error
+            SELECT 3, CASE WHEN payload['kind'] = 'object-source' THEN payload END
+            FROM t_variant_coercion_source WHERE id = 1
+        """
+        order_qt_variant_dml_after_errors """
+            SELECT id, CAST(payload AS STRING) FROM t_variant_dml_error ORDER BY id
         """
     } finally {
         sql """SET force_jni_scanner = false"""

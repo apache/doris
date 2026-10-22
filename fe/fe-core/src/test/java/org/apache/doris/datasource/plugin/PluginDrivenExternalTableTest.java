@@ -61,6 +61,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * Pins {@link PluginDrivenExternalTable#getFullSchema()} request-scoped synthetic-write-column injection
@@ -1023,6 +1024,102 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertEquals("id", result.get().getSchema().get(0).getName());
         Mockito.verify(metadata, Mockito.never())
                 .getViewDefinition(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void displaySchemaUsesSourceNullability() {
+        PluginDrivenExternalTable table = tableWithCachedSchema(ImmutableList.of(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null, true)
+                        .withSourceNullable(false),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null, true),
+                // Required + WITH_TIMEZONE: the display copy must keep the marker Column's copy
+                // constructor drops, otherwise DESC loses "Extra: WITH_TIMEZONE" for exactly the
+                // required TZ columns this projection touches.
+                new ConnectorColumn("ts", ConnectorType.of("TIMESTAMPTZ"), "", true, null, true)
+                        .withTimeZone().withSourceNullable(false)));
+
+        List<Column> display = table.getBaseSchemaForDisplay(false);
+
+        // Index-aligned with the read schema: same size, same names, same order.
+        List<Column> read = table.getBaseSchema(false);
+        Assertions.assertEquals(read.size(), display.size());
+        for (int i = 0; i < read.size(); i++) {
+            Assertions.assertEquals(read.get(i).getName(), display.get(i).getName());
+        }
+        // The source-required column is shown NOT NULL; the optional one keeps its nullable view.
+        Assertions.assertFalse(display.get(0).isAllowNull());
+        Assertions.assertTrue(display.get(1).isAllowNull());
+        Assertions.assertFalse(display.get(2).isAllowNull());
+        Assertions.assertTrue(read.get(2).getExtraInfo().contains("WITH_TIMEZONE"));
+        Assertions.assertTrue(display.get(2).getExtraInfo().contains("WITH_TIMEZONE"));
+        // The cached columns keep the nullable read semantics used by scans.
+        Assertions.assertTrue(read.stream().allMatch(Column::isAllowNull));
+        // A column the source does not diverge on is shared, not copied: no per-call projection is left.
+        Assertions.assertSame(read.get(1), display.get(1));
+        // One schema-cache read per display call (it must not re-read for the declared nullability, which
+        // would hit the connector twice under a bypassed cache such as a delegated credential).
+        Mockito.verify(table, Mockito.times(1)).getSchemaCacheValue();
+    }
+
+    @Test
+    public void displaySchemaKeepsHiddenColumnsOnlyInTheFullView() {
+        // The display view mirrors getBaseSchema(full): a hidden column is listed, with the nullability its
+        // source declares, only when hidden columns are requested, so DESC and SHOW COLUMNS under
+        // show_hidden_columns stay index-aligned with the read schema. MUTATION: ignoring full, or dropping
+        // the visibility of a column the projection copies -> red.
+        PluginDrivenExternalTable table = tableWithCachedSchema(ImmutableList.of(
+                new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null, true)
+                        .withSourceNullable(false),
+                new ConnectorColumn("row_lineage", ConnectorType.of("BIGINT"), "", true, null, false)
+                        .invisible().withSourceNullable(false),
+                new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null, true)));
+
+        for (boolean full : new boolean[] {false, true}) {
+            Assertions.assertEquals(
+                    table.getBaseSchema(full).stream().map(Column::getName).collect(Collectors.toList()),
+                    table.getBaseSchemaForDisplay(full).stream().map(Column::getName).collect(Collectors.toList()));
+        }
+        Assertions.assertEquals(ImmutableList.of("id", "name"), table.getBaseSchemaForDisplay(false).stream()
+                .map(Column::getName).collect(Collectors.toList()));
+        Column hidden = table.getBaseSchemaForDisplay(true).get(1);
+        Assertions.assertEquals("row_lineage", hidden.getName());
+        Assertions.assertFalse(hidden.isVisible());
+        Assertions.assertFalse(hidden.isAllowNull());
+        Assertions.assertTrue(table.getBaseSchema(true).get(1).isAllowNull());
+    }
+
+    /** A table whose schema cache holds {@code columns}, with the schema-cache reads of this setup cleared. */
+    private static PluginDrivenExternalTable tableWithCachedSchema(List<ConnectorColumn> columns) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db1"), Mockito.eq("t1")))
+                .thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle)))
+                .thenReturn(new ConnectorTableSchema("t1", columns, "ICEBERG", Collections.emptyMap()));
+        Mockito.when(metadata.fromRemoteColumnName(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyString())).thenAnswer(inv -> inv.getArgument(3));
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "t1");
+        Mockito.doReturn(false).when(table).isView();
+        SchemaCacheValue cached = table.initSchema().get();
+        Mockito.doReturn(Optional.of(cached)).when(table).getSchemaCacheValue();
+        Mockito.doReturn(cached.getSchema()).when(table).getFullSchema();
+        // Count the schema-cache reads of the calls under test alone, not of the setup above.
+        Mockito.clearInvocations(table);
+        return table;
     }
 
     @Test

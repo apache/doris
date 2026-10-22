@@ -23,6 +23,26 @@ jobs:
       github.event.issue.pull_request != null &&
       startsWith(github.event.comment.body, '/force-pass code-review ')
     steps:
+      # Keep the trusted helper outside the PR checkout; capture the first API failure too.
+      - name: Checkout trusted GitHub API diagnostics
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          path: .review-api-source
+          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install GitHub API diagnostics
+        timeout-minutes: 1
+        run: |
+          install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          gh --version
+          printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
+          printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
+          printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
+
       - name: Checkout trusted manual pass validator
         uses: actions/checkout@v4
         with:
@@ -42,8 +62,8 @@ jobs:
         run: |
           permission_file="$RUNNER_TEMP/manual-pass-permission.json"
           pull_file="$RUNNER_TEMP/manual-pass-pull.json"
-          gh api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission" > "$permission_file"
-          gh api "repos/${REPO}/pulls/${PR_NUMBER}" > "$pull_file"
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission" > "$permission_file"
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/pulls/${PR_NUMBER}" > "$pull_file"
           head_sha="$(python3 .github/scripts/validate_manual_review_pass.py \
             --event-file "$GITHUB_EVENT_PATH" \
             --pull-file "$pull_file" \
@@ -51,7 +71,7 @@ jobs:
 
           # The explicit SHA cannot follow a push that races with validation.
           # Keep this source separate from automated results and the final status.
-          gh api "repos/${REPO}/statuses/${head_sha}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${head_sha}" \
             -X POST \
             -f state='success' \
             -f context="code-review/source/manual/pr-${PR_NUMBER}/head-${head_sha}" \
@@ -59,6 +79,16 @@ jobs:
             -f target_url="$COMMENT_URL"
           echo "accepted=true" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore
 
   aggregate-after-manual-pass:
     needs: accept-manual-pass
@@ -82,6 +112,26 @@ jobs:
       github.event.issue.pull_request != null &&
       contains(github.event.comment.body, '<!-- doris-repo-review:v1:begin -->')
     steps:
+      # Keep the trusted helper outside the PR checkout; capture the first API failure too.
+      - name: Checkout trusted GitHub API diagnostics
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          path: .review-api-source
+          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install GitHub API diagnostics
+        timeout-minutes: 1
+        run: |
+          install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          gh --version
+          printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
+          printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
+          printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
+
       # A local PASS is a creation-time credential. Later edits, deletion, or
       # permission changes do not revoke it; edited events are intentionally ignored.
       - name: Authorize review comment creator
@@ -98,7 +148,7 @@ jobs:
             exit 0
           fi
 
-          if ! permission_info="$(gh api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission")"; then
+          if ! permission_info="$(python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/collaborators/${COMMENT_AUTHOR}/permission")"; then
             echo "Review comment ignored: cannot verify ${COMMENT_AUTHOR}'s repository permission."
             echo "authorized=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -139,7 +189,7 @@ jobs:
           comment_file="$RUNNER_TEMP/doris-repo-review-comment.md"
           jq -r '.comment.body' "$GITHUB_EVENT_PATH" > "$comment_file"
 
-          pr_info="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          pr_info="$(python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/pulls/${PR_NUMBER}")"
           head_sha="$(jq -r '.head.sha' <<<"$pr_info")"
           live_base_sha="$(jq -r '.base.sha' <<<"$pr_info")"
           pr_state="$(jq -r '.state' <<<"$pr_info")"
@@ -155,7 +205,7 @@ jobs:
             echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! base_compare="$(gh api \
+          if ! base_compare="$(python3 "$REVIEW_GH_HELPER" api \
               "repos/${REPO}/compare/${reviewed_base_sha}...${live_base_sha}")"; then
             echo "Review comment ignored: cannot compare its base with the current PR base."
             echo "valid=false" >> "$GITHUB_OUTPUT"
@@ -166,9 +216,9 @@ jobs:
             reviewed_base_committed_at=""
             live_base_committed_at=""
           else
-            if ! reviewed_base_committed_at="$(gh api \
+            if ! reviewed_base_committed_at="$(python3 "$REVIEW_GH_HELPER" api \
                 "repos/${REPO}/commits/${reviewed_base_sha}" --jq '.commit.committer.date')" || \
-               ! live_base_committed_at="$(gh api \
+               ! live_base_committed_at="$(python3 "$REVIEW_GH_HELPER" api \
                 "repos/${REPO}/commits/${live_base_sha}" --jq '.commit.committer.date')"; then
               echo "Review comment ignored: cannot resolve base commit times."
               echo "valid=false" >> "$GITHUB_OUTPUT"
@@ -207,12 +257,22 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
         run: |
           source_context="code-review/source/local/pr-${PR_NUMBER}/base-${BASE_SHA}"
-          gh api "repos/${REPO}/statuses/${HEAD_SHA}" \
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
             -X POST \
             -f state='success' \
             -f context="$source_context" \
             -f description="Local review passed for PR #${PR_NUMBER} at ${BASE_SHA:0:12}." \
             -f target_url="$COMMENT_URL"
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore
 
   aggregate-after-skill-review:
     needs: accept-skill-review
@@ -237,6 +297,26 @@ jobs:
       !startsWith(github.event.comment.body, '/review') &&
       contains(github.event.comment.body, 'skip buildall')
     steps:
+      # Keep the trusted helper outside the PR checkout; capture the first API failure too.
+      - name: Checkout trusted GitHub API diagnostics
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          path: .review-api-source
+          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install GitHub API diagnostics
+        timeout-minutes: 1
+        run: |
+          install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          gh --version
+          printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
+          printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
+          printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
+
       - name: Check user permission and mark review as success
         id: skip
         env:
@@ -245,7 +325,7 @@ jobs:
           COMMENT_USER_ID: ${{ github.event.comment.user.id }}
           PR_NUMBER: ${{ github.event.issue.number }}
         run: |
-          PR_INFO=$(gh api repos/${REPO}/pulls/${PR_NUMBER})
+          PR_INFO=$(python3 "$REVIEW_GH_HELPER" api repos/${REPO}/pulls/${PR_NUMBER})
           HEAD_SHA=$(echo "${PR_INFO}" | jq -r '.head.sha')
           BASE_SHA=$(echo "${PR_INFO}" | jq -r '.base.sha')
           TARGET_BRANCH=$(echo "${PR_INFO}" | jq -r '.base.ref')
@@ -273,7 +353,7 @@ jobs:
 
           echo "COMMENT_USER_ID ${COMMENT_USER_ID} is allowed to skip code review for ${TARGET_BRANCH}."
           source_context="code-review/source/skip/pr-${PR_NUMBER}/base-${BASE_SHA}"
-          gh api repos/${REPO}/statuses/${HEAD_SHA} \
+          python3 "$REVIEW_GH_HELPER" api repos/${REPO}/statuses/${HEAD_SHA} \
             -X POST \
             -f state="success" \
             -f context="$source_context" \
@@ -282,6 +362,16 @@ jobs:
 
           echo "accepted=true" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore
 
   aggregate-after-skip:
     needs: skip-on-comment

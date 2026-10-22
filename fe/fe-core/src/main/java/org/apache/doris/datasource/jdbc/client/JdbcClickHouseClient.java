@@ -43,7 +43,7 @@ public class JdbcClickHouseClient extends JdbcClient {
             this.databaseTermIsCatalog = isDatabaseTermCatalog(
                     databaseMetaData, databaseMetaData.getDriverVersion());
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to initialize JdbcClickHouseClient: %s", e.getMessage());
+            throw jdbcException("Failed to initialize JdbcClickHouseClient", e);
         }
     }
 
@@ -71,7 +71,7 @@ public class JdbcClickHouseClient extends JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
+            throw jdbcException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }
@@ -93,7 +93,7 @@ public class JdbcClickHouseClient extends JdbcClient {
             }
             resultSetConsumer.accept(rs);
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             close(rs, conn);
         }
@@ -159,9 +159,10 @@ public class JdbcClickHouseClient extends JdbcClient {
         }
 
         if (ckType.startsWith("DateTime")) {
+            // ClickHouse stores epoch ticks even when the column inherits the server timezone.
             // DateTime with second precision
             if (ckType.startsWith("DateTime(") || ckType.equals("DateTime")) {
-                return ScalarType.createDatetimeV2Type(0);
+                return ScalarType.createTimeStampTzType(0);
             } else {
                 // DateTime64 with millisecond precision
                 // Datetime64(6) / DateTime64(6, 'Asia/Shanghai')
@@ -170,7 +171,7 @@ public class JdbcClickHouseClient extends JdbcClient {
                 if (precision > 6) {
                     precision = JDBC_DATETIME_SCALE;
                 }
-                return ScalarType.createDatetimeV2Type(precision);
+                return ScalarType.createTimeStampTzType(precision);
             }
         }
 
@@ -222,7 +223,8 @@ public class JdbcClickHouseClient extends JdbcClient {
             throw new JdbcClientException("Driver version cannot be null");
         }
         try {
-            String[] versionParts = driverVersion.split("\\.");
+            // Legacy drivers include the artifact name before the numeric version.
+            String[] versionParts = driverVersion.trim().replaceFirst("^clickhouse-jdbc\\s+", "").split("\\.");
             int majorVersion = Integer.parseInt(versionParts[0]);
             int minorVersion = Integer.parseInt(versionParts[1]);
             // Determine whether it is greater than or equal to 0.5.x
@@ -244,7 +246,7 @@ public class JdbcClickHouseClient extends JdbcClient {
         try (Connection conn = getConnection()) {
             return conn.getMetaData().getDriverVersion();
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to get jdbc driver version", e);
+            throw jdbcException("Failed to get jdbc driver version", e);
         }
     }
 }

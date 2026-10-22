@@ -21,9 +21,9 @@
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/materialize_block.h"
+#include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -34,6 +34,8 @@ PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& 
 
 Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
+
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options()));
 
     // Register profile counters
     _written_rows_counter = ADD_COUNTER(profile, "WrittenRows", TUnit::UNIT);
@@ -112,6 +114,16 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
+    // Reserve the shared report budget while the writer can still abort its prepared files.
+    ExternalFileReportReservation commit_message_reservation;
+    if (status.ok()) {
+        Status reserve_st =
+                _state->reserve_paimon_commit_messages(messages, &commit_message_reservation);
+        if (!reserve_st.ok()) {
+            status = reserve_st;
+        }
+    }
+
     // If prepare_commit failed or the incoming status was already an error,
     // abort the writer to clean up uncommitted data files.
     if (!status.ok()) {
@@ -148,14 +160,11 @@ Status PaimonTableWriter::close(Status status) {
             DORIS_CHECK(msg.__isset.payload);
             COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
         }
-        ThriftSerializer serializer(false, 256);
-        for (auto& message : messages) {
-            std::string commit_data;
-            RETURN_IF_ERROR(serializer.serialize(&message, &commit_data));
-            RETURN_IF_ERROR(_state->add_connector_commit_data(std::move(commit_data)));
-        }
-        if (!messages.empty()) {
-            LOG(INFO) << "Paimon writer closed: " << messages.size()
+        const size_t message_count = messages.size();
+        _state->publish_reserved_paimon_commit_messages(std::move(messages),
+                                                        &commit_message_reservation);
+        if (message_count > 0) {
+            LOG(INFO) << "Paimon writer closed: " << message_count
                       << " commit messages, total rows=" << _written_rows;
         }
     }

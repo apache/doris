@@ -1,0 +1,22 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "ts",
+    "type" : "TIMESTAMP(6)"
+  } ],
+  "highestFieldId" : 1,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "write-only" : "true",
+    "file.format" : "parquet"
+  },
+  "comment" : "",
+  "timeMillis" : 1790147403116
+}

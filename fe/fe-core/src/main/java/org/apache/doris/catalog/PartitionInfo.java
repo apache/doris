@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
@@ -39,6 +40,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -51,7 +53,7 @@ import java.util.stream.Collectors;
 /*
  * Repository of a partition's related infos. should modify only under table's lock.
  */
-public class PartitionInfo {
+public class PartitionInfo implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
 
     @SerializedName("Type")
@@ -403,6 +405,22 @@ public class PartitionInfo {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // Every live partition has a data property, so storage policy entries without one
+        // belong to dropped partitions.
+        if (idToStoragePolicy == null || idToDataProperty == null) {
+            return;
+        }
+        int before = idToStoragePolicy.size();
+        idToStoragePolicy.keySet().retainAll(idToDataProperty.keySet());
+        int removed = before - idToStoragePolicy.size();
+        if (removed > 0) {
+            LOG.info("removed {} stale storage policy entries of dropped partitions, remaining {}",
+                    removed, idToStoragePolicy.size());
+        }
     }
 
     public boolean isMultiColumnPartition() {

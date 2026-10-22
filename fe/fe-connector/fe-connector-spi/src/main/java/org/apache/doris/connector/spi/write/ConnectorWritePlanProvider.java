@@ -284,7 +284,9 @@ public interface ConnectorWritePlanProvider {
 
     /**
      * Whether dynamic-partition writes must be hash-distributed by partition columns and locally sorted by
-     * them before the sink (e.g. MaxCompute Storage API). Formerly a static {@code ConnectorCapability}
+     * them before the sink (e.g. MaxCompute Storage API). The required shape is "shuffle by the partition
+     * columns, then sort locally inside each writer", so every partition's rows end up contiguous in one
+     * writer stream. Formerly a static {@code ConnectorCapability}
      * switch; now this per-provider method is the single source of truth. A connector declaring this must
      * also declare {@link #requiresParallelWrite()} and {@link #requiresFullSchemaWriteOrder()}. Default: no.
      */
@@ -299,8 +301,11 @@ public interface ConnectorWritePlanProvider {
      * partition writer as soon as a different partition value appears and therefore needs the rows grouped by a
      * local sort) — the hash distribution alone keeps each partition's rows on one instance and the output file
      * count at ~one-per-partition, with no sort cost. The engine ({@code PhysicalConnectorTableSink}) picks the
-     * matching distribution: {@code requiresPartitionLocalSort} ⇒ hash + {@code MustLocalSortOrderSpec};
-     * {@code requiresPartitionHashWrite} ⇒ hash only. A connector sets at most one of the two hash arms; a
+     * matching distribution: {@code requiresPartitionLocalSort} ⇒ hash + a local sort <em>after</em> the
+     * shuffle, expressed as a plain {@code OrderSpec} (deliberately <b>not</b>
+     * {@code MustLocalSortOrderSpec}, which the enforcer reads as "sort before distributing" and therefore
+     * turns into distribution + a merging exchange); {@code requiresPartitionHashWrite} ⇒ hash only. A
+     * connector sets at most one of the two hash arms; a
      * connector declaring this should also declare {@link #requiresParallelWrite()} +
      * {@link #requiresFullSchemaWriteOrder()}. Default: no.
      */
