@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -30,8 +31,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -39,6 +43,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 @Execution(ExecutionMode.SAME_THREAD)
 public class SimpleSchedulerTest {
@@ -48,6 +53,7 @@ public class SimpleSchedulerTest {
     private static Backend be3;
     private static Backend be4;
     private static Backend be5;
+    private long savedBlacklistRetentionSeconds;
 
     @BeforeAll
     public static void setUp() {
@@ -75,10 +81,39 @@ public class SimpleSchedulerTest {
         return map;
     }
 
+    @BeforeEach
+    public void resetBlacklist() {
+        savedBlacklistRetentionSeconds = Config.stay_in_backend_black_list_threshold_seconds;
+        Config.stay_in_backend_black_list_threshold_seconds = 3600;
+        clearBlacklist();
+        genBackends().values().forEach(backend -> backend.setAlive(true));
+    }
+
+    @AfterEach
+    public void restoreBlacklist() {
+        clearBlacklist();
+        Config.stay_in_backend_black_list_threshold_seconds = savedBlacklistRetentionSeconds;
+    }
+
+    private static void clearBlacklist() {
+        Map<Long, SimpleScheduler.BlackListInfo> blacklist =
+                Deencapsulation.getField(SimpleScheduler.class, "blacklistBackends");
+        blacklist.clear();
+    }
+
+    private static void expireBlacklist() {
+        Config.stay_in_backend_black_list_threshold_seconds = 0;
+        Awaitility.await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
+            for (Backend backend : genBackends().values()) {
+                Assertions.assertTrue(SimpleScheduler.isAvailable(backend));
+            }
+        });
+    }
+
     @Test
     public void testRecentErrorsAccumulateBeforeBlacklistThreshold() {
-        int count = Config.do_add_backend_black_list_threshold_count;
-        int seconds = Config.do_add_backend_black_list_threshold_seconds;
+        long count = Config.do_add_backend_black_list_threshold_count;
+        long seconds = Config.do_add_backend_black_list_threshold_seconds;
         try {
             Config.do_add_backend_black_list_threshold_count = 2;
             Config.do_add_backend_black_list_threshold_seconds = 60;
@@ -173,8 +208,11 @@ public class SimpleSchedulerTest {
 
         Assertions.assertFalse(SimpleScheduler.isAvailable(be1));
         be1.setAlive(true);
-        // Sleep 5s so that UpdateBlacklistThread will remove be1 from blacklist
-        Thread.sleep(1000 * 5L);
+        // A live heartbeat must not bypass the retention period after full blacklisting.
+        // Observe more than one cleanup interval before explicitly expiring the entry.
+        Awaitility.await().during(1500, TimeUnit.MILLISECONDS).atMost(5, TimeUnit.SECONDS)
+                .untilAsserted(() -> Assertions.assertFalse(SimpleScheduler.isAvailable(be1)));
+        expireBlacklist();
         Assertions.assertTrue(SimpleScheduler.isAvailable(be1));
     }
 
@@ -242,7 +280,9 @@ public class SimpleSchedulerTest {
         be3.setAlive(true);
         be4.setAlive(true);
         be5.setAlive(true);
-        Thread.sleep((Config.heartbeat_interval_second + 5) * 1000);
+        Assertions.assertThrows(UserException.class,
+                () -> SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
+        expireBlacklist();
         Assertions.assertNotNull(SimpleScheduler.getHost(locations.get(0).backend_id, locations, backends, ref));
     }
 }
