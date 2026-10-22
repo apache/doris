@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_scalars.lance",
+  "version": 1,
+  "column": "c_date32",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 14,
+        "nn": "c_date32",
+        "nt": "date\u003cday\u003e",
+        "nul": true
+      }
+    ]
+  }
+}

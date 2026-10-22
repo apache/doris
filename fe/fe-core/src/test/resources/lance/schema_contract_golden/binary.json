@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_binary.lance",
+  "version": 1,
+  "column": "c_bin",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "c_bin",
+        "nt": "binary()",
+        "nul": true
+      }
+    ]
+  }
+}

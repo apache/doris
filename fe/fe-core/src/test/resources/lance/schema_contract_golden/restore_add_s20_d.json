@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "s20.lance",
+  "version": 4,
+  "column": "d",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 2,
+        "nn": "d",
+        "nt": "int\u003c64\u003e",
+        "nul": true
+      }
+    ]
+  }
+}

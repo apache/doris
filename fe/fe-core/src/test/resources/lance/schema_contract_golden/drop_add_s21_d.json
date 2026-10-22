@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "s21.lance",
+  "version": 3,
+  "column": "d",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 3,
+        "nn": "d",
+        "nt": "int\u003c64\u003e",
+        "nul": true
+      }
+    ]
+  }
+}
