@@ -1903,6 +1903,13 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL)
     public int topNLazyMaterializationThreshold = 1024;
 
+    @VarAttrDef.VarAttr(name = "limit_join_lazy_materialization_threshold", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Maximum LIMIT for lazy materialization of output-only columns across inner joins; "
+                    + "0 disables the optimization")
+    public int limitJoinLazyMaterializationThreshold = 0;
+
     @VarAttrDef.VarAttr(name = "topn_lazy_materialization_using_index", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)

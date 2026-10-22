@@ -69,11 +69,12 @@ public class PlanPostProcessors {
         builder.add(new ShuffleKeyPruner());
         builder.add(new RecomputeLogicalPropertiesProcessor());
         /*
-         1. LazyMaterializeTopN should be applied before MergeProjectPostProcessor
-         2. LazyMaterializeTopN should be applied after RecomputeLogicalPropertiesProcessor
-         PhysicalLazyMaterialize.materializedSlots should be subsequence of topN.getOutput().
+         1. Lazy materialization should be applied before MergeProjectPostProcessor
+         2. Lazy materialization should be applied after RecomputeLogicalPropertiesProcessor
+         PhysicalLazyMaterialize.materializedSlots should be a subsequence of its boundary's output.
          */
-        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization()) {
+        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization()
+                || cascadesContext.getConnectContext().getSessionVariable().limitJoinLazyMaterializationThreshold > 0) {
             builder.add(new LazyMaterializeTopN());
         }
         builder.add(new MergeProjectPostProcessor());
