@@ -1,0 +1,89 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_array_sorted_merge") {
+    // Both inputs are already sorted; the merge lambda returns the merged element for equal
+    // keys and NULL when the two elements must be kept separately.
+    order_qt_dedup_asc """
+        SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [1, 3, 5], [2, 3, 6], true)
+    """
+
+    // The same merge over two descending inputs.
+    order_qt_dedup_desc """
+        SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [5, 3, 1], [6, 3, 2], false)
+    """
+
+    // A struct element keeps its key (`value`) and combines the payload (`count`), which is the
+    // shape the incremental MIN/MAX top-K state uses.
+    order_qt_struct_asc """
+        SELECT array_sorted_merge(
+            (a, b) -> IF(element_at(a, 'value') = element_at(b, 'value'),
+                         CAST(named_struct('value', element_at(a, 'value'),
+                                           'count', element_at(a, 'count') + element_at(b, 'count'))
+                              AS STRUCT<value:INT, count:BIGINT>),
+                         CAST(NULL AS STRUCT<value:INT, count:BIGINT>)),
+            CAST(array(named_struct('value', CAST(1 AS INT), 'count', CAST(2 AS BIGINT)),
+                       named_struct('value', CAST(3 AS INT), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(array(named_struct('value', CAST(2 AS INT), 'count', CAST(1 AS BIGINT)),
+                       named_struct('value', CAST(3 AS INT), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            true)
+    """
+
+    order_qt_struct_desc """
+        SELECT array_sorted_merge(
+            (a, b) -> IF(element_at(a, 'value') = element_at(b, 'value'),
+                         CAST(named_struct('value', element_at(a, 'value'),
+                                           'count', element_at(a, 'count') + element_at(b, 'count'))
+                              AS STRUCT<value:INT, count:BIGINT>),
+                         CAST(NULL AS STRUCT<value:INT, count:BIGINT>)),
+            CAST(array(named_struct('value', CAST(5 AS INT), 'count', CAST(1 AS BIGINT)),
+                       named_struct('value', CAST(3 AS INT), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(array(named_struct('value', CAST(4 AS INT), 'count', CAST(1 AS BIGINT)),
+                       named_struct('value', CAST(3 AS INT), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            false)
+    """
+
+    // Empty and NULL inputs: an empty array contributes nothing, a NULL array makes the result
+    // NULL like the other higher-order array functions.
+    order_qt_empty_and_null """
+        SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL),
+                                  CAST([] AS ARRAY<INT>), CAST([1] AS ARRAY<INT>), true),
+               array_sorted_merge((a, b) -> IF(a = b, a, NULL),
+                                  CAST(NULL AS ARRAY<INT>), CAST([1] AS ARRAY<INT>), true),
+               array_sorted_merge((a, b) -> IF(a = b, a, NULL),
+                                  CAST([] AS ARRAY<INT>), CAST([] AS ARRAY<INT>), true)
+    """
+
+    test {
+        sql """SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [1], [2], 'asc')"""
+        exception "ascending flag"
+    }
+
+    test {
+        sql """SELECT array_sorted_merge(a -> a, [1], [2], true)"""
+        exception "requires two arrays and an ascending flag"
+    }
+
+    test {
+        sql """SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [1], [1.5], true)"""
+        exception "same element type"
+    }
+}

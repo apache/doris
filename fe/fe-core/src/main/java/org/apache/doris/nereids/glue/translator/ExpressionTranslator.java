@@ -100,6 +100,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -590,6 +591,50 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         LambdaFunctionCallExpr functionCallExpr = new LambdaFunctionCallExpr(catalogFunction,
                 new FunctionParams(false, arguments), arrayMap.nullable());
         return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitArraySortedMerge(ArraySortedMerge arraySortedMerge, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) arraySortedMerge.child(0);
+        List<Expr> arguments = new ArrayList<>(lambda.getLambdaArguments().size() + 2);
+        arguments.add(null);
+        int columnId = 0;
+        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
+            String argName = arrayItemReference.getName();
+            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+            arguments.add(expr);
+
+            ColumnRefExpr column = new ColumnRefExpr(true);
+            column.setName(argName);
+            column.setColumnId(columnId);
+            column.setType(((ArrayType) expr.getType()).getItemType());
+            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+            columnId += 1;
+        }
+        // The ascending flag is a regular function child; the BE reads it after the two arrays.
+        arguments.add(arraySortedMerge.child(1).accept(this, context));
+
+        List<Type> argTypes = arraySortedMerge.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        lambda.getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        NullableMode nullableMode = arraySortedMerge.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        org.apache.doris.catalog.Function catalogFunction = new org.apache.doris.catalog.Function(
+                new FunctionName(arraySortedMerge.getName()), argTypes,
+                ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
+                true, true, nullableMode);
+
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        return new LambdaFunctionCallExpr(catalogFunction,
+                new FunctionParams(false, arguments), arraySortedMerge.nullable());
     }
 
     @Override
