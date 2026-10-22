@@ -14,6 +14,9 @@
 -- !empty_and_null --
 [1]	\N	[]
 
+-- !null_ordering --
+[null, 1, 2]	[2, 1, null]
+
 -- !capture_column_zero --
 [1]
 

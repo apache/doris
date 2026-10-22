@@ -72,6 +72,17 @@ suite("test_array_sorted_merge") {
                                   CAST([] AS ARRAY<INT>), CAST([] AS ARRAY<INT>), true)
     """
 
+    // NULLs order like array_sort/array_reverse_sort: least in an ascending merge, greatest in a
+    // descending one, so the merged list keeps the inputs' own ordering.
+    order_qt_null_ordering """
+        SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL),
+                                  array_sort(CAST([NULL, 1] AS ARRAY<INT>)),
+                                  CAST([2] AS ARRAY<INT>), true),
+               array_sorted_merge((a, b) -> IF(a = b, a, NULL),
+                                  array_reverse_sort(CAST([NULL, 1] AS ARRAY<INT>)),
+                                  CAST([2] AS ARRAY<INT>), false)
+    """
+
     // A captured input column must be read at the current row: with the capture at column
     // index 0 the predicate compares against a candidate unless it is rebound, and with the
     // capture at index 2 an unbound read reports a missing column.
@@ -126,6 +137,12 @@ suite("test_array_sorted_merge") {
     test {
         sql """SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [1], [2], 'asc')"""
         exception "ascending flag"
+    }
+
+    test {
+        sql """SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [1], [2],
+                   CAST(NULL AS BOOLEAN))"""
+        exception "non-null constant ascending flag"
     }
 
     test {

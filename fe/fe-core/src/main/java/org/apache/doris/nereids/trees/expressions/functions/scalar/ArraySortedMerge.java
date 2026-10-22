@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -48,10 +48,12 @@ import java.util.List;
  * elements must not be combined, so both are kept. Each key occurs at most once per input, so a
  * key appears at most twice across the two arrays and the lambda is called at most once per key.
  *
- * <p>A NULL input array makes the result NULL, like the other higher-order array functions.
+ * <p>A NULL input array makes the result NULL, like the other higher-order array functions. The
+ * ascending flag must be a non-null constant; it deliberately does not take part in nullable
+ * propagation, which would fold a NULL flag into a NULL result instead of failing the analysis.
  */
 public class ArraySortedMerge extends ScalarFunction
-        implements ImplicitlyCastableSignature, PropagateNullable {
+        implements ImplicitlyCastableSignature {
 
     // The bound form: the lambda plus the ascending flag; the arrays live in the lambda argument
     // references, like the other lambda functions.
@@ -110,6 +112,23 @@ public class ArraySortedMerge extends ScalarFunction
             throw new AnalysisException(getName()
                     + " requires the ascending flag to be BOOLEAN, but got "
                     + child(1).getDataType().toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
+        Expression flag = child(1);
+        if (!flag.isConstant()) {
+            throw new AnalysisException(
+                    getName() + " requires the ascending flag to be a constant: " + toSql());
+        }
+        // A NULL flag must fail analysis instead of folding the whole call to NULL, which
+        // PropagateNullable would otherwise do before the backend sees it.
+        if (flag.isNullLiteral()
+                || (flag instanceof Cast && flag.child(0).isNullLiteral())) {
+            throw new AnalysisException(
+                    getName() + " requires a non-null constant ascending flag: " + toSql());
         }
     }
 
