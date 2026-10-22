@@ -48,6 +48,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -56,9 +59,6 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -72,7 +72,7 @@ class MTMVOutputPredicatesTest {
     void testDefinitionChangeInvalidatesPublishedGuarantees(boolean baseViewChange) {
         CacheMTMV mtmv = new CacheMTMV();
         MTMVCache beforeChange = mtmv.getOrGenerateCache(mtmv.context);
-        Assertions.assertEquals(Set.of(mtmv.predicate), beforeChange.getOutputPredicates());
+        Assertions.assertEquals(ImmutableSet.of(mtmv.predicate), beforeChange.getOutputPredicates());
 
         if (baseViewChange) {
             mtmv.processBaseViewChange("base view definition changed");
@@ -125,9 +125,9 @@ class MTMVOutputPredicatesTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             // Replay restores NORMAL after refreshing p1, but p2 still contains the old definition's rows.
             Assertions.assertTrue(mtmv.addTaskResult(successfulRefresh(mtmv), mtmv.getRelation(),
-                    Map.of("p1", new MTMVRefreshPartitionSnapshot()), true));
+                    ImmutableMap.of("p1", new MTMVRefreshPartitionSnapshot()), true));
             Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-            Assertions.assertEquals(Set.of("p1"), mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
+            Assertions.assertEquals(ImmutableSet.of("p1"), mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
             MTMVCache partiallyRefreshedCache = mtmv.getOrGenerateCache(mtmv.context);
             Assertions.assertNotSame(changedCache, partiallyRefreshedCache);
             Assertions.assertTrue(partiallyRefreshedCache.getOutputPredicates().isEmpty());
@@ -135,13 +135,13 @@ class MTMVOutputPredicatesTest {
             // A live completion builds both caches before adding p2's snapshot. Publication must use
             // the merged snapshot coverage and replace the previous cache without rebuilding on read.
             Assertions.assertTrue(mtmv.addTaskResult(successfulRefresh(mtmv), mtmv.getRelation(),
-                    Map.of("p2", new MTMVRefreshPartitionSnapshot()), false));
+                    ImmutableMap.of("p2", new MTMVRefreshPartitionSnapshot()), false));
             int buildsAtRefreshCompletion = mtmv.buildCount.get();
             MTMVCache fullyRefreshedCache = mtmv.getOrGenerateCache(mtmv.context);
             Assertions.assertNotSame(partiallyRefreshedCache, fullyRefreshedCache);
-            Assertions.assertEquals(Set.of("p1", "p2"),
+            Assertions.assertEquals(ImmutableSet.of("p1", "p2"),
                     mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
-            Assertions.assertEquals(Set.of(mtmv.predicate), fullyRefreshedCache.getOutputPredicates());
+            Assertions.assertEquals(ImmutableSet.of(mtmv.predicate), fullyRefreshedCache.getOutputPredicates());
             Assertions.assertEquals(buildsAtRefreshCompletion, mtmv.buildCount.get());
         }
     }
@@ -159,7 +159,7 @@ class MTMVOutputPredicatesTest {
         final ConnectContext context = Mockito.mock(ConnectContext.class);
         final AtomicInteger buildCount = new AtomicInteger();
         private final Plan plan = new LogicalOneRowRelation(new RelationId(1),
-                List.of(new Alias(new ExprId(1), new IntegerLiteral(20), "id")));
+                ImmutableList.of(new Alias(new ExprId(1), new IntegerLiteral(20), "id")));
         private final Expression predicate = new GreaterThan(plan.getOutput().get(0), new IntegerLiteral(10));
 
         CacheMTMV() {
@@ -175,18 +175,19 @@ class MTMVOutputPredicatesTest {
                     new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL)));
             setJobInfo(new MTMVJobInfo("mv_job"));
             setMvProperties(new HashMap<>());
-            setRelation(new MTMVRelation(Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
+            setRelation(new MTMVRelation(ImmutableSet.of(), ImmutableSet.of(), ImmutableSet.of(),
+                    ImmutableSet.of(), ImmutableSet.of()));
             setMvPartitionInfo(new MTMVPartitionInfo());
             Deencapsulation.setField(this, "sessionVariables", new HashMap<>(
                     context.getSessionVariable().getAffectQueryResultInPlanVariables()));
             setBaseIndexId(1L);
-            setIndexMeta(1L, "mv", List.of(new Column("id", PrimitiveType.INT, true)),
+            setIndexMeta(1L, "mv", ImmutableList.of(new Column("id", PrimitiveType.INT, true)),
                     0, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
             setPartitionInfo(new SinglePartitionInfo());
             addPartition(new Partition(1L, "p1", new MaterializedIndex(), null));
             addPartition(new Partition(2L, "p2", new MaterializedIndex(), null));
             MTMVRefreshSnapshot snapshot = new MTMVRefreshSnapshot();
-            snapshot.updateSnapshots(Map.of("p1", new MTMVRefreshPartitionSnapshot(),
+            snapshot.updateSnapshots(ImmutableMap.of("p1", new MTMVRefreshPartitionSnapshot(),
                     "p2", new MTMVRefreshPartitionSnapshot()), getPartitionNames());
             setRefreshSnapshot(snapshot);
         }
@@ -195,7 +196,7 @@ class MTMVOutputPredicatesTest {
         protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
                 boolean addSessionVarGuard) {
             buildCount.incrementAndGet();
-            return new MTMVCache(Pair.of(plan, null), plan, null, List.of(), Set.of(predicate));
+            return new MTMVCache(Pair.of(plan, null), plan, null, ImmutableList.of(), ImmutableSet.of(predicate));
         }
     }
 
