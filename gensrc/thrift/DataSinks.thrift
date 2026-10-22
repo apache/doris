@@ -166,6 +166,10 @@ struct TResultFileSinkOptions {
     // padding, preserving the historical name format. Used to make rollover
     // files sort lexicographically (so _00011 sorts after _00002).
     23: optional i32 file_name_padding
+    // Typed native Azure access for the data and success files, as in
+    // TFileScanRangeParams.azure_client_config. Without it BE parses the S3-style keys in
+    // broker_properties, which can express only SharedKey.
+    24: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 struct TMemoryScratchSink {
@@ -641,6 +645,8 @@ struct TTVFTableSink {
     // Zero-pad the per-file index in the output file name to this many digits.
     // 0 or unset means no padding. Mirrors TResultFileSinkOptions.file_name_padding.
     16: optional i32 file_name_padding
+    // Typed native Azure access, as in TResultFileSinkOptions.azure_client_config.
+    17: optional PlanNodes.TAzureClientConfig azure_client_config
 }
 
 struct TMCCommitData {

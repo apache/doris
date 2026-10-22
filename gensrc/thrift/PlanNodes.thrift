@@ -831,6 +831,8 @@ struct TParquetMetadataParams {
   4: optional map<string, string> properties
   5: optional string bloom_column
   6: optional string bloom_literal
+  // Typed native Azure access, as in TFileScanRangeParams.azure_client_config.
+  7: optional TAzureClientConfig azure_client_config
 }
 
 // Partition boundary descriptor for BE-side runtime filter partition pruning.

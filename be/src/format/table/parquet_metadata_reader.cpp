@@ -599,6 +599,7 @@ public:
         io::FileSystemProperties system_properties;
         system_properties.system_type = _file_type;
         system_properties.properties = _properties;
+        system_properties.azure_client_config = _azure_client_config;
         io::FileDescription file_desc;
         file_desc.path = path;
         io::FileReaderSPtr file_reader = DORIS_TRY(FileFactory::create_file_reader(
@@ -766,6 +767,9 @@ Status ParquetMetadataReader::_init_from_scan_range(const TMetaScanRange& scan_r
     if (params.__isset.properties) {
         _properties = params.properties;
     }
+    if (params.__isset.azure_client_config) {
+        _azure_client_config = params.azure_client_config;
+    }
     if (params.__isset.bloom_column) {
         _bloom_column = params.bloom_column;
     }
@@ -853,6 +857,7 @@ Status ParquetMetadataReader::_append_file_rows(const std::string& path,
     io::FileSystemProperties system_properties;
     system_properties.system_type = _file_type;
     system_properties.properties = _properties;
+    system_properties.azure_client_config = _azure_client_config;
     if (_file_type == TFileType::FILE_HDFS) {
         system_properties.hdfs_params = ::doris::parse_properties(system_properties.properties);
     }
