@@ -246,7 +246,11 @@ public class HboStatisticsCommand extends Command {
                 if (scope == Scope.LEARNED) {
                     hboManager.removeLearnedPlanStatistics(fingerprint);
                 } else {
-                    hboManager.removePinnedPlanStatistics(fingerprint);
+                    try {
+                        hboManager.removePinnedPlanStatistics(fingerprint);
+                    } catch (IllegalStateException e) {
+                        throw new AnalysisException(e.getMessage());
+                    }
                 }
                 break;
             default:
