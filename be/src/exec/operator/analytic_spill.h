@@ -42,12 +42,19 @@ using SpillFileWriterSPtr = std::shared_ptr<SpillFileWriter>;
 /// and peer_group_ends are batch-relative. Small partitions are batched together so that the source
 /// replays ordinary sized Blocks even when every partition contains only a few rows.
 struct AnalyticSpillBatch {
+    struct RecordMemory {
+        size_t serialized_bytes = 0;
+        size_t decoded_bytes = 0;
+    };
+
     int64_t rows = 0;
     std::vector<Block> blocks;
     SpillFileSPtr data_file;
+    RecordMemory data_record_memory;
 
     DorisVector<int64_t> peer_group_ends;
     SpillFileSPtr peer_group_file;
+    RecordMemory peer_record_memory;
 
     std::vector<int64_t> partition_ends;
     std::vector<WindowSpillStrategy> strategies;
@@ -81,6 +88,11 @@ public:
     [[nodiscard]] size_t revocable_mem_size() const;
     [[nodiscard]] bool is_spilled() const { return _data_file != nullptr; }
     [[nodiscard]] bool has_spilled_peer_groups() const { return _peer_group_file != nullptr; }
+    [[nodiscard]] size_t pending_write_bytes() const;
+    [[nodiscard]] size_t pending_data_bytes() const { return _write_buffer.allocated_bytes(); }
+    [[nodiscard]] size_t pending_peer_bytes() const {
+        return _peer_group_ends.capacity() * sizeof(int64_t);
+    }
     [[nodiscard]] int64_t peer_group_metadata_bytes() const {
         return _peer_group_count * sizeof(int64_t);
     }

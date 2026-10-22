@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <ranges>
 #include <string>
+#include <utility>
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
@@ -171,35 +172,91 @@ size_t AnalyticLocalState::_spill_replay_reserve_bytes(RuntimeState* state) cons
     if (!_shared_state->spill_enabled.load()) {
         return 0;
     }
-    // A spilled record holds Blocks coalesced up to about the spill buffer size: opening a reader
-    // allocates the buffer for the largest serialized record of the file and every read
-    // deserializes a whole record into a new Block. In-memory batches cost nothing to replay.
     const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
+    const auto read_bytes = [spill_buffer_bytes](AnalyticSpillBatch::RecordMemory memory,
+                                                 bool opening) {
+        // The reader retains both a serialized window and PBlock; deserialization also owns
+        // the decoded Block and may temporarily allocate another copy of its columns.
+        return (opening ? std::max(spill_buffer_bytes, memory.serialized_bytes)
+                        : memory.serialized_bytes) +
+               memory.serialized_bytes + 2 * memory.decoded_bytes;
+    };
     if (!_current_batch || _batch_output_position >= _current_batch->rows) {
         // The next call opens the batch at the head of the queue: it opens the readers of its
         // spilled files, reads the first peer group record and then the first data record.
         LockGuard lock(_shared_state->buffer_mutex);
-        if (_shared_state->spill_batches.empty()) {
+        if (_replay_admission_checked && !_admitted_batch) {
             return 0;
         }
-        const auto& next_batch = _shared_state->spill_batches.front();
+        if (_shared_state->spill_batches.empty() && !_admitted_batch) {
+            return 0;
+        }
+        const auto& next_batch =
+                _admitted_batch ? _admitted_batch : _shared_state->spill_batches.front();
         size_t reserve_bytes = 0;
         if (next_batch->data_file) {
-            reserve_bytes += 2 * spill_buffer_bytes;
+            reserve_bytes += read_bytes(next_batch->data_record_memory, true);
         }
         if (next_batch->peer_group_file) {
-            reserve_bytes += 2 * spill_buffer_bytes;
+            reserve_bytes += read_bytes(next_batch->peer_record_memory, true);
         }
         return reserve_bytes;
     }
     size_t reserve_bytes = 0;
     if (_batch_reader && _replay_block_position >= _replay_block.rows()) {
-        reserve_bytes += spill_buffer_bytes;
+        reserve_bytes += read_bytes(_current_batch->data_record_memory, false);
     }
     if (_next_slice_reads_peer_group_record(state)) {
-        reserve_bytes += spill_buffer_bytes;
+        reserve_bytes += read_bytes(_current_batch->peer_record_memory, false);
     }
     return reserve_bytes;
+}
+
+size_t AnalyticLocalState::_next_output_reserve_bytes(RuntimeState* state) const {
+    const AnalyticSpillBatch* batch = _current_batch.get();
+    if (!batch || _batch_output_position >= batch->rows) {
+        LockGuard lock(_shared_state->buffer_mutex);
+        if (_replay_admission_checked && !_admitted_batch) {
+            return 0;
+        }
+        if (!_admitted_batch && _shared_state->spill_batches.empty()) {
+            return 0;
+        }
+        batch = (_admitted_batch ? _admitted_batch : _shared_state->spill_batches.front()).get();
+    }
+    size_t rows = static_cast<size_t>(std::min<int64_t>(state->batch_size(), batch->rows));
+    if (batch == _current_batch.get()) {
+        rows = static_cast<size_t>(std::min<int64_t>(rows, batch->rows - _batch_output_position));
+        if (_replay_block_position < _replay_block.rows()) {
+            rows = std::min(rows, _replay_block.rows() - _replay_block_position);
+        }
+    } else if (!batch->blocks.empty()) {
+        rows = std::min(rows, batch->blocks.front().rows());
+    }
+    size_t bytes = 0;
+    if (batch == _current_batch.get() && _replay_block_position < _replay_block.rows() &&
+        (_replay_block_position != 0 || rows != _replay_block.rows())) {
+        // A retained Block is cut into the next output slice. Count the actual rows rather
+        // than carrying the previous whole-record read peak into every small slice.
+        for (const auto& column : _replay_block) {
+            for (size_t row = _replay_block_position; row < _replay_block_position + rows; ++row) {
+                bytes += 2 * column.column->serialize_size_at(row);
+            }
+        }
+    }
+    for (size_t i = 0; i < batch->result_types.size(); ++i) {
+        const auto& type = batch->result_types[i];
+        if (type->have_maximum_size_of_value()) {
+            bytes += rows * type->get_size_of_value_in_memory();
+        } else if (batch->partition_results[i]) {
+            // One partition result may be repeated for every output row.
+            bytes += rows * batch->partition_results[i]->byte_size();
+        }
+        if (batch->change_to_nullable_flags[i]) {
+            bytes += rows;
+        }
+    }
+    return bytes;
 }
 
 bool AnalyticLocalState::_next_slice_reads_peer_group_record(RuntimeState* state) const {
@@ -212,8 +269,14 @@ bool AnalyticLocalState::_next_slice_reads_peer_group_record(RuntimeState* state
     const auto& column =
             assert_cast<const ColumnInt64&>(*_peer_group_block.get_by_position(0).column);
     const int64_t last_peer_group_end = column.get_data().back();
+    size_t rows = static_cast<size_t>(state->batch_size());
+    // A retained data Block ends this call even when batch_size extends into the next Block.
+    // For example, 2 remaining rows and batch_size=8 cannot read a peer record for row 3.
+    if (_replay_block_position < _replay_block.rows()) {
+        rows = std::min(rows, _replay_block.rows() - _replay_block_position);
+    }
     const int64_t slice_end =
-            std::min<int64_t>(_batch_output_position + state->batch_size(), _current_batch->rows);
+            std::min<int64_t>(_batch_output_position + rows, _current_batch->rows);
     return last_peer_group_end < slice_end;
 }
 
@@ -393,29 +456,46 @@ void AnalyticLocalState::_insert_spill_result_columns(
     }
 }
 
+bool AnalyticLocalState::_take_admitted_spill_batch(
+        bool admission_checked, const std::shared_ptr<AnalyticSpillBatch>& admitted_batch,
+        std::shared_ptr<AnalyticSpillBatch>* batch, bool* eos) {
+    LockGuard lock(_shared_state->buffer_mutex);
+    if (admission_checked && !admitted_batch && !_shared_state->spill_batches.empty()) {
+        // The sink published this batch after admission. An empty round lets the pipeline
+        // reserve the new reader and result memory before it opens the batch.
+        *eos = false;
+        return false;
+    }
+    if (!_shared_state->spill_batches.empty()) {
+        if (admission_checked) {
+            DORIS_CHECK_EQ(_shared_state->spill_batches.front(), admitted_batch);
+        }
+        *batch = std::move(_shared_state->spill_batches.front());
+        _shared_state->spill_batches.pop();
+        if (_shared_state->spill_batches.empty()) {
+            _dependency->set_ready_to_write();
+        }
+        return true;
+    }
+    LockGuard eos_lock(_shared_state->sink_eos_lock);
+    *eos = _shared_state->sink_eos;
+    if (!*eos) {
+        _dependency->block();
+        _dependency->set_ready_to_write();
+    }
+    return false;
+}
+
 Status AnalyticLocalState::_get_spill_block(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_partition_replay_timer);
+    const bool admission_checked = std::exchange(_replay_admission_checked, false);
+    auto admitted_batch = std::move(_admitted_batch);
     while (true) {
         RETURN_IF_CANCELLED(state);
         if (!_current_batch) {
             std::shared_ptr<AnalyticSpillBatch> batch;
-            {
-                LockGuard lock(_shared_state->buffer_mutex);
-                if (!_shared_state->spill_batches.empty()) {
-                    batch = std::move(_shared_state->spill_batches.front());
-                    _shared_state->spill_batches.pop();
-                    if (_shared_state->spill_batches.empty()) {
-                        _dependency->set_ready_to_write();
-                    }
-                } else {
-                    LockGuard eos_lock(_shared_state->sink_eos_lock);
-                    *eos = _shared_state->sink_eos;
-                    if (!*eos) {
-                        _dependency->block();
-                        _dependency->set_ready_to_write();
-                    }
-                    return Status::OK();
-                }
+            if (!_take_admitted_spill_batch(admission_checked, admitted_batch, &batch, eos)) {
+                return Status::OK();
             }
             RETURN_IF_ERROR(_open_spill_batch(state, std::move(batch)));
         }
@@ -490,8 +570,23 @@ Status AnalyticSourceOperatorX::get_block_impl(RuntimeState* state, Block* outpu
 
 size_t AnalyticSourceOperatorX::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    return OperatorX<AnalyticLocalState>::get_reserve_mem_size(state) +
-           local_state._spill_replay_reserve_bytes(state);
+    if (!local_state._shared_state->spill_enabled.load()) {
+        return OperatorX<AnalyticLocalState>::get_reserve_mem_size(state);
+    }
+    local_state._replay_admission_checked = true;
+    if (!local_state._current_batch ||
+        local_state._batch_output_position >= local_state._current_batch->rows) {
+        LockGuard lock(local_state._shared_state->buffer_mutex);
+        local_state._admitted_batch = local_state._shared_state->spill_batches.empty()
+                                              ? nullptr
+                                              : local_state._shared_state->spill_batches.front();
+    } else {
+        local_state._admitted_batch.reset();
+    }
+    // The prior call's read peak is irrelevant when this call only slices a retained Block.
+    return state->minimum_operator_memory_required_bytes() +
+           local_state._spill_replay_reserve_bytes(state) +
+           local_state._next_output_reserve_bytes(state);
 }
 
 } // namespace doris

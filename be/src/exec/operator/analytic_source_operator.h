@@ -44,7 +44,11 @@ public:
 private:
     friend class AnalyticSourceOperatorX;
     Status _get_spill_block(RuntimeState* state, Block* block, bool* eos);
+    bool _take_admitted_spill_batch(bool admission_checked,
+                                    const std::shared_ptr<AnalyticSpillBatch>& admitted_batch,
+                                    std::shared_ptr<AnalyticSpillBatch>* batch, bool* eos);
     size_t _spill_replay_reserve_bytes(RuntimeState* state) const;
+    size_t _next_output_reserve_bytes(RuntimeState* state) const;
     bool _next_slice_reads_peer_group_record(RuntimeState* state) const;
     Status _open_spill_batch(RuntimeState* state, std::shared_ptr<AnalyticSpillBatch> batch);
     Status _read_batch_block(RuntimeState* state, Block* block, bool* batch_eos);
@@ -69,6 +73,9 @@ private:
     RuntimeProfile::Counter* _partition_replay_timer = nullptr;
 
     std::shared_ptr<AnalyticSpillBatch> _current_batch;
+    // The queued batch observed by admission is the only new batch this source call may open.
+    std::shared_ptr<AnalyticSpillBatch> _admitted_batch;
+    bool _replay_admission_checked = false;
     SpillFileReaderSPtr _batch_reader;
     SpillFileReaderSPtr _peer_group_reader;
     size_t _in_memory_block_index = 0;

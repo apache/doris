@@ -21,6 +21,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <ranges>
@@ -28,6 +29,7 @@
 #include <utility>
 
 #include "exec/operator/operator.h"
+#include "exec/spill/spill_file.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_state.h"
 
@@ -1376,8 +1378,50 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
 }
 
 size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    return get_reserve_mem_size(state, eos, nullptr);
+}
+
+size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                   const Block* block) {
     auto& local_state = get_local_state(state);
-    return local_state._reserve_mem_size;
+    if (!local_state._spill_enabled) {
+        return local_state._reserve_mem_size;
+    }
+    const size_t incoming_bytes = block ? block->allocated_bytes() : 0;
+    const size_t incoming_rows = block ? block->rows() : 0;
+    const size_t staged_bytes =
+            local_state._batch_store ? local_state._batch_store->pending_write_bytes() : 0;
+    const size_t pending_data_bytes =
+            local_state._batch_store ? local_state._batch_store->pending_data_bytes() : 0;
+    const size_t pending_peer_bytes =
+            local_state._batch_store ? local_state._batch_store->pending_peer_bytes() : 0;
+    const size_t spill_limit = static_cast<size_t>(state->spill_analytic_sink_mem_limit_bytes());
+    const bool data_write =
+            (local_state._batch_store && local_state._batch_store->is_spilled() &&
+             (incoming_rows > 0 || pending_data_bytes > 0)) ||
+            ((incoming_rows > 0 || eos) && staged_bytes + incoming_bytes >= spill_limit);
+    const bool first_forced_write = incoming_rows > 0 && state->enable_force_spill();
+    // An input Block may close the preceding peer group at its first row; empty EOS closes
+    // the final group and can flush a sidecar without writing a data Block.
+    const size_t possible_peer_ends =
+            incoming_rows + (local_state._open_partition_rows > 0 ? 1 : 0);
+    const bool peer_write = local_state._has_peer_group_functions &&
+                            ((pending_peer_bytes > 0 && local_state._batch_store &&
+                              local_state._batch_store->has_spilled_peer_groups()) ||
+                             pending_peer_bytes + possible_peer_ends * sizeof(int64_t) >=
+                                     static_cast<size_t>(state->spill_buffer_size_bytes()));
+    if (eos && incoming_rows == 0 && !data_write && !peer_write) {
+        // An empty EOS merely publishes an in-memory batch; the previous write peak is stale.
+        return 0;
+    }
+    if (data_write || first_forced_write || peer_write) {
+        // The writer can hold a PBlock and serialized/compressed bytes at the same time.
+        // A wide input row is not splittable, so do not cap this at spill_buffer_size_bytes.
+        // Small records only need a fixed metadata allowance, not a full spill buffer.
+        return 3 * std::max({incoming_bytes, staged_bytes, size_t {64 * 1024}});
+    }
+    // The spill path materializes comparison/aggregate columns even without a disk write.
+    return incoming_bytes * 2;
 }
 
 size_t AnalyticSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
@@ -1386,8 +1430,9 @@ size_t AnalyticSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
         return 0;
     }
     const auto bytes = local_state._batch_store->revocable_mem_size();
-    const auto min_revocable_mem = static_cast<size_t>(state->spill_min_revocable_mem());
-    return bytes > min_revocable_mem ? bytes : 0;
+    // PipelineTask can revoke at 512 KiB. Hiding a staged 1 MiB buffer behind the usual
+    // 32 MiB spill threshold leaves a paused sink with no revocable task to make progress.
+    return bytes >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM ? bytes : 0;
 }
 
 Status AnalyticSinkOperatorX::revoke_memory(RuntimeState* state) {

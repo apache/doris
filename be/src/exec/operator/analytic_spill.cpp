@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <utility>
 
 #include "core/column/column_vector.h"
@@ -154,17 +155,26 @@ size_t AnalyticSpillBatchStore::revocable_mem_size() const {
            _peer_group_ends.capacity() * sizeof(int64_t);
 }
 
+size_t AnalyticSpillBatchStore::pending_write_bytes() const {
+    return std::max({_write_buffer.allocated_bytes(), _peer_group_ends.capacity() * sizeof(int64_t),
+                     _blocks_memory_bytes});
+}
+
 Status AnalyticSpillBatchStore::seal(RuntimeState* state, AnalyticSpillBatch* batch) {
     RETURN_IF_CANCELLED(state);
     DCHECK_GT(_rows, 0);
     if (_data_writer) {
         RETURN_IF_ERROR(_flush_write_buffer(state));
         RETURN_IF_ERROR(_data_writer->close());
+        batch->data_record_memory = {_data_writer->max_record_bytes(),
+                                     _data_writer->max_block_bytes()};
         _data_writer.reset();
     }
     if (_peer_group_writer) {
         RETURN_IF_ERROR(_flush_peer_group_ends(state));
         RETURN_IF_ERROR(_peer_group_writer->close());
+        batch->peer_record_memory = {_peer_group_writer->max_record_bytes(),
+                                     _peer_group_writer->max_block_bytes()};
         _peer_group_writer.reset();
     }
 

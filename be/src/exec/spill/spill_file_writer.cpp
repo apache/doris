@@ -421,6 +421,8 @@ Status SpillFileWriter::_write_internal(const Block& block,
 
                     _part_max_sub_block_size =
                             std::max(_part_max_sub_block_size, (size_t)buff_size);
+                    _max_record_bytes = std::max(_max_record_bytes, (size_t)buff_size);
+                    _max_block_bytes = std::max(_max_block_bytes, block.allocated_bytes());
 
                     _part_meta.append((const char*)&_part_written_bytes, sizeof(size_t));
                     COUNTER_UPDATE(_write_file_total_size, buff_size);

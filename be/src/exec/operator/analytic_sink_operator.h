@@ -283,6 +283,7 @@ public:
     bool is_shuffled_operator() const override { return !_partition_by_eq_expr_ctxs.empty(); }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos, const Block* block) override;
     size_t revocable_mem_size(RuntimeState* state) const override;
     Status revoke_memory(RuntimeState* state) override;
 
