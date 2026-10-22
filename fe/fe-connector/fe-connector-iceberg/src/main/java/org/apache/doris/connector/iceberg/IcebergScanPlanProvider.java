@@ -1058,7 +1058,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private List<ConnectorScanRange> doPlanLabelsSystemTableScan(IcebergTableHandle handle,
             List<ConnectorColumnHandle> columns, ConnectorSession session) {
         Table base = resolveSysBaseTable(session, handle);
-        List<String> projectedColumns = requestedLowerNames(columns);
+        List<String> projectedColumns = requestedColumnNames(columns);
         Schema projectedSchema = projectedColumns.isEmpty()
                 ? IcebergLabelsSysTable.SCHEMA
                 : projectSystemTableSchema(IcebergLabelsSysTable.SCHEMA, projectedColumns,
