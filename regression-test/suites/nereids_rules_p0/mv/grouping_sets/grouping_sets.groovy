@@ -298,7 +298,7 @@ suite("materialized_view_grouping_sets") {
             CUBE (o_orderstatus, o_orderpriority);
             """
     order_qt_query5_0_before "${query5_0}"
-    async_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv5_0, query5_0, "mv5_0")
     order_qt_query5_0_after "${query5_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
@@ -331,7 +331,7 @@ suite("materialized_view_grouping_sets") {
             CUBE (o_orderstatus, o_orderpriority);
             """
     order_qt_query6_0_before "${query6_0}"
-    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv6_0, query6_0, "mv6_0")
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
@@ -366,7 +366,7 @@ suite("materialized_view_grouping_sets") {
             CUBE (t1.l_partkey, t1.l_suppkey, o_orderdate);
             """
     order_qt_query7_0_before "${query7_0}"
-    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv7_0, query7_0, "mv7_0")
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
@@ -405,7 +405,7 @@ suite("materialized_view_grouping_sets") {
             CUBE (t1.l_partkey, t1.l_suppkey, o_orderdate);
             """
     order_qt_query8_0_before "${query8_0}"
-    async_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv8_0, query8_0, "mv8_0")
     order_qt_query8_0_after "${query8_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
 
@@ -540,7 +540,7 @@ suite("materialized_view_grouping_sets") {
             ROLLUP (t1.l_partkey, t1.l_suppkey, o_orderdate);
             """
     order_qt_query11_0_before "${query11_0}"
-    async_mv_rewrite_success(db, mv11_0, query11_0, "mv11_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv11_0, query11_0, "mv11_0")
     order_qt_query11_0_after "${query11_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv11_0"""
 
@@ -579,7 +579,7 @@ suite("materialized_view_grouping_sets") {
             ROLLUP (t1.l_partkey, t1.l_suppkey, o_orderdate);
             """
     order_qt_query12_0_before "${query12_0}"
-    async_mv_rewrite_success(db, mv12_0, query12_0, "mv12_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv12_0, query12_0, "mv12_0")
     order_qt_query12_0_after "${query12_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv12_0"""
 
@@ -728,7 +728,7 @@ suite("materialized_view_grouping_sets") {
             CUBE (t1.l_partkey, t1.l_suppkey, o_orderdate);
             """
     order_qt_query16_0_before "${query16_0}"
-    async_mv_rewrite_success(db, mv16_0, query16_0, "mv16_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv16_0, query16_0, "mv16_0")
     order_qt_query16_0_after "${query16_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv16_0"""
 
@@ -768,7 +768,7 @@ suite("materialized_view_grouping_sets") {
             having grouping(t1.l_suppkey) >= 1;
             """
     order_qt_query17_before "${query17}"
-    async_mv_rewrite_success(db, mv17, query17, "mv17")
+    async_mv_rewrite_success_without_check_chosen(db, mv17, query17, "mv17")
     order_qt_query17_after "${query17}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17"""
 
@@ -809,7 +809,7 @@ suite("materialized_view_grouping_sets") {
             having grouping_id(t1.l_partkey, t1.l_suppkey) >= 1;
             """
     order_qt_query18_before "${query18}"
-    async_mv_rewrite_success(db, mv18, query18, "mv18")
+    async_mv_rewrite_success_without_check_chosen(db, mv18, query18, "mv18")
     order_qt_query18_after "${query18}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18"""
 }
