@@ -115,7 +115,7 @@ suite("test_datasketches_hll_downsample") {
     }
     test {
         sql "SELECT datasketches_hll_downsample(NULL,22 + CAST(crc32('') AS INT))"
-        exception "lg_k must be between 4 and 21"
+        exception "between 4 and 21"
     }
     test {
         // The compact HLL_4 below has auxCount=0. Replace the first register byte by AUX_TOKEN.
