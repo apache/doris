@@ -3,17 +3,17 @@
 10
 
 -- !state_initial --
-0	10	3	3	{"values":[{"value":10, "count":2}], "bound":10}	0	2	[regression-fake-sequence]
+0	10	3	3	[{"value":10, "count":2}]	10	0	2	[regression-fake-sequence]
 
 -- !after_duplicate --
 10
 
 -- !state_after_duplicate --
-0	10	2	2	{"values":[{"value":10, "count":1}], "bound":10}	0	3	[regression-fake-sequence]
+0	10	2	2	[{"value":10, "count":1}]	10	0	3	[regression-fake-sequence]
 
 -- !after_fallback --
 20
 
 -- !state_after_fallback --
-0	20	1	1	{"values":[{"value":20, "count":1}], "bound":null}	0	2	[regression-fake-sequence]
+0	20	1	1	[{"value":20, "count":1}]	20	0	2	[regression-fake-sequence]
 

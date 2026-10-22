@@ -26,8 +26,8 @@ k	int	Yes	false	\N	NONE
 m2	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MIN_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MIN_COL__	int	Yes	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_COL__	array<struct<value:int not null,count:bigint not null>>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_BOUND_COL__	int	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
 __DORIS_VERSION_COL__	bigint	No	false	0	NONE
 __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
@@ -38,8 +38,8 @@ k	int	Yes	false	\N	NONE
 m1	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MAX_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MAX_COL__	int	Yes	false	\N	NONE
+__DORIS_IVM_AGG_0_MAX_TOPK_COL__	array<struct<value:int not null,count:bigint not null>>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MAX_TOPK_BOUND_COL__	int	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
 __DORIS_VERSION_COL__	bigint	No	false	0	NONE
 __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
@@ -445,7 +445,7 @@ __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
 3	\N
 
 -- !after_update_sum_avg_mul_source --
-1	1408.3333333333333
+1	1408.3333333333335
 2	3675
 3	\N
 

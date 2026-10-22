@@ -454,14 +454,15 @@ suite("test_ivm_agg_2") {
     def maxDelTaskStatus = maxDelTaskResult[0][1].toString()
     logger.info("MAX boundary delete INCREMENTAL task status: " + maxDelTaskStatus
             + ", error: " + maxDelTaskResult[0][2])
-    assertTrue(maxDelTaskStatus == "FAILED",
-            "Expected INCREMENTAL to fail when deleting MAX value, but got: " + maxDelTaskStatus)
-    def maxDelErrorMsg = maxDelTaskResult[0][2].toString()
-    assertTrue(maxDelErrorMsg.contains("MIN_MAX_BOUNDARY") || maxDelErrorMsg.contains("IVM")
-                    || maxDelErrorMsg.contains("assert_true") || maxDelErrorMsg.contains("fallback"),
-            "Error should mention MIN_MAX_BOUNDARY/IVM/assert_true/fallback but got: " + maxDelErrorMsg)
+    // The hidden top-K state holds the values around the current MAX, so deleting the MAX value
+    // itself is merged incrementally: MAX moves to the next value (25) and the refresh succeeds.
+    assertTrue(maxDelTaskStatus == "SUCCESS",
+            "Deleting the current MAX should be maintained incrementally, but got: " + maxDelTaskStatus)
+    order_qt_maxdel_after_max_delete """
+        SELECT min_v1, max_v1, cnt FROM ivm_agg_maxdel_mv
+    """
 
-    // Step 4: COMPLETE refresh to recover
+    // Step 4: A COMPLETE refresh must produce the same state as the incremental merge.
     sql """REFRESH MATERIALIZED VIEW ivm_agg_maxdel_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_agg_maxdel_mv")
 

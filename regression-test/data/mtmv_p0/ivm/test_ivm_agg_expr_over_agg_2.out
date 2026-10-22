@@ -165,7 +165,8 @@ __DORIS_IVM_ROW_ID_COL__	tinyint	No	true	\N
 m	varchar(65533)	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MIN_TOPK_COL__	struct<values:array<struct<value:text not null,count:bigint not null>> not null,bound:text>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_COL__	array<struct<value:text not null,count:bigint not null>>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_BOUND_COL__	text	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
 __DORIS_VERSION_COL__	bigint	No	false	0	NONE
 __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
@@ -252,7 +253,8 @@ k	int	Yes	false	\N	NONE
 m2	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
-__DORIS_IVM_AGG_0_MIN_TOPK_COL__	struct<values:array<struct<value:int not null,count:bigint not null>> not null,bound:int>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_COL__	array<struct<value:int not null,count:bigint not null>>	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_TOPK_BOUND_COL__	int	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
 __DORIS_VERSION_COL__	bigint	No	false	0	NONE
 __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE

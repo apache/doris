@@ -4,14 +4,14 @@ a	10
 b	10
 
 -- !state_initial --
-a	a	10	1	1	{"values":[{"value":10, "count":1}], "bound":null}	0	2	[regression-fake-sequence]
-b	b	10	1	1	{"values":[{"value":10, "count":1}], "bound":null}	0	2	[regression-fake-sequence]
+a	a	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
+b	b	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
 
 -- !after_swap --
 a	10
 b	10
 
 -- !state_after_swap --
-a	a	10	1	1	{"values":[{"value":10, "count":1}], "bound":null}	0	3	[regression-fake-sequence]
-b	b	10	1	1	{"values":[{"value":10, "count":1}], "bound":null}	0	3	[regression-fake-sequence]
+a	a	10	1	1	[{"value":10, "count":1}]	10	0	3	[regression-fake-sequence]
+b	b	10	1	1	[{"value":10, "count":1}]	10	0	3	[regression-fake-sequence]
 
