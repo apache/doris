@@ -67,7 +67,7 @@ struct AggregateTopKCountData {
     DorisVector<int64_t> counts;
 
     explicit AggregateTopKCountData(const DataTypes& argument_types_)
-            : value_type(argument_types_[0]),
+            : value_type(remove_nullable(argument_types_[0])),
               bound_column(value_type->create_column()),
               value_column(value_type->create_column()) {}
 
@@ -104,16 +104,23 @@ public:
     String get_name() const override { return IsMin ? "topk_min_count" : "topk_max_count"; }
 
     DataTypePtr get_return_type() const override {
-        return make_return_type(this->argument_types[0]);
+        return make_return_type(remove_nullable(this->argument_types[0]));
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         auto& state = Base::data(place);
-        // k is a constant expression, but only the first row carries it: the state remembers it so
-        // that merge can check both sides used the same capacity. A state without has_k is empty.
+        // k is read for every row, including rows where x is NULL: an evaluated count that is
+        // NULL or out of range must fail the query instead of being skipped like a NULL value.
         check_k(state, *columns[1], row_num);
-        add_value(state, *columns[0], row_num);
+        const IColumn* value_column = columns[0];
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(value_column)) {
+            if (nullable->is_null_at(row_num)) {
+                return;
+            }
+            value_column = &nullable->get_nested_column();
+        }
+        add_value(state, *value_column, row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -217,9 +224,18 @@ public:
 private:
     static void check_k(AggregateTopKCountData& state, const IColumn& count_column,
                         size_t row_num) {
-        DCHECK(!count_column.is_nullable());
-        int64_t value = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(count_column)
-                                .get_element(row_num);
+        const IColumn* nested = &count_column;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(&count_column)) {
+            if (UNLIKELY(nullable->is_null_at(row_num))) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "the count of topk_min_count and topk_max_count must be a non-null "
+                                "constant");
+            }
+            nested = &nullable->get_nested_column();
+        }
+        int64_t value =
+                assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*nested).get_element(
+                        row_num);
         if (!state.has_k) {
             if (UNLIKELY(value < 0 || value > MAX_TOPK_K)) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -426,22 +442,22 @@ private:
     /// SERIALIZED_MEM_SIZE_LIMIT the serde may compress the payload and return an earlier end
     /// pointer, so the reader skips the same declared length and the unused tail is padding.
     void write_column(BufferWritable& buf, const IColumn& column) const {
-        int64_t capacity = this->argument_types[0]->get_uncompressed_serialized_bytes(
-                column, IAggregateFunction::version);
+        const auto value_type = remove_nullable(this->argument_types[0]);
+        int64_t capacity =
+                value_type->get_uncompressed_serialized_bytes(column, IAggregateFunction::version);
         buf.write_binary(capacity);
         buf.resize(capacity);
-        auto* pos =
-                this->argument_types[0]->serialize(column, buf.data(), IAggregateFunction::version);
+        auto* pos = value_type->serialize(column, buf.data(), IAggregateFunction::version);
         DCHECK_LE(pos, buf.data() + capacity);
         buf.add_offset(capacity);
     }
 
     MutableColumnPtr read_column(BufferReadable& buf) const {
+        const auto value_type = remove_nullable(this->argument_types[0]);
         int64_t capacity = 0;
         buf.read_binary(capacity);
-        MutableColumnPtr column = this->argument_types[0]->create_column();
-        const auto* pos = this->argument_types[0]->deserialize(buf.data(), &column,
-                                                               IAggregateFunction::version);
+        MutableColumnPtr column = value_type->create_column();
+        const auto* pos = value_type->deserialize(buf.data(), &column, IAggregateFunction::version);
         DCHECK_LE(pos, buf.data() + capacity);
         buf.add_offset(capacity);
         return column;

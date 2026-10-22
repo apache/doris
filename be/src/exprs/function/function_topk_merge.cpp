@@ -353,11 +353,25 @@ private:
         return bound;
     }
 
+    /// A list may have a nullable element type, but its entries, values and counts must not be
+    /// NULL: the lists are top-K states, where NULL is neither counted nor representable. Reading
+    /// a NULL payload would emit the column's default value as a real entry, so reject it.
+    static Status check_entry(const TopKArrayView& view, size_t index) {
+        if ((view.null_map != nullptr && (*view.null_map)[index] != 0) ||
+            (view.value_null_map != nullptr && (*view.value_null_map)[index] != 0) ||
+            (view.count_null_map != nullptr && (*view.count_null_map)[index] != 0)) {
+            return Status::InvalidArgument(
+                    "{}: the state lists must not contain NULL entries, values or counts", name);
+        }
+        return Status::OK();
+    }
+
     /// Finds the best head (smallest for MIN, largest for MAX) among the three lists; `head` is
     /// set to nullptr when all of them are exhausted.
-    static void best_head(const TopKArrayView& s_view, size_t s_index, const TopKArrayView& i_view,
-                          size_t i_index, const TopKArrayView& d_view, size_t d_index,
-                          PrimitiveType type, const IColumn** head, size_t* head_row) {
+    static Status best_head(const TopKArrayView& s_view, size_t s_index,
+                            const TopKArrayView& i_view, size_t i_index,
+                            const TopKArrayView& d_view, size_t d_index, PrimitiveType type,
+                            const IColumn** head, size_t* head_row) {
         *head = nullptr;
         const TopKArrayView* views[] = {&s_view, &i_view, &d_view};
         const size_t indexes[] = {s_index, i_index, d_index};
@@ -365,6 +379,7 @@ private:
             if (indexes[v] == views[v]->end) {
                 continue;
             }
+            RETURN_IF_ERROR(check_entry(*views[v], indexes[v]));
             if (*head == nullptr) {
                 *head = views[v]->values;
                 *head_row = indexes[v];
@@ -376,21 +391,22 @@ private:
                 *head_row = indexes[v];
             }
         }
+        return Status::OK();
     }
 
     /// Consumes one entry equal to the current head value, returning its count.
-    static bool consume_equal(const TopKArrayView& view, size_t& index, const IColumn& head,
-                              size_t head_row, PrimitiveType type, int64_t* count) {
-        if (index == view.end || compare_values(type, *view.values, index, head, head_row) != 0) {
-            return false;
+    static Status consume_equal(const TopKArrayView& view, size_t& index, const IColumn& head,
+                                size_t head_row, PrimitiveType type, int64_t* count) {
+        if (index == view.end) {
+            return Status::OK();
         }
-        // The top-K producers never emit a NULL entry, a NULL value or a NULL count.
-        DCHECK(view.null_map == nullptr || (*view.null_map)[index] == 0);
-        DCHECK(view.value_null_map == nullptr || (*view.value_null_map)[index] == 0);
-        DCHECK(view.count_null_map == nullptr || (*view.count_null_map)[index] == 0);
+        RETURN_IF_ERROR(check_entry(view, index));
+        if (compare_values(type, *view.values, index, head, head_row) != 0) {
+            return Status::OK();
+        }
         *count = view.counts->get_element(index);
         ++index;
-        return true;
+        return Status::OK();
     }
 
     /// Merges the trusted part (v <= bE for MIN) of S, I and D into the output list, keeping the
@@ -409,7 +425,8 @@ private:
         while (true) {
             const IColumn* head = nullptr;
             size_t head_row = 0;
-            best_head(s_view, s_index, i_view, i_index, d_view, d_index, type, &head, &head_row);
+            RETURN_IF_ERROR(best_head(s_view, s_index, i_view, i_index, d_view, d_index, type,
+                                      &head, &head_row));
             if (head == nullptr) {
                 break;
             }
@@ -425,9 +442,9 @@ private:
             int64_t count_s = 0;
             int64_t count_i = 0;
             int64_t count_d = 0;
-            consume_equal(s_view, s_index, *head, head_row, type, &count_s);
-            consume_equal(i_view, i_index, *head, head_row, type, &count_i);
-            consume_equal(d_view, d_index, *head, head_row, type, &count_d);
+            RETURN_IF_ERROR(consume_equal(s_view, s_index, *head, head_row, type, &count_s));
+            RETURN_IF_ERROR(consume_equal(i_view, i_index, *head, head_row, type, &count_i));
+            RETURN_IF_ERROR(consume_equal(d_view, d_index, *head, head_row, type, &count_d));
 
             int64_t post = checked_add(count_s, count_i, name);
             post = checked_sub(post, count_d, name);
