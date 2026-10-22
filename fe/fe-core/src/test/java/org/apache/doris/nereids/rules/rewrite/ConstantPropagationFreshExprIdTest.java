@@ -168,21 +168,13 @@ public class ConstantPropagationFreshExprIdTest extends TestWithFeService {
                 "the plan above does not reference the project outputs:\n" + plan.treeString());
     }
 
-    @Test
-    void testRqgCase11000258898() {
-        // the RQG case this PR was reported from: on the reported base it tripped "AdjustNullable convert slot
-        // 2004-04-28#xx from not-nullable to nullable" during the rewrite, so the rewrite and the planning of the
-        // query have to succeed
-        PlanChecker.from(connectContext).analyze(SQL_11000258898).rewrite();
-        PlanChecker.from(connectContext).checkPlannerResult(SQL_11000258898);
-    }
-
-    @Test
-    void testRqgCase11000259585() {
-        // the second case of the same RQG report, same failure mode: the rewrite and the planning have to succeed
-        PlanChecker.from(connectContext).analyze(SQL_11000259585).rewrite();
-        PlanChecker.from(connectContext).checkPlannerResult(SQL_11000259585);
-    }
+    // The two RQG reproductions of the master version (testRqgCase11000258898 and testRqgCase11000259585) are
+    // not ported: on branch-4.2 both queries already trip "AdjustNullable convert slot 2004-04-28#55 from
+    // not-nullable to nullable" (and "cKToNmsxok#45") during the rewrite on the pristine branch, i.e. before this
+    // change, and the failure is unchanged after it. ConstantPropagation does not modify the plans of these
+    // queries on this branch at all (dumped with the rule applied alone: the plan is identical), so the failure
+    // comes from another rule here, while on master the rule does rewrite them. The tables those queries need
+    // are still created below, so the SQL constants stay usable if the branch is fixed later.
 
     @Test
     void testMaterializedCteConsumerMapsStayValid() throws Exception {
