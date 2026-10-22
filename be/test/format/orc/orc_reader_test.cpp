@@ -39,6 +39,7 @@
 #include "format/orc/orc_memory_pool.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_meta_cache.h"
+#include "orc/Exceptions.hh"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -437,4 +438,156 @@ TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
     EXPECT_EQ(filtered_order_keys, expected);
 }
 
+namespace {
+
+// Fail only after the ORC footer and row reader have been initialized. This makes the
+// exception originate from seekToRow's actual I/O, rather than from opening the file.
+class RowIdSeekInputStream : public orc::InputStream {
+public:
+    explicit RowIdSeekInputStream(io::IOContext* io_ctx)
+            : _input(orc::readLocalFile("./be/test/exec/test_data/orc_scanner/orders.orc")),
+              _io_ctx(io_ctx) {}
+
+    uint64_t getLength() const override { return _input->getLength(); }
+    uint64_t getNaturalReadSize() const override { return _input->getNaturalReadSize(); }
+    const std::string& getName() const override { return _input->getName(); }
+
+    void read(void* buf, uint64_t length, uint64_t offset) override {
+        if (!_failure.empty()) {
+            ++failed_reads;
+            if (_cancel_on_read) {
+                _io_ctx->should_stop = true;
+            }
+            throw orc::ParseError(_failure);
+        }
+        _input->read(buf, length, offset);
+    }
+
+    void fail_reads(std::string message, bool cancel_on_read = false) {
+        _failure = std::move(message);
+        _cancel_on_read = cancel_on_read;
+    }
+
+    size_t failed_reads = 0;
+
+private:
+    std::unique_ptr<orc::InputStream> _input;
+    io::IOContext* _io_ctx;
+    std::string _failure;
+    bool _cancel_on_read = false;
+};
+
+class OrcRowIdSeekTest : public testing::TestWithParam<bool> {
+protected:
+    void SetUp() override {
+        range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
+        reader = std::make_unique<OrcReader>(&profile, nullptr, params, range, 1, "UTC", &io_ctx,
+                                             nullptr, GetParam());
+        auto stream = std::make_unique<RowIdSeekInputStream>(&io_ctx);
+        input = stream.get();
+        reader->_reader = orc::createReader(std::move(stream), orc::ReaderOptions());
+        reader->_row_reader = reader->_reader->createRowReader(orc::RowReaderOptions());
+        reader->_read_by_rows = true;
+        reader->_row_ids = {1, 2};
+        reader->_lazy_read_ctx.can_lazy_read = GetParam();
+    }
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    io::IOContext io_ctx;
+    RuntimeProfile profile {"OrcRowIdSeekTest"};
+    RowIdSeekInputStream* input = nullptr;
+    std::unique_ptr<OrcReader> reader;
+};
+
+TEST_P(OrcRowIdSeekTest, SeekIoFailureReturnsError) {
+    const std::string message = "[NOT_FOUND] missing ORC file";
+    input->fail_reads(message);
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    Status status;
+    ASSERT_NO_THROW(status = reader->get_next_block(&block, &read_rows, &eof));
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Orc row reader seek failed"), std::string::npos);
+    EXPECT_NE(status.to_string().find(range.path), std::string::npos);
+    EXPECT_NE(status.to_string().find(message), std::string::npos);
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(reader->_row_ids, (std::list<int64_t> {1, 2}));
+    EXPECT_EQ(input->failed_reads, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, CancellationDuringSeekReturnsEof) {
+    input->fail_reads("stop", true);
+    Block block;
+    size_t read_rows = 99;
+    bool eof = false;
+    Status status;
+    ASSERT_NO_THROW(status = reader->get_next_block(&block, &read_rows, &eof));
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(io_ctx.should_stop);
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(input->failed_reads, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, StopWithoutCancellationReturnsError) {
+    input->fail_reads("stop");
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(input->failed_reads, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, CancellationDoesNotHideAnIoFailure) {
+    input->fail_reads("ORC read I/O failure", true);
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(input->failed_reads, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, EmptyRowIdsReturnZeroRowsAndEof) {
+    reader->_row_ids.clear();
+    input->fail_reads("must not read");
+    Block block;
+    size_t read_rows = 99;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(input->failed_reads, 0);
+}
+
+TEST_P(OrcRowIdSeekTest, NormalSeekConsumesOnlyTheRequestedRowId) {
+    EXPECT_TRUE(reader->_seek_to_read_one_line());
+    EXPECT_EQ(reader->_row_ids, (std::list<int64_t> {2}));
+    EXPECT_TRUE(reader->_seek_to_read_one_line());
+    EXPECT_TRUE(reader->_row_ids.empty());
+    EXPECT_FALSE(reader->_seek_to_read_one_line());
+}
+
+TEST_P(OrcRowIdSeekTest, AlreadyCancelledDoesNotSeek) {
+    io_ctx.should_stop = true;
+    input->fail_reads("must not read");
+    Block block;
+    size_t read_rows = 99;
+    bool eof = false;
+    const auto status = reader->get_next_block(&block, &read_rows, &eof);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(input->failed_reads, 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(LazyAndNonLazy, OrcRowIdSeekTest, testing::Bool());
+
+} // namespace
 } // namespace doris

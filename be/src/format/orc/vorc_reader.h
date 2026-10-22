@@ -726,16 +726,7 @@ private:
         return true;
     }
 
-    bool _seek_to_read_one_line() {
-        if (_read_by_rows) {
-            if (_row_ids.empty()) {
-                return false;
-            }
-            _row_reader->seekToRow(_row_ids.front());
-            _row_ids.pop_front();
-        }
-        return true;
-    }
+    bool _seek_to_read_one_line();
 
     Status _set_read_one_line_impl() override {
         _batch_size = 1;
