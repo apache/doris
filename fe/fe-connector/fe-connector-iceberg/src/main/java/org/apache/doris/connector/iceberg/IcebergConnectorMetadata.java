@@ -1401,11 +1401,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Carry the neutral source type so a complex-type diff can read each STRUCT field's commentSpecified.
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
                 column.getComment(), null, column.isNullable(), column.getType());
+        boolean nullableSpecified = column.isNullableSpecified();
         boolean commentSpecified = column.isCommentSpecified();
         try {
             executeAuthenticated(() -> {
                 catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change,
-                        commentSpecified, position);
+                        nullableSpecified, commentSpecified, position);
                 return null;
             });
         } catch (Exception e) {
