@@ -291,6 +291,16 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             return resolvedMinMaxTopK;
         }
         Long explicit = ivmRewriteContext.getMinMaxTopK();
+        if (explicit == null) {
+            // CREATE has no MV yet, so its capacity can only come from the context. Later
+            // statements (incremental refresh, EXPLAIN) read it from the MV's own properties,
+            // which are what CREATE persisted; otherwise the delta would re-resolve a different K
+            // and fail the layout signature check.
+            MTMV mtmv = ivmRewriteContext.getMtmv();
+            if (mtmv != null) {
+                explicit = MTMVPropertyUtil.getIvmMinMaxTopK(mtmv.getMvProperties()).orElse(null);
+            }
+        }
         long topK = explicit != null
                 ? explicit
                 : (isAppendOnlyInnerJoinPlan(inputPlan) ? 0 : IvmUtil.DEFAULT_MINMAX_TOP_K);
