@@ -1587,6 +1587,15 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 missingIndexError);
         Assertions.assertNotNull(seqMapTbl.getColumn("c"));
         Assertions.assertEquals(Lists.newArrayList("c", "d"), seqMapTbl.getColumnSeqMapping().get("s1"));
+
+        // A successful statement still removes the dropped columns from the mapping group. The column change
+        // makes it a heavy schema change, which runs as a job.
+        alterTable("ALTER TABLE test.sc_failed_alter_seq_map DROP COLUMN c, DROP COLUMN d,"
+                + " ADD INDEX idx_k1 (k1) USING INVERTED", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        Assertions.assertNull(seqMapTbl.getColumn("c"));
+        Assertions.assertTrue(seqMapTbl.getColumnSeqMapping().get("s1").isEmpty());
     }
 
     @Test

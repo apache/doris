@@ -2384,13 +2384,8 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
-            // Copy the column groups too: processDropSequenceMapping removes columns from them, and the table's
-            // mapping must only change through the schema change job.
-            Map<String, List<String>> sequenceMapping = new HashMap<>();
-            if (olapTable.getColumnSeqMapping() != null) {
-                olapTable.getColumnSeqMapping().forEach(
-                        (seqColumn, columnGroup) -> sequenceMapping.put(seqColumn, new ArrayList<>(columnGroup)));
-            }
+            Map<String, List<String>> sequenceMapping = olapTable.getColumnSeqMapping() == null ? new HashMap<>()
+                    : new HashMap<>(olapTable.getColumnSeqMapping());
 
             Map<String, String> sequenceMappingSettings = new HashMap<>();
             for (AlterOp alterOp : alterOps) {
@@ -3971,8 +3966,9 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     // The clause loop of process() updates some live table metadata in place before the statement publishes
-    // its changes: the bloom filter columns (processDropColumn) and the generated column references of the
-    // base schema columns (removeColumnWhenDropGeneratedColumn). Returns an action that restores them.
+    // its changes: the bloom filter columns (processDropColumn), the generated column references of the base
+    // schema columns (removeColumnWhenDropGeneratedColumn) and the table's sequence mapping groups
+    // (processDropSequenceMapping, the mapping is copied shallowly). Returns an action that restores them.
     private static Runnable snapshotLiveColumnMetadata(OlapTable olapTable, List<Column> baseSchema) {
         Set<String> bfColumns = olapTable.getCopiedBfColumns();
         double bfFpp = olapTable.getBfFpp();
@@ -3983,11 +3979,20 @@ public class SchemaChangeHandler extends AlterHandler {
                 generatedColumnRefs.put(column, new HashSet<>(column.getGeneratedColumnsThatReferToThis()));
             }
         }
+        Map<List<String>, List<String>> sequenceMappingGroups = new IdentityHashMap<>();
+        if (olapTable.getColumnSeqMapping() != null) {
+            olapTable.getColumnSeqMapping().values()
+                    .forEach(columnGroup -> sequenceMappingGroups.put(columnGroup, new ArrayList<>(columnGroup)));
+        }
         return () -> {
             olapTable.setBloomFilterInfo(bfColumns, bfFpp);
             generatedColumnRefs.forEach((column, refs) -> {
                 column.getGeneratedColumnsThatReferToThis().clear();
                 column.getGeneratedColumnsThatReferToThis().addAll(refs);
+            });
+            sequenceMappingGroups.forEach((columnGroup, columns) -> {
+                columnGroup.clear();
+                columnGroup.addAll(columns);
             });
         };
     }
