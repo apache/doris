@@ -180,30 +180,25 @@ protected:
     }
 };
 
-TEST_F(FileExprTest, InlineGetterAndSixFieldStructRoundTripPreserveBinary) {
+TEST_F(FileExprTest, InlineGetterAndStructToFileCastPreserveBinary) {
     const std::string bytes("\0\xff\x80", 3);
-    auto value = file_value();
-    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
-    auto empty = file_value();
-    empty.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
-    const auto input = column(make_nullable(file_type), {value, empty, file_value(), Field()});
+    auto value = public_value("urn:binary");
+    value.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto empty = public_value("urn:empty");
+    empty.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
     const auto& schema = assert_cast<const DataTypeFile&>(*file_type);
     const auto structure_type = make_nullable(
             std::make_shared<DataTypeStruct>(schema.get_elements(), schema.get_element_names()));
-    ColumnPtr projected;
-    ASSERT_TRUE(cast(input, structure_type, true, projected).ok());
-    ASSERT_EQ((*projected)[0].get<TYPE_STRUCT>().size(), 6);
-    EXPECT_EQ((*projected)[0].get<TYPE_STRUCT>()[5].get<TYPE_VARBINARY>().str(), bytes);
+    const auto source =
+            column(structure_type, {value, empty, public_value("urn:missing"), Field()});
     ColumnPtr restored;
-    ASSERT_TRUE(
-            cast({projected, structure_type, "struct"}, make_nullable(file_type), true, restored)
-                    .ok());
+    ASSERT_TRUE(cast(source, make_nullable(file_type), true, restored).ok());
     EXPECT_EQ((*restored)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
     EXPECT_FALSE((*restored)[1].get<TYPE_FILE>()[5].is_null());
     EXPECT_EQ((*restored)[1].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(), 0);
     EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[5].is_null());
     EXPECT_TRUE(restored->is_null_at(3));
-    ColumnsWithTypeAndName args {input};
+    ColumnsWithTypeAndName args {{restored, make_nullable(file_type), "file"}};
     auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", args,
                                                                    schema.get_element(5));
     ASSERT_NE(function, nullptr);
@@ -423,6 +418,11 @@ TEST_F(FileExprTest, CastRejectsScalarInputsAndFileToString) {
         ColumnPtr output;
         EXPECT_FALSE(
                 cast(column(file_type, {file_value()}), make_nullable(text), strict, output).ok());
+        const auto array_type = std::make_shared<DataTypeArray>(make_nullable(file_type));
+        EXPECT_FALSE(
+                cast(column(array_type, {Field::create_field<TYPE_ARRAY>(Array {file_value()})}),
+                     make_nullable(text), strict, output)
+                        .ok());
     }
 }
 
@@ -480,19 +480,13 @@ TEST_F(FileExprTest, JsonCastsAreUnsupported) {
     }
 }
 
-TEST_F(FileExprTest, ToJsonAndStructCastExposeExactlySixFields) {
+TEST_F(FileExprTest, ToJsonExposesExactlySixFields) {
     const std::string bytes("\0\xff", 2);
     auto value = file_value("s3://b/key");
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(
             StringView(bytes.data(), cast_set<uint32_t>(bytes.size())));
     const auto input = column(make_nullable(file_type), {value, Field()});
     ColumnPtr output;
-    ASSERT_TRUE(cast(input, make_nullable(public_struct()), true, output).ok());
-    EXPECT_TRUE(output->is_null_at(1));
-    const auto public_value = (*output)[0];
-    ASSERT_EQ(public_value.get_type(), TYPE_STRUCT);
-    EXPECT_EQ(public_value.get<TYPE_STRUCT>().size(), 6);
-    EXPECT_EQ(public_value.get<TYPE_STRUCT>()[0].get<TYPE_STRING>(), "s3://b/key");
 
     const auto expected =
             R"({"uri":"s3://b/key","offset":null,"size":null,"content_type":null,"checksum":null,"inline":"AP8="})";
@@ -541,7 +535,7 @@ TEST_F(FileExprTest, ToJsonPreservesConstantFileAndNull) {
     }
 }
 
-TEST_F(FileExprTest, ReverseStructMatchesPublicNamesAndRequiresNullableChildren) {
+TEST_F(FileExprTest, FileToStructCastIsUnsupported) {
     const auto& file = assert_cast<const DataTypeFile&>(*file_type);
     ColumnPtr output;
     auto source_value = file_value("s3://b/key");
@@ -551,17 +545,13 @@ TEST_F(FileExprTest, ReverseStructMatchesPublicNamesAndRequiresNullableChildren)
     source_value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
     const auto input = column(file_type, {source_value});
     auto six = std::make_shared<DataTypeStruct>(file.get_elements(), file.get_element_names());
-    EXPECT_TRUE(cast(input, six, true, output).ok());
+    EXPECT_FALSE(cast(input, six, true, output).ok());
+    EXPECT_FALSE(cast(input, six, false, output).ok());
     auto reordered = std::make_shared<DataTypeStruct>(
             DataTypes {make_nullable(bigint), make_nullable(text), make_nullable(bigint),
                        make_nullable(text), make_nullable(text), make_nullable(binary)},
             Strings {"SIZE", "UrI", "offset", "content_type", "checksum", "inline"});
-    ASSERT_TRUE(cast(input, reordered, true, output).ok());
-    const auto value = (*output)[0];
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[0].get<TYPE_BIGINT>(), 12);
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[1].get<TYPE_STRING>(), "s3://b/key");
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[2].get<TYPE_BIGINT>(), 3);
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[5].get<TYPE_VARBINARY>().str(), bytes);
+    EXPECT_FALSE(cast(input, reordered, true, output).ok());
     auto nonnullable = std::make_shared<DataTypeStruct>(
             DataTypes {text, make_nullable(bigint), make_nullable(bigint), make_nullable(text),
                        make_nullable(text), make_nullable(binary)},
@@ -833,7 +823,7 @@ TEST_F(FileExprTest, StructCastSharesPayloadAndDetachesBeforeMutation) {
     EXPECT_EQ(source.get_column(5)[0].get<TYPE_VARBINARY>().str(), bytes);
 }
 
-TEST_F(FileExprTest, ReverseCastsRecurseAndIdentityPreservesInline) {
+TEST_F(FileExprTest, NestedFileToStructCastIsUnsupportedAndIdentityPreservesInline) {
     auto value = file_value("s3://b/key");
     const std::string bytes("a\0b", 3);
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
@@ -844,11 +834,9 @@ TEST_F(FileExprTest, ReverseCastsRecurseAndIdentityPreservesInline) {
     ASSERT_TRUE(cast(input, input_type, true, output).ok());
     EXPECT_EQ((*output)[0].get<TYPE_ARRAY>()[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(),
               3);
-    ASSERT_TRUE(cast(input, std::make_shared<DataTypeArray>(make_nullable(public_struct())), true,
-                     output)
-                        .ok());
-    EXPECT_EQ((*output)[0].get<TYPE_ARRAY>()[0].get<TYPE_STRUCT>().size(), 6);
-    EXPECT_TRUE((*output)[0].get<TYPE_ARRAY>()[1].is_null());
+    EXPECT_FALSE(cast(input, std::make_shared<DataTypeArray>(make_nullable(public_struct())), true,
+                      output)
+                         .ok());
 }
 
 TEST_F(FileExprTest, ExplodeFilePublicFieldsNullAndOuterRows) {

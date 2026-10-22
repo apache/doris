@@ -63,11 +63,6 @@ suite("test_file_type") {
                f IS NULL, f IS NOT NULL
         FROM test_file_type_values ORDER BY id
     """)
-    qt_struct fileQuery("""
-        SELECT id, CAST(f AS STRUCT<uri:VARCHAR(65533),offset:BIGINT,size:BIGINT,
-                   content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>)
-        FROM test_file_type_values ORDER BY id
-    """)
     qt_count fileQuery("SELECT COUNT(f) FROM test_file_type_values")
     qt_ordinary_constant_element """
         SELECT ELEMENT_AT(ARRAY(10, 20), 2), ELEMENT_AT(MAP('asset', 30), 'asset')
@@ -245,13 +240,13 @@ suite("test_file_type") {
     for (def expression in [
         "ARRAY_SORTBY(files, ARRAY(2, 1))", "ARRAY_MAP(x -> ELEMENT_AT(x, 'uri'), files)",
         "FIRST_VALUE(lookup) OVER (ORDER BY id)", "LAST_VALUE(files) OVER (ORDER BY id)",
-        "NTH_VALUE(holder, 1) OVER (ORDER BY id)",
-        "LAG(files) OVER (ORDER BY id)", "LEAD(holder) OVER (ORDER BY id)"
+        "NTH_VALUE(holder, 1) OVER (ORDER BY id)"
     ]) {
         sql fileQuery("SELECT ${expression} FROM test_file_type_nested")
     }
     for (def expression in [
-        "ARRAY_SORT(files)", "ARRAY_DISTINCT(files)", "ARRAY_CONTAINS(files, ELEMENT_AT(files, 1))"
+        "ARRAY_SORT(files)", "ARRAY_DISTINCT(files)", "ARRAY_CONTAINS(files, ELEMENT_AT(files, 1))",
+        "LAG(files) OVER (ORDER BY id)", "LEAD(holder) OVER (ORDER BY id)"
     ]) {
         test {
             sql fileQuery("SELECT ${expression} FROM test_file_type_nested")
@@ -273,6 +268,23 @@ suite("test_file_type") {
     for (def strict in [true, false]) {
         sql "SET enable_strict_cast = ${strict}"
         for (def castFunction in ["CAST", "TRY_CAST"]) {
+            for (def expression in [
+                "${castFunction}(f AS ${publicStruct})",
+                "${castFunction}(f AS STRING)",
+                "${castFunction}(ARRAY(f) AS STRING)",
+                "${castFunction}(NAMED_STRUCT('f', f) AS STRING)",
+                "${castFunction}(MAP('f', f) AS STRING)",
+                "${castFunction}(CAST(NULL AS FILE) AS ${publicStruct})",
+                "${castFunction}(ARRAY(f) AS ARRAY<${publicStruct}>)",
+                "${castFunction}(NAMED_STRUCT('f', f) AS STRUCT<f:${publicStruct}>)",
+                "${castFunction}(MAP('f', f) AS MAP<STRING,${publicStruct}>)",
+                "${castFunction}(ARRAY(NAMED_STRUCT('f', f)) AS ARRAY<STRUCT<f:${publicStruct}>>)"
+            ]) {
+                test {
+                    sql fileQuery("SELECT ${expression} FROM test_file_type_values")
+                    exception "FILE"
+                }
+            }
             for (def externalType in ["JSON", "VARIANT"]) {
                 for (def expression in [
                     "${castFunction}(f AS ${externalType})",
@@ -379,13 +391,14 @@ suite("test_file_type") {
     }
 
     // Explicit conversions remain query expressions; no FILE assignment policy is imposed.
-    def fileValue = "CAST(NAMED_STRUCT('uri', 'urn:cast', 'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS FILE)"
-    def fileArrayValue = "CAST(ARRAY(CAST(${fileValue} AS ${publicStruct})) AS ARRAY<FILE>)"
-    qt_explicit_reverse fileQuery("""
+    def structValue = "NAMED_STRUCT('uri', 'urn:cast', 'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL)"
+    def fileValue = "CAST(${structValue} AS FILE)"
+    def fileArrayValue = "CAST(ARRAY(${structValue}) AS ARRAY<FILE>)"
+    qt_explicit_struct_to_file fileQuery("""
         SELECT CAST(TO_JSON(${fileValue}) AS STRING), TO_JSON(${fileValue}),
-               ELEMENT_AT(CAST(${fileValue} AS ${publicStruct}), 'uri'),
+               ELEMENT_AT(${fileValue}, 'uri'),
                CAST(TO_JSON(ELEMENT_AT(${fileArrayValue}, 1)) AS STRING),
-               ELEMENT_AT(ELEMENT_AT(CAST(${fileArrayValue} AS ARRAY<${publicStruct}>), 1), 'uri')
+               ELEMENT_AT(ELEMENT_AT(${fileArrayValue}, 1), 'uri')
     """)
     for (def query in [
         "SELECT CAST(f AS STRING) FROM test_file_type_values",
@@ -398,15 +411,9 @@ suite("test_file_type") {
             exception "FILE"
         }
     }
-    qt_inline_struct_roundtrip fileQuery("""
-        SELECT id, FROM_BINARY(FL_GET_BINARY(CAST(CAST(f AS
-                   STRUCT<inline:VARBINARY,checksum:STRING,content_type:STRING,size:BIGINT,offset:BIGINT,uri:STRING>)
-                   AS FILE)))
-        FROM test_file_type_values ORDER BY id
-    """)
     qt_explicit_forward fileQuery("""
         SELECT id, ELEMENT_AT(CAST(j AS FILE), 'uri'),
-               ELEMENT_AT(ELEMENT_AT(CAST(ARRAY(CAST(CAST(j AS FILE) AS ${publicStruct})) AS ARRAY<FILE>), 1), 'uri')
+               ELEMENT_AT(ELEMENT_AT(CAST(ARRAY(j) AS ARRAY<FILE>), 1), 'uri')
         FROM (
             SELECT 2 AS id, NAMED_STRUCT('uri', 'urn:struct', 'offset', NULL, 'size', NULL,
                 'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS j
@@ -460,7 +467,6 @@ def evaluate(value):
                FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(MAP('asset', f), 'asset')))
         FROM test_file_type_inline_values ORDER BY id
     """)
-    qt_inline_struct fileQuery("SELECT id, CAST(f AS ${publicStruct}) FROM test_file_type_inline_values ORDER BY id")
     qt_inline_explode fileQuery("""
         SELECT id, uri, off, size, mime, checksum, FROM_BINARY(inline_bytes)
         FROM test_file_type_inline_values
