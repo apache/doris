@@ -36,8 +36,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
@@ -190,14 +188,6 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitCount(Count count, C context) {
         return visitAggregateFunction(count, context);
-    }
-
-    default R visitCountAtMin(CountAtMin countAtMin, C context) {
-        return visitAggregateFunction(countAtMin, context);
-    }
-
-    default R visitCountAtMax(CountAtMax countAtMax, C context) {
-        return visitAggregateFunction(countAtMax, context);
     }
 
     default R visitCountByEnum(CountByEnum count, C context) {

@@ -36,8 +36,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountMap;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
@@ -153,8 +151,6 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(CorrWelford.class, "corr_welford"),
                 agg(ExponentialMovingAverage.class, "exponential_moving_average"),
                 agg(Count.class, "count"),
-                agg(CountAtMin.class, "count_at_min"),
-                agg(CountAtMax.class, "count_at_max"),
                 agg(CountByEnum.class, "count_by_enum"),
                 agg(CountMap.class, "count_map"),
                 agg(Covar.class, "covar", "covar_pop"),
