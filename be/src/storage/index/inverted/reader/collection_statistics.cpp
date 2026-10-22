@@ -39,6 +39,28 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace {
+
+Result<std::shared_ptr<lucene::search::IndexSearcher>> open_optional_clucene_stats_searcher(
+        const segment_v2::IndexFileReader& file_reader, const TabletIndex* index,
+        const io::IOContext* io_ctx) {
+    auto compound = file_reader.open(index, io_ctx);
+    if (!compound.has_value()) {
+        // Variant rowsets can contain only `a` or only `b`. Missing `a` must not discard
+        // this segment's available `b` statistics when scoring SEARCH('a:hit OR b:hit').
+        const auto& status = compound.error();
+        if (status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+            status.is<ErrorCode::INVERTED_INDEX_BYPASS>()) {
+            return std::shared_ptr<lucene::search::IndexSearcher> {};
+        }
+        return ResultError(status);
+    }
+    auto* reader = lucene::index::IndexReader::open(compound.value().get());
+    return std::make_shared<lucene::search::IndexSearcher>(reader, true);
+}
+
+} // namespace
+
 namespace collection_statistics_detail {
 
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
@@ -303,9 +325,11 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         InvertedIndexCacheHandle inverted_index_cache_handle;
 #endif
 #ifdef BE_TEST
-        auto compound_reader = DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
-        auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-        owned_index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+        owned_index_searcher = DORIS_TRY(open_optional_clucene_stats_searcher(
+                *idx_file_reader, collect_info.index_meta, io_ctx));
+        if (owned_index_searcher == nullptr) {
+            continue; // This field has no index in this segment; collect the other fields.
+        }
         index_searcher = owned_index_searcher.get();
         index_reader = index_searcher->getReader();
 #else
@@ -314,11 +338,13 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
         if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                             &inverted_index_cache_handle)) {
-            auto compound_reader =
-                    DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
-            auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-            size_t reader_size = reader->getTermInfosRAMUsed();
-            auto searcher_ptr = std::make_shared<lucene::search::IndexSearcher>(reader, true);
+            auto searcher_ptr = DORIS_TRY(open_optional_clucene_stats_searcher(
+                    *idx_file_reader, collect_info.index_meta, io_ctx));
+            if (searcher_ptr == nullptr) {
+                continue; // This field has no index in this segment; collect the other fields.
+            }
+            index_reader = searcher_ptr->getReader();
+            size_t reader_size = index_reader->getTermInfosRAMUsed();
             auto* cache_value = new CluceneSearcherCacheValue(std::move(searcher_ptr), reader_size,
                                                               UnixMillis());
             InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
