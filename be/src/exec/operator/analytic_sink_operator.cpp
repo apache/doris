@@ -185,6 +185,12 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+bool AnalyticSinkLocalState::is_blockable() const {
+    // The first input can force/proactively spill, or flush a peer sidecar, before a data
+    // file exists. Classify eligible sinks before that call, not only after the first spill.
+    return _spill_enabled || Base::is_blockable();
+}
+
 void AnalyticSinkLocalState::_init_spill_mode(const AnalyticSinkOperatorX& parent) {
     _spill_enabled = parent._enable_spill_analytic;
     _spill_strategies = parent._window_spill_strategies;

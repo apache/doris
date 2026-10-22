@@ -458,6 +458,42 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumInMemory) {
     EXPECT_TRUE(output.empty());
 }
 
+TEST_F(AnalyticSinkOperatorTest, SpillSchedulingBeforeFirstWrite) {
+    Initialize(10);
+    prepare_spilled_full_partition_sum();
+
+    // Even an ordinary first input can cross the proactive limit or flush a peer sidecar.
+    // Waiting for is_spilled() would dispatch that synchronous write to the simple pool.
+    ASSERT_EQ(sink_local_state->_batch_store, nullptr);
+    EXPECT_TRUE(sink->is_blockable(state.get()));
+    state->_query_options.__set_enable_force_spill(true);
+    EXPECT_TRUE(sink->is_blockable(state.get()));
+
+    sink_local_state->_spill_enabled = false;
+    EXPECT_FALSE(sink->is_blockable(state.get()));
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillSchedulingReplayUsesOwnSharedState) {
+    Initialize(10);
+    prepare_spilled_full_partition_sum();
+
+    // The fixture puts source and sink in one RuntimeState. Disable only its sink's spill
+    // flag to model replay feeding an ordinary sink; the source's shared flag stays enabled.
+    sink_local_state->_spill_enabled = false;
+    EXPECT_FALSE(sink->is_blockable(state.get()));
+    {
+        LockGuard lock(source_local_state->_shared_state->buffer_mutex);
+        EXPECT_TRUE(source_local_state->_shared_state->spill_batches.empty());
+    }
+    EXPECT_TRUE(source->is_blockable(state.get()));
+
+    source_local_state->_shared_state->spill_enabled.store(false);
+    EXPECT_FALSE(source->is_blockable(state.get()));
+    // Unsupported/streaming windows must still preserve blocking expression classification.
+    source->_blockable = true;
+    EXPECT_TRUE(source->is_blockable(state.get()));
+}
+
 TEST_F(AnalyticSinkOperatorTest, SpillAdmissionDefersBatchPublishedAfterEmptySnapshot) {
     Initialize(10);
     prepare_spilled_full_partition_sum();

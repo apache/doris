@@ -568,6 +568,13 @@ Status AnalyticSourceOperatorX::get_block_impl(RuntimeState* state, Block* outpu
     return Status::OK();
 }
 
+bool AnalyticSourceOperatorX::is_blockable(RuntimeState* state) const {
+    // Replay can open/read both files in its first call. Its pipeline may have an ordinary
+    // nonblocking sink, so consult this source's shared state rather than that sink alone.
+    return get_local_state(state)._shared_state->spill_enabled.load() ||
+           OperatorX<AnalyticLocalState>::is_blockable(state);
+}
+
 size_t AnalyticSourceOperatorX::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     if (!local_state._shared_state->spill_enabled.load()) {

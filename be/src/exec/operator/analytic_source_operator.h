@@ -108,6 +108,7 @@ public:
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
+    bool is_blockable(RuntimeState* state) const override;
 
     size_t get_reserve_mem_size(RuntimeState* state) override;
 
