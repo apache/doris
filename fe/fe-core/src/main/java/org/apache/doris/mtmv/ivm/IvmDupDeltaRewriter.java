@@ -165,14 +165,14 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
             // The left delta joins the right as it was before the window, so it matches the rows both
             // sides already agreed on.
             contributions.add(rewriteInnerJoinContribution(join, true, leftDelta.get(),
-                    IvmDeltaRewriter.preSnapshot(join.right(), rewriteState)));
+                    helper.preSnapshot(join.right(), rewriteState)));
         }
         Optional<Plan> rightDelta = join.right().accept(this, context);
         if (rightDelta.isPresent()) {
             // The right delta joins the left as it is after the window, which is the side carrying the
             // rows the left appended in the same window.
             contributions.add(rewriteInnerJoinContribution(join, false, rightDelta.get(),
-                    IvmDeltaRewriter.postSnapshot(join.left(), rewriteState)));
+                    helper.postSnapshot(join.left(), rewriteState)));
         }
         return helper.combineDeltaPlans(contributions, join.getOutput());
     }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -77,15 +75,15 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
 
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
-        OlapTable table = scan.getTable();
-        if (table.getKeysType() != KeysType.DUP_KEYS) {
+        if (!scan.isChangelogAppendOnly()) {
             // An AnalysisException rather than an IvmException: a refresh turns every IvmException into a
             // fallback, which would express "the premise of this MV is broken" as "try a complete refresh",
             // even though that refresh runs this same normalize and fails the same way. The premise being
             // broken is not a retry.
             throw new AnalysisException(
-                    "IVM detail MV error: table " + table.getName() + " is " + table.getKeysType()
-                            + ", but a detail MV can only be built over duplicate-key detail tables");
+                    "IVM detail MV error: table " + scan.getTable().getName()
+                            + " does not provide an append-only changelog, but a detail MV can only be "
+                            + "built over scans whose changelog contains only appends");
         }
         IvmUtil.validateChangelogEnabled(excludedTriggerTables, scan);
         return scan;
