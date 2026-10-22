@@ -31,9 +31,9 @@ public:
     Token* next(Token* t) override {
         _skipped_positions = 0;
         while (true) {
-            int32_t token_type = _scanner->get_next_token();
+            const auto token_type = _scanner->get_next_token();
 
-            if (token_type == StandardTokenizerImpl::YYEOF) {
+            if (token_type == StandardTokenizerImpl::TokenType::EOF_TOKEN) {
                 return nullptr;
             }
 

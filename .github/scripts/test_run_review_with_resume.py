@@ -814,7 +814,7 @@ class HeadWatchdogTest(unittest.TestCase):
         self.enterContext(mock.patch.object(runner.time, "monotonic", side_effect=lambda: self.clock))
         self.sleep = self.enterContext(mock.patch.object(runner.time, "sleep", side_effect=self.advance))
         self.api = self.enterContext(mock.patch.object(runner.subprocess, "run"))
-        self.api.return_value = SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}}))
+        self.api.return_value = SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "a" * 40}}))
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.watchdog = runner.HeadWatchdog(self.args, lambda: 1000 - self.clock)
 
@@ -873,8 +873,8 @@ class HeadWatchdogTest(unittest.TestCase):
 
     def test_backoff_polls_and_stops_before_another_model_request(self):
         self.api.side_effect = [
-            SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}})),
-            SimpleNamespace(stdout=json.dumps({"head": {"sha": "c" * 40}})),
+            SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "a" * 40}})),
+            SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "c" * 40}})),
         ]
         with self.assertRaises(runner.ReviewSuperseded):
             self.watchdog.wait(300)
@@ -883,7 +883,7 @@ class HeadWatchdogTest(unittest.TestCase):
     def test_backoff_api_time_counts_toward_wait(self):
         def slow_api(*args, **kwargs):
             self.clock += 5
-            return SimpleNamespace(stdout=json.dumps({"head": {"sha": "a" * 40}}))
+            return SimpleNamespace(stderr="", stdout=json.dumps({"head": {"sha": "a" * 40}}))
         self.api.side_effect = slow_api
         self.watchdog.wait(125)
         self.assertEqual(125, self.clock)
@@ -1017,7 +1017,9 @@ class WorkflowBudgetTest(unittest.TestCase):
         )
         # A shell gh stub writes the downloaded helper and advances Bash's elapsed
         # clock without waiting minutes. The helper reports the actual CLI args.
-        gh = """gh() {
+        gh = """python3() {
+  if [ "$1" != "$REVIEW_GH_HELPER" ]; then command python3 "$@"; return; fi
+  shift
   SECONDS=$((SECONDS + SETUP_SECONDS))
   cat <<'HELPER'
 import json, sys
@@ -1081,7 +1083,7 @@ class ResumeTargetTest(unittest.TestCase):
     def check(self, pages):
         def api(command, **kwargs):
             data = pages if "--paginate" in command else self.pr
-            return SimpleNamespace(stdout=json.dumps(data))
+            return SimpleNamespace(stderr="", stdout=json.dumps(data))
 
         with mock.patch.object(runner.subprocess, "run", side_effect=api):
             runner.check_resume_target(self.args, "2026-09-07T11:00:00Z", lambda: 500)

@@ -79,7 +79,7 @@ static const uint16_t OLAP_ARRAY_MAX_BYTES = OLAP_ARRAY_MAX_LENGTH;
 
 static constexpr uint16_t MAX_ZONE_MAP_INDEX_SIZE = 512;
 
-enum OLAPDataVersion {
+enum class OLAPDataVersion : int32_t {
     OLAP_V1 = 0,
     DORIS_V1 = 1,
 };
@@ -113,7 +113,7 @@ static inline std::string cooldown_tablet_meta_filename(int64_t cooldown_replica
 static const std::string TABLET_UID = "tablet_uid";
 static const std::string STORAGE_NAME = "storage_name";
 
-static const int32_t OLAP_DATA_VERSION_APPLIED = DORIS_V1;
+static constexpr OLAPDataVersion OLAP_DATA_VERSION_APPLIED = OLAPDataVersion::DORIS_V1;
 
 static const uint32_t MAX_POSITION_SIZE = 16;
 
@@ -126,7 +126,7 @@ static const uint64_t GB_EXCHANGE_BYTE = 1024 * 1024 * 1024;
 // bloom filter fpp
 static const double BLOOM_FILTER_DEFAULT_FPP = 0.05;
 
-enum ColumnFamilyIndex {
+enum class ColumnFamilyIndex {
     DEFAULT_COLUMN_FAMILY_INDEX = 0,
     DORIS_COLUMN_FAMILY_INDEX,
     META_COLUMN_FAMILY_INDEX,

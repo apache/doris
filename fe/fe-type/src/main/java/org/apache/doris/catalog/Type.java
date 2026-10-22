@@ -1278,8 +1278,16 @@ public abstract class Type {
                     return false;
                 }
                 for (int i = 0; i < struct1.getFields().size(); i++) {
-                    if (!matchExactType(struct1.getFields().get(i).getType(),
-                            struct2.getFields().get(i).getType(), ignorePrecision)) {
+                    StructField field1 = struct1.getFields().get(i);
+                    StructField field2 = struct2.getFields().get(i);
+                    // A struct field name is part of the value identity: the cast is defined to
+                    // return the target field names positionally, and BE resolves name based
+                    // access (ELEMENT_AT, nested field references) against the type attached to
+                    // the result column at execution time. Dropping a rename-only cast would let
+                    // those lookups see the source names, so such a cast is not a no-op even when
+                    // the positional field types are identical.
+                    if (!field1.getName().equals(field2.getName())
+                            || !matchExactType(field1.getType(), field2.getType(), ignorePrecision)) {
                         return false;
                     }
                 }

@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "storage/compaction_task_types.h"
+
 namespace doris {
 
 // Standardized compaction type enum covering base / cumulative / full.
@@ -45,13 +47,6 @@ enum class CompactionTaskStatus : uint8_t {
 };
 
 const char* to_string(CompactionTaskStatus status);
-
-// How the compaction was triggered.
-enum class TriggerMethod : uint8_t {
-    AUTO = 0,
-    MANUAL = 1,
-    LOAD_TRIGGERED = 2,
-};
 
 const char* to_string(TriggerMethod method);
 

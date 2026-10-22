@@ -67,8 +67,9 @@ class ReviewConvergenceWorkflowTest(unittest.TestCase):
         source_script = step_script("Sync Code Review check for current head")
         # Replace the only external mutation with an argument capture. Run the
         # actual Bash/jq blocks, then feed their source into the real resolver.
-        capture = """gh() {
-  python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"
+        capture = """python3() {
+  shift
+  command python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"
 }
 """
         for converged, p0, p1, expected in (

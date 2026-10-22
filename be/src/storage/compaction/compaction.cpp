@@ -1802,7 +1802,7 @@ Status CompactionMixin::update_delete_bitmap() {
     // if tablet is not ready(such as schema change), we need to update delete bitmap
     {
         std::shared_lock meta_rlock(_tablet->get_header_lock());
-        if (_tablet->tablet_state() != TABLET_NOTREADY) {
+        if (_tablet->tablet_state() != TabletState::TABLET_NOTREADY) {
             return Status::OK();
         }
     }
@@ -1830,7 +1830,7 @@ Status CloudCompactionMixin::update_delete_bitmap() {
     // if tablet is not ready(such as schema change), we need to update delete bitmap
     {
         std::shared_lock meta_rlock(_tablet->get_header_lock());
-        if (_tablet->tablet_state() != TABLET_NOTREADY) {
+        if (_tablet->tablet_state() != TabletState::TABLET_NOTREADY) {
             return Status::OK();
         }
     }
@@ -1972,7 +1972,7 @@ Status CompactionMixin::modify_rowsets() {
                                     });
             }
 
-            if (_tablet->tablet_state() == TABLET_RUNNING &&
+            if (_tablet->tablet_state() == TabletState::TABLET_RUNNING &&
                 merged_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
                 std::stringstream ss;
                 ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
