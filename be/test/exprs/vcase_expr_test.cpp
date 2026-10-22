@@ -33,7 +33,10 @@
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/type_limit.h"
+#include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -45,6 +48,8 @@ struct CaseSelectionTypes {
 };
 
 using CaseSelectionTestTypes = ::testing::Types<
+        CaseSelectionTypes<uint8_t, TYPE_INT>, CaseSelectionTypes<uint8_t, TYPE_BIGINT>,
+        CaseSelectionTypes<uint16_t, TYPE_INT>, CaseSelectionTypes<uint16_t, TYPE_BIGINT>,
         CaseSelectionTypes<uint8_t, TYPE_FLOAT>, CaseSelectionTypes<uint8_t, TYPE_DOUBLE>,
         CaseSelectionTypes<uint16_t, TYPE_FLOAT>, CaseSelectionTypes<uint16_t, TYPE_DOUBLE>,
         CaseSelectionTypes<uint8_t, TYPE_DATE>, CaseSelectionTypes<uint8_t, TYPE_DATETIME>,
@@ -64,7 +69,7 @@ protected:
     using Value = typename Column::value_type;
     using Bits = std::conditional_t<sizeof(Value) == 4, uint32_t, uint64_t>;
 
-    void check_selection(size_t rows, size_t branches, bool constant) {
+    void check_selection(size_t rows, size_t branches, bool constant, bool mixed = false) {
         SCOPED_TRACE(::testing::Message()
                      << "rows=" << rows << " branches=" << branches << " constant=" << constant);
         TExprNode node;
@@ -96,11 +101,12 @@ protected:
         }
         std::vector<ColumnPtr> columns;
         for (size_t branch = 0; branch < branches; ++branch) {
-            auto column = Column::create(constant ? 1 : rows);
+            const bool branch_const = constant || (mixed && branch % 2 == 0);
+            auto column = Column::create(branch_const ? 1 : rows);
             for (size_t row = 0; row < column->size(); ++row) {
                 column->get_data()[row] = values[(row / branches + branch) % values.size()];
             }
-            if (constant) {
+            if (branch_const) {
                 columns.push_back(ColumnConst::create(std::move(column), rows));
             } else {
                 columns.push_back(std::move(column));
@@ -111,8 +117,9 @@ protected:
         const auto& actual = assert_cast<const Column&>(*result).get_data();
         ASSERT_EQ(actual.size(), rows);
         for (size_t row = 0; row < rows; ++row) {
+            const bool branch_const = constant || (mixed && indices[row] % 2 == 0);
             const auto expected =
-                    values[((constant ? 0 : row / branches) + indices[row]) % values.size()];
+                    values[((branch_const ? 0 : row / branches) + indices[row]) % values.size()];
             // Compare bits to include NaN payloads, signed zero and subnormal values.
             ASSERT_EQ(std::bit_cast<Bits>(actual[row]), std::bit_cast<Bits>(expected)) << row;
         }
@@ -130,6 +137,12 @@ TYPED_TEST(VCaseSelectionTest, ValuesAndVectorTails) {
 TYPED_TEST(VCaseSelectionTest, ConstantBranches) {
     for (size_t rows : {1, 31, 4099}) {
         this->check_selection(rows, 9, true);
+    }
+}
+
+TYPED_TEST(VCaseSelectionTest, MixedConstantAndFullBranches) {
+    for (size_t rows : {0, 1, 31, 4099}) {
+        this->check_selection(rows, 9, false, true);
     }
 }
 
@@ -267,26 +280,32 @@ TEST(VSimpleCaseTest, ConstantInputsAndEmptyBatch) {
 TEST(VSimpleCaseTest, WideBranchIndexAndSelector) {
     auto type = std::make_shared<DataTypeInt32>();
     auto input = ColumnInt32::create();
-    for (int value : {1, 255, -1, 0}) {
+    for (int value : {1, 65533, -1, 0}) {
         input->insert_value(value);
     }
     auto expr = make_simple_case(type, true);
     auto input_expr = std::make_shared<SimpleCaseColumnExpr>(type, std::move(input));
     expr.add_child(input_expr);
-    for (int branch = 0; branch < 256; ++branch) {
+    for (int branch = 0; branch < 65534; ++branch) {
         expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(branch)));
         expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(branch + 1000)));
     }
     expr.add_child(simple_case_literal(type, Field::create_field<TYPE_INT>(-99)));
+    RuntimeState state;
+    VExprContext context(nullptr);
+    ASSERT_TRUE(expr.prepare(&state, RowDescriptor(), &context).ok());
+    ASSERT_TRUE(
+            expr.open(&state, &context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     Selector selector {1, 2, 0};
     ColumnPtr result;
-    auto status = expr.execute_column(nullptr, nullptr, &selector, selector.size(), result);
+    auto status = expr.execute_column(&context, nullptr, &selector, selector.size(), result);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_EQ(result->size(), 3);
-    EXPECT_EQ(result->get_int(0), 1255);
+    EXPECT_EQ(result->get_int(0), 66533);
     EXPECT_EQ(result->get_int(1), -99);
     EXPECT_EQ(result->get_int(2), 1001);
     EXPECT_EQ(input_expr->calls, 1);
+    expr.close(&context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
 }
 
 TEST(VSimpleCaseTest, StringKeysAndResults) {
@@ -425,6 +444,135 @@ TYPED_TEST(VSimpleCaseNumericTest, NullableMatchingAcrossVectorBoundaries) {
             EXPECT_EQ(result->get_int(row), matches ? static_cast<int>(row % 5) * 11 : 33)
                     << "row=" << row << ", has_null=" << has_null;
         }
+    }
+}
+
+using SimpleCaseLookupTypes =
+        ::testing::Types<std::integral_constant<PrimitiveType, TYPE_BOOLEAN>,
+                         std::integral_constant<PrimitiveType, TYPE_TINYINT>,
+                         std::integral_constant<PrimitiveType, TYPE_SMALLINT>,
+                         std::integral_constant<PrimitiveType, TYPE_INT>,
+                         std::integral_constant<PrimitiveType, TYPE_BIGINT>,
+                         std::integral_constant<PrimitiveType, TYPE_LARGEINT>,
+                         std::integral_constant<PrimitiveType, TYPE_FLOAT>,
+                         std::integral_constant<PrimitiveType, TYPE_DOUBLE>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL32>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL64>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL128I>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMAL256>,
+                         std::integral_constant<PrimitiveType, TYPE_DECIMALV2>,
+                         std::integral_constant<PrimitiveType, TYPE_STRING>>;
+
+template <typename T>
+class VSimpleCaseLookupTest : public ::testing::Test {};
+
+TYPED_TEST_SUITE(VSimpleCaseLookupTest, SimpleCaseLookupTypes);
+
+void check_simple_case_lookup_result(const ColumnPtr& result, const std::vector<int>& expected) {
+    ASSERT_EQ(result->size(), expected.size());
+    for (size_t row = 0; row < result->size(); ++row) {
+        EXPECT_EQ(result->get_int(row), expected[row]) << row;
+    }
+}
+
+void check_simple_case_lookup_context(const VExprSPtr& expr,
+                                      const std::shared_ptr<SimpleCaseColumnExpr>& shadowed,
+                                      const std::vector<int>& expected) {
+    const size_t rows = expected.size();
+    RuntimeState state;
+    VExprContext context(expr);
+    auto status = context.prepare(&state, RowDescriptor());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    status = context.open(&state);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    VExprContextSPtr clone;
+    status = context.clone(&state, clone);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    for (auto* active : {&context, clone.get()}) {
+        ColumnPtr result;
+        status = expr->execute_column(active, nullptr, nullptr, rows, result);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        check_simple_case_lookup_result(result, expected);
+    }
+    // Lookup must preserve non-short-circuit evaluation for duplicate keys,
+    // even though the first branch still determines the selected result.
+    EXPECT_EQ(shadowed->calls, 2);
+    shadowed->fail = true;
+    ColumnPtr result;
+    status = expr->execute_column(&context, nullptr, nullptr, rows, result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("simple case test branch error"), std::string::npos);
+    EXPECT_EQ(shadowed->calls, 3);
+}
+
+template <PrimitiveType pt>
+void check_simple_case_lookup(size_t branches) {
+    SCOPED_TRACE(branches);
+    using Type = typename PrimitiveTypeTraits<pt>::DataType;
+    auto type = std::make_shared<Type>();
+    auto result_type = std::make_shared<DataTypeInt32>();
+    const auto key = [](int value) {
+        if constexpr (pt == TYPE_STRING) {
+            // Exercise empty, embedded-NUL and non-inline string keys.
+            std::string text = value == 0 ? "" : std::string(40, 'x') + std::to_string(value);
+            if (value == 1) {
+                text = std::string("a\0b", 3);
+            }
+            return Field::create_field<TYPE_STRING>(text);
+        } else {
+            return Field::create_field<pt>(value);
+        }
+    };
+    const size_t rows = std::max(size_t(257), branches + 1);
+    std::vector<int> expected(rows, -1);
+    auto input = type->create_column();
+    auto nulls = ColumnUInt8::create();
+    for (size_t row = 0; row < rows; ++row) {
+        const auto input_key = key(row % (branches + 1));
+        input->insert(input_key);
+        nulls->insert_value(row % 7 == 0);
+        if (row % 7 != 0) {
+            for (size_t branch = 0; branch < branches; ++branch) {
+                if (key(branch) == input_key) {
+                    expected[row] = branch + 1;
+                    break;
+                }
+            }
+        }
+    }
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::CASE_EXPR);
+    node.__set_type(result_type->to_thrift());
+    node.__set_is_nullable(false);
+    node.case_expr.__set_has_case_expr(true);
+    node.case_expr.__set_has_else_expr(true);
+    auto expr = VCaseExpr::create_shared(node);
+    expr->add_child(std::make_shared<SimpleCaseColumnExpr>(
+            make_nullable(type), ColumnNullable::create(std::move(input), std::move(nulls))));
+    auto shadowed = std::make_shared<SimpleCaseColumnExpr>(
+            result_type, result_type->create_column_const(rows, Field::create_field<TYPE_INT>(99)));
+    for (size_t branch = 0; branch < branches; ++branch) {
+        const int value = branch == branches - 1 ? 1 : branch;
+        expr->add_child(simple_case_literal(type, key(value)));
+        if (branch == branches - 1) {
+            expr->add_child(shadowed);
+        } else {
+            expr->add_child(
+                    simple_case_literal(result_type, Field::create_field<TYPE_INT>(branch + 1)));
+        }
+    }
+    expr->add_child(simple_case_literal(result_type, Field::create_field<TYPE_INT>(-1)));
+    check_simple_case_lookup_context(expr, shadowed, expected);
+}
+
+TYPED_TEST(VSimpleCaseLookupTest, NullableDuplicatesAndClonedContext) {
+    constexpr auto pt = TypeParam::value;
+    using Key = typename PrimitiveTypeTraits<pt>::CppType;
+    constexpr size_t threshold = sizeof(Key) <= sizeof(uint32_t)   ? 64
+                                 : sizeof(Key) <= sizeof(uint64_t) ? 32
+                                                                   : 8;
+    for (size_t branches : {threshold - 1, threshold, size_t(256), size_t(257), size_t(1024)}) {
+        check_simple_case_lookup<pt>(branches);
     }
 }
 

@@ -29,6 +29,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -197,8 +198,23 @@ public class ExpressionTranslatorTest {
             Assertions.assertFalse(translated.isHasElseExpr());
             Assertions.assertEquals(513, translated.getChildren().size());
             clauses.add(new WhenClause(new EqualTo(input, new IntegerLiteral(256)), new IntegerLiteral(256)));
-            Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
+            Assertions.assertTrue(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
                     new CaseWhen(clauses), context)).isHasCaseExpr());
+
+            int previousChildrenLimit = Config.expr_children_limit;
+            try {
+                Config.expr_children_limit = 200_000;
+                for (int i = clauses.size(); i < 65_534; ++i) {
+                    clauses.add(new WhenClause(new EqualTo(input, new IntegerLiteral(i)), new IntegerLiteral(i)));
+                }
+                Assertions.assertTrue(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
+                        new CaseWhen(clauses), context)).isHasCaseExpr());
+                clauses.add(new WhenClause(new EqualTo(input, new IntegerLiteral(65_534)), new IntegerLiteral(1)));
+                Assertions.assertFalse(((CaseExpr) ExpressionTranslator.INSTANCE.visitCaseWhen(
+                        new CaseWhen(clauses), context)).isHasCaseExpr());
+            } finally {
+                Config.expr_children_limit = previousChildrenLimit;
+            }
 
             // A slot key and a non-equality condition must keep searched CASE's layout.
             for (WhenClause clause : ImmutableList.of(
