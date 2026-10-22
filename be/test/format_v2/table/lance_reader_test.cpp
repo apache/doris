@@ -80,8 +80,10 @@
 #include "format/format_common.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "io/io_common.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -2074,27 +2076,44 @@ TEST(LanceTableReaderVectorSearchTest, AppliesSubstraitSearchFilterBeforeTopK) {
     scan_params.lance_scan_params.external_search_request.__set_search_filter(search_filter);
     scan_params.lance_scan_params.external_search_request.__set_prefilter(true);
 
-    ShardedKVCache cache(1);
-    for (int iteration = 0; iteration < 2; ++iteration) {
-        RuntimeProfile profile("lance_row_id_prefilter_cache");
-        LanceTableReader reader;
-        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
-        ASSERT_TRUE(
-                prepare_range(&reader,
-                              make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids),
-                              std::nullopt, &cache)
-                        .ok());
-        Block block;
-        add_output_columns(&block, columns);
-        const auto rows = read_vector_search_rows(&reader, &block);
-        ASSERT_EQ(1U, rows.size());
-        EXPECT_EQ(4, rows[0].first);
-        EXPECT_FLOAT_EQ(8.25F, rows[0].second);
-        ASSERT_NE(nullptr, profile.get_counter("LanceRowIdPrefilterRows"));
-        EXPECT_EQ(2, profile.get_counter("LanceRowIdPrefilterRows")->value());
-        EXPECT_EQ(iteration, profile.get_counter("LanceRowIdPrefilterCacheHits")->value());
-        EXPECT_TRUE(reader.close().ok());
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "UT-LanceRowIdPrefilter");
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+    {
+        ShardedKVCache cache(1);
+        int64_t cached_bytes = 0;
+        for (int iteration = 0; iteration < 2; ++iteration) {
+            {
+                RuntimeProfile profile("lance_row_id_prefilter_cache");
+                LanceTableReader reader;
+                ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+                ASSERT_TRUE(prepare_range(&reader,
+                                          make_lance_range(dataset_uri, fixture.version,
+                                                           fixture.fragment_ids),
+                                          std::nullopt, &cache)
+                                    .ok());
+                Block block;
+                add_output_columns(&block, columns);
+                const auto rows = read_vector_search_rows(&reader, &block);
+                ASSERT_EQ(1U, rows.size());
+                EXPECT_EQ(4, rows[0].first);
+                EXPECT_FLOAT_EQ(8.25F, rows[0].second);
+                ASSERT_NE(nullptr, profile.get_counter("LanceRowIdPrefilterRows"));
+                EXPECT_EQ(2, profile.get_counter("LanceRowIdPrefilterRows")->value());
+                EXPECT_EQ(iteration, profile.get_counter("LanceRowIdPrefilterCacheHits")->value());
+                EXPECT_TRUE(reader.close().ok());
+            }
+            doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+            if (iteration == 0) {
+                cached_bytes = tracker->consumption();
+                EXPECT_GE(cached_bytes, 2 * sizeof(uint64_t));
+            } else {
+                EXPECT_EQ(cached_bytes, tracker->consumption());
+            }
+        }
     }
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(0, tracker->consumption());
 }
 
 TEST(LanceTableReaderVectorSearchTest, BroadRowIdPrefilterFallsBackWithoutLosingNearestRow) {

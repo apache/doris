@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "format_v2/lance/lance_record_batch_converter.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
@@ -85,7 +86,8 @@ private:
     struct RowIdPrefilter {
         Status status;
         // Empty selects no rows; nullopt keeps the provider's native filter for a broad result.
-        std::optional<std::vector<uint64_t>> row_ids;
+        // Charge both collection and cache retention to the query's memory limit.
+        std::optional<DorisVector<uint64_t>> row_ids;
     };
     Status _check_row_id_prefilter_stop() const;
     Status _read_row_id_prefilter(const std::string& filter, RowIdPrefilter* result);

@@ -968,7 +968,7 @@ Status LanceTableReader::_read_row_id_prefilter(const std::string& filter, RowId
                                      imported.status().message());
     }
     auto reader = std::move(imported).ValueUnsafe();
-    std::vector<uint64_t> row_ids;
+    DorisVector<uint64_t> row_ids;
     while (true) {
         RETURN_IF_ERROR(_check_row_id_prefilter_stop());
         std::shared_ptr<arrow::RecordBatch> batch;
