@@ -217,6 +217,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Format;
@@ -829,6 +830,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Field.class, "field"),
             scalar(FindInSet.class, "find_in_set"),
             scalar(FirstSignificantSubdomain.class, "first_significant_subdomain"),
+            scalar(FlGetBinary.class, "fl_get_binary"),
             scalar(Floor.class, "floor"),
             scalar(Fmod.class, "fmod"),
             scalar(Format.class, "format"),

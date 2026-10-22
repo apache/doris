@@ -58,8 +58,8 @@ suite("test_file_type") {
     qt_fields fileQuery("""
         SELECT id, ELEMENT_AT(f, 'uri'), ELEMENT_AT(f, 'offset'), ELEMENT_AT(f, 'size'),
                ELEMENT_AT(f, 'content_type'), ELEMENT_AT(f, 'checksum'), ELEMENT_AT(f, 'UrI'),
-               FROM_BINARY(ELEMENT_AT(f, 'inline')), FROM_BINARY(ELEMENT_AT(f, 'INLINE')),
-               ELEMENT_AT(f, 'inline') IS NULL,
+               FROM_BINARY(FL_GET_BINARY(f)), FROM_BINARY(FL_GET_BINARY(f)),
+               FL_GET_BINARY(f) IS NULL,
                f IS NULL, f IS NOT NULL
         FROM test_file_type_values ORDER BY id
     """)
@@ -98,7 +98,7 @@ suite("test_file_type") {
     qt_conditional_values fileQuery("""
         SELECT id, COALESCE(f, ${inlineFallback}), IF(id = 2, ${inlineFallback}, f),
                IFNULL(f, ${inlineFallback}), CASE WHEN id = 2 THEN ${inlineFallback} ELSE f END,
-               FROM_BINARY(ELEMENT_AT(COALESCE(f, ${inlineFallback}), 'inline'))
+               FROM_BINARY(FL_GET_BINARY(COALESCE(f, ${inlineFallback})))
         FROM test_file_type_values ORDER BY id
     """)
     qt_null_only_propagation fileQuery("""
@@ -124,7 +124,7 @@ suite("test_file_type") {
     """)
     qt_count_fields fileQuery("""
         SELECT COUNT(ELEMENT_AT(f, 'uri')), COUNT(ELEMENT_AT(f, 'size')),
-               COUNT(ELEMENT_AT(f, 'inline')) FROM test_file_type_values
+               COUNT(FL_GET_BINARY(f)) FROM test_file_type_values
     """)
     test {
         sql fileQuery("SELECT ANY_VALUE(f) FROM test_file_type_values")
@@ -399,9 +399,9 @@ suite("test_file_type") {
         }
     }
     qt_inline_struct_roundtrip fileQuery("""
-        SELECT id, FROM_BINARY(ELEMENT_AT(CAST(CAST(f AS
+        SELECT id, FROM_BINARY(FL_GET_BINARY(CAST(CAST(f AS
                    STRUCT<inline:VARBINARY,checksum:STRING,content_type:STRING,size:BIGINT,offset:BIGINT,uri:STRING>)
-                   AS FILE), 'inline'))
+                   AS FILE)))
         FROM test_file_type_values ORDER BY id
     """)
     qt_explicit_forward fileQuery("""
@@ -446,18 +446,18 @@ def evaluate(value):
 
     qt_inline_values fileQuery("""
         SELECT id, f, ELEMENT_AT(f, 'uri'), ELEMENT_AT(f, 'size'),
-               FROM_BINARY(ELEMENT_AT(f, 'inline')), f IS NULL
+               FROM_BINARY(FL_GET_BINARY(f)), f IS NULL
         FROM test_file_type_inline_values ORDER BY id
     """)
     qt_inline_counts fileQuery("""
-        SELECT COUNT(f), COUNT(ELEMENT_AT(f, 'uri')), COUNT(ELEMENT_AT(f, 'inline'))
+        SELECT COUNT(f), COUNT(ELEMENT_AT(f, 'uri')), COUNT(FL_GET_BINARY(f))
         FROM test_file_type_inline_values
     """)
     qt_inline_constructors fileQuery("""
         SELECT id, ARRAY(f, NULL), NAMED_STRUCT('asset', f), MAP('asset', f),
-               FROM_BINARY(ELEMENT_AT(ELEMENT_AT(ARRAY(f), 1), 'inline')),
-               FROM_BINARY(ELEMENT_AT(ELEMENT_AT(NAMED_STRUCT('asset', f), 'asset'), 'inline')),
-               FROM_BINARY(ELEMENT_AT(ELEMENT_AT(MAP('asset', f), 'asset'), 'inline'))
+               FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(ARRAY(f), 1))),
+               FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(NAMED_STRUCT('asset', f), 'asset'))),
+               FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(MAP('asset', f), 'asset')))
         FROM test_file_type_inline_values ORDER BY id
     """)
     qt_inline_struct fileQuery("SELECT id, CAST(f AS ${publicStruct}) FROM test_file_type_inline_values ORDER BY id")
