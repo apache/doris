@@ -1999,6 +1999,9 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
+            // Check delete-job prerequisites before any clause changes table metadata.
+            checkLightDropIndexPreconditions(db, olapTable, alterClauses, enableAddIndexForNewData);
+
             for (AlterClause alterClause : alterClauses) {
                 Map<String, String> properties = alterClause.getProperties();
                 // alter table properties
@@ -2193,20 +2196,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     }
-                    // for inverted index, light schema change is supported in both cloud and local mode;
-                    // for ngram index, light schema change is supported only in cloud mode;
-                    boolean supportLightIndexChange = false;
-                    if (Config.isCloudMode()) {
-                        if (enableAddIndexForNewData) {
-                            supportLightIndexChange = (
-                                    found.getIndexType() == IndexType.NGRAM_BF
-                                            || found.getIndexType() == IndexDef.IndexType.INVERTED);
-                        }
-                    } else {
-                        supportLightIndexChange = found.getIndexType() == IndexDef.IndexType.INVERTED
-                                || found.getIndexType() == IndexDef.IndexType.ANN;
-                    }
-                    if (found != null && supportLightIndexChange) {
+                    if (found != null && isLightDropIndexSupported(found, enableAddIndexForNewData)) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;
@@ -3435,6 +3425,60 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (Exception e) {
             LOG.warn("Exception:", e);
             throw new UserException(e.getMessage());
+        }
+    }
+
+    // Inverted index supports light schema change in both cloud and local mode.
+    // NGRAM_BF and BfIndex support it only in cloud mode.
+    private static boolean isLightDropIndexSupported(Index index, boolean enableAddIndexForNewData) {
+        if (Config.isCloudMode()) {
+            return enableAddIndexForNewData
+                    && (index.getIndexType() == IndexType.NGRAM_BF
+                    || index.getIndexType() == IndexType.BLOOMFILTER
+                    || index.getIndexType() == IndexType.INVERTED);
+        }
+        return index.getIndexType() == IndexType.INVERTED || index.getIndexType() == IndexType.ANN;
+    }
+
+    // Reject conflicting jobs and mixed add/drop operations before publishing index metadata.
+    private void checkLightDropIndexPreconditions(Database db, OlapTable olapTable, List<AlterClause> alterClauses,
+            boolean enableAddIndexForNewData) throws UserException {
+        if (!Config.enable_light_index_change) {
+            return;
+        }
+        List<Index> droppedIndexes = new ArrayList<>();
+        for (AlterClause alterClause : alterClauses) {
+            if (!(alterClause instanceof DropIndexClause)) {
+                continue;
+            }
+            String indexName = ((DropIndexClause) alterClause).getIndexName();
+            olapTable.getIndexes().stream()
+                    .filter(index -> index.getIndexName().equalsIgnoreCase(indexName))
+                    .filter(index -> isLightDropIndexSupported(index, enableAddIndexForNewData))
+                    .findFirst()
+                    .ifPresent(droppedIndexes::add);
+        }
+        if (droppedIndexes.isEmpty()) {
+            return;
+        }
+        if (alterClauses.stream().anyMatch(alterClause -> alterClause instanceof CreateIndexClause
+                && ((CreateIndexClause) alterClause).getIndex().isLightAddIndexSupported(enableAddIndexForNewData))) {
+            throw new DdlException("Can not add and drop indexes in one ALTER statement,"
+                    + " please run them in separate statements.");
+        }
+        getCloudClusterName();
+        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
+    }
+
+    // Throws if any of the partitions still has an unfinished index change job on the base index.
+    private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
+            Set<String> partitionNames) throws DdlException {
+        for (String partitionName : partitionNames) {
+            if (hasIndexChangeJobOnPartition(olapTable.getBaseIndexId(), db.getId(), olapTable.getId(),
+                    partitionName, alterIndexes, true)) {
+                throw new DdlException("partition " + partitionName + " has been built specified index."
+                        + " please check your build stmt.");
+            }
         }
     }
 
