@@ -78,6 +78,10 @@ suite("test_ivm_minmax_topk_1") {
     // whole DDL, whose unrelated defaults would make the golden churn.
     def createDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
     assertTrue(createDdl.toString().contains('"ivm_minmax_top_k" = "2"'))
+    // DESC with hidden columns pins the state column type next to the per-step state values below.
+    sql """SET show_hidden_columns = true;"""
+    qt_desc_hidden """desc ivm_topk_1_mv"""
+    sql """SET show_hidden_columns = false;"""
 
     sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")

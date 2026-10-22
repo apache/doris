@@ -74,6 +74,9 @@ suite("test_ivm_minmax_topk_2") {
     // whole DDL, whose unrelated defaults would make the golden churn.
     def autoDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mv"""
     assertTrue(autoDdl.toString().contains('"ivm_minmax_top_k" = "0"'))
+    sql """SET show_hidden_columns = true;"""
+    qt_desc_hidden """desc ivm_topk_2_mv"""
+    sql """SET show_hidden_columns = false;"""
 
     sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mv")
