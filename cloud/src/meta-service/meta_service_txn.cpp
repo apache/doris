@@ -1576,9 +1576,14 @@ void update_tablet_last_active_cluster(const StatsTabletKeyInfo& info,
     stats_tablet_key(info, &key);
     std::string val;
     TxnErrorCode err = txn->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // A tablet inherited by a cloned instance has no aggregate stats key in this instance.
+        // Its owner lives only in the versioned load document, so just advance the generation.
+        ++*last_active_epoch;
+        return;
+    }
     if (err != TxnErrorCode::TXN_OK) {
-        code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
-                                                      : cast_as<ErrCategory::READ>(err);
+        code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get tablet stats for cluster update, err={} tablet_id={}", err,
                           std::get<4>(info));
         return;
@@ -3157,22 +3162,23 @@ void MetaServiceImpl::commit_txn_eventually(
                          << " msg=" << ret.second;
         } else {
             response->set_is_lazy_commit_incomplete(false);
+            // The owner result is a best-effort notification. The transaction is already visible,
+            // so a failure to read it back must not turn a successful commit into an error.
+            txn_info.clear_last_active_tablet_ids();
+            txn_info.clear_last_active_epochs();
+            txn_info.clear_last_active_candidate_tablet_ids();
             std::unique_ptr<Transaction> result_txn;
-            err = txn_kv_->create_txn(&result_txn);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::CREATE>(err);
-                msg = fmt::format("failed to create txn for lazy owner result, txn_id={}, err={}",
-                                  txn_id, err);
-                return;
-            }
             std::string result_val;
-            err = result_txn->get(info_key, &result_val);
-            if (err != TxnErrorCode::TXN_OK || !txn_info.ParseFromString(result_val)) {
-                code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::PROTOBUF_PARSE_ERR
-                                                   : cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to read lazy owner result, txn_id={}, err={}", txn_id,
-                                  err);
-                return;
+            TxnInfoPB visible_txn_info;
+            err = txn_kv_->create_txn(&result_txn);
+            if (err == TxnErrorCode::TXN_OK) {
+                err = result_txn->get(info_key, &result_val);
+            }
+            if (err == TxnErrorCode::TXN_OK && visible_txn_info.ParseFromString(result_val)) {
+                txn_info = std::move(visible_txn_info);
+            } else {
+                LOG(WARNING) << "failed to read lazy commit owner result, omit it, txn_id="
+                             << txn_id << " err=" << err;
             }
         }
 
@@ -3207,8 +3213,8 @@ void MetaServiceImpl::commit_txn_eventually(
             }
         }
 
-        // txn is visible after a successful lazy task; on an incomplete response the durable
-        // TXN_STATUS_COMMITTED value is returned unchanged.
+        // txn set visible for fe callback
+        txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
         response->mutable_txn_info()->CopyFrom(txn_info);
         fill_commit_txn_owner_result(txn_info, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::finish", &code, &txn_id);

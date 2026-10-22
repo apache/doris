@@ -102,6 +102,7 @@ public:
     void clear_cluster_status_cache() {
         std::unique_lock lock(_mutex);
         _cluster_status_cache.clear();
+        _missing_cluster_first_seen_ms.clear();
         _cluster_status_cache_initialized = false;
     }
 
@@ -149,6 +150,9 @@ private:
     mutable std::shared_mutex _mutex;
     std::string _my_cluster_id;
     std::unordered_map<std::string, ClusterStatusCache> _cluster_status_cache;
+    // Clusters absent from meta-service (deleted) -> local time when first observed missing. The
+    // takeover window of a deleted owner starts here instead of allowing an immediate takeover.
+    mutable std::unordered_map<std::string, int64_t> _missing_cluster_first_seen_ms;
     bool _cluster_status_cache_initialized {false};
 
     // Background worker

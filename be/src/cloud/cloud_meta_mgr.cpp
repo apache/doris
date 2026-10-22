@@ -1539,21 +1539,19 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
     return result;
 }
 
-static Status set_load_cluster_id_for_load_rowset(CreateRowsetRequest* request,
-                                                  const std::string& job_id) {
+// The cluster id is only a hint: meta-service resolves the writer from durable node registration,
+// so an uninitialized or conflicting local identity must not fail the load.
+static void set_load_cluster_id_for_load_rowset(CreateRowsetRequest* request,
+                                                const std::string& job_id) {
     if (!job_id.empty()) {
-        return Status::OK();
+        return;
     }
     const auto load_cluster_id =
             static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info())
                     ->current_cluster_id();
-    if (load_cluster_id.empty() && config::enable_compaction_rw_separation) {
-        return Status::InternalError("load cluster id is not initialized");
-    }
     if (!load_cluster_id.empty()) {
         request->set_load_cluster_id(load_cluster_id);
     }
-    return Status::OK();
 }
 
 Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
@@ -1569,7 +1567,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
     req.set_tablet_job_id(job_id);
-    RETURN_IF_ERROR(set_load_cluster_id_for_load_rowset(&req, job_id));
+    set_load_cluster_id_for_load_rowset(&req, job_id);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -1609,7 +1607,7 @@ Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& jo
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
     req.set_tablet_job_id(job_id);
-    RETURN_IF_ERROR(set_load_cluster_id_for_load_rowset(&req, job_id));
+    set_load_cluster_id_for_load_rowset(&req, job_id);
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
