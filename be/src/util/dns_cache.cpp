@@ -64,7 +64,8 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
         auto it = cache.find(hostname);
         // A socket failure requires a new lookup, but its old address remains a
         // fallback when the resolver temporarily returns EAI_AGAIN.
-        if (it != cache.end() && _refresh_pending.count(hostname) == 0) {
+        if (it != cache.end() && _refresh_pending.count(hostname) == 0 &&
+            _refresh_inflight.count(hostname) == 0) {
             *ip = it->second;
             return Status::OK();
         }
@@ -252,6 +253,11 @@ void DNSCache::_erase(const std::string& hostname) {
 
 bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t threshold) {
     std::unique_lock<std::shared_mutex> lock(mutex);
+    // A fault received after the lookup started requests another resolution. Do not
+    // let the older NXDOMAIN replace that request (or its active lookup) with a tombstone.
+    if (_refresh_pending.count(hostname) != 0 || _refresh_inflight.count(hostname) != 0) {
+        return false;
+    }
     auto fc_it = failure_count.find(hostname);
     if (fc_it == failure_count.end() || fc_it->second.count < threshold ||
         !fc_it->second.last_authoritative) {
@@ -286,6 +292,12 @@ Status DNSCache::_update(const std::string& hostname, FailureState* out_state, s
     // A background lookup that captured IP A must finish before a forced lookup
     // publishes B; otherwise its stale fallback (or old DNS answer) can overwrite B.
     std::lock_guard<std::mutex> refresh_lock(*refresh_mutex);
+    // Clear before releasing the hostname lock, after publishing the lookup result.
+    // A new invalidation remains in _refresh_pending for the following lookup.
+    Defer finish_refresh {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        _refresh_inflight.erase(hostname);
+    }};
     {
         std::unique_lock<std::shared_mutex> lock(mutex);
         if (reuse_cached) {
@@ -308,7 +320,9 @@ Status DNSCache::_update(const std::string& hostname, FailureState* out_state, s
         // Claim before DNS I/O, under the hostname lock. An invalidation received
         // during this lookup remains pending for the next get(). Background refresh
         // and the expired-negative retry always resolve instead of reusing the cache.
-        _refresh_pending.erase(hostname);
+        if (_refresh_pending.erase(hostname) != 0) {
+            _refresh_inflight.insert(hostname);
+        }
     }
     bool is_fresh = false;
     std::string real_ip = _resolve_hostname(hostname, &is_fresh);

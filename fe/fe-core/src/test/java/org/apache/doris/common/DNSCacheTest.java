@@ -31,6 +31,7 @@ import java.net.UnknownHostException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Unit tests for DNSCache to verify DNS caching and refresh functionality.
@@ -118,6 +119,60 @@ public class DNSCacheTest {
         } finally {
             finishLookup.countDown();
             lookupThread.join(5000);
+        }
+    }
+
+    @Test
+    public void testWarmReaderWaitsForForcedRefresh() throws Exception {
+        String hostname = "backend.example.com";
+        for (boolean failRefresh : new boolean[] {false, true}) {
+            DNSCache cache = new DNSCache();
+            netUtilsMockedStatic.when(() -> NetUtils.getIpByHost(hostname, 0)).thenReturn("10.0.0.1");
+            Assertions.assertEquals("10.0.0.1", cache.get(hostname));
+            cache.invalidate(hostname);
+            CountDownLatch resolving = new CountDownLatch(1);
+            CountDownLatch finishLookup = new CountDownLatch(1);
+            FutureTask<String> firstLookup = new FutureTask<>(() -> {
+                try (MockedStatic<NetUtils> resolver = Mockito.mockStatic(NetUtils.class)) {
+                    resolver.when(() -> NetUtils.getIpByHost(hostname, 0)).thenAnswer(invocation -> {
+                        resolving.countDown();
+                        Assertions.assertTrue(finishLookup.await(5, TimeUnit.SECONDS));
+                        if (failRefresh) {
+                            throw new UnknownHostException("temporary resolver failure");
+                        }
+                        return "10.0.0.2";
+                    });
+                    return cache.get(hostname);
+                }
+            });
+            CountDownLatch secondStarted = new CountDownLatch(1);
+            FutureTask<String> secondLookup = new FutureTask<>(() -> {
+                try (MockedStatic<NetUtils> resolver = Mockito.mockStatic(NetUtils.class)) {
+                    secondStarted.countDown();
+                    String ip = cache.get(hostname);
+                    resolver.verifyNoInteractions();
+                    return ip;
+                }
+            });
+            Thread first = new Thread(firstLookup, "dns-forced-refresh-test");
+            Thread second = new Thread(secondLookup, "dns-warm-reader-test");
+            first.setDaemon(true);
+            second.setDaemon(true);
+            first.start();
+            try {
+                Assertions.assertTrue(resolving.await(5, TimeUnit.SECONDS));
+                second.start();
+                Assertions.assertTrue(secondStarted.await(5, TimeUnit.SECONDS));
+                Assertions.assertThrows(TimeoutException.class, () -> secondLookup.get(100, TimeUnit.MILLISECONDS));
+                finishLookup.countDown();
+                String expectedIp = failRefresh ? "10.0.0.1" : "10.0.0.2";
+                Assertions.assertEquals(expectedIp, firstLookup.get(5, TimeUnit.SECONDS));
+                Assertions.assertEquals(expectedIp, secondLookup.get(5, TimeUnit.SECONDS));
+            } finally {
+                finishLookup.countDown();
+                first.join(5000);
+                second.join(5000);
+            }
         }
     }
 
