@@ -160,4 +160,18 @@ TEST_F(S3AccessorMockTest, container_provider_is_unusable_without_any_uri) {
     EXPECT_EQ(as_valid_http_provider(provider), nullptr);
 }
 
+TEST(S3AccessorLocationTest, location_is_the_configured_location) {
+    auto location = [](std::string endpoint, std::string bucket, std::string prefix) {
+        return S3Accessor(S3Conf {.endpoint = std::move(endpoint),
+                                  .bucket = std::move(bucket),
+                                  .prefix = std::move(prefix)})
+                .location();
+    };
+    EXPECT_EQ(location("endpoint", "bucket", "a/b"), location("endpoint", "bucket", "a/b"));
+    // Prefixes with repeated '/' hold different objects although their normalized uri is the same
+    EXPECT_NE(location("endpoint", "bucket", "a/b"), location("endpoint", "bucket", "a//b"));
+    EXPECT_NE(location("endpoint", "bucket", "a/b"), location("endpoint", "bucket2", "a/b"));
+    EXPECT_NE(location("endpoint", "bucket", "a/b"), location("endpoint2", "bucket", "a/b"));
+}
+
 } // namespace doris::cloud

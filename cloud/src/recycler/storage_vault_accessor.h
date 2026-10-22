@@ -61,6 +61,11 @@ public:
 
     const std::string& uri() const { return uri_; }
 
+    // The storage location this accessor reads and writes, exactly as configured. `uri()` may be
+    // normalized for display, e.g. S3 prefixes "a/b" and "a//b" have the same uri but hold
+    // different objects; two accessors with the same location see the same objects.
+    virtual std::string location() const { return uri_; }
+
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.
     // returns 0 for success otherwise error
     virtual int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) = 0;

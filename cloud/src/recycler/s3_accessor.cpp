@@ -315,6 +315,11 @@ S3Accessor::S3Accessor(S3Conf conf)
 
 S3Accessor::~S3Accessor() = default;
 
+std::string S3Accessor::location() const {
+    // '\n' never occurs in an endpoint or a bucket name, so different confs never collide
+    return conf_.endpoint + '\n' + conf_.bucket + '\n' + conf_.prefix;
+}
+
 std::string S3Accessor::get_key(const std::string& relative_path) const {
     return conf_.prefix.empty() ? relative_path : conf_.prefix + '/' + relative_path;
 }

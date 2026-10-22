@@ -1055,10 +1055,12 @@ int InstanceChecker::do_inverted_check() {
 
     // Several resources may be backed by the same storage location, e.g. storage vaults on the same
     // bucket and prefix with different credentials. List each location only once, otherwise its
-    // objects would be scanned and their leaks counted repeatedly.
-    std::unordered_set<std::string> checked_uris;
+    // objects would be scanned and their leaks counted repeatedly. Compare the location as
+    // configured, not the normalized `uri()`: prefixes "a/b" and "a//b" share a uri but hold
+    // different objects, and skipping one would hide its leaks.
+    std::unordered_set<std::string> checked_locations;
     for (auto& [resource_id, accessor] : accessor_map_) {
-        if (!checked_uris.insert(accessor->uri()).second) {
+        if (!checked_locations.insert(accessor->location()).second) {
             LOG(INFO) << "skip inverted check of a storage location already checked, instance_id="
                       << instance_id_ << " resource_id=" << resource_id
                       << " uri=" << accessor->uri();
