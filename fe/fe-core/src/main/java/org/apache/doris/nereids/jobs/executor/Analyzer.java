@@ -28,7 +28,6 @@ import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.BindSkewExpr;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
-import org.apache.doris.nereids.rules.analysis.CheckSearchUsage;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.CompressedMaterialize;
@@ -168,10 +167,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                     new NormalizeRepeat()
             ),
-            // run CheckSearchUsage before CheckAnalysis to detect search() in GROUP BY before it gets optimized
-            bottomUp(new CheckSearchUsage()),
             // Bind hidden DSL column dependencies before subquery expansion and predicate pushdown.
-            bottomUp(new RewriteSearchToSlots()),
+            topDown(new RewriteSearchToSlots()),
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)

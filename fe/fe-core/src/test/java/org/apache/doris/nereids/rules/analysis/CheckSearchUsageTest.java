@@ -31,9 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for CheckSearchUsage rule.
- * This test validates that search() function can only be used in WHERE clauses
- * on single-table OLAP scans, and is rejected in other contexts.
+ * Tests for SEARCH usage validation in CheckAnalysis, input binding and final rewrite checks.
  */
 public class CheckSearchUsageTest extends TestWithFeService implements MemoPatternMatchSupported {
 
@@ -471,13 +469,51 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
-    public void testRuleTypeCorrect() {
-        CheckSearchUsage rule = new CheckSearchUsage();
-        Assertions.assertNotNull(rule);
-        Assertions.assertNotNull(rule.buildRules());
-        Assertions.assertEquals(1, rule.buildRules().size());
-        Assertions.assertEquals(
-                org.apache.doris.nereids.rules.RuleType.CHECK_SEARCH_USAGE,
-                rule.buildRules().get(0).getRuleType());
+    public void testEmptySearchDslRejectedBeforeRewrite() {
+        for (String dsl : new String[] {"", "   "}) {
+            for (String options : new String[] {"", ", '{\"mode\":\"standard\"}'",
+                    ", '{\"default_field\":\"title\"}'", ", '{\"fields\":[\"title\",\"content\"]}'"}) {
+                for (String condition : new String[] {"", " AND FALSE", " OR TRUE"}) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                            PlanChecker.from(connectContext).analyze("SELECT id FROM test_search_table WHERE search('"
+                                    + dsl + "'" + options + ")" + condition));
+                    Assertions.assertEquals("Invalid search expression: empty search DSL", exception.getMessage());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSearchInHavingWithoutAggregateRejected() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                PlanChecker.from(connectContext)
+                        .analyze("SELECT id FROM test_search_table HAVING search('title:hello')"));
+        Assertions.assertTrue(exception.getMessage().contains("search() is only supported in WHERE filters"));
+    }
+
+    @Test
+    public void testInvalidSearchPositionRejectedBeforeElimination() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                PlanChecker.from(connectContext)
+                        .analyze("SELECT search('title:hello') FROM test_search_table WHERE FALSE"));
+        Assertions.assertTrue(exception.getMessage().contains("search() is only supported in WHERE filters"));
+    }
+
+    @Test
+    public void testSearchBindsNestedFiltersTopDown() {
+        PlanChecker.from(connectContext)
+                .analyze("SELECT id FROM (SELECT id, title AS label FROM test_search_table "
+                        + "WHERE search('content:world')) t WHERE search('label:hello')")
+                .matches(logicalFilter().when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && ((SlotReference) e.child(0)).getName().equals("label")))))
+                .matches(logicalFilter().when(filter -> filter.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof SearchExpression
+                                && ((SlotReference) e.child(0)).getName().equals("content")))))
+                .rewrite()
+                .matches(logicalFilter(logicalOlapScan()).when(filter -> filter.getConjuncts().stream()
+                        .filter(expr -> expr instanceof SearchExpression).count() == 2))
+                .nonMatch(any().when(plan -> plan.getExpressions().stream()
+                        .anyMatch(expr -> expr.anyMatch(e -> e instanceof Search))));
     }
 }
