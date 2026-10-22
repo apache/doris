@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -29,8 +28,8 @@ import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHash
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -432,11 +431,22 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                     // Local sort by partition columns so rows for the same partition are grouped
                     // together before the streaming partition writer (MaxCompute Storage API closes a
                     // partition writer once a different partition value appears).
+                    //
+                    // A plain OrderSpec is deliberate, NOT MustLocalSortOrderSpec: the enforcer
+                    // (EnforceMissingPropertiesHelper#enforceSortAndDistribution) reads
+                    // MustLocalSortOrderSpec as "sort locally BEFORE distributing" and therefore emits
+                    // localSort -> distribution -> global sort, i.e. it appends a merging exchange
+                    // (VMERGING-EXCHANGE) after the partition shuffle. That merging receiver can wait
+                    // forever on a sender whose pipeline task is blocked by another full local-channel
+                    // receiver queue, hanging the INSERT until the client-side socket times out. A plain
+                    // OrderSpec on top of the hash distribution instead yields distribution -> local
+                    // sort: every partition's rows land on one instance and are contiguous in its
+                    // writer stream, which is exactly the connector's contract, with no global sort.
                     List<OrderKey> orderKeys = columnIdx.stream()
                             .map(idx -> new OrderKey(child().getOutput().get(
                                     idx + (hasRowOperationColumn() ? 1 : 0)), true, false))
                             .collect(Collectors.toList());
-                    return requiredProperties.withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
+                    return requiredProperties.withOrderSpec(new OrderSpec(orderKeys));
                 }
                 // Partition columns exist but none in cols == all partitions statically specified;
                 // fall through to the parallel/gather branch (no sort/shuffle needed).
@@ -508,7 +518,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     }
 
     private void requireExternalWriterRoutingSupport() {
-        Preconditions.checkState(Config.be_exec_version
+        Preconditions.checkState(getWritePlanContext().getBeExecVersion()
                         >= DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION,
                 "External table sink distribution requires BE execution version %s or newer",
                 DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION);

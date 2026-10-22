@@ -79,11 +79,11 @@ public class IcebergSchemaUtilsTest {
     }
 
     /** Build the dictionary for the given requested column names and return the single (-1) entry. */
-    private static TSchema dict(Table table, String... requestedLowerNames) {
+    private static TSchema dict(Table table, String... requestedColumnNames) {
         // Mirror the production path (encodeSchemaEvolutionProp): thread the PRECISE isPresent() as
         // hasNameMapping (#65784), so a present-but-empty mapping is still authoritative.
         Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
-        return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedLowerNames),
+        return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedColumnNames),
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), false);
     }
 
@@ -180,6 +180,46 @@ public class IcebergSchemaUtilsTest {
         // case-preserving Doris slot lookup misses -> red.
         Assertions.assertFalse(fields.containsKey("id"));
         Assertions.assertFalse(fields.containsKey("name"));
+    }
+
+    @Test
+    public void fullSchemaFallbackPreservesMixedCaseTopLevelNamesOnly() {
+        Schema schema = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "Name", Types.StringType.get()),
+                Types.NestedField.optional(11, "Payload", Types.StructType.of(
+                        Types.NestedField.optional(12, "Child", Types.IntegerType.get()))));
+
+        Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(
+                schema, Collections.emptyList(), Collections.emptyMap()));
+
+        // Snapshot-pin, Top-N lazy materialization and count-only scans have no pruned requested list and use
+        // this fallback. Its top-level keys must equal the case-preserving Doris scan slots.
+        Assertions.assertTrue(fields.containsKey("ID"));
+        Assertions.assertTrue(fields.containsKey("Name"));
+        Assertions.assertTrue(fields.containsKey("Payload"));
+        Assertions.assertFalse(fields.containsKey("id"));
+        Assertions.assertFalse(fields.containsKey("name"));
+        Assertions.assertFalse(fields.containsKey("payload"));
+
+        // Nested struct lookup remains lowercased by the Doris StructField contract. The top-level fix must
+        // not leak into nested fields.
+        Assertions.assertEquals(12, childByName(fields.get("Payload"), "child").getId());
+    }
+
+    @Test
+    public void equalityDeleteCarrierPreservesMixedCaseTopLevelNames() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "Name", Types.StringType.get()));
+        Table table = createTable("mixed_equality", schema);
+
+        TFileScanRangeParams params = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                table, schema.columns(), false, false, false));
+        List<TFieldPtr> fields = params.getHistorySchemaInfo().get(0).getRootField().getFields();
+
+        Assertions.assertEquals("ID", fields.get(0).getFieldPtr().getName());
+        Assertions.assertEquals("Name", fields.get(1).getFieldPtr().getName());
     }
 
     @Test
@@ -396,6 +436,15 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(32, nested.get(1).getFieldPtr().getId());
         Assertions.assertEquals("key", nested.get(0).getFieldPtr().getName());
         Assertions.assertEquals("key", nested.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void timestamptzInitialDefaultKeepsUtcOffsetWithoutLegacyFlag() {
+        // The offset lets BE read a missing column's default as an instant in every session zone.
+        for (boolean flag : new boolean[] {false, true}) {
+            Assertions.assertEquals("2025-01-18 01:02:03.654321+00:00", IcebergSchemaUtils.serializeInitialDefault(
+                    Types.TimestampType.withZone(), 1_737_162_123_654_321L, flag));
+        }
     }
 
     @Test
@@ -781,5 +830,15 @@ public class IcebergSchemaUtilsTest {
         TFileScanRangeParams params = new TFileScanRangeParams();
         Assertions.assertThrows(RuntimeException.class,
                 () -> IcebergSchemaUtils.applySchemaEvolution(params, "!!!not-base64-thrift!!!"));
+    }
+
+    @Test
+    public void variantInitialDefaultMustBeNull() {
+        // A VARIANT added without an initial-default reads as NULL from older data files, and any other
+        // initial-default is rejected rather than handed to BE.
+        Assertions.assertNull(IcebergSchemaUtils.writeDefaultToDorisString(Types.VariantType.get(), null, false));
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergSchemaUtils.serializeInitialDefault(Types.VariantType.get(), "non-null-variant", false));
+        Assertions.assertEquals("Iceberg VARIANT initial-default must be NULL", exception.getMessage());
     }
 }

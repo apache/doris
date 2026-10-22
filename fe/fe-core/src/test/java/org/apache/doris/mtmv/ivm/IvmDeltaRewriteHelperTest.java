@@ -126,12 +126,12 @@ class IvmDeltaRewriteHelperTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testFindSlotByName_findsColumnBinlogOperationCol() {
+    void testFindSlotByName_findsColumnChangelogOpCol() {
         List<Slot> slots = new ArrayList<>();
-        Slot opSlot = new SlotReference(Column.BINLOG_OPERATION_COL, IntegerType.INSTANCE, true);
+        Slot opSlot = new SlotReference(Column.CHANGELOG_OP_COL, IntegerType.INSTANCE, true);
         slots.add(opSlot);
 
-        Slot result = helper.findSlotByName(slots, Column.BINLOG_OPERATION_COL);
+        Slot result = helper.findSlotByName(slots, Column.CHANGELOG_OP_COL);
         Assertions.assertSame(opSlot, result);
     }
 

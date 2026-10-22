@@ -150,12 +150,16 @@ public final class IcebergTypeMapping {
                     return ConnectorType.of("TIMESTAMPTZ", ICEBERG_DATETIME_SCALE_MS, 0);
                 }
                 return ConnectorType.of("DATETIMEV2", ICEBERG_DATETIME_SCALE_MS, 0);
+            case TIMESTAMP_NANO:
+                // TIMESTAMP_NS is a wall-clock type; zoned nanoseconds need a distinct carrier.
+                return ConnectorType.of(((Types.TimestampNanoType) primitive).shouldAdjustToUTC()
+                        ? "UNSUPPORTED" : "TIMESTAMP_NS");
             case TIME:
                 // iceberg TIME has no Doris analogue -> UNSUPPORTED (explicit, byte-parity with legacy
                 // IcebergUtils which also mapped TIME to Type.UNSUPPORTED).
                 return ConnectorType.of("UNSUPPORTED");
             default:
-                // Any primitive iceberg type Doris cannot represent — notably the v3 types TIMESTAMP_NANO /
+                // Any primitive iceberg type Doris cannot represent — notably the v3 types
                 // GEOMETRY / GEOGRAPHY / UNKNOWN — degrades to UNSUPPORTED: the table still LOADS and only this
                 // column is present-but-unqueryable. This DIVERGES from legacy (IcebergUtils.icebergPrimitiveType-
                 // ToDorisType threw IllegalArgumentException "Cannot transform unknown type", failing the whole
@@ -165,6 +169,17 @@ public final class IcebergTypeMapping {
                 // silently accept a type it cannot round-trip.)
                 return ConnectorType.of("UNSUPPORTED");
         }
+    }
+
+    /**
+     * Whether the primitive {@code icebergType} is read as {@code type}, so a {@code MODIFY COLUMN} stating
+     * {@code type} restates it rather than changing it. The read mapping cannot always be inverted by
+     * {@link #toIcebergPrimitive}: iceberg BINARY and FIXED(n) are read as VARBINARY and VARBINARY(n), which
+     * have no iceberg type of their own.
+     */
+    static boolean isReadAs(Type.PrimitiveType icebergType, ConnectorType type) {
+        // Neither legacy mapping option changes how a primitive type is read.
+        return type.equals(fromPrimitive(icebergType, true, true));
     }
 
     /**
@@ -218,6 +233,8 @@ public final class IcebergTypeMapping {
                 // Legacy parity: timestamp WITHOUT zone (datetime scale dropped — Iceberg timestamps are
                 // microsecond). DorisTypeToIcebergType.atomic returns TimestampType.withoutZone().
                 return Types.TimestampType.withoutZone();
+            case "TIMESTAMP_NS":
+                return Types.TimestampNanoType.withoutZone();
             case "TIMESTAMPTZ":
                 return Types.TimestampType.withZone();
             default:

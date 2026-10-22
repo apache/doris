@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.Lists;
@@ -86,14 +86,14 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                         }
                     } catch (SQLException ex) {
                         LOG.warn("Failed to get array dimensions for column {}: {}",
-                                columnName, Util.getRootCauseMessage(ex));
+                                columnName, jdbcDiagnosticMessage(ex));
                     } finally {
                         close(arrayRs, null);
                         if (pstmt != null) {
                             try {
                                 pstmt.close();
                             } catch (SQLException ex) {
-                                LOG.warn("Failed to close prepared statement: {}", Util.getRootCauseMessage(ex));
+                                LOG.warn("Failed to close prepared statement: {}", jdbcDiagnosticMessage(ex));
                             }
                         }
                     }
@@ -101,8 +101,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 tableSchema.add(new JdbcFieldSchema(rs, arrayDimensions));
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }

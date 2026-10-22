@@ -35,6 +35,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Partitioning;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -117,25 +118,121 @@ final class IcebergPartitionUtils {
 
     /**
      * Ordered, case-preserved, de-duplicated list of the identity partition column names across <b>all</b>
-     * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). This
-     * is the {@code path_partition_keys} payload: it tells FE which slots are partition columns so they are
-     * excluded from the file-decode set (the CI #968880 double-fill guard). Non-identity transforms
-     * (bucket/truncate/year/month/...) are excluded.
+     * partition specs of the table (mirrors legacy {@code IcebergUtils.getIdentityPartitionColumns}). Names
+     * are resolved by field id against the query's authoritative {@code scanSchema}, so current and pinned
+     * reads cannot mix schema generations. This is the {@code path_partition_keys} payload: it tells FE which
+     * slots are partition columns so they are excluded from the file-decode set (the CI #968880 double-fill
+     * guard). Non-identity transforms (bucket/truncate/year/month/...) are excluded.
      */
-    static List<String> getIdentityPartitionColumns(Table table) {
+    static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
             for (PartitionField partitionField : spec.fields()) {
                 if (!partitionField.transform().isIdentity()) {
                     continue;
                 }
-                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                String columnName =
+                        topLevelSourceColumnName(scanSchema, partitionField.sourceId());
                 if (columnName != null) {
                     partitionColumns.add(columnName);
                 }
             }
         }
         return new ArrayList<>(partitionColumns);
+    }
+
+    /**
+     * Rewrites a static-partition spec ({@code INSERT [OVERWRITE] ... PARTITION (col = val)}) so every key is the
+     * matching partition FIELD name, the identifier both downstream consumers address: the BE sink matches
+     * {@code static_partition_values} against {@code PartitionField#name()}, and the commit row filter resolves
+     * the field to its source column.
+     *
+     * <p>The engine's PARTITION clause names the identity partition's SOURCE column instead — the identifier Spark
+     * resolves for a static partition clause ({@code Analyzer.partitionColumnNames} takes the identity transform's
+     * field reference) and the one {@code SHOW CREATE TABLE} renders — so the two spellings must be bridged once,
+     * here, before either consumer sees the spec. A key that matches no field of the current spec is kept verbatim
+     * and left to the callers' fail-loud guards.</p>
+     */
+    static Map<String, String> toPartitionFieldKeys(Map<String, String> staticPartitions, Schema schema,
+            PartitionSpec spec) {
+        if (staticPartitions == null || staticPartitions.isEmpty() || spec == null) {
+            return staticPartitions;
+        }
+        Map<String, String> canonical = new HashMap<>(staticPartitions.size());
+        for (Map.Entry<String, String> entry : staticPartitions.entrySet()) {
+            canonical.put(toPartitionFieldName(schema, spec, entry.getKey()), entry.getValue());
+        }
+        return canonical;
+    }
+
+    /**
+     * The partition field a static-partition name addresses: the IDENTITY field over that top-level source column
+     * first, then a field with that name. The source lookup must win — a field may carry a name that collides with
+     * another column's name in a different case ({@code identity(other, "ID")} next to {@code identity(id,
+     * "id_identity")} is legal, because {@code PartitionSpec.Builder} checks names case-SENSITIVELY), and the
+     * engine's name is the source column it validated.
+     */
+    private static String toPartitionFieldName(Schema schema, PartitionSpec spec, String name) {
+        PartitionField identity = identityPartitionBySourceColumn(schema, spec, name);
+        if (identity != null) {
+            return identity.name();
+        }
+        for (PartitionField field : spec.fields()) {
+            if (field.name().equalsIgnoreCase(name)) {
+                return field.name();
+            }
+        }
+        return name;
+    }
+
+    /**
+     * The top-level column a partition field's source resolves to, or {@code null} when the source is a nested
+     * field. {@link NestedField#name()} is only the LEAF name, so a nested {@code payload.id} source must not be
+     * mistaken for the top-level column {@code id}: the engine can only materialize a top-level column.
+     */
+    static String topLevelSourceColumnName(Schema schema, int sourceId) {
+        NestedField column = schema.asStruct().field(sourceId);
+        return column == null ? null : column.name();
+    }
+
+    /** The spec's <em>identity</em> partition over the top-level column {@code name}, or null. */
+    static PartitionField identityPartitionBySourceColumn(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** Any partition field over the top-level column {@code name}, or null (used to report a non-identity one). */
+    static PartitionField partitionFieldBySourceColumn(Schema schema, PartitionSpec spec, String name) {
+        for (PartitionField field : spec.fields()) {
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null && source.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /** The top-level source columns of the spec's identity partitions, in field order. */
+    static List<String> identityPartitionSourceColumns(Schema schema, PartitionSpec spec) {
+        List<String> names = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                continue;
+            }
+            String source = topLevelSourceColumnName(schema, field.sourceId());
+            if (source != null) {
+                names.add(source);
+            }
+        }
+        return names;
     }
 
     /**
@@ -154,11 +251,12 @@ final class IcebergPartitionUtils {
 
     /**
      * Per-file map of identity partition column (case-preserved) to serialized value, skipping non-identity
-     * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Order-preserving
-     * (LinkedHashMap, spec field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
+     * transforms and BINARY/FIXED columns (utf8 round-trip would corrupt those). Keys are resolved by field id
+     * against {@code scanSchema}, matching {@code path_partition_keys}. Order-preserving (LinkedHashMap, spec
+     * field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
      */
     static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
-            PartitionSpec partitionSpec, Table table, ZoneId zone) {
+            PartitionSpec partitionSpec, Schema scanSchema, ZoneId zone) {
         Map<String, String> partitionInfoMap = new LinkedHashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -176,7 +274,8 @@ final class IcebergPartitionUtils {
                 continue;
             }
 
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName =
+                    topLevelSourceColumnName(scanSchema, partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
@@ -195,9 +294,12 @@ final class IcebergPartitionUtils {
 
     /**
      * The serialized value for <b>every</b> partition field (identity + transform), in spec order, used for
-     * {@code partition_data_json}. Mirrors legacy {@code IcebergUtils.getPartitionValues}. A field whose
-     * value cannot be serialized (BINARY/FIXED) yields a {@code null} entry (not dropped) to keep positional
-     * alignment with the spec.
+     * {@code partition_data_json}. Mirrors legacy {@code IcebergUtils.getPartitionValues}. A non-null value whose
+     * type cannot be serialized (a historical field whose source column was dropped) throws
+     * {@link UnsupportedOperationException}: these values also identify the partition of the delete files
+     * BE writes for DML, so an unsupported value must never become a {@code null} entry. A null needs no type,
+     * so the void field a v1 table keeps for a removed partition field stays {@code null} after its source
+     * column is dropped.
      */
     static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec, ZoneId zone) {
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
@@ -206,15 +308,8 @@ final class IcebergPartitionUtils {
 
         List<String> partitionValues = new ArrayList<>(fields.size());
         for (int i = 0; i < fields.size(); i++) {
-            NestedField field = fields.get(i);
             Object value = partitionData.get(i);
-            try {
-                partitionValues.add(serializePartitionValue(field.type(), value, zone));
-            } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
-                        e.getMessage());
-                partitionValues.add(null);
-            }
+            partitionValues.add(value == null ? null : serializePartitionValue(fields.get(i).type(), value, zone));
         }
         return partitionValues;
     }
@@ -225,9 +320,32 @@ final class IcebergPartitionUtils {
      * content is identical.
      */
     static String getPartitionDataJson(PartitionData partitionData, PartitionSpec partitionSpec, ZoneId zone) {
-        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, zone);
+        return toJsonArray(getPartitionValues(partitionData, partitionSpec, zone));
+    }
+
+    /**
+     * Identifies a partition tuple {@link #getPartitionValues} cannot serialize, for the scanned-partition count
+     * only: a JSON array of the raw values in spec order (binary as hex), so each distinct tuple counts once, as
+     * legacy {@code IcebergScanNode} keyed the count by the {@link PartitionData} itself.
+     */
+    static String getRawPartitionKey(PartitionData partitionData) {
+        List<String> values = new ArrayList<>(partitionData.size());
+        for (int i = 0; i < partitionData.size(); i++) {
+            Object value = partitionData.get(i);
+            if (value == null) {
+                values.add(null);
+            } else if (value instanceof java.nio.ByteBuffer) {
+                values.add(binaryHex((java.nio.ByteBuffer) value));
+            } else {
+                values.add(value.toString());
+            }
+        }
+        return toJsonArray(values);
+    }
+
+    private static String toJsonArray(List<String> values) {
         try {
-            return JsonUtil.mapper().writeValueAsString(partitionValues);
+            return JsonUtil.mapper().writeValueAsString(values);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize iceberg partition data to JSON, error message is:"
                     + e.getMessage(), e);
@@ -382,10 +500,7 @@ final class IcebergPartitionUtils {
                 if (value == null) {
                     return null;
                 }
-                java.nio.ByteBuffer bytes = ((java.nio.ByteBuffer) value).duplicate();
-                byte[] copy = new byte[bytes.remaining()];
-                bytes.get(copy);
-                return "0x" + java.util.HexFormat.of().formatHex(copy);
+                return binaryHex((java.nio.ByteBuffer) value);
             case DATE:
                 if (value == null) {
                     return null;
@@ -399,6 +514,18 @@ final class IcebergPartitionUtils {
                 // Iceberg time is stored as microseconds since midnight.
                 long micros = (Long) value;
                 return LocalTime.ofNanoOfDay(micros * 1000).format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_NANO:
+                if (value == null) {
+                    return null;
+                }
+                long nanos = (Long) value;
+                LocalDateTime timestampNs = LocalDateTime.ofEpochSecond(
+                        Math.floorDiv(nanos, 1_000_000_000L),
+                        (int) Math.floorMod(nanos, 1_000_000_000L), ZoneOffset.UTC);
+                if (((org.apache.iceberg.types.Types.TimestampNanoType) type).shouldAdjustToUTC()) {
+                    return timestampNs.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                }
+                return timestampNs.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             case TIMESTAMP:
                 if (value == null) {
                     return null;
@@ -416,6 +543,13 @@ final class IcebergPartitionUtils {
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }
+    }
+
+    private static String binaryHex(java.nio.ByteBuffer value) {
+        java.nio.ByteBuffer bytes = value.duplicate();
+        byte[] copy = new byte[bytes.remaining()];
+        bytes.get(copy);
+        return "0x" + java.util.HexFormat.of().formatHex(copy);
     }
 
     // Canonical partition-timestamp format ("yyyy-MM-dd HH:mm:ss" with an optional micro/nano fraction),
@@ -479,6 +613,24 @@ final class IcebergPartitionUtils {
                 case DATE:
                     // Iceberg date is days since epoch (1970-01-01).
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
+                case TIME:
+                    // Iceberg time is microseconds since midnight, the inverse of serializePartitionValue.
+                    return LocalTime.parse(valueStr, DateTimeFormatter.ISO_LOCAL_TIME).toNanoOfDay() / 1000;
+                case TIMESTAMP_NANO:
+                    // Match the sink cast: a date-only static partition denotes midnight.
+                    if (valueStr.length() == 10) {
+                        return toEpochNanos(LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay());
+                    }
+                    java.time.temporal.TemporalAccessor parsedNs =
+                            TIMESTAMP_PARTITION_FORMAT.parse(valueStr.replace('T', ' '));
+                    LocalDateTime timestampNs = LocalDateTime.from(parsedNs);
+                    ZoneOffset offset = parsedNs.query(java.time.temporal.TemporalQueries.offset());
+                    if (offset != null) {
+                        // The sink casts offset literals to session-local civil time before writing NTZ.
+                        // Overwrite filters must target that same partition, not discard the input offset.
+                        timestampNs = LocalDateTime.ofInstant(timestampNs.toInstant(offset), zone);
+                    }
+                    return toEpochNanos(timestampNs);
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType, zone);
                 case DECIMAL:
@@ -801,6 +953,13 @@ final class IcebergPartitionUtils {
                 return false;
             }
             PartitionField partitionField = fields.get(0);
+            Type sourceType = spec.schema().findType(partitionField.sourceId());
+            // Historical void partition fields can outlive their dropped source column.
+            if (sourceType == null || sourceType.typeId() == Type.TypeID.TIMESTAMP_NANO) {
+                // Calendar boundaries and the NULL sentinel can exceed TIMESTAMP_NS's domain.
+                // Leave pruning to Iceberg instead of building invalid Doris RANGE boundaries.
+                return false;
+            }
             String transformName = partitionField.transform().toString();
             if (!YEAR.equals(transformName) && !MONTH.equals(transformName)
                     && !DAY.equals(transformName) && !HOUR.equals(transformName)) {
@@ -1137,4 +1296,12 @@ final class IcebergPartitionUtils {
             return upperBound;
         }
     }
+
+    static long toEpochNanos(LocalDateTime timestamp) {
+        // Widen before combining: the minimum nanosecond timestamp's whole second overflows long.
+        return BigDecimal.valueOf(timestamp.toEpochSecond(ZoneOffset.UTC))
+                .multiply(BigDecimal.valueOf(1_000_000_000L))
+                .add(BigDecimal.valueOf(timestamp.getNano())).longValueExact();
+    }
+
 }

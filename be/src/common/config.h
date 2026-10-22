@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -582,14 +583,14 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
 
-// Binlog Compaction
-DECLARE_mInt64(binlog_compaction_wait_timesec_after_visible);
-DECLARE_mInt64(binlog_compaction_goal_size_mbytes);
-DECLARE_mInt32(binlog_compaction_task_num_per_disk);
-DECLARE_mInt32(binlog_compaction_file_count_threshold);
-DECLARE_mInt32(binlog_level_compaction_max_deltas);
-DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(max_binlog_compaction_threads);
+// Changelog compaction
+DECLARE_mInt64(changelog_compaction_wait_timesec_after_visible);
+DECLARE_mInt64(changelog_compaction_goal_size_mbytes);
+DECLARE_mInt32(changelog_compaction_task_num_per_disk);
+DECLARE_mInt32(changelog_compaction_file_count_threshold);
+DECLARE_mInt32(changelog_level_compaction_max_deltas);
+DECLARE_mInt64(changelog_compaction_time_threshold_seconds);
+DECLARE_mInt32(max_changelog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -1354,6 +1355,7 @@ DECLARE_Int32(file_cache_downloader_thread_num_max);
 DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+// max LRU entries to dump for each queue, 0 disables LRU log recording, dumping and restoring
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
@@ -1568,6 +1570,8 @@ DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+// enable changelog
+DECLARE_Bool(enable_feature_changelog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
@@ -1618,15 +1622,14 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
-// Treat invalid json format str as string, instead of throwing exception if false
-DECLARE_mBool(variant_throw_exeception_on_invalid_json);
-// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
-DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 DECLARE_mInt32(variant_storage_parse_mode);
@@ -1770,19 +1773,50 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_String(spill_storage_root_path);
-// Spill storage limit specified as number of bytes
+// Spill storage limit of each local spill path, specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of capaity ('<int>%').
 // Defaults to bytes if no unit is given.
 // Must larger than 0.
 // If specified as percentage, the final limit value is:
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
+// It does not apply to the object storage store of spill_storage_type=s3, which is bounded by
+// spill_storage_limit_bytes only.
 DECLARE_String(spill_storage_limit);
+// Upper bound, in bytes, of the spill data kept by each spill store: every local spill path
+// and the object storage store of spill_storage_type=s3 are limited separately. For a local
+// path the effective limit is the smaller of this and spill_storage_limit, which always
+// applies. 0 means no byte limit (a local path is then bounded by spill_storage_limit only,
+// object storage is unbounded).
+DECLARE_mInt64(spill_storage_limit_bytes);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
 // Maximum size of each spill part file before rotation (bytes). Default 1GB.
 DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+// Where spill data is written: "local" (spill_storage_root_path) or "s3" (the storage vault of a
+// cloud instance). "s3" is only valid in cloud mode.
+DECLARE_String(spill_storage_type);
+// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". When
+// empty, an instance without storage vaults uses its latest object storage and an instance
+// with storage vaults uses the S3 vault with the largest ID (the newest one), so that changing
+// the default vault does not move spill. Files already spilled stay on the vault they were
+// written to until they are deleted.
+DECLARE_String(spill_s3_storage_vault_id);
+// Back-pressure threshold for spill uploads to object storage: spill writers pause before
+// appending another serialized block to object storage while the S3 upload queue (shared with
+// every other S3 writer of this BE) holds at least this many bytes of buffers waiting for an
+// upload thread, every buffer counted as s3_write_buffer_size. It slows down a spill that
+// produces data faster than object storage takes it, but is not a hard memory limit: buffers
+// being uploaded by a thread and buffers still being filled by open writers are not counted,
+// the buffers of one block each concurrently appending writer may add after the check and the
+// final buffer of every part are queued without waiting for the check.
+DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
+// Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
+// into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);
+// a single block larger than it is still read whole. 0 reads the part footer exactly and
+// every block with its own GET.
+DECLARE_mInt64(spill_s3_read_coalesce_bytes);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);

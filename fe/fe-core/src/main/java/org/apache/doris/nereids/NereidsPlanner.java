@@ -141,8 +141,16 @@ public class NereidsPlanner extends Planner {
         this.statementContext = statementContext;
     }
 
+    void pinBeExecVersion(org.apache.doris.thrift.TQueryOptions queryOptions) {
+        if (!statementContext.hasBeExecVersion()) {
+            statementContext.initializeBeExecVersion(queryOptions.getBeExecVersion());
+        }
+        queryOptions.setBeExecVersion(statementContext.getBeExecVersion());
+    }
+
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+        pinBeExecVersion(queryOptions);
         this.queryOptions = queryOptions;
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
@@ -412,8 +420,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start collect and lock table");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
-        if (statementContext.isRowBinlogReferenceTsoRequired()) {
-            statementContext.getOrRegisterRowBinlogReferenceTso(
+        if (statementContext.isChangelogReferenceTsoRequired()) {
+            statementContext.getOrRegisterChangelogReferenceTso(
                     () -> MasterTsoProvider.getCurrentTso(statementContext.getConnectContext()));
         }
         // Read the preload result produced by the collect-phase rule before taking internal table locks.

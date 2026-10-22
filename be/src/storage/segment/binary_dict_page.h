@@ -45,7 +45,7 @@ enum EncodingTypePB : int;
 template <FieldType Type>
 class BitShufflePageDecoder;
 
-enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
+static constexpr size_t BINARY_DICT_PAGE_HEADER_SIZE = 4;
 
 // This type of page use dictionary encoding for strings.
 // There is only one dictionary page for all the data pages within a column.

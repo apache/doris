@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.UuidType;
 
 import com.google.common.collect.ImmutableList;
@@ -48,6 +49,22 @@ public class ColumnDefinitionTest {
     @AfterEach
     public void tearDown() {
         Config.enable_non_aggregate_table_state_types = false;
+    }
+
+    @Test
+    public void testTimestampNsDefaultsAreNormalizedForExternalDdl() {
+        String[][] values = {
+                {"20240102", "2024-01-02 00:00:00.000000000"},
+                {"20240102030405", "2024-01-02 03:04:05.000000000"},
+                {"2024-01-02 03:04:05.123456789", "2024-01-02 03:04:05.123456789"}
+        };
+        for (String[] value : values) {
+            ColumnDefinition column = new ColumnDefinition("ts", TimeStampNsType.INSTANCE,
+                    false, null, true, Optional.of(new DefaultValue(value[0])), "");
+            column.validate(false, ImmutableSet.of(), ImmutableSet.of(), false, KeysType.DUP_KEYS);
+            Assertions.assertEquals(value[1], column.translateToCatalogStyle().getDefaultValue());
+            Assertions.assertEquals(value[1], column.translateToCatalogStyleForSchemaChange().getDefaultValue());
+        }
     }
 
     @Test

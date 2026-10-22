@@ -132,6 +132,8 @@ struct HashOfIteratorKey {
 };
 
 struct IteratorItem {
+    explicit IteratorItem(OlapReaderStatistics& stats) : storage_read_options(stats) {}
+
     std::unique_ptr<ColumnIterator> iterator;
     SegmentSharedPtr segment;
     // for holding the reference of storage read options to avoid use after release
@@ -192,6 +194,13 @@ static void scatter_scan_blocks_to_result_block(
         }
         dst_col->insert_from_multi_column(scan_src_columns, scan_positions);
     }
+}
+
+void RowIdStorageReader::read_by_rowids_for_rpc(const PMultiGetRequestV2& request,
+                                                PMultiGetResponseV2* response) {
+    Status st = Status::OK();
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(st = read_by_rowids(request, response), st);
+    st.to_protobuf(response->mutable_status());
 }
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
@@ -334,7 +343,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
         for (int i = 0; i < request_block_desc.slots_size(); ++i) {
-            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
+            row_store_read_struct.serdes.emplace_back(slots[i].type()->get_serde());
             row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
             row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
         }
@@ -1032,13 +1041,18 @@ Status RowIdStorageReader::read_doris_format_row(
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
                                       .slot_id = slots[x].id()};
-            IteratorItem& iterator_item = iterator_map[iterator_key];
+            IteratorItem& iterator_item =
+                    iterator_map.try_emplace(iterator_key, stats).first->second;
             if (iterator_item.segment == nullptr) {
-                iterator_map[iterator_key].segment = segment;
-                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.segment = segment;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
+                // A rowid fetch bypasses TabletReader, so copy the rowset context it would have
+                // supplied. For example, a rowset with commit_tso=100 must expose 100 through
+                // __DORIS_COMMIT_TSO_COL__ instead of its on-disk placeholder 0.
+                iterator_item.storage_read_options.version = rowset->version();
+                iterator_item.storage_read_options.commit_tso = rowset->commit_tso();
             }
             if (x >= fetch_columns.size()) {
                 return Status::InternalError(

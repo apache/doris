@@ -23,6 +23,7 @@ import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.ColumnType;
@@ -54,6 +55,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.info.ColumnPosition;
@@ -205,26 +207,26 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean lightSchemaChange = addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId,
                 indexSchemaMap, newColNameSet, false, colUniqueIdSupplierMap);
 
-        // add column to binlog<Row> schema
-        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
-        if (rowBinlogIndexId > 0) {
+        // add column to changelog schema
+        long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
+        if (changelogIndexId > 0) {
             if (column.getType().isVariantType()) {
                 throw new DdlException(
-                        "table with binlog<Row> does not support VARIANT column: " + column.getName());
+                        "table with changelog does not support VARIANT column: " + column.getName());
             }
             if (!lightSchemaChange) {
-                throw new DdlException("table with binlog<Row> only support light schema change," + "add column: "
+                throw new DdlException("table with changelog only support light schema change," + "add column: "
                         + column);
             }
-            Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+            Preconditions.checkState(indexSchemaMap.containsKey(changelogIndexId));
 
-            LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
-            boolean needHistoricalValue = olapTable.getBinlogConfig().getNeedHistoricalValue();
+            LinkedList<Column> changelogSchema = indexSchemaMap.get(changelogIndexId);
+            boolean needHistoricalValue = olapTable.getChangelogConfig().getNeedHistoricalValue();
             if (needHistoricalValue && !column.isKey()) {
                 newColNameSet.add(Column.generateBeforeColName(column.getName()));
             }
-            addColumnRowBinlog(rowBinlogSchema, column, columnPos, newColNameSet, needHistoricalValue,
-                    colUniqueIdSupplierMap.get(rowBinlogIndexId));
+            addColumnToChangelog(changelogSchema, column, columnPos, newColNameSet, needHistoricalValue,
+                    colUniqueIdSupplierMap.get(changelogIndexId));
         }
 
         return lightSchemaChange;
@@ -273,8 +275,8 @@ public class SchemaChangeHandler extends AlterHandler {
             newColNameSet.add(column.getName());
         }
 
-        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
-        boolean needHistoricalValue = rowBinlogIndexId > 0 && olapTable.getBinlogConfig().getNeedHistoricalValue();
+        long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
+        boolean needHistoricalValue = changelogIndexId > 0 && olapTable.getChangelogConfig().getNeedHistoricalValue();
         if (needHistoricalValue) {
             for (Column column : columns) {
                 if (!column.isKey()) {
@@ -300,80 +302,80 @@ public class SchemaChangeHandler extends AlterHandler {
                 lightSchemaChange = false;
             }
 
-            // add column to binlog<Row> schema
-            if (rowBinlogIndexId > 0) {
+            // add column to changelog schema
+            if (changelogIndexId > 0) {
                 if (column.getType().isVariantType()) {
                     throw new DdlException(
-                            "table with binlog<Row> does not support VARIANT column: " + column.getName());
+                            "table with changelog does not support VARIANT column: " + column.getName());
                 }
                 if (!lightSchemaChange) {
-                    throw new DdlException("table with binlog<Row> only support light schema change," + "add column: "
+                    throw new DdlException("table with changelog only support light schema change," + "add column: "
                             + column);
                 }
-                Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+                Preconditions.checkState(indexSchemaMap.containsKey(changelogIndexId));
 
-                LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
-                addColumnRowBinlog(rowBinlogSchema, column, null, newColNameSet, needHistoricalValue,
-                        colUniqueIdSupplierMap.get(rowBinlogIndexId));
+                LinkedList<Column> changelogSchema = indexSchemaMap.get(changelogIndexId);
+                addColumnToChangelog(changelogSchema, column, null, newColNameSet, needHistoricalValue,
+                        colUniqueIdSupplierMap.get(changelogIndexId));
             }
         }
         return lightSchemaChange;
     }
 
-    private void addColumnRowBinlog(List<Column> rowBinlogSchema, Column newColumn, ColumnPosition columnPos,
+    private void addColumnToChangelog(List<Column> changelogSchema, Column newColumn, ColumnPosition columnPos,
                                     Set<String> newColNameSet, boolean needHistoricalValue,
                                     IntSupplier columnUniqueIdSupplier) throws DdlException {
         if (!newColumn.isVisible() && !newColumn.isKey()) {
-            // Row-binlog writes visible columns plus hidden key columns. Skip hidden non-key
+            // Changelog writes visible columns plus hidden key columns. Skip hidden non-key
             // system columns such as sequence/delete/version/skip-bitmap columns.
             return;
         }
 
         if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
-            throw new DdlException("can't add AutoInc/Variant column " + " on table with binlog<Row>, column: "
+            throw new DdlException("can't add AutoInc/Variant column " + " on table with changelog, column: "
                     + newColumn.getDataType());
         }
 
         if (newColumn.isKey()) {
             // key (don't support now)
-            Column keyBinlogColumn = Column.generateRowBinlogKeyColumn(newColumn);
-            ColumnPosition keyBinlogColumnPos =
-                    convertToRowBinlogPosition(rowBinlogSchema, columnPos, true, false);
-            checkAndAddColumn(rowBinlogSchema, keyBinlogColumn, keyBinlogColumnPos, newColNameSet, false,
+            Column keyChangelogColumn = Column.generateChangelogKeyColumn(newColumn);
+            ColumnPosition keyChangelogColumnPos =
+                    convertToChangelogPosition(changelogSchema, columnPos, true, false);
+            checkAndAddColumn(changelogSchema, keyChangelogColumn, keyChangelogColumnPos, newColNameSet, false,
                     columnUniqueIdSupplier.getAsInt());
         } else {
             // after value
-            Column afterBinlogColumn = Column.generateAfterValueColumn(newColumn);
-            ColumnPosition afterBinlogColumnPos =
-                    convertToRowBinlogPosition(rowBinlogSchema, columnPos, false, false);
-            checkAndAddColumn(rowBinlogSchema, afterBinlogColumn, afterBinlogColumnPos, newColNameSet, false,
+            Column afterChangelogColumn = Column.generateAfterValueColumn(newColumn);
+            ColumnPosition afterChangelogColumnPos =
+                    convertToChangelogPosition(changelogSchema, columnPos, false, false);
+            checkAndAddColumn(changelogSchema, afterChangelogColumn, afterChangelogColumnPos, newColNameSet, false,
                     columnUniqueIdSupplier.getAsInt());
 
             // before value: only exist when table needs historical value.
             if (needHistoricalValue) {
-                Column beforeBinlogColumn = Column.generateBeforeValueColumn(newColumn);
-                ColumnPosition beforeBinlogColumnPos =
-                        convertToRowBinlogPosition(rowBinlogSchema, columnPos, false, true);
-                checkAndAddColumn(rowBinlogSchema, beforeBinlogColumn, beforeBinlogColumnPos, newColNameSet, false,
-                        columnUniqueIdSupplier.getAsInt());
+                Column beforeChangelogColumn = Column.generateBeforeValueColumn(newColumn);
+                ColumnPosition beforeChangelogColumnPos =
+                        convertToChangelogPosition(changelogSchema, columnPos, false, true);
+                checkAndAddColumn(changelogSchema, beforeChangelogColumn, beforeChangelogColumnPos, newColNameSet,
+                        false, columnUniqueIdSupplier.getAsInt());
             }
         }
     }
 
-    private ColumnPosition convertToRowBinlogPosition(List<Column> rowBinlogSchema, ColumnPosition columnPosition,
+    private ColumnPosition convertToChangelogPosition(List<Column> changelogSchema, ColumnPosition columnPosition,
                                                       boolean isKey, boolean before) {
         String lastKeyCol = "";
         String lastValueCol = "";
         String lastBeforeValueCol = "";
-        for (Column column : rowBinlogSchema) {
+        for (Column column : changelogSchema) {
             String columnName = column.getName();
             if (column.isKey()) {
                 lastKeyCol = columnName;
             } else {
-                if (columnName.contains(Column.BINLOG_BEFORE_PREFIX)) {
+                if (Column.isChangelogBeforeColumn(columnName)) {
                     lastBeforeValueCol = columnName;
-                } else if (columnName.equals(Column.BINLOG_TSO_COL) || columnName.equals(Column.BINLOG_LSN_COL)
-                        || columnName.equals(Column.BINLOG_OPERATION_COL)) {
+                } else if (columnName.equals(Column.CHANGELOG_TSO_COL) || columnName.equals(Column.CHANGELOG_LSN_COL)
+                        || columnName.equals(Column.CHANGELOG_OP_COL)) {
                     continue;
                 } else {
                     lastValueCol = columnName;
@@ -800,31 +802,31 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        // drop column to binlog<Row> schema
-        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
-        if (rowBinlogIndexId > 0) {
+        // drop column to changelog schema
+        long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
+        if (changelogIndexId > 0) {
             if (!lightSchemaChange) {
-                throw new DdlException("table with binlog<Row> only support light schema change,"
+                throw new DdlException("table with changelog only support light schema change,"
                         + "drop column: " + dropColName);
             }
-            Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+            Preconditions.checkState(indexSchemaMap.containsKey(changelogIndexId));
 
-            LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
-            dropColumnRowBinlog(rowBinlogSchema, dropColumnOp);
+            LinkedList<Column> changelogSchema = indexSchemaMap.get(changelogIndexId);
+            dropColumnFromChangelog(changelogSchema, dropColumnOp);
         }
         return lightSchemaChange;
     }
 
-    private void dropColumnRowBinlog(List<Column> rowBinlogSchema, DropColumnOp dropColumnOp) throws DdlException {
+    private void dropColumnFromChangelog(List<Column> changelogSchema, DropColumnOp dropColumnOp) throws DdlException {
         String dropColName = dropColumnOp.getColName();
-        Iterator<Column> rowBinlogIter = rowBinlogSchema.iterator();
+        Iterator<Column> changelogIter = changelogSchema.iterator();
         boolean foundKey = false;
         boolean foundAfter = false;
         boolean foundBefore = false;
-        while (rowBinlogIter.hasNext()) {
-            Column column = rowBinlogIter.next();
+        while (changelogIter.hasNext()) {
+            Column column = changelogIter.next();
             if (column.getName().equalsIgnoreCase(dropColName)) {
-                rowBinlogIter.remove();
+                changelogIter.remove();
                 if (column.isKey()) {
                     foundKey = true;
                     // key column only exists once
@@ -835,13 +837,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
             if (column.getName().equalsIgnoreCase(Column.generateBeforeColName(dropColName))) {
-                rowBinlogIter.remove();
+                changelogIter.remove();
                 foundBefore = true;
                 continue;
             }
         }
         if (!foundKey && !foundAfter && !foundBefore) {
-            throw new DdlException("Column does not exists in binlog<Row>: " + dropColName);
+            throw new DdlException("Column does not exists in changelog: " + dropColName);
         }
     }
 
@@ -940,9 +942,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     + "please use light_schema_change = true.");
         }
 
-        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
-        if (rowBinlogIndexId > 0) {
-            throw new DdlException("table with binlog<Row> don't support modify column,"
+        long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
+        if (changelogIndexId > 0) {
+            throw new DdlException("table with changelog don't support modify column,"
                     + "modify column: " + modColumn);
         }
 
@@ -2060,9 +2062,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // loop to keep copy-on-write O(n). TabletInvertedIndex registration stays
                 // per-iteration because Tablet.addReplica(...) below needs the tablet present
                 // in the inverted index.
-                // Row-binlog tables permit only light schema changes, so this shadow index is ordinary.
+                // Changelog tables permit only light schema changes, so this shadow index is ordinary.
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        newSchemaHash, medium, false /* isRowBinlog */);
+                        newSchemaHash, medium, false /* isChangelog */);
                 List<Tablet> shadowTabletsForPartition = Lists.newArrayListWithCapacity(
                         originIndex.getTablets().size());
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -2386,6 +2388,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
+            // A light DROP INDEX publishes the index metadata before it submits its delete jobs. Run the checks
+            // that can reject those jobs before any clause below touches table metadata (processDropColumn
+            // updates the bloom filter columns in place), so a rejected statement leaves the table unchanged.
+            checkLightDropIndexPreconditions(db, olapTable, alterOps, enableAddIndexForNewData);
+
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();
                 // alter table properties
@@ -2639,21 +2646,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                 break;
                             }
                         }
-                        // Inverted index supports light schema change in both cloud and local mode.
-                        // NGRAM_BF and BfIndex support it only in cloud mode.
-                        boolean supportLightIndexChange = false;
-                        if (found != null) {
-                            if (Config.isCloudMode()) {
-                                supportLightIndexChange = enableAddIndexForNewData
-                                        && (found.getIndexType() == IndexType.NGRAM_BF
-                                        || found.getIndexType() == IndexType.BLOOMFILTER
-                                        || found.getIndexType() == IndexType.INVERTED);
-                            } else {
-                                supportLightIndexChange = found.getIndexType() == IndexType.INVERTED
-                                        || found.getIndexType() == IndexType.ANN;
-                            }
-                        }
-                        if (supportLightIndexChange) {
+                        if (found != null && isLightDropIndexSupported(found, enableAddIndexForNewData)) {
                             alterIndexes.add(found);
                             isDropIndex = true;
                             lightIndexChange = true;
@@ -2671,8 +2664,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         lightIndexChange, buildIndexChange, indexSchemaMap);
             }
 
-            if (olapTable.needRowBinlog() && !(lightSchemaChange || lightIndexChange)) {
-                throw new DdlException("only support light schema change operator when use table with binlog<Row>");
+            if (olapTable.hasChangelog() && !(lightSchemaChange || lightIndexChange)) {
+                throw new DdlException("only support light schema change operator when use table with changelog");
             }
 
             if (lightSchemaChange) {
@@ -3071,7 +3064,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * This operation may return partial successfully, with an exception to inform user to retry
      */
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
-                                          int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+                                          int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
                                           int skipWriteIndexOnLoad,
                                           int disableAutoCompaction,
@@ -3094,16 +3087,21 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     protected void updatePartitionProperties(Database db, OlapTable olapTable, Partition partition,
-            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
             Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad, int disableAutoCompaction,
             int verticalCompactionNumColumnsPerGroup) throws UserException {
         String tableName = olapTable.getName();
         String partitionName = partition.getName();
         // Use the captured partition identity, including temporary partitions with the same name.
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
+        // Changelog tablets keep the changelog compaction policy they are created with, so a new compaction
+        // policy or time series setting must not reach them. ALTER sets one table property at a time,
+        // so such an update has nothing else for them.
+        boolean includeChangelog = compactionPolicy == null
+                && (timeSeriesCompactionConfig == null || timeSeriesCompactionConfig.isEmpty());
         olapTable.readLock();
         try {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeChangelog)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
@@ -3754,9 +3752,9 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
-        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
-        if (rowBinlogIndexId > 0 && indexSchemaMap.containsKey(rowBinlogIndexId)) {
-            indexIds.add(rowBinlogIndexId);
+        long changelogIndexId = olapTable.getBaseIndexMeta().getChangelogIndexId();
+        if (changelogIndexId > 0 && indexSchemaMap.containsKey(changelogIndexId)) {
+            indexIds.add(changelogIndexId);
         }
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
@@ -3914,6 +3912,63 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    // Inverted index supports light schema change in both cloud and local mode.
+    // NGRAM_BF and BfIndex support it only in cloud mode.
+    private static boolean isLightDropIndexSupported(Index index, boolean enableAddIndexForNewData) {
+        if (Config.isCloudMode()) {
+            return enableAddIndexForNewData
+                    && (index.getIndexType() == IndexType.NGRAM_BF
+                    || index.getIndexType() == IndexType.BLOOMFILTER
+                    || index.getIndexType() == IndexType.INVERTED);
+        }
+        return index.getIndexType() == IndexType.INVERTED || index.getIndexType() == IndexType.ANN;
+    }
+
+    // Throws if a full-table DROP INDEX in alterOps takes the light index change path and would then fail to
+    // submit its delete jobs: no compute group, or an unfinished index change job on the dropped index.
+    // Also rejects a light DROP INDEX together with a light ADD INDEX: their delete jobs carry one direction
+    // for all altered indexes, so the added index would be deleted or the dropped one would be kept.
+    private void checkLightDropIndexPreconditions(Database db, OlapTable olapTable, List<AlterOp> alterOps,
+            boolean enableAddIndexForNewData) throws UserException {
+        if (!Config.enable_light_index_change) {
+            return;
+        }
+        List<Index> droppedIndexes = new ArrayList<>();
+        for (AlterOp alterOp : alterOps) {
+            if (!(alterOp instanceof DropIndexOp) || ((DropIndexOp) alterOp).hasPartitionSpec()) {
+                continue;
+            }
+            String indexName = ((DropIndexOp) alterOp).getIndexName();
+            olapTable.getIndexes().stream()
+                    .filter(index -> index.getIndexName().equalsIgnoreCase(indexName))
+                    .filter(index -> isLightDropIndexSupported(index, enableAddIndexForNewData))
+                    .findFirst()
+                    .ifPresent(droppedIndexes::add);
+        }
+        if (droppedIndexes.isEmpty()) {
+            return;
+        }
+        if (alterOps.stream().anyMatch(alterOp -> alterOp instanceof CreateIndexOp
+                && ((CreateIndexOp) alterOp).getIndex().isLightAddIndexSupported(enableAddIndexForNewData))) {
+            throw new DdlException("Can not add and drop indexes in one ALTER statement,"
+                    + " please run them in separate statements.");
+        }
+        getCloudClusterName();
+        checkNoIndexChangeJobOnPartitions(db, olapTable, droppedIndexes, olapTable.getPartitionNames());
+    }
+
+    // Throws if any of the partitions still has an unfinished index change job on the base index.
+    private void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
+            Set<String> partitionNames) throws DdlException {
+        for (String partitionName : partitionNames) {
+            if (hasIndexChangeJobOnPartition(olapTable.getBaseIndexId(), db.getId(), olapTable.getId(),
+                    partitionName, alterIndexes, true)) {
+                throw new DdlException("partition " + partitionName + " has been built specified index."
+                        + " please check your build stmt.");
+            }
+        }
+    }
+
     public boolean hasIndexChangeJobOnPartition(
             long originIndexId, long dbId, long tableId, String partitionName,
             List<Index> alterIndexes, boolean isDrop) {
@@ -3961,11 +4016,13 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Partition> partitions = Lists.newArrayList();
         BinlogConfig oldBinlogConfig;
         BinlogConfig newBinlogConfig;
+        boolean hasChangelog;
 
         olapTable.readLock();
         try {
             oldBinlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
             newBinlogConfig = new BinlogConfig(oldBinlogConfig);
+            hasChangelog = olapTable.hasChangelog();
             partitions.addAll(olapTable.getPartitions());
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -3982,14 +4039,7 @@ public class SchemaChangeHandler extends AlterHandler {
             try {
                 Map<String, String> binlogConfigMap = PropertyAnalyzer.analyzeBinlogConfig(Maps.newHashMap(properties));
                 if (binlogConfigMap != null) {
-                    Pair<Boolean, String> mergePropertiesStatus =
-                            newBinlogConfig.mergeFromProperties(binlogConfigMap, false);
-                    if (!mergePropertiesStatus.first) {
-                        throw new AnalysisException(mergePropertiesStatus.second);
-                    }
-                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
-                        newBinlogConfig.applyExplicitRowTtl(newBinlogConfig.getTtlSeconds());
-                    }
+                    newBinlogConfig.mergeFromProperties(binlogConfigMap);
                 }
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
@@ -3997,15 +4047,17 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         boolean hasChanged = !newBinlogConfig.equals(oldBinlogConfig);
-        if (!hasChanged && !oldBinlogConfig.isEnableForStreaming()) {
+        if (!hasChanged) {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
         }
 
-        if (!oldBinlogConfig.isEnableForStreaming() && newBinlogConfig.isEnableForStreaming()) {
-            throw new DdlException("Do not support dynamically enabling binlog<Row> for table: "
-                    + olapTable.getName());
+        // CCR binlog and changelog are mutually exclusive, and a changelog table ships its changelog
+        // configuration instead of the binlog one, see TabletBinlogConfig.
+        if (hasChangelog) {
+            throw new DdlException("Can not change binlog properties of table " + olapTable.getName()
+                    + " because the table enables changelog");
         }
 
         if (newBinlogConfig.isEnableForCCR()) {
@@ -4030,14 +4082,10 @@ public class SchemaChangeHandler extends AlterHandler {
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
                 olapTable.getName(), oldBinlogConfig, newBinlogConfig);
 
-        if (oldBinlogConfig.isEnableForStreaming()) {
-            updateRowBinlogConfig(db, olapTable, oldBinlogConfig, newBinlogConfig);
-            return false;
-        }
-
+        TabletBinlogConfig tabletBinlogConfig = TabletBinlogConfig.of(newBinlogConfig, new ChangelogConfig());
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                    newBinlogConfig, null, null, -1, -1, -1);
+                    tabletBinlogConfig, null, null, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();
@@ -4050,54 +4098,101 @@ public class SchemaChangeHandler extends AlterHandler {
         return false;
     }
 
-    private void updateRowBinlogConfig(Database db, OlapTable table, BinlogConfig oldConfig,
-            BinlogConfig newConfig) throws UserException {
+    public boolean updateChangelogConfig(Database db, OlapTable olapTable, List<AlterOp> alterOps)
+            throws UserException {
+        ChangelogConfig oldChangelogConfig;
+        olapTable.readLock();
+        try {
+            oldChangelogConfig = new ChangelogConfig(olapTable.getChangelogConfig());
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        ChangelogConfig newChangelogConfig = new ChangelogConfig(oldChangelogConfig);
+        boolean setTtl = false;
+        for (AlterOp alterOp : alterOps) {
+            Map<String, String> properties = alterOp.getProperties();
+            if (properties == null) {
+                continue;
+            }
+            try {
+                newChangelogConfig.alterFromProperties(
+                        PropertyAnalyzer.analyzeChangelogConfig(Maps.newHashMap(properties)));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            setTtl |= properties.containsKey(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS);
+        }
+
+        if (!oldChangelogConfig.isEnable()) {
+            // Changelog can not be turned on, and a table without changelog has no retention.
+            if (setTtl) {
+                throw new DdlException(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS
+                        + " can not be set because changelog is not enabled for table: " + olapTable.getName());
+            }
+            LOG.info("table {} changelog config is same as the previous version, so nothing need to do",
+                    olapTable.getName());
+            return true;
+        }
+
+        LOG.info("begin to update table's changelog config. table: {}, old changelog: {}, new changelog: {}",
+                olapTable.getName(), oldChangelogConfig, newChangelogConfig);
+        updateChangelogConfig(db, olapTable, oldChangelogConfig, newChangelogConfig);
+        return false;
+    }
+
+    private void updateChangelogConfig(Database db, OlapTable table, ChangelogConfig oldConfig,
+            ChangelogConfig newConfig) throws UserException {
         List<Partition> partitions;
+        BinlogConfig binlogConfig;
         table.writeLockOrDdlException();
         try {
-            if (!table.getBinlogConfig().equals(oldConfig)) {
-                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            if (!table.getChangelogConfig().equals(oldConfig)) {
+                throw new DdlException("Changelog configuration changed concurrently; retry ALTER TABLE");
             }
             // Journal a new generation even for an identical retry. Earlier timed-out tasks
             // must not overwrite tablets after a later retention extension has succeeded.
             newConfig.setConfigVersion(Math.addExact(oldConfig.getConfigVersion(), 1));
-            BinlogConfig published = new BinlogConfig(newConfig);
-            if (oldConfig.isRowTtlEnabled() && newConfig.getTtlSeconds() > oldConfig.getTtlSeconds()) {
+            ChangelogConfig published = new ChangelogConfig(newConfig);
+            if (oldConfig.isTtlEnabled() && newConfig.getTtlSeconds() > oldConfig.getTtlSeconds()) {
                 // An extension is visible only after every tablet accepts the longer TTL.
                 published.setTtlSeconds(oldConfig.getTtlSeconds());
             }
             // A shorter TTL authorizes irreversible deletion. Persist it before any RPC.
-            Env.getCurrentEnv().updateBinlogConfig(db, table, published);
+            Env.getCurrentEnv().updateChangelogConfig(db, table, published);
             partitions = Lists.newArrayList(table.getAllPartitions());
+            binlogConfig = new BinlogConfig(table.getBinlogConfig());
         } finally {
             table.writeUnlock();
         }
 
+        TabletBinlogConfig tabletBinlogConfig = TabletBinlogConfig.of(binlogConfig, newConfig);
         int updatedPartitions = 0;
         for (Partition partition : partitions) {
             int failAfter = DebugPointUtil.getDebugParamOrDefault(
-                    "SchemaChangeHandler.updateRowBinlogConfig.fail_after_partitions", -1);
+                    "SchemaChangeHandler.updateChangelogConfig.fail_after_partitions", -1);
             if (failAfter >= 0 && updatedPartitions >= failAfter) {
-                throw new DdlException("debug point: ROW binlog configuration update failed after "
+                throw new DdlException("debug point: changelog configuration update failed after "
                         + updatedPartitions + " partitions");
             }
             updatePartitionProperties(db, table, partition, -1, -1,
-                    newConfig, null, null, -1, -1, -1);
+                    tabletBinlogConfig, null, null, -1, -1, -1);
             updatedPartitions++;
         }
 
         table.writeLockOrDdlException();
         try {
-            if (table.getBinlogConfig().getConfigVersion() != newConfig.getConfigVersion()) {
-                throw new DdlException("Binlog configuration changed concurrently; retry ALTER TABLE");
+            if (table.getChangelogConfig().getConfigVersion() != newConfig.getConfigVersion()) {
+                throw new DdlException("Changelog configuration changed concurrently; retry ALTER TABLE");
             }
             Set<Long> updatedIds = partitions.stream().map(Partition::getId).collect(Collectors.toSet());
             Set<Long> currentIds = table.getAllPartitions().stream().map(Partition::getId).collect(Collectors.toSet());
             if (!updatedIds.equals(currentIds)) {
-                throw new DdlException("Partitions changed during binlog configuration update; retry ALTER TABLE");
+                throw new DdlException(
+                        "Partitions changed during changelog configuration update; retry ALTER TABLE");
             }
-            if (!table.getBinlogConfig().equals(newConfig)) {
-                Env.getCurrentEnv().updateBinlogConfig(db, table, newConfig);
+            if (!table.getChangelogConfig().equals(newConfig)) {
+                Env.getCurrentEnv().updateChangelogConfig(db, table, newConfig);
             }
         } finally {
             table.writeUnlock();

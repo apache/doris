@@ -33,8 +33,7 @@ suite("test_ivm_basic_mtmv") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -115,11 +114,11 @@ suite("test_ivm_basic_mtmv") {
     order_qt_after_complete_refresh """SELECT k1, v1, v2 FROM mv_ivm_basic"""
 
     // =========================================================
-    // Part 2: Simple scan MV with binlog_op column (dml_factor from binlog_op)
+    // Part 2: Simple scan MV with changelog_op column (dml_factor from changelog_op)
     // =========================================================
-    // When the base table has a `binlog_op` column (TinyInt, 0 = insert, 1 = delete),
-    // IvmSimpleScanDeltaStrategy derives dml_factor = IF(binlog_op = 0, 1, -1) instead
-    // of the literal 1. This means during INCREMENTAL refresh, rows with binlog_op=1
+    // When the base table has a `changelog_op` column (TinyInt, 0 = insert, 1 = delete),
+    // IvmSimpleScanDeltaStrategy derives dml_factor = IF(changelog_op = 0, 1, -1) instead
+    // of the literal 1. This means during INCREMENTAL refresh, rows with changelog_op=1
     // receive delete_sign=1 and are removed from the MV.
     //
     // NOTE: INCREMENTAL refresh only triggers when the MV partition is stale
@@ -131,7 +130,7 @@ suite("test_ivm_basic_mtmv") {
     sql """drop materialized view if exists mv_ivm_basic_op;"""
     sql """drop table if exists t_ivm_basic_op_base;"""
 
-    // Base table with an explicit `binlog_op` column (TinyInt)
+    // Base table with an explicit `changelog_op` column (TinyInt)
     sql """
         CREATE TABLE t_ivm_basic_op_base (
             k1 INT,
@@ -142,13 +141,12 @@ suite("test_ivm_basic_mtmv") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
 
-    // Insert rows: binlog_op=0 means insert, =1 means delete
+    // Insert rows: changelog_op=0 means insert, =1 means delete
     sql """
         INSERT INTO t_ivm_basic_op_base VALUES
             (1, 10, 'aaa'),
@@ -178,18 +176,18 @@ suite("test_ivm_basic_mtmv") {
 
     order_qt_op_after_complete """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
-    // Step 2: Insert a new row (binlog_op=0) to dirty the partition, then INCREMENTAL refresh.
+    // Step 2: Insert a new row (changelog_op=0) to dirty the partition, then INCREMENTAL refresh.
     // The incremental input at this step exercises the dml_factor logic:
-    //   k1=1 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
-    //   k1=2 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
-    //   k1=3 (binlog_op=1): dml_factor=-1 → delete_sign=1 → deleted (hidden)
-    //   k1=4 (binlog_op=0): dml_factor=1  → delete_sign=0 → kept
+    //   k1=1 (changelog_op=0): dml_factor=1  → delete_sign=0 → kept
+    //   k1=2 (changelog_op=0): dml_factor=1  → delete_sign=0 → kept
+    //   k1=3 (changelog_op=1): dml_factor=-1 → delete_sign=1 → deleted (hidden)
+    //   k1=4 (changelog_op=0): dml_factor=1  → delete_sign=0 → kept
     sql """INSERT INTO t_ivm_basic_op_base VALUES (4, 40, 'ddd');"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("mv_ivm_basic_op")
 
-    // Only binlog_op=0 rows survive: k1=1, k1=2, k1=4 (k1=3 is deleted)
+    // Only changelog_op=0 rows survive: k1=1, k1=2, k1=4 (k1=3 is deleted)
     order_qt_op_after_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // Step 3: COMPLETE refresh sees the current base-table snapshot again.
@@ -199,8 +197,8 @@ suite("test_ivm_basic_mtmv") {
 
     order_qt_op_after_restore """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
-    // Step 4: Upsert k1=3 to binlog_op=0 (was 1), then INCREMENTAL refresh.
-    // Now all rows have binlog_op=0, so all survive.
+    // Step 4: Upsert k1=3 to changelog_op=0 (was 1), then INCREMENTAL refresh.
+    // Now all rows have changelog_op=0, so all survive.
     sql """INSERT INTO t_ivm_basic_op_base VALUES (3, 30, 'ccc');"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_op INCREMENTAL"""
@@ -209,11 +207,11 @@ suite("test_ivm_basic_mtmv") {
     order_qt_op_after_upsert_incremental """SELECT k1, v1, v2 FROM mv_ivm_basic_op"""
 
     // =========================================================
-    // Part 3: Simple MV with Project -> Filter -> Scan + binlog_op (delete rows filtered)
+    // Part 3: Simple MV with Project -> Filter -> Scan + changelog_op (delete rows filtered)
     // =========================================================
     // Tests that the IVM delta rewrite correctly propagates dml_factor through a Filter node.
     // The MV definition is: SELECT k1, v1 FROM base WHERE v1 > 15
-    // When binlog_op=1 rows pass the filter, they should receive delete_sign=1 during INCREMENTAL
+    // When changelog_op=1 rows pass the filter, they should receive delete_sign=1 during INCREMENTAL
     // and be removed from the MV.
 
     sql """drop materialized view if exists mv_ivm_basic_filter;"""
@@ -228,8 +226,7 @@ suite("test_ivm_basic_mtmv") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -287,7 +284,7 @@ suite("test_ivm_basic_mtmv") {
 
     order_qt_filter_after_restore """SELECT k1, v1 FROM mv_ivm_basic_filter"""
 
-    // Step 4: Upsert k1=3 to binlog_op=0, then INCREMENTAL — all filter-passing rows survive
+    // Step 4: Upsert k1=3 to changelog_op=0, then INCREMENTAL — all filter-passing rows survive
     sql """INSERT INTO t_ivm_basic_filter_base VALUES (3, 30);"""
 
     sql """REFRESH MATERIALIZED VIEW mv_ivm_basic_filter INCREMENTAL"""

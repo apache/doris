@@ -127,6 +127,22 @@ public class MapConstructionFunctionsTest {
     }
 
     @Test
+    public void testCreateMapRejectsComplexKey() {
+        for (String sql : ImmutableList.of(
+                "map(array(1, 2), 'v')",
+                "map(named_struct('a', 1), 'v')",
+                "map(map(1, 2), 'v')")) {
+            AnalysisException complexKeyException = Assertions.assertThrows(
+                    AnalysisException.class, () -> analyze(sql));
+            Assertions.assertTrue(complexKeyException.getMessage().contains(
+                    "MAP key type must be a primitive type"), complexKeyException::getMessage);
+        }
+
+        Assertions.assertDoesNotThrow(() -> analyze("map('k', array(1, 2))"));
+        Assertions.assertDoesNotThrow(() -> analyze("map(NULL, 100)"));
+    }
+
+    @Test
     public void testMapFromEntriesPreservesIndependentPrecision() {
         DataType decimalKeyType = DecimalV3Type.createDecimalV3Type(38, 0);
         DataType decimalValueType = DecimalV3Type.createDecimalV3Type(38, 38);

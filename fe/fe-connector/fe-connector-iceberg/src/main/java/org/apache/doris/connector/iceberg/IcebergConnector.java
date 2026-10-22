@@ -161,6 +161,8 @@ public class IcebergConnector implements Connector {
     static final String MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
+    // Entries whose meta.cache.iceberg.<entry>.max-weight this connector reads.
+    static final String[] WEIGHTED_CACHE_ENTRIES = {"table", "partition", "manifest", "partition_view"};
 
     // Doris storage property keys (mirror StorageProperties without a fe-core dependency).
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
@@ -171,6 +173,8 @@ public class IcebergConnector implements Connector {
 
     /** The key BE looks up (case-sensitively) to learn which location to probe. */
     private static final String BE_TEST_LOCATION = "test_location";
+    /** Prefix of iceberg-aws's HTTP client settings ({@code http-client.type}, proxy, timeouts). */
+    private static final String HTTP_CLIENT_PROPERTY_PREFIX = "http-client.";
 
     private final Map<String, String> properties;
     // The bound connector-level facts (flavor, type-mapping switches, namespace level), the single
@@ -370,6 +374,24 @@ public class IcebergConnector implements Connector {
         return CacheSpec.fromProperties(cacheProperties, "iceberg", entryName, defaults);
     }
 
+    /**
+     * Whether a metadata cache weight limit applies to this catalog: the FE-global limit, the catalog's
+     * {@code meta.cache.max-weight}, or the {@code max-weight} of one of {@link #WEIGHTED_CACHE_ENTRIES}. The
+     * catalog options then leave the Iceberg SDK manifest content cache off unless the user enables it, because
+     * that cache keeps manifests per FileIO outside every Doris limit.
+     */
+    boolean hasMetaCacheWeightLimit() {
+        if (metaCache.hasEnclosingWeightLimit()) {
+            return true;
+        }
+        for (String entry : WEIGHTED_CACHE_ENTRIES) {
+            if (cacheSpec(entry).isWeightBounded()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(newCatalogBackedOps(session), catalogProps, context,
@@ -449,12 +471,12 @@ public class IcebergConnector implements Connector {
 
         // Map Doris s3.* keys to Iceberg S3FileIO keys and force static credentials (disable
         // remote/vended signing) so the probe validates exactly what the user configured.
-        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get());
+        Map<String, String> ioProps = buildStorageProbeProperties(catalogType, chosenStorage.get(), properties);
 
         // Load S3FileIO reflectively via CatalogUtil so this module needs no compile-time AWS SDK
         // dependency; the AWS SDK is resolved from the shared runtime classpath at execution time.
         // Pin the TCCL to the plugin loader for the probe: iceberg-aws builds its S3 client lazily and
-        // resolves org.apache.iceberg.aws.ApacheHttpClientConfigurations via DynMethods (default loader =
+        // resolves its org.apache.iceberg.aws.*HttpClientConfigurations class via DynMethods (default loader =
         // TCCL). This CREATE-CATALOG thread runs under the default 'app' TCCL, which would return the
         // fe-core copy of the class and ClassCast against the child-loaded plugin copy the rest of the
         // iceberg-aws stack uses — the SAME split-brain TcclPinningConnectorContext guards on the commit
@@ -490,8 +512,8 @@ public class IcebergConnector implements Connector {
         return probeStorageFromBackend(location);
     }
 
-    static Map<String, String> buildStorageProbeProperties(
-            String catalogType, S3CompatibleFileSystemProperties storageProperties) {
+    static Map<String, String> buildStorageProbeProperties(String catalogType,
+            S3CompatibleFileSystemProperties storageProperties, Map<String, String> catalogProperties) {
         String endpoint = storageProperties.getEndpoint();
         if (IcebergCatalogProperties.TYPE_DLF.equalsIgnoreCase(catalogType)
                 && "OSS".equals(storageProperties.providerName())) {
@@ -510,6 +532,14 @@ public class IcebergConnector implements Connector {
         if (!isBlank(storageProperties.getRegion())) {
             ioProps.put("client.region", storageProperties.getRegion());
         }
+        // The probe builds its own S3FileIO, so it must reach the store the way the catalog does: same HTTP client
+        // and proxy settings, and the same default client type as every other iceberg AWS client.
+        for (Map.Entry<String, String> e : catalogProperties.entrySet()) {
+            if (e.getKey().startsWith(HTTP_CLIENT_PROPERTY_PREFIX)) {
+                ioProps.put(e.getKey(), e.getValue());
+            }
+        }
+        IcebergCatalogFactory.applyDefaultAwsHttpClient(ioProps);
         return ioProps;
     }
 
@@ -1032,7 +1062,7 @@ public class IcebergConnector implements Connector {
         }
 
         Map<String, String> catalogOptions =
-                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3);
+                IcebergCatalogFactory.buildCatalogProperties(catalogProps, chosenS3, hasMetaCacheWeightLimit());
         Map<String, String> storageHadoopConfig = buildStorageHadoopConfig();
 
         Configuration conf;
@@ -1107,7 +1137,8 @@ public class IcebergConnector implements Connector {
         DlfMetaStoreProperties dlf = (DlfMetaStoreProperties) MetaStoreProviders.bindForType(
                 IcebergCatalogProperties.TYPE_DLF, properties, buildStorageHadoopConfig());
         Configuration conf = IcebergCatalogFactory.buildDlfConfiguration(dlf.toDlfCatalogConf());
-        Map<String, String> catalogOptions = IcebergCatalogFactory.buildBaseCatalogProperties(properties);
+        Map<String, String> catalogOptions =
+                IcebergCatalogFactory.buildBaseCatalogProperties(properties, hasMetaCacheWeightLimit());
         return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_DLF, () -> {
             DLFCatalog catalog = new DLFCatalog(chosenS3.get());
             catalog.setConf(conf);
@@ -1232,8 +1263,8 @@ public class IcebergConnector implements Connector {
      */
     private Catalog createS3TablesCatalog(String catalogName, Optional<S3CompatibleFileSystemProperties> chosenS3) {
         String region = resolveS3TablesRegion(chosenS3, properties);
-        Map<String, String> catalogOptions =
-                IcebergCatalogFactory.buildS3TablesCatalogProperties(catalogProps, chosenS3);
+        Map<String, String> catalogOptions = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                catalogProps, chosenS3, hasMetaCacheWeightLimit());
         LOG.info("Creating Iceberg s3tables catalog '{}' region='{}' boundStorage={}",
                 catalogName, region, chosenS3.isPresent());
         return buildCatalogAuthenticated(IcebergCatalogProperties.TYPE_S3_TABLES, () -> {

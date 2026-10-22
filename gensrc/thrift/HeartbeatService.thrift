@@ -51,7 +51,8 @@ struct TMasterInfo {
     13: optional string auth_token;
     14: optional TCloudClusterInfo cloud_cluster_info;
     // Cleanup reference only; this is not an active-query safe point.
-    15: optional i64 row_binlog_ttl_reference_tso;
+    // ATTN(changelog-rename): formerly "row_binlog_ttl_reference_tso"
+    15: optional i64 changelog_ttl_reference_tso;
 }
 
 struct TBackendInfo {
@@ -65,6 +66,8 @@ struct TBackendInfo {
     8: optional bool is_shutdown
     9: optional Types.TPort arrow_flight_sql_port
     10: optional i64 be_mem // The physical memory available for use by BE.
+    // Reserved for the Paimon Rust reader and aligned with its branch-4.1 forward-port.
+    11: optional bool supports_paimon_rust_reader
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time

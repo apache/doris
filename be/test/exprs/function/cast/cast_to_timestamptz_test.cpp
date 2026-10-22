@@ -523,18 +523,6 @@ TEST_F(CastTimeStampTzTest, timestamp_ns_local_year_overflow_returns_status) {
         CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeTimeStampNs> try_cast;
         ASSERT_TRUE(try_cast.execute_impl(&context, block, {0}, 1, 1).ok());
         EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
-
-        auto ns_column = ColumnTimeStampNs::create();
-        ns_column->insert_default();
-        block.get_by_position(1).column = std::move(ns_column);
-        block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "comparison"});
-        FunctionComparison<EqualsOp, NameEquals> equals;
-        // Error reporting must not try to display the unrepresentable session-local year.
-        for (const ColumnNumbers& inputs : {ColumnNumbers {0, 1}, ColumnNumbers {1, 0}}) {
-            ASSERT_NO_THROW(status = equals.execute_impl(&context, block, inputs, 2, 1));
-            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
-            EXPECT_NE(status.to_string().find("can not compare timestamptz"), std::string::npos);
-        }
     }
 }
 

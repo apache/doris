@@ -17,6 +17,7 @@
 
 #include "format/table/iceberg/arrow_schema_util.h"
 
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/extension/uuid.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
@@ -29,7 +30,8 @@ const char* IcebergArrowSchemaConvertor::MAP_TYPE_VALUE = "mapType";
 const char* IcebergArrowSchemaConvertor::UUID_TYPE_VALUE = "uuid";
 
 Status IcebergArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const {
-    // Field IDs, UUID annotations and timestamp bindings come from the pinned table schema.
+    // Field IDs, UUID annotations, Variant storage and timestamp bindings come from the pinned
+    // table schema.
     std::vector<std::shared_ptr<arrow::Field>> fields;
     RETURN_IF_ERROR(convert_fields(fields));
     auto schema = arrow::schema(std::move(fields));
@@ -84,12 +86,21 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
         arrow_type = arrow::date32();
         break;
 
-    case iceberg::TypeID::TIMESTAMP: {
-        iceberg::TimestampType* t_type = static_cast<iceberg::TimestampType*>(field.field_type());
-        std::string real_tz = t_type->should_adjust_to_utc() ? _timezone : "";
-        arrow_type = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, real_tz);
+    case iceberg::TypeID::TIMESTAMP:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO);
         break;
-    }
+
+    case iceberg::TypeID::TIMESTAMPTZ:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO, _timezone);
+        break;
+
+    case iceberg::TypeID::TIMESTAMP_NS:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::NANO);
+        break;
+
+    case iceberg::TypeID::TIMESTAMPTZ_NS:
+        arrow_type = arrow::timestamp(arrow::TimeUnit::NANO, _timezone);
+        break;
 
     case iceberg::TypeID::STRING:
         arrow_type = arrow::utf8();
@@ -97,6 +108,13 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
 
     case iceberg::TypeID::BINARY:
         arrow_type = arrow::binary();
+        break;
+
+    case iceberg::TypeID::VARIANT:
+        arrow_type = arrow::extension::variant(arrow::struct_({
+                arrow::field("metadata", arrow::binary(), false),
+                arrow::field("value", arrow::binary(), false),
+        }));
         break;
 
     case iceberg::TypeID::UUID:

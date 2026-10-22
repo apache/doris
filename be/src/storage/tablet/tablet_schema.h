@@ -43,7 +43,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
@@ -203,6 +203,8 @@ public:
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
     std::shared_ptr<const IDataType> get_vec_type() const;
+    // Returns schema metadata suitable for diagnostics. The default value itself is omitted.
+    std::string debug_string() const;
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
@@ -521,12 +523,14 @@ public:
     int32_t version_col_idx() const { return _version_col_idx; }
     bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
-    bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
+    bool is_tso_enabled() const {
+        return _commit_tso_col_idx != -1 || _changelog_tso_col_idx != -1;
+    }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
     int32_t row_lsn_col_idx() const { return _row_lsn_col_idx; }
-    int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
-    int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
-    int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
+    int32_t changelog_tso_col_idx() const { return _changelog_tso_col_idx; }
+    int32_t changelog_lsn_col_idx() const { return _changelog_lsn_col_idx; }
+    int32_t changelog_op_col_idx() const { return _changelog_op_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
@@ -799,9 +803,9 @@ private:
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
     int32_t _row_lsn_col_idx = -1;
-    int32_t _binlog_tso_col_idx = -1;
-    int32_t _binlog_lsn_col_idx = -1;
-    int32_t _binlog_op_col_idx = -1;
+    int32_t _changelog_tso_col_idx = -1;
+    int32_t _changelog_lsn_col_idx = -1;
+    int32_t _changelog_op_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;

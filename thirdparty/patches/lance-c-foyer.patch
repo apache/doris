@@ -1,5 +1,5 @@
 # Foyer data-cache integration from lance-format/lance-c#73.
-# Base: 8e9e09ecc795c91ce7f97513db94c2d91eec799d (lance-c main, including #91 and #94).
+# Base: 4fafcd64525b274b113208390bbcca86bbbc093b (lance-c main, including #96 and #97).
 # PR base: d214faaca89ad7654fb1d85d46cdbce6f3770c95; current PR head: 8a08f171b66a3e01e7ba634bcfc6168a955c7289.
 # Current PR head includes revert c3857f085d3aa522c79ebc92b28b302e2eb8e865 of cache-origin isolation.
 # Rebased from https://github.com/lance-format/lance-c/pull/73.
@@ -8666,11 +8666,11 @@ index 3bc313ebecbb0de06badd9f8d75f531fc95809c9..298228f7dd68d28452e6436db5c58918
  static void test_dataset_schema(const std::string& uri) {
      TEST(test_dataset_schema);
 
-@@ -1365,6 +1387,7 @@ int main(int argc, char** argv) {
+@@ -1402,6 +1424,7 @@ int main(int argc, char** argv) {
 
      test_dataset_open(uri);
      test_shared_session(uri);
 +    test_data_cache_session(uri, write_uri);
      test_dataset_schema(uri);
      test_scanner_fluent(uri);
-     test_distance_range(uri);
+     test_scanner_row_addr_lists(uri);

@@ -207,6 +207,7 @@ The text of each license is the standard Apache 2.0 license.
 
 software.amazon.awssdk.core.client.builder.SdkDefaultClientBuilder from AWS SDK v2 (sdk-core 2.29.52)
 org.apache.hadoop.fs.FileSystem from Apache Hadoop (hadoop-common 3.4.2)
+H3 4.5.0 (contrib/h3) from https://github.com/uber/h3
 
 --------------------------------------------------------------------------------
 
@@ -369,7 +370,7 @@ be/src/olap/skiplist.h : BSD-style license
 
 --------------------------------------------------------------------------------
 
-be/src/storage/index/inverted/analyzer/kuromoji/dict/darts.h : 2-Clause BSD license (darts-clone)
+be/src/storage/index/inverted/analysis/analyzer/kuromoji/dict/darts.h : 2-Clause BSD license (darts-clone)
 
   Copyright (c) 2008-2014 Susumu Yata. All rights reserved.
   Vendored from https://github.com/s-yata/darts-clone

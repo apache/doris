@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.base.Strings;
@@ -99,8 +99,7 @@ public class JdbcOracleClient extends JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
-                Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get table name list from jdbc for table %s", e, remoteTableName);
         } finally {
             close(rs, conn, stmt, isSynonymRs, synonymInfoRs);
         }
@@ -213,6 +212,9 @@ public class JdbcOracleClient extends JdbcClient {
                     precision = scale;
                 }
                 return createDecimalOrStringType(precision, scale);
+            case "BINARY_FLOAT":
+                return Type.FLOAT;
+            case "BINARY_DOUBLE":
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
@@ -232,8 +234,6 @@ public class JdbcOracleClient extends JdbcClient {
                 return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "NCLOB":
             case "BFILE":
-            case "BINARY_FLOAT":
-            case "BINARY_DOUBLE":
             default:
                 return Type.UNSUPPORTED;
         }

@@ -161,15 +161,21 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
     } else if (lower_type_string == "time") {
         return std::make_unique<TimeType>();
     } else if (lower_type_string == "timestamptz") {
-        return std::make_unique<TimestampType>(true);
+        return std::make_unique<TimestampTzType>();
     } else if (lower_type_string == "timestamp") {
-        return std::make_unique<TimestampType>(false);
+        return std::make_unique<TimestampType>();
+    } else if (lower_type_string == "timestamp_ns") {
+        return std::make_unique<TimestampNsType>();
+    } else if (lower_type_string == "timestamptz_ns") {
+        return std::make_unique<TimestampTzNsType>();
     } else if (lower_type_string == "string") {
         return std::make_unique<StringType>();
     } else if (lower_type_string == "uuid") {
         return std::make_unique<UUIDType>();
     } else if (lower_type_string == "binary") {
         return std::make_unique<BinaryType>();
+    } else if (lower_type_string == "variant") {
+        return std::make_unique<VariantType>();
     } else {
         std::regex fixed(R"(fixed\[\s*(\d+)\s*\])");
         std::regex decimal(R"(decimal\(\s*(\d+)\s*,\s*(\d+)\s*\))");

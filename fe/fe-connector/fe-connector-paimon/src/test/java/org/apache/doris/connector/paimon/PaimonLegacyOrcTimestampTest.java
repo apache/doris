@@ -33,11 +33,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 class PaimonLegacyOrcTimestampTest {
     @Test
@@ -54,25 +57,67 @@ class PaimonLegacyOrcTimestampTest {
             FileStoreTable original = (FileStoreTable) catalog.getTable(id);
             Optional<List<RawFile>> oldFiles = Optional.of(Collections.singletonList(
                     new RawFile("part.orc", 0L, 100L, 1L, "orc", original.schema().id(), 0L)));
-            Assertions.assertTrue(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertTrue(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     original, oldFiles, Collections.singleton(1), new HashMap<>()));
             new SchemaManager(original.fileIO(), original.location())
                     .commitChanges(SchemaChange.dropColumn("events"));
             FileStoreTable evolved = (FileStoreTable) catalog.getTable(id);
             Map<Long, Boolean> schemaCache = new HashMap<>();
             // Historical field IDs, rather than all file columns, determine whether LTZ is decoded.
-            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     evolved, oldFiles, Collections.singleton(0), new HashMap<>()));
-            Assertions.assertTrue(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertTrue(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     evolved, oldFiles, Collections.singleton(1), schemaCache));
             Assertions.assertEquals(Collections.singletonMap(original.schema().id(), true), schemaCache);
-            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     evolved.copy(Collections.singletonMap(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(), "false")),
                     oldFiles, Collections.singleton(1), new HashMap<>()));
-            Assertions.assertFalse(PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(evolved,
+            Assertions.assertFalse(PaimonScanPlanProvider.requiresOrcTimestampReader(evolved,
                     Optional.of(Collections.singletonList(
                             new RawFile("part.parquet", 0L, 100L, 1L, "parquet", original.schema().id(), 0L))),
                     Collections.singleton(1), new HashMap<>()));
         }
+    }
+
+    @Test
+    void routeEveryNestedLtzShapeAndMixedSplitToSdk(@TempDir Path warehouse) throws Exception {
+        org.apache.paimon.types.DataType ltz = DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6);
+        List<org.apache.paimon.types.DataType> shapes = Arrays.asList(ltz, DataTypes.ARRAY(ltz),
+                DataTypes.MULTISET(ltz), DataTypes.MAP(ltz, DataTypes.INT()), DataTypes.MAP(DataTypes.INT(), ltz),
+                DataTypes.ROW(DataTypes.FIELD(1, "ts", ltz)));
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            for (int i = 0; i < shapes.size(); i++) {
+                // An absent option means Paimon's legacy default, so both spellings must route to the SDK.
+                for (boolean explicit : new boolean[] {false, true}) {
+                    Identifier id = Identifier.create("db", "t" + i + (explicit ? "_explicit" : "_default"));
+                    Schema.Builder schema = Schema.newBuilder()
+                            .column("id", DataTypes.INT())
+                            .column("c", shapes.get(i));
+                    if (explicit) {
+                        schema.option(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE.key(), "true");
+                    }
+                    catalog.createTable(id, schema.build(), false);
+                    FileStoreTable table = (FileStoreTable) catalog.getTable(id);
+                    Set<Integer> readC = Collections.singleton(table.rowType().getField("c").id());
+                    String message = shapes.get(i) + (explicit ? " explicit" : " default");
+                    Assertions.assertTrue(requiresSdk(table, readC, "data.orc"), message);
+                    // One legacy ORC file is enough to route a mixed split away from the native reader.
+                    Assertions.assertTrue(requiresSdk(table, readC, "data.parquet", "data.orc"), message);
+                    Assertions.assertFalse(requiresSdk(table, readC, "data.parquet"), message);
+                }
+            }
+        }
+    }
+
+    private static boolean requiresSdk(FileStoreTable table, Set<Integer> readFieldIds, String... paths) {
+        List<RawFile> files = new ArrayList<>();
+        for (String path : paths) {
+            files.add(new RawFile(path, 0L, 100L, 1L, path.substring(path.lastIndexOf('.') + 1),
+                    table.schema().id(), 0L));
+        }
+        return PaimonScanPlanProvider.requiresLegacyOrcTimestampReader(
+                table, Optional.of(files), readFieldIds, new HashMap<>());
     }
 }

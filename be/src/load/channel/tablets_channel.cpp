@@ -42,6 +42,8 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/load_channel.h"
 #include "load/delta_writer/delta_writer.h"
 #include "storage/storage_engine.h"
@@ -63,6 +65,7 @@ std::atomic<uint64_t> BaseTabletsChannel::_s_tablet_writer_count;
 BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
                                        bool is_high_priority, RuntimeProfile* profile)
         : _key(key),
+          _eos_completion(std::make_shared<EosCompletion>()),
           _state(kInitialized),
           _load_id(load_id),
           _closed_senders(64),
@@ -87,9 +90,19 @@ BaseTabletsChannel::~BaseTabletsChannel() {
 
 TabletsChannel::~TabletsChannel() = default;
 
+Status BaseTabletsChannel::_check_cancelled() {
+    if (_load_cancel_status && !_load_cancel_status->ok()) {
+        _close_status = _load_cancel_status->status();
+        return _close_status;
+    }
+    return Status::OK();
+}
+
 Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
-                                            const PTabletWriterAddBlockRequest& request) {
+                                            const PTabletWriterAddBlockRequest& request,
+                                            bool& should_write) {
     std::lock_guard<std::mutex> l(_lock);
+    should_write = false;
     if (_state != kOpened) {
         return _state == kFinished ? _close_status
                                    : Status::InternalError("TabletsChannel {} state: {}",
@@ -101,6 +114,11 @@ Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
         LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
                      << ", recept_seq=" << request.packet_seq();
         return Status::InternalError("lost data packet");
+    }
+    should_write = request.packet_seq() == cur_seq;
+    if (!should_write) {
+        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
+                  << ", recept_seq=" << request.packet_seq();
     }
     return Status::OK();
 }
@@ -128,8 +146,9 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
-    // if _state is kOpened, it's a normal case, already open by other sender
-    // if _state is kFinished, already cancelled by other sender
+    RETURN_IF_ERROR(_check_cancelled());
+    // Another sender may have already opened or closed this channel.
+    // Shared load cancellation is checked above and does not change _state.
     if (_state == kOpened) {
         RETURN_IF_ERROR(_init_adaptive_random_bucket_state(request));
         return Status::OK();
@@ -188,6 +207,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     }
 
     std::lock_guard<std::mutex> l(_lock);
+    RETURN_IF_ERROR(_check_cancelled());
 
     // one sender may incremental_open many times. but only close one time. so dont count duplicately.
     if (_open_by_incremental) {
@@ -228,6 +248,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         incremental_tablet_num++;
 
         WriteRequest wrequest;
+        wrequest.load_cancel_status = _load_cancel_status;
         wrequest.index_id = params.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
@@ -242,8 +263,8 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
         wrequest.enable_table_memtable_backpressure = params.is_adaptive_random_bucket();
-        if (tablet.has_binlog_tablet_id()) {
-            wrequest.binlog_tablet_id = tablet.binlog_tablet_id();
+        if (tablet.has_changelog_tablet_id()) {
+            wrequest.changelog_tablet_id = tablet.changelog_tablet_id();
         }
 
         auto delta_writer = create_delta_writer(wrequest);
@@ -299,24 +320,24 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     DCHECK(request.write_req_type == WriteRequestType::DATA);
     DCHECK(request.table_schema_param != nullptr);
 
-    // whether to write binlog is decided by binlog_tablet_id: it is set only when this backend
-    // also owns the binlog tablet that is paired with the base tablet.
-    if (request.binlog_tablet_id <= 0) {
+    // whether to write changelog is decided by changelog_tablet_id: it is set only when this
+    // backend also owns the changelog tablet that is paired with the base tablet.
+    if (request.changelog_tablet_id <= 0) {
         return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
     }
 
-    int64_t row_binlog_index_id = 0;
+    int64_t changelog_index_id = 0;
     for (const auto* index_schema : request.table_schema_param->indexes()) {
         if (index_schema->index_id == request.index_id) {
-            row_binlog_index_id = index_schema->row_binlog_id;
+            changelog_index_id = index_schema->changelog_index_id;
             break;
         }
     }
-    DCHECK(row_binlog_index_id > 0);
+    DCHECK(changelog_index_id > 0);
 
-    const auto* row_binlog_index_schema =
-            request.table_schema_param->row_binlog_index_schema(row_binlog_index_id);
-    DCHECK(row_binlog_index_schema != nullptr);
+    const auto* changelog_index_schema =
+            request.table_schema_param->changelog_index_schema(changelog_index_id);
+    DCHECK(changelog_index_schema != nullptr);
 
     // group_build_req is only for the group wrapper itself. It provides the group semantics and
     // metadata used by BaseDeltaWriter/GroupRowsetBuilder to expose tablet_id, txn_id,
@@ -328,14 +349,51 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     WriteRequest sub_data_req = request;
     sub_data_req.write_req_type = WriteRequestType::DATA;
 
-    WriteRequest sub_row_binlog_req = request;
-    sub_row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
-    sub_row_binlog_req.tablet_id = request.binlog_tablet_id;
-    sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
-    sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
+    WriteRequest sub_changelog_req = request;
+    sub_changelog_req.write_req_type = WriteRequestType::CHANGELOG;
+    sub_changelog_req.tablet_id = request.changelog_tablet_id;
+    sub_changelog_req.index_id = changelog_index_schema->index_id;
+    sub_changelog_req.schema_hash = changelog_index_schema->schema_hash;
 
-    return std::make_unique<DeltaWriter>(_engine, group_build_req, sub_data_req, sub_row_binlog_req,
+    return std::make_unique<DeltaWriter>(_engine, group_build_req, sub_data_req, sub_changelog_req,
                                          _profile, _load_id);
+}
+
+Status BaseTabletsChannel::_close_and_notify(std::unique_lock<std::mutex>& lock, int sender_id,
+                                             PTabletWriterAddBlockResult* response) {
+    DCHECK_EQ(_num_remaining_senders, 0);
+    // Stop accepting data before releasing the lock. The arrival barrier allows
+    // earlier senders to close incremental channels while this sender flushes.
+    // A retry of this final sender must instead wait for the final close result.
+    _state = kFinished;
+    _final_sender_id = sender_id;
+    _final_close_in_progress = true;
+    const auto arrival_status = _check_cancelled();
+    lock.unlock();
+    _eos_completion->complete(arrival_status);
+    lock.lock();
+
+    _close_status = _check_cancelled();
+    if (_close_status.ok()) {
+        _close_status = _close_writers(response);
+    }
+    _final_close_result = std::make_unique<PTabletWriterAddBlockResult>(*response);
+    _final_close_in_progress = false;
+    _final_close_cv.notify_all();
+    return _close_status;
+}
+
+Status BaseTabletsChannel::_get_close_result(std::unique_lock<std::mutex>& lock, int sender_id,
+                                             PTabletWriterAddBlockResult* response) {
+    if (sender_id == _final_sender_id) {
+        // The final closer is already running, so waiting here cannot prevent
+        // another sender's EOS from reaching the arrival barrier.
+        TEST_SYNC_POINT("BaseTabletsChannel::close.wait_for_final_result");
+        _final_close_cv.wait(lock, [this] { return !_final_close_in_progress; });
+        DCHECK(_final_close_result != nullptr);
+        response->CopyFrom(*_final_close_result);
+    }
+    return _close_status;
 }
 
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
@@ -343,10 +401,9 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     int sender_id = req.sender_id();
     int64_t backend_id = req.backend_id();
     const auto& partition_ids = req.partition_ids();
-    auto* tablet_errors = res->mutable_tablet_errors();
-    std::lock_guard<std::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     if (_state == kFinished) {
-        return _close_status;
+        return _get_close_result(l, sender_id, res);
     }
     if (_closed_senders.Get(sender_id)) {
         // Double close from one sender, just return OK
@@ -370,12 +427,19 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         return Status::OK();
     }
 
-    _state = kFinished;
+    return _close_and_notify(l, sender_id, res);
+}
+
+Status TabletsChannel::_close_writers(PTabletWriterAddBlockResult* res) {
+    auto* tablet_errors = res->mutable_tablet_errors();
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("TabletsChannel::close.before_flush", Status::OK(), res);
+
     // All senders are closed
     // 1. close all delta writers
     std::set<DeltaWriter*> need_wait_writers;
     // under _lock. no need _tablet_writers_lock again.
     for (auto&& [tablet_id, writer] : _tablet_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         if (_partition_ids.contains(writer->partition_id())) {
             auto st = writer->close();
             if (!st.ok()) {
@@ -467,13 +531,13 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResul
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
-        // report the row binlog tablet as a normal tablet so FE advances its version.
-        if (writer->binlog_tablet_id() > 0) {
-            PTabletInfo* binlog_tablet_info = tablet_vec->Add();
-            binlog_tablet_info->set_tablet_id(writer->binlog_tablet_id());
-            binlog_tablet_info->set_schema_hash(0);
-            binlog_tablet_info->set_received_rows(writer->total_received_rows());
-            binlog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        // report the changelog tablet as a normal tablet so FE advances its version.
+        if (writer->changelog_tablet_id() > 0) {
+            PTabletInfo* changelog_tablet_info = tablet_vec->Add();
+            changelog_tablet_info->set_tablet_id(writer->changelog_tablet_id());
+            changelog_tablet_info->set_schema_hash(0);
+            changelog_tablet_info->set_received_rows(writer->total_received_rows());
+            changelog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
         }
         _total_received_rows += writer->total_received_rows();
         _num_rows_filtered += writer->num_rows_filtered();
@@ -572,9 +636,10 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
+                .load_cancel_status = _load_cancel_status,
         };
-        if (tablet.has_binlog_tablet_id()) {
-            wrequest.binlog_tablet_id = tablet.binlog_tablet_id();
+        if (tablet.has_changelog_tablet_id()) {
+            wrequest.changelog_tablet_id = tablet.changelog_tablet_id();
         }
 
         auto delta_writer = create_delta_writer(wrequest);
@@ -876,15 +941,10 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         _add_batch_number_counter->update(1);
     }
 
-    auto status = _get_current_seq(cur_seq, request);
-    if (UNLIKELY(!status.ok())) {
+    bool should_write = false;
+    auto status = _get_current_seq(cur_seq, request, should_write);
+    if (UNLIKELY(!status.ok()) || !should_write) {
         return status;
-    }
-
-    if (request.packet_seq() < cur_seq) {
-        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                  << ", recept_seq=" << request.packet_seq();
-        return Status::OK();
     }
 
     // Adaptive random bucket add-block RPCs carry partition ids. The receiver maps rows to

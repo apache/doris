@@ -31,7 +31,7 @@
 #include "core/data_type/data_type.h"
 #include "core/string_ref.h"
 #include "runtime/exec_env.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/data_dir.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
@@ -91,14 +91,14 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
 
     CHECK(_context.rowset_writer_ctx != nullptr);
     bool write_before =
-            _context.rowset_writer_ctx->write_binlog_opt().write_binlog_config().write_before;
+            _context.rowset_writer_ctx->write_changelog_opt().write_changelog_config().write_before;
     // The lookup uses the tablet's latest schema, the delete-sign rule the source schema. Hold the
     // shared pointer: tablet_schema() hands out a copy and the probe only borrows it.
     TabletSchemaSPtr lookup_schema = _context.tablet->tablet_schema();
-    MowKeyProbe probe = MowKeyProbe::for_row_binlog(_context.tablet.get(), lookup_schema.get(),
-                                                    tablet_schema->has_sequence_col(), _mow_context,
-                                                    write_before);
-    // the binlog retriever reports no partial update counters
+    MowKeyProbe probe = MowKeyProbe::for_changelog(_context.tablet.get(), lookup_schema.get(),
+                                                   tablet_schema->has_sequence_col(), _mow_context,
+                                                   write_before);
+    // the changelog retriever reports no partial update counters
     PartialUpdateStats discarded_stats;
 
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
@@ -120,13 +120,13 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             // it's an insert row
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
-            _operators.emplace_back(have_delete_sign ? ROW_BINLOG_DELETE : ROW_BINLOG_APPEND);
+            _operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND);
             continue;
         }
         if (outcome.use_default_or_null) {
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
-            _operators.emplace_back(ROW_BINLOG_DELETE);
+            _operators.emplace_back(ChangelogOp::DELETE);
         } else {
             // partial update should not contain invisible columns
             _use_default_or_null_flag.emplace_back(false);
@@ -134,7 +134,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             // currently we think row_pos must be zero, so we won't consider row_pos > 0
             DCHECK(row_pos == 0);
             _row_fetcher->plan_fixed_read(outcome.loc, delta_pos);
-            _operators.emplace_back(have_delete_sign ? ROW_BINLOG_DELETE : ROW_BINLOG_UPDATE);
+            _operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::UPDATE);
         }
     }
 
@@ -175,11 +175,11 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
 
     CHECK(_context.rowset_writer_ctx != nullptr);
     const bool write_before =
-            _context.rowset_writer_ctx->write_binlog_opt().write_binlog_config().write_before;
+            _context.rowset_writer_ctx->write_changelog_opt().write_changelog_config().write_before;
     TabletSchemaSPtr lookup_schema = _context.tablet->tablet_schema();
-    MowKeyProbe probe = MowKeyProbe::for_row_binlog(_context.tablet.get(), lookup_schema.get(),
-                                                    tablet_schema->has_sequence_col(), _mow_context,
-                                                    write_before);
+    MowKeyProbe probe = MowKeyProbe::for_changelog(_context.tablet.get(), lookup_schema.get(),
+                                                   tablet_schema->has_sequence_col(), _mow_context,
+                                                   write_before);
     BlockAggregator aggregator(*tablet_schema, _context.tablet, _mow_context,
                                *_context.partial_update_info, *_key_encoder, probe, *_row_fetcher);
 
@@ -265,8 +265,8 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
         }
         _operators.emplace_back(
                 outcome.result == KeyProbeResult::NOT_FOUND
-                        ? (have_delete_sign ? ROW_BINLOG_DELETE : ROW_BINLOG_APPEND)
-                        : (have_delete_sign ? ROW_BINLOG_DELETE : ROW_BINLOG_UPDATE));
+                        ? (have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND)
+                        : (have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::UPDATE));
     }
 
     RETURN_IF_ERROR(_row_fetcher->fill_non_primary_key_columns(
@@ -354,8 +354,8 @@ Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t n
     DCHECK_EQ(_old_delete_signs.size(), num_rows);
 
     for (size_t idx = 0; idx < num_rows; ++idx) {
-        if (_operators[idx] == ROW_BINLOG_UPDATE && _old_delete_signs[idx] != 0) {
-            _operators[idx] = ROW_BINLOG_APPEND;
+        if (_operators[idx] == ChangelogOp::UPDATE && _old_delete_signs[idx] != 0) {
+            _operators[idx] = ChangelogOp::APPEND;
         }
     }
     return Status::OK();

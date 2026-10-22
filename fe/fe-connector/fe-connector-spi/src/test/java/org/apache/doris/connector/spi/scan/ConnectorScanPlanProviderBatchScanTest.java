@@ -30,7 +30,9 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * FIX-BATCH-MODE-SPLIT (P4-T06e / NG-7) — guards the two additive SPI defaults on
@@ -61,6 +63,48 @@ public class ConnectorScanPlanProviderBatchScanTest {
     };
 
     @Test
+    public void partitionBatchSourceDefersScopedPlanningAndReleasesItsRanges() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        ConnectorScanRange range = () -> Collections.emptyMap();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                .requiredPartitions(Arrays.asList("pt=1", "pt=2"))
+                .backendCapabilities(Collections.singleton("capability"))
+                .aggregatePushdown(true).build();
+        ConnectorScanPlanProvider provider = new ConnectorScanPlanProvider() {
+            @Override
+            public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest scoped) {
+                calls.incrementAndGet();
+                Assertions.assertEquals(Collections.singletonList("pt=2"), scoped.getRequiredPartitions());
+                Assertions.assertTrue(scoped.isAggregatePushdown());
+                Assertions.assertEquals(request.getBackendCapabilities(), scoped.getBackendCapabilities());
+                return Collections.singletonList(range);
+            }
+
+            @Override
+            public boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
+                return true;
+            }
+        };
+        ConnectorScanRequest scoped = request.withRequiredPartitions(Collections.singletonList("pt=2"));
+        try (ConnectorSplitSource source = provider.streamSplits(null, scoped)) {
+            Assertions.assertEquals(0, calls.get());
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertTrue(source.hasNext());
+            Assertions.assertSame(range, source.next());
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertThrows(NoSuchElementException.class, source::next);
+            Assertions.assertEquals(1, calls.get());
+            source.close();
+            Assertions.assertFalse(source.hasNext());
+        }
+        try (ConnectorSplitSource source = provider.streamSplits(null, scoped)) {
+            source.close();
+            Assertions.assertFalse(source.hasNext());
+            Assertions.assertEquals(1, calls.get(), "Closing an unused source must not plan its batch");
+        }
+    }
+
+    @Test
     public void testSupportsBatchScanDefaultsFalse() {
         // Default MUST be false: any connector that does not opt in stays on the synchronous path.
         ConnectorScanPlanProvider provider = new RecordingProvider();
@@ -81,7 +125,9 @@ public class ConnectorScanPlanProviderBatchScanTest {
         // non-negative streamingSplitEstimate without implementing streamSplits, which is a connector bug.
         ConnectorScanPlanProvider provider = new RecordingProvider();
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> provider.streamSplits(null, null, Collections.emptyList(), Optional.empty(), -1L));
+                () -> provider.streamSplits(null,
+                        ConnectorScanRequest.builder(HANDLE, Collections.emptyList())
+                                .filter(Optional.empty()).limit(-1L).build()));
     }
 
     @Test
@@ -100,6 +146,7 @@ public class ConnectorScanPlanProviderBatchScanTest {
                 .limit(7L)
                 .partitionsPrunedToEmpty(true)
                 .countPushdown(true)
+                .aggregatePushdown(true)
                 .explainOnly(true)
                 .build();
 
@@ -114,6 +161,7 @@ public class ConnectorScanPlanProviderBatchScanTest {
         Assertions.assertEquals(7L, forwarded.getLimit());
         Assertions.assertTrue(forwarded.isPartitionsPrunedToEmpty());
         Assertions.assertTrue(forwarded.isCountPushdown());
+        Assertions.assertTrue(forwarded.isAggregatePushdown());
         // Dropping this one would silently make a batched EXPLAIN plan the way a real scan does --
         // which for a connector whose planning has a side effect on the source means EXPLAIN runs the
         // query. Losing it is invisible in the plan output.
@@ -133,6 +181,7 @@ public class ConnectorScanPlanProviderBatchScanTest {
         Assertions.assertTrue(request.getRequiredPartitions().isEmpty());
         Assertions.assertFalse(request.isPartitionsPrunedToEmpty());
         Assertions.assertFalse(request.isCountPushdown());
+        Assertions.assertFalse(request.isAggregatePushdown());
         // Default false = "this plan will be run": a connector that reads it takes its normal path
         // unless the engine says otherwise.
         Assertions.assertFalse(request.isExplainOnly());

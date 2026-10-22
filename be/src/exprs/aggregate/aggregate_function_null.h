@@ -129,6 +129,10 @@ public:
         }
     }
 
+    void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) override {
+        nested_function->set_ai_statistics(std::move(statistics));
+    }
+
     void set_query_context(QueryContext* ctx) override {
         return nested_function->set_query_context(ctx);
     }
@@ -620,6 +624,9 @@ public:
                 if (nullable_col.is_null_at(row_num)) {
                     /// If at least one column has a null value in the current row,
                     /// we don't process this row.
+                    if constexpr (requires { this->nested_function->record_null_input(1); }) {
+                        this->nested_function->record_null_input(1);
+                    }
                     return;
                 }
                 nested_columns[i] = &nullable_col.get_nested_column();
@@ -714,6 +721,11 @@ public:
 
     void check_input_columns_type(const IColumn** columns) const override {
         IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (requires(NestFuction& function, const IColumn** input_columns) {
+                          function.check_nullable_input_columns(input_columns);
+                      }) {
+            this->nested_function->check_nullable_input_columns(columns);
+        }
         std::vector<const IColumn*> nested_columns(number_of_arguments);
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {
@@ -750,6 +762,7 @@ private:
         }
 
         std::vector<AggregateDataPtr> nested_places(batch_size, nullptr);
+        size_t skipped_nulls = 0;
         for (size_t row = 0; row < batch_size; ++row) {
             AggregateDataPtr place = get_place(row);
             if (place == nullptr) {
@@ -762,7 +775,12 @@ private:
             if (!has_null) {
                 this->set_flag(place);
                 nested_places[row] = this->nested_place(place);
+            } else if constexpr (requires { this->nested_function->record_null_input(1); }) {
+                ++skipped_nulls;
             }
+        }
+        if constexpr (requires { this->nested_function->record_null_input(1); }) {
+            this->nested_function->record_null_input(skipped_nulls);
         }
         this->nested_function->add_batch_selected(batch_size, nested_places.data(), 0,
                                                   nested_columns.data(), arena);

@@ -89,6 +89,29 @@ protected:
 
     Status validate_file_mapping(const format::TableColumnMapper& mapper) const override;
 
+    // Iceberg's Parquet reader resolves a data file that carries no field ids at all through the
+    // table's `schema.name-mapping.default`; when that mapping is absent it falls back to
+    // positional ids (ParquetSchemaUtil.addFallbackIds + pruneColumnsFallback, gated by
+    // `iceberg.netflix.unsafe-parquet-id-fallback.enabled`, default true through 1.12 and
+    // scheduled for removal in 2.0). Mirror that decision for Parquet by stamping ordinal ids
+    // (1..N) on the file's top-level fields, so the shared BY_FIELD_ID path resolves those files
+    // instead of silently materializing NULL. Only top-level fields are stamped: Iceberg assigns
+    // no ids to nested fields, so struct children of an id-less file stay unreadable without a
+    // name mapping (or a rewrite that persists field ids).
+    Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
+
+    // Iceberg's positional fallback matches an ID-less Parquet file by physical ordinals, so the
+    // same table column can bind a different file column when the table's
+    // `schema.name-mapping.default` is added or removed without touching the data file. The
+    // condition cache key covers the file identity and the table-level predicate digest only, so it
+    // cannot tell those bindings apart; keep such splits out of the cache (neither read nor
+    // written) instead of reusing a verdict produced by the other binding.
+    bool _should_enable_condition_cache(
+            const format::FileScanRequest& file_request) const override {
+        return !_positional_id_fallback &&
+               format::TableReader::_should_enable_condition_cache(file_request);
+    }
+
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_row_lineage_virtual_columns = true;
         options->enable_iceberg_metadata_virtual_columns = true;
@@ -205,6 +228,10 @@ private:
     size_t _row_position_block_position = 0;
     std::optional<TIcebergFileDesc> _iceberg_params;
     bool _delete_predicates_initialized = false;
+    // Set when this split's Parquet file carried no field ids and the table exposed no usable name
+    // mapping, so the reader stamped Iceberg's positional fallback ids on the file's top-level
+    // fields. Observability only; the decision itself lives in annotate_file_schema().
+    bool _positional_id_fallback = false;
     format::DeleteRows _position_delete_rows_storage;
     struct EqualityDeleteFilter {
         std::vector<int> field_ids;

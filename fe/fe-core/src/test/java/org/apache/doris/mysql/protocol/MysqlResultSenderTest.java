@@ -20,16 +20,20 @@ package org.apache.doris.mysql.protocol;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel.RecordedPacket;
+import org.apache.doris.thrift.TMasterOpRequest;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -151,23 +155,33 @@ public class MysqlResultSenderTest {
     }
 
     @Test
-    public void testCursorFetchMetadataTerminatorDependsOnConnectorJVersion() throws IOException {
-        List<byte[]> connector82Packets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0");
-        Assertions.assertEquals(3, connector82Packets.size());
-        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(connector82Packets.get(2)[0]));
-        Assertions.assertTrue(connector82Packets.get(2).length > 5);
-
-        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector Java", "5.1.49").size());
-        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "6.0.6").size());
-        Assertions.assertEquals(3, sendEmptyResultSet(true, "MySQL Connector/J", "9.4.0").size());
-        Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", "9.5.0").size());
+    public void testCursorFetchMetadataHasNoExtraTerminator() throws IOException {
+        for (String version : new String[] {"8.0.27", "8.4.0", "9.4.0", "9.7.0"}) {
+            Assertions.assertEquals(2, sendEmptyResultSet(true, "MySQL Connector/J", version).size());
+        }
+        Assertions.assertEquals(2, sendEmptyResultSet(true, Collections.emptyMap(), true).size());
         Assertions.assertEquals(2, sendEmptyResultSet(false, "MySQL Connector/J", "8.2.0").size());
-        Assertions.assertEquals(2, sendEmptyResultSet(true, "MariaDB Connector/J", "3.5.6").size());
-        Assertions.assertEquals(3, sendEmptyResultSet(true, Collections.emptyMap(), true).size());
-
         List<byte[]> legacyEofPackets = sendEmptyResultSet(true, "MySQL Connector/J", "8.2.0", false);
         Assertions.assertEquals(3, legacyEofPackets.size());
         Assertions.assertEquals(5, legacyEofPackets.get(2).length);
+    }
+
+    @Test
+    public void testOlderFeKeepsLegacyCursorMetadataFraming() throws IOException {
+        RecordingMysqlChannel channel = newChannel(true);
+        ConnectContext ctx = newContext(channel);
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setClientDeprecatedEOF(true);
+        request.setCursorFetchRequested(true);
+        MysqlProtocolAdapter.of(ctx).restoreFromForwardRequest(ctx, request);
+        ctx.setConnectAttributes(ImmutableMap.of(
+                "_client_name", "MySQL Connector/J", "_client_version", "8.0.27"));
+        ctx.getResultSender().sendResultSet(new CommonResultSet(
+                new CommonResultSetMetaData(Collections.singletonList(new Column("c", PrimitiveType.INT))),
+                Collections.emptyList()), null, true);
+        List<byte[]> packets = payloads(channel);
+        Assertions.assertEquals(3, packets.size());
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(packets.get(2)[0]));
     }
 
     @Test
@@ -216,6 +230,58 @@ public class MysqlResultSenderTest {
         MysqlProtocolAdapter.of(ctx).resultSender(ctx).sendFieldList("db1", "tbl1", columns);
 
         Assertions.assertEquals(2, channel.getOutbound().size());
+    }
+
+    @Test
+    public void testFieldListReportsDeclaredNullability() throws IOException {
+        RecordingMysqlChannel channel = newChannel(true);
+        ConnectContext ctx = newContext(channel);
+        Column required = new Column("id", PrimitiveType.INT);
+        required.setIsAllowNull(false);
+        Column optional = new Column("name", PrimitiveType.VARCHAR);
+        optional.setIsAllowNull(true);
+
+        // COM_FIELD_LIST is fed the display schema, so its ColumnDefinition41 packets must carry the
+        // NOT_NULL flag for a source-required column (mysql_list_fields / MySQL clients read it).
+        MysqlProtocolAdapter.of(ctx).resultSender(ctx)
+                .sendFieldList("db1", "tbl1", Lists.newArrayList(required, optional));
+
+        List<byte[]> packets = payloads(channel);
+        Assertions.assertEquals(2, packets.size());
+        Assertions.assertEquals(1, fieldFlags(packets.get(0)) & 1);
+        Assertions.assertEquals(0, fieldFlags(packets.get(1)) & 1);
+    }
+
+    @Test
+    public void testPrepareMetadataKeepsOuterJoinOutputNullable() throws IOException {
+        RecordingMysqlChannel channel = newChannel(true);
+        ConnectContext ctx = newContext(channel);
+        Column required = new Column("id", PrimitiveType.INT);
+        required.setIsAllowNull(false);
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getName()).thenReturn("r");
+        // The nullable side of an outer join: the output slot is nullable while the original column (which
+        // the prepare metadata packet describes) is NOT NULL.
+        SlotReference output = SlotReference.fromColumn(new ExprId(1), table, required, Lists.newArrayList("r"))
+                .withNullable(true);
+
+        MysqlProtocolAdapter.of(ctx).resultSender(ctx)
+                .sendStmtPrepareOK(1, Lists.newArrayList(), Lists.newArrayList(output));
+
+        List<byte[]> packets = payloads(channel);
+        Assertions.assertEquals(2, packets.size()); // prepare OK + one column definition
+        Assertions.assertEquals(0, fieldFlags(packets.get(1)) & 1);
+    }
+
+    /** The 2-byte flags of a ColumnDefinition41 packet; all fixtures here use one-byte length-encoded names. */
+    private static int fieldFlags(byte[] payload) {
+        int off = 0;
+        for (int i = 0; i < 6; i++) { // catalog, schema, table, org_table, name, org_name
+            off += 1 + (payload[off] & 0xFF);
+        }
+        Assertions.assertEquals(0x0c, payload[off++] & 0xFF);
+        off += 2 + 4 + 1; // charset, column length, column type
+        return (payload[off] & 0xFF) | ((payload[off + 1] & 0xFF) << 8);
     }
 
     @Test

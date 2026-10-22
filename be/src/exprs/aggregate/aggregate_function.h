@@ -46,6 +46,7 @@ class Arena;
 class IColumn;
 class IDataType;
 class QueryContext;
+class AIExecutionStatistics;
 
 struct AggregateFunctionAttr {
     bool is_window_function {false};
@@ -53,6 +54,8 @@ struct AggregateFunctionAttr {
     bool enable_aggregate_function_null_v2 {false};
     bool new_version_percentile {false};
     std::vector<std::string> column_names;
+    // Negotiated execution version propagated to nested aggregate function creators.
+    int be_exec_version {-1};
 };
 
 template <bool nullable, typename ColVecType>
@@ -294,6 +297,8 @@ public:
                         "only LLM aggregate functions implement this method",
                         get_name());
     }
+
+    virtual void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) {}
 
     virtual bool is_blockable() const { return false; }
 

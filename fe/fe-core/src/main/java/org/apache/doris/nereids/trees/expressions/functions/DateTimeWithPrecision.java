@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.Locale;
 
@@ -44,20 +45,26 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
     }
 
     @Override
+    public Expression prepareBeforeTypeCoercion() {
+        // computeSignature derives the return type from the value of the precision
+        return withChildren(ExpressionUtils::foldConstantArgument);
+    }
+
+    @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         if (arity() == 1 && signature.returnType instanceof DateTimeV2Type) {
             // For functions in TIME_FUNCTIONS_WITH_PRECISION, we can't figure out which function should be use when
             // searching in FunctionSet. So we adjust the return type by hand here.
             if (getArgument(0) instanceof IntegerLikeLiteral) {
                 IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) getArgument(0);
-                int precision = integerLikeLiteral.getIntValue();
+                long precision = integerLikeLiteral.getLongValue();
                 if (precision < 0 || precision > TimeStampNsType.SCALE) {
                     throw new AnalysisException("Precision of " + getName().toUpperCase(Locale.ROOT)
                             + " must be between 0 and "
                             + TimeStampNsType.SCALE + ". Precision was set to: " + precision);
                 }
                 signature = signature.withReturnType(precision > DateTimeV2Type.MAX_SCALE
-                        ? TimeStampNsType.INSTANCE : DateTimeV2Type.of(precision));
+                        ? TimeStampNsType.INSTANCE : DateTimeV2Type.of((int) precision));
             } else if (!getArgument(0).isLiteral()) {
                 throw new AnalysisException(getName().toUpperCase(Locale.ROOT)
                         + " precision argument must be a constant literal.");
