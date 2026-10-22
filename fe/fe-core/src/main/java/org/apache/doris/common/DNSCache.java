@@ -77,9 +77,8 @@ public class DNSCache {
     public void invalidate(String hostname) {
         // A successful heartbeat may coincide with a temporary DNS outage. Keep the
         // last known IP so resolveHostname can fall back instead of caching an empty IP.
-        if (cache.containsKey(hostname)) {
-            refreshPending.add(hostname);
-        }
+        // The first lookup may still be resolving and have no published cache entry.
+        refreshPending.add(hostname);
     }
 
     /**
