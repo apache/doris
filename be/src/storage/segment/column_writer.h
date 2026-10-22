@@ -217,7 +217,7 @@ public:
 
 // Writes scalar values and the offset/null streams of the composite writers. append cuts a
 // batch into its NULL runs, written to the null bitmap (append_nulls), and its value runs,
-// each converted to its storage cells (prepare_cells) and written to the data pages and
+// each converted to its storage cells (append_values) and written to the data pages and
 // every index (append_data).
 class ScalarColumnWriter : public ColumnWriter {
 public:
@@ -282,20 +282,17 @@ protected:
 private:
     Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
 
-    // Converts a run of rows without NULLs to its storage cells and writes them.
+    // Converts rows [row_pos, row_pos + num_rows) of `values`, a run without NULL rows, to
+    // num_rows cells of cell_size() bytes back to back through the StorageLayout of
+    // _storage_type, borrowed from the column or held in _buffers until the next run, and
+    // writes them.
     Status append_values(const IColumn& values, size_t row_pos, size_t num_rows);
-
-    // The storage cells of rows [row_pos, row_pos + num_rows) of `values`, a run without NULL
-    // rows: num_rows cells of cell_size() bytes back to back, through the StorageLayout of
-    // _storage_type, borrowed from the column or held in _buffers until the next run is
-    // prepared.
-    const uint8_t* prepare_cells(const IColumn& values, size_t row_pos, size_t num_rows);
 
     void _reserve_null_bitmap(const uint8_t* null_map, size_t num_rows);
 
     // The StorageLayout the values are stored through.
     const FieldType _storage_type;
-    // Where prepare_cells puts what it cannot borrow from the column.
+    // Where append_values puts what it cannot borrow from the column.
     StorageBuffers _buffers;
 
     std::unique_ptr<PageBuilder> _page_builder;

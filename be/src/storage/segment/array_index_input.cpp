@@ -55,9 +55,9 @@ Status feed_array_index(IndexColumnWriter* writer, FieldType item_type, const IC
         // read them.
         const uint8_t* values = nullptr;
         if (num_items == 0) {
-            // Empty arrays still advance document IDs. The raw BKD interface requires
-            // a non-null value pointer even when none of these rows has an element.
-            buffers.bytes.resize(field_type_size(item_type));
+            // Empty arrays still advance document IDs, so the rows are fed even without elements.
+            // Nothing is read through the value pointer, but the SNII BKD writer checks that it is
+            // not null; a PaddedPODArray's data() never is, even when empty.
             values = buffers.bytes.data();
         } else if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             DCHECK_GT(char_length, 0);

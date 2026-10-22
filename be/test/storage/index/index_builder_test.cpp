@@ -3492,7 +3492,8 @@ TEST(ArrayIndexInputTest, EmptyRowsStillAdvanceDocumentsAndNullPositions) {
     EXPECT_EQ(writer.array_batch_rows, (std::vector<size_t> {rows}));
     EXPECT_EQ(writer.array_sizes, std::vector<size_t>(rows, 0));
     EXPECT_EQ(writer.array_nulls, nulls);
-    EXPECT_FALSE(buffer.bytes.empty());
+    // No element is read, but the SNII BKD writer requires a non-null value pointer.
+    EXPECT_NE(writer.last_values, nullptr);
 }
 
 TEST(ArrayIndexInputTest, BorrowsUnchangedFixedWidthItems) {

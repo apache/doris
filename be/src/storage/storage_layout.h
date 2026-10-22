@@ -73,8 +73,6 @@ struct StorageLayout;
 struct StorageBuffers {
     PaddedPODArray<uint8_t> bytes;
     PaddedPODArray<Slice> cells;
-
-    size_t allocated_bytes() const { return bytes.allocated_bytes() + cells.allocated_bytes(); }
 };
 
 // The FieldTypes stored fixed width, for callers that only know their FieldType at run

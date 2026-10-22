@@ -316,8 +316,10 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     auto data_type = DataTypeFactory::instance().create_data_type(*column);
     const auto* agg_state_type = assert_cast<const DataTypeAggState*>(data_type.get());
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
-    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
-        type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT || type == PrimitiveType::TYPE_BITMAP) {
+    // INVALID_TYPE has no storage conversion and is refused below with the other unsupported
+    // serialised types.
+    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT ||
+        type == PrimitiveType::TYPE_BITMAP) {
         // The states are stored as the function serialises them: strings as VARCHAR, bitmaps
         // as BITMAP, fixed-length objects through AGG_STATE's own layout.
         FieldType storage_type = FieldType::OLAP_FIELD_TYPE_AGG_STATE;
@@ -553,16 +555,6 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     return Status::OK();
 }
 
-const uint8_t* ScalarColumnWriter::prepare_cells(const IColumn& values, size_t row_pos,
-                                                 size_t num_rows) {
-    if (_storage_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        // Padded to the column's length, which is what the segment stores.
-        return StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage(
-                values, row_pos, num_rows, get_column()->length(), /*null_map=*/nullptr, _buffers);
-    }
-    return column_to_storage(_storage_type, values, row_pos, num_rows, _buffers);
-}
-
 void ScalarColumnWriter::_reserve_null_bitmap(const uint8_t* null_map, size_t num_rows) {
     if (config::enable_rle_batch_put_optimization && _null_bitmap_builder != nullptr) {
         // Pre-allocate buffer based on estimated size
@@ -614,7 +606,16 @@ Status ScalarColumnWriter::append(const IColumn& column, size_t row_pos, size_t 
 
 Status ScalarColumnWriter::append_values(const IColumn& values, size_t row_pos, size_t num_rows) {
     const uint8_t* cells = nullptr;
-    RETURN_IF_CATCH_EXCEPTION({ cells = prepare_cells(values, row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        if (_storage_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            // Padded to the column's length, which is what the segment stores.
+            cells = StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage(
+                    values, row_pos, num_rows, get_column()->length(), /*null_map=*/nullptr,
+                    _buffers);
+        } else {
+            cells = column_to_storage(_storage_type, values, row_pos, num_rows, _buffers);
+        }
+    });
     return append_data(cells, num_rows);
 }
 
@@ -1049,7 +1050,7 @@ Status ArrayColumnWriter::append(const IColumn& column, size_t row_pos, size_t n
 uint64_t ArrayColumnWriter::estimate_buffer_size() {
     return _offset_writer->estimate_buffer_size() +
            (is_nullable() ? _null_writer->estimate_buffer_size() : 0) +
-           _item_writer->estimate_buffer_size() + _index_buffers.allocated_bytes();
+           _item_writer->estimate_buffer_size();
 }
 
 Status ArrayColumnWriter::finish() {
