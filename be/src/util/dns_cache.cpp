@@ -51,7 +51,9 @@ void DNSCache::invalidate(const std::string& hostname) {
     std::unique_lock<std::shared_mutex> lock(mutex);
     // ECONNRESET/EPIPE do not prove the cached IP is obsolete. Keep the fallback
     // and DNS failure history; only fresh DNS or normal authoritative eviction replaces it.
-    if (cache.count(hostname) != 0) {
+    // An old stub can fail while a cold retry is resolving after eviction. Keep
+    // that newer request too, so the older failure cannot reinstall a tombstone.
+    if (cache.count(hostname) != 0 || _refresh_locks.count(hostname) != 0) {
         _refresh_pending.insert(hostname);
     }
     _negative_cache.erase(hostname);
@@ -240,6 +242,11 @@ void DNSCache::_remember_unresolvable(const std::string& hostname) {
         return;
     }
     std::unique_lock<std::shared_mutex> lock(mutex);
+    // A socket fault during this cold lookup erased its retry tombstone and
+    // requested another lookup. Do not hide that request behind a new negative TTL.
+    if (_refresh_pending.count(hostname) != 0) {
+        return;
+    }
     // try_emplace, not operator[]: get()'s single-flight path may have just re-armed this
     // tombstone to now(); overwriting it would be harmless there but would also let two
     // callers racing on the same host each reset the deadline, loosening the rate limit.

@@ -153,7 +153,7 @@ private:
     Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
-    // Cached hostnames that must be resolved again before their next use.
+    // Hostnames that must be resolved again after invalidation.
     std::unordered_set<std::string> _refresh_pending;
     // Claimed explicit refreshes: keep warm readers waiting until their result is published.
     std::unordered_set<std::string> _refresh_inflight;

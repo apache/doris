@@ -932,6 +932,49 @@ TEST_F(DNSCacheTest, newer_invalidation_survives_authoritative_background_failur
     EXPECT_EQ(calls.load(), 3);
 }
 
+TEST_F(DNSCacheTest, newer_invalidation_survives_failed_cold_retry) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    std::atomic<int> calls {0};
+    CountDownLatch resolving(1);
+    CountDownLatch finish_lookup(1);
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        int call = calls.fetch_add(1);
+        if (call == 2) {
+            resolving.count_down();
+            finish_lookup.wait();
+        }
+        if (call == 1 || call == 2) {
+            *error = EAI_NONAME;
+            return Status::InternalError<false>("older NXDOMAIN result");
+        }
+        *error = 0;
+        ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    cache.refresh_for_test();
+    ASSERT_EQ(cache.size_for_test(), 0u);
+    ASSERT_EQ(cache.negative_cache_size_for_test(), 1u);
+    cache._expire_negative_cache_for_test();
+
+    Status retry_status;
+    std::thread retry([&] { retry_status = cache.get("be.test", &ip); });
+    resolving.wait();
+    // The evicted pod's retained stub reports a fault after the cold retry started.
+    cache.invalidate("be.test");
+    finish_lookup.count_down();
+    retry.join();
+
+    EXPECT_FALSE(retry_status.ok());
+    EXPECT_EQ(cache.negative_cache_size_for_test(), 0u);
+    // No additional TTL expiry is needed to resolve the replacement pod.
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(calls.load(), 4);
+}
+
 TEST_F(DNSCacheTest, warm_reader_waits_for_forced_refresh) {
     for (bool fail_refresh : {false, true}) {
         SCOPED_TRACE(fail_refresh ? "fallback after failure" : "replacement IP");
