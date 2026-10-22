@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.UnknownHostException;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -35,6 +36,7 @@ public class DNSCache {
     private static final Logger LOG = LogManager.getLogger(DNSCache.class);
 
     private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
+    private final Set<String> refreshPending = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService executor = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "dns_cache_pool", true);
 
@@ -57,11 +59,27 @@ public class DNSCache {
      * @return The IP address for the given hostname.
      */
     public String get(String hostname) {
-        return cache.computeIfAbsent(hostname, this::resolveHostname);
+        String cachedIp = cache.get(hostname);
+        if (cachedIp != null && !refreshPending.contains(hostname)) {
+            return cachedIp;
+        }
+        return cache.compute(hostname, (host, currentIp) -> {
+            // Claim before DNS I/O so an invalidation arriving during this lookup is
+            // retained for the next get(). Concurrent lookups of this host serialize here.
+            boolean needsRefresh = refreshPending.remove(host);
+            if (currentIp == null || needsRefresh) {
+                return resolveHostname(host);
+            }
+            return currentIp;
+        });
     }
 
     public void invalidate(String hostname) {
-        cache.remove(hostname);
+        // A successful heartbeat may coincide with a temporary DNS outage. Keep the
+        // last known IP so resolveHostname can fall back instead of caching an empty IP.
+        if (cache.containsKey(hostname)) {
+            refreshPending.add(hostname);
+        }
     }
 
     /**
@@ -104,13 +122,16 @@ public class DNSCache {
      */
     private void refresh() {
         for (String hostname : cache.keySet()) {
-            String resolvedHostname = resolveHostname(hostname);
-            String currentHostname = cache.get(hostname);
-            if (!resolvedHostname.equals(currentHostname)) {
-                cache.put(hostname, resolvedHostname);
-                LOG.info("IP for hostname {} has changed from {} to {}", hostname, currentHostname,
-                        resolvedHostname);
-            }
+            // Use the same per-host serialization as forced lookups. An older refresh
+            // must not overwrite a newer resolved address with its captured fallback.
+            cache.computeIfPresent(hostname, (host, currentIp) -> {
+                refreshPending.remove(host);
+                String resolvedIp = resolveHostname(host);
+                if (!resolvedIp.equals(currentIp)) {
+                    LOG.info("IP for hostname {} has changed from {} to {}", host, currentIp, resolvedIp);
+                }
+                return resolvedIp;
+            });
         }
     }
 }
