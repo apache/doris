@@ -473,16 +473,14 @@ class IcebergRestCatalog {
     String trinoContainerName = findRequiredDockerContainer(
             "Trino", "icebergTrinoContainer",
             "test -d /etc/trino/catalog && command -v trino >/dev/null")
-    String trinoExternalEnvIp = externalEnvIp
-    if (trinoExternalEnvIp == "127.0.0.1" || trinoExternalEnvIp.equalsIgnoreCase("localhost")) {
-        trinoExternalEnvIp = executeCommand("hostname -I | cut -d' ' -f1", true, 30)?.trim()
-    }
+    // Trino, the REST catalog, and MinIO share the iceberg Docker network.
+    // Use its service names instead of routing a container through host ports.
     String trinoCatalogProps = """
 connector.name=iceberg
 iceberg.catalog.type=rest
-iceberg.rest-catalog.uri=http://${trinoExternalEnvIp}:${rest_port}
+iceberg.rest-catalog.uri=http://rest:8181
 fs.native-s3.enabled=true
-s3.endpoint=http://${trinoExternalEnvIp}:${minio_port}
+s3.endpoint=http://minio:9000
 s3.aws-access-key=admin
 s3.aws-secret-key=password
 s3.region=us-east-1
