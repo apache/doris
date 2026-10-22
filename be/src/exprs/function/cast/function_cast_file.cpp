@@ -119,61 +119,13 @@ WrapperType create_cast_to_file(const DataTypePtr& from_type) {
     };
 }
 
-WrapperType create_cast_from_file(const DataTypePtr& from_type, const DataTypePtr& to_type) {
-    const auto& file_type = assert_cast<const DataTypeFile&>(*from_type);
-    const auto primitive = to_type->get_primitive_type();
-    if (primitive == TYPE_STRUCT) {
-        const auto& structure = assert_cast<const DataTypeStruct&>(*to_type);
-        FileFieldMapping mapping {};
-        auto status = map_file_fields(structure, mapping);
-        if (!status.ok()) {
-            return create_unsupport_wrapper(std::string(status.msg()));
-        }
-        DataTypes fields;
-        FileFieldMapping source_positions {};
-        for (size_t file_index = 0; file_index < mapping.size(); ++file_index) {
-            source_positions[mapping[file_index]] = cast_set<int>(file_index);
-        }
-        for (size_t target_index = 0; target_index < source_positions.size(); ++target_index) {
-            const auto& field = structure.get_elements()[target_index];
-            const auto file_index = cast_set<size_t>(source_positions[target_index]);
-            const auto field_primitive = remove_nullable(field)->get_primitive_type();
-            const bool compatible = compatible_file_field_type(file_index, field_primitive);
-            if (!field->is_nullable() || !compatible) {
-                return create_unsupport_wrapper("FILE can only cast to its six-field STRUCT");
-            }
-            fields.push_back(file_type.get_elements()[file_index]);
-        }
-        const auto structure_type =
-                std::make_shared<DataTypeStruct>(fields, structure.get_element_names());
-        return [structure_type, to_type, source_positions](
-                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       uint32_t result, size_t rows, const NullMap::value_type* null_map) {
-            const auto source =
-                    block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-            const auto& file = assert_cast<const ColumnFile&>(*source);
-            Columns children;
-            for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
-                children.push_back(file.get_column_ptr(source_positions[i]));
-            }
-            Block projected {{ColumnStruct::create(children), structure_type, "file_fields"},
-                             {nullptr, to_type, "result"}};
-            RETURN_IF_ERROR(prepare_unpack_dictionaries(context, structure_type, to_type)(
-                    context, projected, {0}, 1, rows, null_map));
-            block.get_by_position(result).column = projected.get_by_position(1).column;
-            return Status::OK();
-        };
-    }
-    return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
-}
-
 } // namespace
 
 WrapperType create_file_wrapper(const DataTypePtr& from_type, const DataTypePtr& to_type) {
     if (to_type->get_primitive_type() == TYPE_FILE) {
         return create_cast_to_file(from_type);
     }
-    return create_cast_from_file(from_type, to_type);
+    return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
 }
 
 } // namespace doris::CastWrapper
