@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.metadata.LanceMvccSnapshot;
@@ -58,6 +59,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -164,6 +167,153 @@ class LanceSearchExpressionPushDownTest {
         List<LogicalTVFRelation> searches = plan.collectToList(LogicalTVFRelation.class::isInstance);
         Assertions.assertEquals(1, searches.size(), plan.treeString());
         return searches.get(0);
+    }
+
+    private Expression distanceFunction(String name, Expression column, ArrayLiteral query) {
+        List<Expression> args = ImmutableList.of(column, query);
+        return new FunctionRegistry().findFunctionBuilder(name, args).build(name, args).first;
+    }
+
+    @Test
+    void cosineApproximateFunctionsPushBothOrderingAndValueConversions() {
+        for (String name : ImmutableList.of("cosine_distance_approximate", "cosine_similarity_approximate")) {
+            boolean ascending = name.equals("cosine_distance_approximate");
+            Expression expression = distanceFunction(name, embedding, vector());
+            assertNonNullVectorFullRewrite(expression, ascending);
+            Plan plan = rewrite(expression, ascending, scan);
+            VectorSearchTableValuedFunction function = (VectorSearchTableValuedFunction)
+                    search(plan).getFunction().getCatalogFunction();
+            Assertions.assertEquals(TVectorMetric.COSINE,
+                    function.getSearchRequest().getSearchQuery().getVectorSearch().getMetric());
+            Assertions.assertEquals(!ascending, plan.anyMatch(p -> ((Plan) p).getExpressions().stream()
+                    .anyMatch(e -> e.anyMatch(Subtract.class::isInstance))), plan.treeString());
+            Assertions.assertTrue(rewrite(expression, !ascending, scan)
+                    .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        }
+    }
+
+    @Test
+    void zeroCosineQueryRetainsScalarSemantics() {
+        ArrayLiteral zero = new ArrayLiteral(ImmutableList.of(new FloatLiteral(0), new FloatLiteral(0)));
+        for (String name : ImmutableList.of("cosine_distance_approximate", "cosine_similarity_approximate")) {
+            Assertions.assertTrue(rewrite(distanceFunction(name, embedding, zero),
+                    name.equals("cosine_distance_approximate"), scan)
+                    .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        }
+    }
+
+    private void useBinaryEmbedding() {
+        List<Field> fields = new ArrayList<>(metadata.getSchema().getFields());
+        fields.set(2, new Field("embedding", FieldType.nullable(new ArrowType.FixedSizeList(2)),
+                ImmutableList.of(Field.nullable("item", new ArrowType.Int(8, false)))));
+        metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
+                new Schema(fields), Collections.emptyList(), ImmutableMap.of("id", 0, "body", 1, "embedding", 2),
+                Collections.emptyList());
+        Column column = new Column("embedding", org.apache.doris.catalog.ArrayType.create(Type.SMALLINT, true));
+        column.setIsAllowNull(true);
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(ImmutableList.of(
+                id.getOriginalColumn().get(), body.getOriginalColumn().get(), column));
+        Mockito.when(table.getMetadata(Mockito.any())).thenReturn(metadata);
+        embedding = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table, column,
+                ImmutableList.of("catalog", "db", "items"));
+        scan = new LogicalFileScan(new RelationId(1), table, ImmutableList.of("catalog", "db"),
+                Collections.emptyList(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(ImmutableList.of(id, body, embedding)), Optional.of(new LanceMvccSnapshot(metadata)));
+    }
+
+    @Test
+    void hammingApproximateSupportsUnsignedBytesAndSafeWideningCast() {
+        useBinaryEmbedding();
+        ArrayLiteral query = new ArrayLiteral(ImmutableList.of(new BigIntLiteral(0), new BigIntLiteral(255)));
+        Expression expression = distanceFunction("hamming_distance_approximate",
+                new Cast(embedding, ArrayType.of(BigIntType.INSTANCE)), query);
+        assertNonNullVectorFullRewrite(expression, true);
+        VectorSearchTableValuedFunction function = (VectorSearchTableValuedFunction)
+                search(rewrite(expression, true, scan)).getFunction().getCatalogFunction();
+        Assertions.assertEquals(TVectorMetric.HAMMING,
+                function.getSearchRequest().getSearchQuery().getVectorSearch().getMetric());
+        Assertions.assertTrue(rewrite(expression, false, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void hammingApproximateCannotReinterpretFloatVectors() {
+        Expression expression = distanceFunction("hamming_distance_approximate", embedding,
+                new ArrayLiteral(ImmutableList.of(new BigIntLiteral(0), new BigIntLiteral(255))));
+        Assertions.assertTrue(rewrite(expression, true, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void hammingQueryByteValidationRetainsScalarFallback() {
+        useBinaryEmbedding();
+        for (long value : new long[] {-1, 256, 65536}) {
+            ArrayLiteral query = new ArrayLiteral(ImmutableList.of(new BigIntLiteral(0), new BigIntLiteral(value)));
+            Assertions.assertTrue(rewrite(distanceFunction("hamming_distance_approximate", embedding, query), true, scan)
+                    .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        }
+    }
+
+    @Test
+    void exactHammingFunctionRemainsScalar() {
+        useBinaryEmbedding();
+        Expression expression = distanceFunction("hamming_distance", embedding,
+                new ArrayLiteral(ImmutableList.of(new BigIntLiteral(0), new BigIntLiteral(255))));
+        Assertions.assertTrue(rewrite(expression, true, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void hammingRejectsLossyImplicitArrayConversions() {
+        for (String name : ImmutableList.of("hamming_distance", "hamming_distance_approximate")) {
+            Expression function = distanceFunction(name, vector(), vector());
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> function.checkLegalityBeforeTypeCoercion());
+        }
+    }
+
+    @Test
+    void hammingAnalyzerWidensUnsignedByteArraysBeforeNativeRewrite() {
+        useBinaryEmbedding();
+        Expression expression = distanceFunction("hamming_distance_approximate", embedding,
+                new ArrayLiteral(ImmutableList.of(new BigIntLiteral(0), new BigIntLiteral(255))));
+        Alias distance = new Alias(expression, "distance");
+        LogicalTopN<?> topN = new LogicalTopN<>(ImmutableList.of(new OrderKey(distance.toSlot(), true, false)),
+                5, 0, new LogicalProject<>(ImmutableList.of(id, distance), scan));
+        Plan plan = PlanChecker.from(context).analyze(topN).rewrite().getPlan();
+        search(plan);
+    }
+
+    @Test
+    void hammingCannotBypassNarrowingElementCasts() {
+        useBinaryEmbedding();
+        Expression column = new Cast(embedding, ArrayType.of(org.apache.doris.nereids.types.TinyIntType.INSTANCE));
+        Expression expression = distanceFunction("hamming_distance_approximate", column,
+                new ArrayLiteral(ImmutableList.of(new BigIntLiteral(0), new BigIntLiteral(255))));
+        Assertions.assertTrue(rewrite(expression, true, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+    }
+
+    @Test
+    void invalidCosineQueryNormKeepsTheScalarPlan() {
+        for (float value : new float[] {Float.NaN, Float.POSITIVE_INFINITY, Float.MAX_VALUE, Float.MIN_VALUE}) {
+            ArrayLiteral query = new ArrayLiteral(ImmutableList.of(new FloatLiteral(value), new FloatLiteral(0)));
+            for (String name : ImmutableList.of("cosine_distance_approximate", "cosine_similarity_approximate")) {
+                Assertions.assertTrue(rewrite(distanceFunction(name, embedding, query),
+                        name.equals("cosine_distance_approximate"), scan)
+                        .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void exactCosineFunctionsRemainScalar() {
+        for (String name : ImmutableList.of("cosine_distance", "cosine_similarity")) {
+            Assertions.assertTrue(rewrite(distanceFunction(name, embedding, vector()),
+                    name.equals("cosine_distance"), scan)
+                    .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        }
     }
 
     @Test

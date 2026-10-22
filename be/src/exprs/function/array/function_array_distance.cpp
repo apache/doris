@@ -63,6 +63,10 @@ void register_function_array_distance(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayDistance<InnerProduct>>();
     factory.register_function<FunctionArrayDistance<L2DistanceApproximate>>();
     factory.register_function<FunctionArrayDistance<InnerProductApproximate>>();
+    factory.register_function<FunctionArrayDistance<CosineDistanceApproximate>>();
+    factory.register_function<FunctionArrayDistance<CosineSimilarityApproximate>>();
+    factory.register_function<FunctionArrayDistance<HammingDistance, TYPE_BIGINT>>();
+    factory.register_function<FunctionArrayDistance<HammingDistanceApproximate, TYPE_BIGINT>>();
 }
 
 } // namespace doris

@@ -21,6 +21,8 @@
 #include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
+#include <bit>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -86,7 +88,40 @@ public:
     static constexpr auto name = "inner_product_approximate";
 };
 
-template <typename DistanceImpl>
+class CosineDistanceApproximate : public CosineDistance {
+public:
+    static constexpr auto name = "cosine_distance_approximate";
+};
+
+class CosineSimilarityApproximate : public CosineSimilarity {
+public:
+    static constexpr auto name = "cosine_similarity_approximate";
+};
+
+class HammingDistance {
+public:
+    static constexpr auto name = "hamming_distance";
+    static float distance(const int64_t* x, const int64_t* y, size_t d) {
+        uint64_t bits = 0;
+        for (size_t i = 0; i < d; ++i) {
+            // Validate the wide SQL integers before converting: truncation would silently
+            // turn invalid values such as 256 into a different binary vector.
+            if (x[i] < 0 || x[i] > 255 || y[i] < 0 || y[i] > 255) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Hamming vector elements must be integers in [0, 255]");
+            }
+            bits += std::popcount(static_cast<unsigned>(x[i]) ^ static_cast<unsigned>(y[i]));
+        }
+        return static_cast<float>(bits);
+    }
+};
+
+class HammingDistanceApproximate : public HammingDistance {
+public:
+    static constexpr auto name = "hamming_distance_approximate";
+};
+
+template <typename DistanceImpl, PrimitiveType ArgumentType = TYPE_FLOAT>
 class FunctionArrayDistance : public IFunction {
 public:
     using DataType = PrimitiveTypeTraits<TYPE_FLOAT>::DataType;
@@ -94,7 +129,9 @@ public:
 
     static constexpr auto name = DistanceImpl::name;
     String get_name() const override { return name; }
-    static FunctionPtr create() { return std::make_shared<FunctionArrayDistance<DistanceImpl>>(); }
+    static FunctionPtr create() {
+        return std::make_shared<FunctionArrayDistance<DistanceImpl, ArgumentType>>();
+    }
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -154,8 +191,8 @@ public:
         _validate_no_nulls(col2, "Second argument", get_name());
 
         // Create views — handles Const/Nullable unwrapping automatically
-        auto view1 = ColumnArrayView<TYPE_FLOAT>::create(col1);
-        auto view2 = ColumnArrayView<TYPE_FLOAT>::create(col2);
+        auto view1 = ColumnArrayView<ArgumentType>::create(col1);
+        auto view2 = ColumnArrayView<ArgumentType>::create(col2);
 
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
@@ -163,8 +200,8 @@ public:
         for (size_t row = 0; row < input_rows_count; ++row) {
             auto a1 = view1[row];
             auto a2 = view2[row];
-            const float* p1 = a1.get_data();
-            const float* p2 = a2.get_data();
+            const auto* p1 = a1.get_data();
+            const auto* p2 = a2.get_data();
             auto dim1 = a1.size();
             auto dim2 = a2.size();
 

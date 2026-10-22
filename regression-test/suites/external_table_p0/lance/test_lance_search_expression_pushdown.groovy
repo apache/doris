@@ -70,6 +70,67 @@ suite("test_lance_search_expression_pushdown", "p0,external") {
         for (int i = 0; i < dotActual.size(); ++i) {
             assertTrue(Math.abs((dotExpected[i][1] as double) - (dotActual[i][1] as double)) < 0.001)
         }
+        def cosineTable = "${catalog}.doris.vs_ivf_flat_f32_cosine"
+        for (entry in [["cosine_distance_approximate", "ASC", "_distance"],
+                ["cosine_similarity_approximate", "DESC", "CAST(1 AS FLOAT) - _distance"]]) {
+            def automatic = """SELECT row_id, ${entry[0]}(embedding, ${vector}) AS value
+                FROM ${cosineTable} ORDER BY value ${entry[1]} LIMIT 5"""
+            explain {
+                sql automatic
+                contains "externalSearchType=VECTOR"
+                contains "lanceMetric=cosine"
+            }
+            def explicit = """SELECT row_id, ${entry[2]} AS value FROM vector_search(
+                "table"="${cosineTable}", "column"="embedding", "query_vector"="${vector}",
+                "top_k"="5", "metric"="cosine") ORDER BY value ${entry[1]}"""
+            def actual = sql(automatic)
+            def expected = sql(explicit)
+            assertEquals(expected.collect { it[0] }, actual.collect { it[0] })
+            for (int i = 0; i < actual.size(); ++i) {
+                assertTrue(Math.abs((expected[i][1] as double) - (actual[i][1] as double)) < 0.0001)
+                def exact = entry[0].replace("_approximate", "")
+                def scalar = sql """SELECT ${exact}(embedding, ${vector}) FROM ${cosineTable}
+                    WHERE row_id = ${actual[i][0]}"""
+                assertTrue(Math.abs((scalar[0][0] as double) - (actual[i][1] as double)) < 0.0001)
+            }
+        }
+        def binaryTable = "${catalog}.doris.vs_ivf_flat_u8"
+        def binaryVector = "[" + (0..<128).collect { "0" }.join(",") + "]"
+        def automaticHamming = """SELECT row_id,
+            hamming_distance_approximate(embedding, ${binaryVector}) AS distance
+            FROM ${binaryTable} ORDER BY distance LIMIT 5"""
+        explain {
+            sql automaticHamming
+            contains "externalSearchType=VECTOR"
+            contains "lanceMetric=hamming"
+        }
+        def explicitHamming = """SELECT row_id, _distance FROM vector_search(
+            "table"="${binaryTable}", "column"="embedding", "query_vector"="${binaryVector}",
+            "top_k"="5", "metric"="hamming") ORDER BY _distance"""
+        def hammingRows = sql(automaticHamming)
+        assertEquals(sql(explicitHamming), hammingRows)
+        for (row in hammingRows) {
+            def scalar = sql """SELECT hamming_distance(embedding, ${binaryVector})
+                FROM ${binaryTable} WHERE row_id = ${row[0]}"""
+            assertEquals(scalar[0][0], row[1])
+        }
+        for (name in ["cosine_distance", "cosine_similarity"]) {
+            explain {
+                sql "SELECT row_id FROM ${cosineTable} ORDER BY ${name}(embedding, ${vector}) LIMIT 5"
+                notContains "externalSearchType=VECTOR"
+            }
+        }
+        def zeroVector = "[" + (0..<16).collect { "0" }.join(",") + "]"
+        explain {
+            sql """SELECT row_id FROM ${cosineTable}
+                ORDER BY cosine_distance_approximate(embedding, ${zeroVector}) LIMIT 5"""
+            notContains "externalSearchType=VECTOR"
+        }
+        explain {
+            sql """SELECT row_id FROM ${binaryTable}
+                ORDER BY hamming_distance(embedding, ${binaryVector}) LIMIT 5"""
+            notContains "externalSearchType=VECTOR"
+        }
         sql "SET fe_debug = ${previousFeDebug}"
         def textTable = "${catalog}.doris.full_text_search"
         for (entry in [["MATCH_ANY", "match", "or"], ["MATCH_ALL", "match", "and"],

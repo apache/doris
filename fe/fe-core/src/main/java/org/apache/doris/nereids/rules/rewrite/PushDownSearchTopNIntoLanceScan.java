@@ -43,6 +43,9 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineSimilarityApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
@@ -59,8 +62,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -117,15 +123,18 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
                 .map(p -> ((Alias) p).child()).findFirst().orElse(null);
         boolean l2 = expression instanceof L2DistanceApproximate;
         boolean dot = expression instanceof InnerProductApproximate;
+        boolean cosineDistance = expression instanceof CosineDistanceApproximate;
+        boolean cosineSimilarity = expression instanceof CosineSimilarityApproximate;
+        boolean hamming = expression instanceof HammingDistanceApproximate;
         boolean score = expression instanceof Score;
-        if (!l2 && !dot && !score) {
+        if (!l2 && !dot && !cosineDistance && !cosineSimilarity && !hamming && !score) {
             return null;
         }
         // The explicit approximate functions select native Lance candidate semantics: NULL
         // vectors and NaN distances are excluded. Exact functions retain scalar validation.
         // Each split can prune only the nearest (or highest-scoring) candidates. Reversing
         // that order or adding tie-breakers would require a different local candidate contract.
-        if (topN.getOrderKeys().get(0).isAsc() != l2) {
+        if (topN.getOrderKeys().get(0).isAsc() != (l2 || cosineDistance || hamming)) {
             if (score) {
                 throw new AnalysisException("Lance BM25 Top-N requires ORDER BY score() DESC");
             }
@@ -193,26 +202,38 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
             filters.removeAll(scoreFilters);
         } else {
             Expression column = expression.child(0);
-            if (column instanceof Cast && column.getDataType().equals(column.child(0).getDataType())) {
+            // UInt8 maps to SMALLINT in Doris. Widening it to the Hamming function's BIGINT
+            // arguments preserves every byte; arbitrary element casts must remain scalar.
+            if (column instanceof Cast && (column.getDataType().equals(column.child(0).getDataType())
+                    || (hamming && column.getDataType().equals(ArrayType.of(BigIntType.INSTANCE))
+                    && column.child(0).getDataType().equals(ArrayType.of(SmallIntType.INSTANCE))))) {
                 column = column.child(0);
             }
             Expression query = expression.child(1);
             if (!(column instanceof SlotReference) || !(query instanceof ArrayLiteral)) {
                 return null;
             }
+            if ((cosineDistance || cosineSimilarity) && !isUsableCosineQuery((ArrayLiteral) query)) {
+                return null;
+            }
             Field field = metadata.getSchema().findField(physicalName((SlotReference) column));
-            // These SQL functions consume ARRAY<FLOAT>. Searching a wider physical vector
-            // directly would bypass Doris's element casts and can change distances/ranking.
+            // Native search must use the scalar function's physical element type: Float32 for
+            // floating metrics, UInt8 for Hamming. Other types can change distances/ranking.
             if (field == null || !(field.getType() instanceof ArrowType.FixedSizeList)
-                    || field.getChildren().size() != 1
-                    || !(field.getChildren().get(0).getType() instanceof ArrowType.FloatingPoint)
-                    || ((ArrowType.FloatingPoint) field.getChildren().get(0).getType()).getPrecision()
-                            != FloatingPointPrecision.SINGLE) {
+                    || field.getChildren().size() != 1) {
+                return null;
+            }
+            ArrowType element = field.getChildren().get(0).getType();
+            if (hamming ? !(element instanceof ArrowType.Int)
+                    || ((ArrowType.Int) element).getBitWidth() != 8 || ((ArrowType.Int) element).getIsSigned()
+                    : !(element instanceof ArrowType.FloatingPoint)
+                    || ((ArrowType.FloatingPoint) element).getPrecision() != FloatingPointPrecision.SINGLE) {
                 return null;
             }
             properties.put("column", field.getName());
             properties.put("query_vector", query.toSql());
-            properties.put("metric", l2 ? "l2" : "dot");
+            properties.put("metric", hamming ? "hamming" : cosineDistance || cosineSimilarity ? "cosine"
+                    : l2 ? "l2" : "dot");
         }
         Optional<byte[]> filter = convertFilters(filters, scan, metadata, context);
         if (!filter.isPresent()) {
@@ -267,7 +288,7 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
         }
         Expression value = score ? result : l2
                 ? new Cast(new Sqrt(new Cast(result, DoubleType.INSTANCE)), FloatType.INSTANCE)
-                : new Subtract(new FloatLiteral(1.0f), result);
+                : dot || cosineSimilarity ? new Subtract(new FloatLiteral(1.0f), result) : result;
         if (!score) {
             // Preserve the approximate function's NOT NULL contract for existing Top-N and ancestor slots.
             // The generic TVF result and sqrt are nullable; NonNullable also rejects unexpected runtime NULLs.
@@ -287,6 +308,20 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
         Plan child = residuals.isEmpty() ? relation : new LogicalFilter<>(ImmutableSet.copyOf(residuals), relation);
         context.getStatementContext().getSqlCacheContext().ifPresent(cache -> cache.setCannotProcessExpression(true));
         return topN.withChildren(project.withProjectsAndChild(projects, child));
+    }
+
+    private boolean isUsableCosineQuery(ArrayLiteral query) {
+        float squaredNorm = 0;
+        for (Literal element : query.getValue()) {
+            if (!(element.getValue() instanceof Number)) {
+                return false;
+            }
+            float value = ((Number) element.getValue()).floatValue();
+            squaredNorm += value * value;
+        }
+        // Native cosine normalization cannot represent zero/non-finite norms. Keep the existing
+        // scalar zero-vector results rather than silently turning such a query into no candidates.
+        return squaredNorm > 0 && Float.isFinite(squaredNorm);
     }
 
     private Optional<byte[]> convertFilters(List<Expression> filters, LogicalFileScan scan,
