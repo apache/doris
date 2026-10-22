@@ -708,7 +708,13 @@ Status AnalyticSinkLocalState::_materialize_spill_columns(
         for (const auto& expr : _agg_expr_ctxs[i]) {
             ColumnPtr column;
             RETURN_IF_ERROR(expr->execute(input_block, column));
-            (*agg_columns)[i].emplace_back(column->convert_to_full_column_if_const());
+            // NTILE only reads the argument at the first row of each partition. Expanding a
+            // constant for every row and function can allocate more than the input Block itself
+            // (for example, 32 literal arguments over 65535 one-row partitions).
+            (*agg_columns)[i].emplace_back(
+                    _spill_strategies[i] == WindowSpillStrategy::PARTITION_CARDINALITY
+                            ? std::move(column)
+                            : column->convert_to_full_column_if_const());
         }
     }
     partition_columns->reserve(_partition_by_eq_expr_ctxs.size());

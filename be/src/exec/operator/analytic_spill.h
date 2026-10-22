@@ -45,6 +45,7 @@ struct AnalyticSpillBatch {
     struct RecordMemory {
         size_t serialized_bytes = 0;
         size_t decoded_bytes = 0;
+        size_t footer_bytes = 0;
     };
 
     int64_t rows = 0;

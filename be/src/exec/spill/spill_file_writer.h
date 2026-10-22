@@ -74,6 +74,7 @@ public:
     /// Analytic replay uses these values before opening its readers.
     size_t max_record_bytes() const { return _max_record_bytes; }
     size_t max_block_bytes() const { return _max_block_bytes; }
+    size_t max_footer_bytes() const { return _max_footer_bytes; }
 
 private:
     Status _close_impl(const std::shared_ptr<SpillFile>& spill_file);
@@ -148,6 +149,7 @@ private:
     Status _write_status;
     size_t _max_record_bytes = 0;
     size_t _max_block_bytes = 0;
+    size_t _max_footer_bytes = 0;
 
     // ── Counters ──
     RuntimeProfile::Counter* _write_file_timer = nullptr;

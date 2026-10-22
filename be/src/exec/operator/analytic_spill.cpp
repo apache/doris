@@ -167,14 +167,16 @@ Status AnalyticSpillBatchStore::seal(RuntimeState* state, AnalyticSpillBatch* ba
         RETURN_IF_ERROR(_flush_write_buffer(state));
         RETURN_IF_ERROR(_data_writer->close());
         batch->data_record_memory = {_data_writer->max_record_bytes(),
-                                     _data_writer->max_block_bytes()};
+                                     _data_writer->max_block_bytes(),
+                                     _data_writer->max_footer_bytes()};
         _data_writer.reset();
     }
     if (_peer_group_writer) {
         RETURN_IF_ERROR(_flush_peer_group_ends(state));
         RETURN_IF_ERROR(_peer_group_writer->close());
         batch->peer_record_memory = {_peer_group_writer->max_record_bytes(),
-                                     _peer_group_writer->max_block_bytes()};
+                                     _peer_group_writer->max_block_bytes(),
+                                     _peer_group_writer->max_footer_bytes()};
         _peer_group_writer.reset();
     }
 

@@ -27,7 +27,9 @@
 #include <unordered_map>
 
 #include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
 #include "exec/operator/sort_source_operator.h"
@@ -38,6 +40,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_descriptors.h"
+#include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
@@ -547,6 +550,62 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesFirstInMemoryResultColumn
               state->minimum_operator_memory_required_bytes() + 32 * 65535 * sizeof(int64_t));
 }
 
+TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesFirstAndNextInMemoryCuts) {
+    Initialize(1024);
+    prepare_spilled_full_partition_sum();
+    auto batch = std::make_shared<AnalyticSpillBatch>();
+    batch->rows = 4096;
+    batch->partition_ends = {4096};
+    const std::vector<std::string> values(2048, std::string(8 * 1024, 'x'));
+    batch->blocks.push_back(ColumnHelper::create_block<DataTypeString>(values));
+    batch->blocks.push_back(ColumnHelper::create_block<DataTypeString>(values));
+    {
+        LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+        sink_local_state->_shared_state->spill_batches.push(batch);
+    }
+    const auto first_cut = source->get_reserve_mem_size(state.get());
+    EXPECT_GT(first_cut, state->minimum_operator_memory_required_bytes() + 8 * 1024 * 1024);
+
+    Block output;
+    bool eos = false;
+    auto status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(output.rows(), 1024);
+    output.clear();
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(output.rows(), 1024);
+    EXPECT_EQ(source_local_state->_replay_block_position, 2048);
+    EXPECT_EQ(source->get_reserve_mem_size(state.get()), first_cut);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillCardinalityKeepsConstantArgumentsCompact) {
+    Initialize(65535);
+    auto local_state = AnalyticSinkLocalState::create_unique(sink.get(), state.get());
+    local_state->_agg_functions_size = 32;
+    local_state->_spill_strategies.assign(32, WindowSpillStrategy::PARTITION_CARDINALITY);
+    local_state->_agg_expr_ctxs.resize(32);
+    for (size_t i = 0; i < 32; ++i) {
+        local_state->_agg_expr_ctxs[i].push_back(
+                MockLiteral::create_const<DataTypeInt64>(2147483648LL + i, 65535));
+    }
+    Block input = ColumnHelper::create_block<DataTypeInt64>(_data_vals);
+    std::vector<std::vector<ColumnPtr>> agg_columns;
+    std::vector<ColumnPtr> partition_columns;
+    std::vector<ColumnPtr> order_columns;
+    auto status = local_state->_materialize_spill_columns(&input, &agg_columns, &partition_columns,
+                                                          &order_columns);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    size_t argument_bytes = 0;
+    for (const auto& columns : agg_columns) {
+        ASSERT_EQ(columns.size(), 1);
+        EXPECT_TRUE(is_column_const(*columns[0]));
+        EXPECT_EQ(columns[0]->get_int(65534), columns[0]->get_int(0));
+        argument_bytes += columns[0]->allocated_bytes();
+    }
+    EXPECT_LT(argument_bytes, 32 * 1024);
+}
+
 TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumFromDisk) {
     ASSERT_TRUE(spill_file_manager.init().ok());
 
@@ -1046,9 +1105,8 @@ int64_t spill_write_block_count(AnalyticSinkLocalState* local_state) {
     return local_state->custom_profile()->get_counter("SpillWriteBlockCount")->value();
 }
 
-size_t replay_read_reserve(const AnalyticSpillBatch::RecordMemory& memory, size_t spill_buffer,
-                           bool opening) {
-    return (opening ? std::max(spill_buffer, memory.serialized_bytes) : memory.serialized_bytes) +
+size_t replay_read_reserve(const AnalyticSpillBatch::RecordMemory& memory) {
+    return std::max(memory.serialized_bytes, memory.footer_bytes) + memory.footer_bytes +
            memory.serialized_bytes + 2 * memory.decoded_bytes;
 }
 
@@ -1074,7 +1132,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
 
     // Opening the batch reserves the data reader and its first record, reading the second record
     // one more Block, and slicing a retained Block nothing.
-    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
     AnalyticSpillBatch::RecordMemory record_memory;
     {
         LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
@@ -1082,11 +1139,11 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
     }
     EXPECT_GT(record_memory.serialized_bytes, 0);
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()),
-              replay_read_reserve(record_memory, spill_buffer_bytes, true));
+              replay_read_reserve(record_memory));
     // The 27-row coalesced Block is replayed in batch-size slices.
     expect_next_spill_block(source.get(), state.get(), values_with_sum(0, 3, 435));
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()),
-              replay_read_reserve(record_memory, spill_buffer_bytes, false));
+              replay_read_reserve(record_memory));
     expect_next_spill_block(source.get(), state.get(), values_with_sum(3, 8, 435));
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 0);
     source_local_state->estimate_memory_usage() = 100 * 1024 * 1024;
@@ -1174,10 +1231,21 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionUsesActualOversizeRecord) {
     ASSERT_TRUE(spill_file_manager.init().ok());
     Initialize(256);
     state->_query_options.__set_enable_force_spill(true);
-    state->_query_options.__set_spill_buffer_size_bytes(128);
+    state->_query_options.__set_spill_buffer_size_bytes(1024 * 1024);
     prepare_spilled_full_partition_sum();
 
-    Block input = ColumnHelper::create_block<DataTypeInt64>(_data_vals);
+    // A single wide row cannot be split at the effective 1 MiB spill-buffer boundary.
+    std::string payload(2 * 1024 * 1024, '\0');
+    uint32_t random = 0x12345678;
+    for (char& byte : payload) {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        byte = static_cast<char>(random);
+    }
+    Block input = ColumnHelper::create_block<DataTypeInt64>({1});
+    input.insert({ColumnHelper::create_column<DataTypeString>({payload}),
+                  std::make_shared<DataTypeString>(), "payload"});
     auto status = sink->sink(state.get(), &input, true);
     ASSERT_TRUE(status.ok()) << status.to_string();
     AnalyticSpillBatch::RecordMemory memory;
@@ -1185,9 +1253,34 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionUsesActualOversizeRecord) {
         LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
         memory = sink_local_state->_shared_state->spill_batches.front()->data_record_memory;
     }
-    EXPECT_GT(memory.serialized_bytes, 128);
-    EXPECT_GT(source->get_reserve_mem_size(state.get()),
-              state->minimum_operator_memory_required_bytes() + 2 * 128);
+    EXPECT_GT(memory.serialized_bytes, state->spill_buffer_size_bytes());
+    EXPECT_GT(
+            source->get_reserve_mem_size(state.get()),
+            state->minimum_operator_memory_required_bytes() + 2 * state->spill_buffer_size_bytes());
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillAdmissionLocalReaderIgnoresLargeBufferSetting) {
+    ASSERT_TRUE(spill_file_manager.init().ok());
+    Initialize(4096);
+    state->_query_options.__set_spill_buffer_size_bytes(256 * 1024 * 1024);
+    state->_query_options.__set_spill_analytic_sink_mem_limit_bytes(1024 * 1024);
+    prepare_spilled_full_partition_sum();
+
+    std::vector<int64_t> values(200000);
+    std::iota(values.begin(), values.end(), 0);
+    Block input = ColumnHelper::create_block<DataTypeInt64>(values);
+    auto status = sink->sink(state.get(), &input, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    AnalyticSpillBatch::RecordMemory memory;
+    {
+        LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+        const auto& batch = sink_local_state->_shared_state->spill_batches.front();
+        ASSERT_NE(batch->data_file, nullptr);
+        EXPECT_FALSE(batch->data_file->is_remote());
+        memory = batch->data_record_memory;
+    }
+    EXPECT_GT(memory.footer_bytes, 0);
+    EXPECT_LT(source->get_reserve_mem_size(state.get()), 16 * 1024 * 1024);
 }
 
 void AnalyticSinkOperatorTest::prepare_cume_dist_without_partition() {
@@ -1220,14 +1313,13 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
 
     // Opening the batch reserves the reader buffer and one deserialized record for the data file
     // and for the peer group sidecar file.
-    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
     std::shared_ptr<AnalyticSpillBatch> batch;
     {
         LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
         batch = sink_local_state->_shared_state->spill_batches.front();
     }
-    const auto data_open = replay_read_reserve(batch->data_record_memory, spill_buffer_bytes, true);
-    const auto peer_open = replay_read_reserve(batch->peer_record_memory, spill_buffer_bytes, true);
+    const auto data_open = replay_read_reserve(batch->data_record_memory);
+    const auto peer_open = replay_read_reserve(batch->peer_record_memory);
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), data_open + peer_open);
     EXPECT_GE(source->get_reserve_mem_size(state.get()),
               data_open + peer_open + state->minimum_operator_memory_required_bytes());
@@ -1237,7 +1329,7 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
     // The second sidecar record ([4, 5]) was read while replaying row 2 and covers the rest of
     // the batch, so only the next data record is reserved.
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()),
-              replay_read_reserve(batch->data_record_memory, spill_buffer_bytes, false));
+              replay_read_reserve(batch->data_record_memory));
     expect_next_spill_block(source.get(), state.get(),
                             order_block_with_double_result({2, 4}, {0.8, 1.0}));
     // Nothing is queued behind the batch, so finishing it reserves nothing.
@@ -1269,7 +1361,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
     // Opening the batch reserves the sidecar reader and its first record; the rows are in
     // memory and reserve nothing. Afterwards only the slice that starts at the first row not
     // covered by the first sidecar record reads the second record.
-    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
     AnalyticSpillBatch::RecordMemory peer_record_memory;
     {
         LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
@@ -1282,11 +1373,9 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
     while (!eos) {
         size_t expected_reserve_bytes = 0;
         if (output_rows == 0) {
-            expected_reserve_bytes =
-                    replay_read_reserve(peer_record_memory, spill_buffer_bytes, true);
+            expected_reserve_bytes = replay_read_reserve(peer_record_memory);
         } else if (output_rows == first_record_peer_groups) {
-            expected_reserve_bytes =
-                    replay_read_reserve(peer_record_memory, spill_buffer_bytes, false);
+            expected_reserve_bytes = replay_read_reserve(peer_record_memory);
         }
         EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()),
                   expected_reserve_bytes)

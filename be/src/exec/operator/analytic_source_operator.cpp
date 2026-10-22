@@ -24,6 +24,7 @@
 #include <string>
 #include <utility>
 
+#include "common/config.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "exec/operator/operator.h"
@@ -172,14 +173,20 @@ size_t AnalyticLocalState::_spill_replay_reserve_bytes(RuntimeState* state) cons
     if (!_shared_state->spill_enabled.load()) {
         return 0;
     }
-    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
-    const auto read_bytes = [spill_buffer_bytes](AnalyticSpillBatch::RecordMemory memory,
-                                                 bool opening) {
+    const auto read_bytes = [state](AnalyticSpillBatch::RecordMemory memory,
+                                    const SpillFile& file) {
         // The reader retains both a serialized window and PBlock; deserialization also owns
-        // the decoded Block and may temporarily allocate another copy of its columns.
-        return (opening ? std::max(spill_buffer_bytes, memory.serialized_bytes)
-                        : memory.serialized_bytes) +
-               memory.serialized_bytes + 2 * memory.decoded_bytes;
+        // the decoded Block and may temporarily allocate another copy of its columns. Local
+        // reads do not coalesce: a large configured spill buffer must not block a small file.
+        // The footer offsets also outlive the serialized read window. Remote reads may fetch
+        // a whole small part or coalesce adjacent records up to the configured read window.
+        const size_t coalesce_bytes =
+                file.is_remote() ? static_cast<size_t>(std::max<int64_t>(
+                                           0, std::min(config::spill_s3_read_coalesce_bytes,
+                                                       state->spill_buffer_size_bytes())))
+                                 : 0;
+        return std::max({memory.serialized_bytes, memory.footer_bytes, coalesce_bytes}) +
+               memory.footer_bytes + memory.serialized_bytes + 2 * memory.decoded_bytes;
     };
     if (!_current_batch || _batch_output_position >= _current_batch->rows) {
         // The next call opens the batch at the head of the queue: it opens the readers of its
@@ -195,19 +202,21 @@ size_t AnalyticLocalState::_spill_replay_reserve_bytes(RuntimeState* state) cons
                 _admitted_batch ? _admitted_batch : _shared_state->spill_batches.front();
         size_t reserve_bytes = 0;
         if (next_batch->data_file) {
-            reserve_bytes += read_bytes(next_batch->data_record_memory, true);
+            reserve_bytes += read_bytes(next_batch->data_record_memory, *next_batch->data_file);
         }
         if (next_batch->peer_group_file) {
-            reserve_bytes += read_bytes(next_batch->peer_record_memory, true);
+            reserve_bytes +=
+                    read_bytes(next_batch->peer_record_memory, *next_batch->peer_group_file);
         }
         return reserve_bytes;
     }
     size_t reserve_bytes = 0;
     if (_batch_reader && _replay_block_position >= _replay_block.rows()) {
-        reserve_bytes += read_bytes(_current_batch->data_record_memory, false);
+        reserve_bytes += read_bytes(_current_batch->data_record_memory, *_current_batch->data_file);
     }
     if (_next_slice_reads_peer_group_record(state)) {
-        reserve_bytes += read_bytes(_current_batch->peer_record_memory, false);
+        reserve_bytes +=
+                read_bytes(_current_batch->peer_record_memory, *_current_batch->peer_group_file);
     }
     return reserve_bytes;
 }
@@ -225,21 +234,30 @@ size_t AnalyticLocalState::_next_output_reserve_bytes(RuntimeState* state) const
         batch = (_admitted_batch ? _admitted_batch : _shared_state->spill_batches.front()).get();
     }
     size_t rows = static_cast<size_t>(std::min<int64_t>(state->batch_size(), batch->rows));
+    const Block* cut_block = nullptr;
+    size_t cut_start = 0;
     if (batch == _current_batch.get()) {
         rows = static_cast<size_t>(std::min<int64_t>(rows, batch->rows - _batch_output_position));
         if (_replay_block_position < _replay_block.rows()) {
-            rows = std::min(rows, _replay_block.rows() - _replay_block_position);
+            cut_block = &_replay_block;
+            cut_start = _replay_block_position;
+        } else if (!batch->data_file && _in_memory_block_index < batch->blocks.size()) {
+            // The next in-memory Block is moved into _replay_block in this call. Its first
+            // slice must be admitted too; a previous sort may supply a Block > batch_size.
+            cut_block = &batch->blocks[_in_memory_block_index];
         }
     } else if (!batch->blocks.empty()) {
-        rows = std::min(rows, batch->blocks.front().rows());
+        cut_block = &batch->blocks.front();
+    }
+    if (cut_block) {
+        rows = std::min(rows, cut_block->rows() - cut_start);
     }
     size_t bytes = 0;
-    if (batch == _current_batch.get() && _replay_block_position < _replay_block.rows() &&
-        (_replay_block_position != 0 || rows != _replay_block.rows())) {
+    if (cut_block && (cut_start != 0 || rows != cut_block->rows())) {
         // A retained Block is cut into the next output slice. Count the actual rows rather
         // than carrying the previous whole-record read peak into every small slice.
-        for (const auto& column : _replay_block) {
-            for (size_t row = _replay_block_position; row < _replay_block_position + rows; ++row) {
+        for (const auto& column : *cut_block) {
+            for (size_t row = cut_start; row < cut_start + rows; ++row) {
                 bytes += 2 * column.column->serialize_size_at(row);
             }
         }

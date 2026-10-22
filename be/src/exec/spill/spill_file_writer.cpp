@@ -140,6 +140,7 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     // Write footer: block offsets + max_sub_block_size + block_count
     _part_meta.append((const char*)&_part_max_sub_block_size, sizeof(_part_max_sub_block_size));
     _part_meta.append((const char*)&_part_written_blocks, sizeof(_part_written_blocks));
+    _max_footer_bytes = std::max(_max_footer_bytes, _part_meta.size());
 
     int64_t meta_size = _part_meta.size();
     // The footer must always be written so that the part can be closed; account it
