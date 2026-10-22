@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -36,6 +37,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -45,6 +47,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class SplitSourceTest {
     private Backend backend;
@@ -174,6 +177,18 @@ public class SplitSourceTest {
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
+    }
+
+    @Test
+    void stopDiscardsTheConsumersPartiallyDrainedBatch() throws Exception {
+        assignment.addToQueue(splits);
+        SplitSource source = new SplitSource(backend, assignment, 1000);
+        Assertions.assertEquals(1, source.getNextBatch(1).size());
+        AtomicReference<Iterator<TScanRangeLocations>> buffered = Deencapsulation.getField(source, "pendingSplits");
+        Assertions.assertTrue(buffered.get().hasNext());
+        assignment.stop();
+        Assertions.assertFalse(buffered.get().hasNext(), "stop must release buffered ranges before another fetch");
+        Assertions.assertTrue(source.getNextBatch(1).isEmpty());
     }
 
     @Test

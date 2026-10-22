@@ -22,6 +22,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileEntry;
@@ -39,6 +40,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -73,6 +81,59 @@ public class HiveFileListingCacheTest {
             m.put(kv[i], kv[i + 1]);
         }
         return m;
+    }
+
+    @Test
+    public void cancellingOneColdListingDoesNotFailAnotherQueryOrPoisonTheSharedCache() throws Exception {
+        ConnectorScanContext cancelledScan = new ConnectorScanContext();
+        ConnectorScanContext otherScan = new ConnectorScanContext();
+        CountDownLatch firstListing = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger requests = new AtomicInteger();
+        List<HiveFileStatus> files = List.of(new HiveFileStatus("loc/file", 10L, 1L));
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), (location, fs) -> {
+            if (requests.incrementAndGet() == 1) {
+                firstListing.countDown();
+                try {
+                    Assertions.assertTrue(releaseFirst.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+            return files;
+        });
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> cache.listDataFiles(
+                    "db", "t", "loc", List.of(), FS, cancelledScan));
+            Assertions.assertTrue(firstListing.await(5, TimeUnit.SECONDS));
+            Future<List<HiveFileStatus>> second = executor.submit(() -> cache.listDataFiles(
+                    "db", "t", "loc", List.of(), FS, otherScan));
+            Assertions.assertEquals(files, second.get(5, TimeUnit.SECONDS), "queries must not share cancellable loads");
+            cancelledScan.cancel();
+            releaseFirst.countDown();
+            ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
+                    () -> first.get(5, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, failure.getCause());
+            Assertions.assertEquals(files, cache.listDataFiles("db", "t", "loc", FS));
+            Assertions.assertEquals(2, requests.get(), "completed listings remain shared cache hits");
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void cancelledScanCannotStartAFileRequest() {
+        CountingLister lister = new CountingLister();
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
+        ConnectorScanContext context = new ConnectorScanContext();
+        context.cancel();
+        Assertions.assertThrows(CancellationException.class, () -> cache.listDataFiles(
+                "db", "t", "loc", List.of(), FS, context));
+        Assertions.assertEquals(0, lister.totalCalls);
     }
 
     @Test

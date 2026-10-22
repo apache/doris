@@ -50,6 +50,16 @@ public final class MetaCache<K, V> {
     }
 
     /**
+     * Share completed values, but coalesce in-flight loads only within this identity-scoped owner.
+     * The cache must have automatic refresh disabled: a request-owned loader cannot outlive its request.
+     */
+    public V getForLoadScope(K key, Object loadScope, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getForLoadScope(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(loadScope, "loadScope can not be null"), loader);
+    }
+
+    /**
      * Loads a missing value while allowing an adapter to publish an auxiliary side effect immediately before the
      * cache value at the same guarded commit point. The coordinator must invoke the supplied commit callback once;
      * the callback argument is run only if the load is still current and is fenced with cache publication.

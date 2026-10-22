@@ -1334,6 +1334,7 @@ public class Coordinator implements CoordInterface {
                 resultBatch, limitRows, numReceivedRows, this::cancelInternal);
 
         if (reachedLimit) {
+            stopSplitGeneration();
             resultBatch.setEos(true);
         }
         return resultBatch;
@@ -1381,6 +1382,12 @@ public class Coordinator implements CoordInterface {
             return Status.OK;
         } finally {
             unlock();
+        }
+    }
+
+    public void stopSplitGeneration() {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.stopSplitGeneration();
         }
     }
 

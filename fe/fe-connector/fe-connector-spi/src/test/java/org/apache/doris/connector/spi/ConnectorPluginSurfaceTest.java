@@ -88,9 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean) - the nullability the
-        // source declares, kept separate from the nullability the engine reads the column with.
-        Assertions.assertEquals("19.0", version.getProperty("api.version"));
+        // Major 20 adds per-scan cancellation and progress to ConnectorScanRequest.
+        Assertions.assertEquals("20.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -108,6 +107,8 @@ public class ConnectorPluginSurfaceTest {
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
             ConnectorScanRequest.class,
+            ConnectorScanRequest.Builder.class,
+            org.apache.doris.connector.spi.scan.ConnectorScanContext.class,
             ConnectorWriteHandle.class,
             ConnectorChangelogMode.class,
             ConnectorRowLevelDmlRequest.class,

@@ -64,6 +64,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.scan.FileScanNode;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.filesystem.Location;
@@ -203,6 +204,7 @@ public class StmtExecutor {
     private volatile Boolean profileEnabled;
 
     private volatile Coordinator coord = null;
+    private volatile QueryScanTaskScope scanTaskScope = new QueryScanTaskScope();
     // A statement can be cancelled while it is still planning and has no coordinator yet.
     // Keep this state scoped to the coordinator publication handoff: other execution targets
     // retain their existing cancellation contracts.
@@ -709,7 +711,8 @@ public class StmtExecutor {
                     // so we just handle these errors, and throw exception for other errors.
                     throw e;
                 }
-                if (this.coord != null && this.coord.isQueryCancelled()) {
+                if (pendingCoordinatorCancelReason.get() != null
+                        || (this.coord != null && this.coord.isQueryCancelled())) {
                     throw e;
                 }
                 disableCloudVersionCacheOnRetry = shouldDisableCloudVersionCacheOnRetry(e.getMessage());
@@ -770,6 +773,7 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        scanTaskScope = new QueryScanTaskScope();
         profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
@@ -810,6 +814,11 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            if (!deferredForArrowFlight) {
+                scanTaskScope.close();
+                // Planning failures and EXPLAIN never enter handleQueryWithRetry's unregister path.
+                QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            }
             if (context.getState().getStateType() == MysqlStateType.ERR) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
             }
@@ -1204,6 +1213,7 @@ public class StmtExecutor {
             // Update before unregistering to keep the final BE reports.
             updateProfile(true);
         }
+        scanTaskScope.close();
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
     }
 
@@ -1320,7 +1330,8 @@ public class StmtExecutor {
                     throw e;
                 }
                 // If the previous try is timeout or cancelled, then do not need try again.
-                if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
+                if (pendingCoordinatorCancelReason.get() != null
+                        || (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout()))) {
                     throw e;
                 }
                 LOG.warn("retry due to exception {}. retried {} times. is rpc error: {}, is user error: {}.",
@@ -1553,6 +1564,7 @@ public class StmtExecutor {
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
         Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
+        scanTaskScope.cancel(coordinatorCancelReason);
         Consumer<Status> delegate = cancelDelegate;
         if (delegate != null) {
             delegate.accept(cancelReason);
@@ -1580,6 +1592,16 @@ public class StmtExecutor {
         if (cancelableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion
             cancelableCommand.get().waitNotRunning();
+        }
+    }
+
+    public void registerSplitAssignment(SplitAssignment assignment,
+            Runnable unregister) {
+        QueryScanTaskScope scope = scanTaskScope;
+        scope.register(assignment, unregister);
+        Status reason = pendingCoordinatorCancelReason.get();
+        if (reason != null) {
+            scope.cancel(reason);
         }
     }
 
@@ -2312,6 +2334,7 @@ public class StmtExecutor {
             }
             AuditLogHelper.logAuditLog(context, originStmt == null ? null : originStmt.originStmt,
                     parsedStmt, getQueryStatisticsForAuditLog(), true);
+            scanTaskScope.close();
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             updateProfile(true);
         }

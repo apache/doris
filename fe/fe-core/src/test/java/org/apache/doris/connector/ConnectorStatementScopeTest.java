@@ -56,6 +56,23 @@ import java.util.function.Supplier;
 public class ConnectorStatementScopeTest {
 
     @Test
+    public void activeSplitProducersDeferStatementResourceClosure() {
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        AtomicInteger closes = new AtomicInteger();
+        scope.computeIfAbsent("metadata", () -> (AutoCloseable) closes::incrementAndGet);
+        Runnable releaseFirst = scope.retain();
+        Runnable releaseSecond = scope.retain();
+        scope.closeAll();
+        Assertions.assertEquals(0, closes.get());
+        releaseFirst.run();
+        Assertions.assertEquals(0, closes.get());
+        releaseSecond.run();
+        Assertions.assertEquals(1, closes.get());
+        scope.closeAll();
+        Assertions.assertEquals(1, closes.get());
+    }
+
+    @Test
     public void noneNeverMemoizes() {
         // NONE = the off-context default (offline / no live statement): the loader runs every call, so a
         // connector under NONE behaves byte-identically to loading every time. MUTATION: NONE memoizing -> the

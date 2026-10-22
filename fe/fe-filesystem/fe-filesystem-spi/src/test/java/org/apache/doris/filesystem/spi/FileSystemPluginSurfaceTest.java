@@ -69,6 +69,7 @@ public class FileSystemPluginSurfaceTest {
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             FileSystemProvider.class,
             ObjFileSystem.class,
+            org.apache.doris.filesystem.FileIterator.class,
             ObjStorage.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,

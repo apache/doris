@@ -20,6 +20,7 @@ package org.apache.doris.datasource.scan;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -34,6 +35,10 @@ import org.mockito.Mockito;
 
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -119,6 +124,47 @@ public class PluginDrivenScanNodeReadTxnReleaseTest {
         InOrder cleanupOrder = Mockito.inOrder(provider, statementScope);
         cleanupOrder.verify(provider).releaseReadTransaction(DebugUtil.printId(queryId));
         cleanupOrder.verify(statementScope).closeAll();
+    }
+
+    @Test
+    public void queryFinishWaitsForProducerClosureBeforeReleasingTransactionsAndMetadata() throws Exception {
+        TUniqueId queryId = new TUniqueId(17L, 30L);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(session.getQueryId()).thenReturn(DebugUtil.printId(queryId));
+        Mockito.when(session.getStatementScope()).thenReturn(scope);
+        AtomicInteger step = new AtomicInteger();
+        CountDownLatch metadataClosed = new CountDownLatch(1);
+        scope.computeIfAbsent("metadata", () -> (AutoCloseable) () -> {
+            Assertions.assertEquals(1, step.getAndIncrement());
+            metadataClosed.countDown();
+        });
+        Mockito.doAnswer(call -> {
+            Assertions.assertEquals(0, step.getAndIncrement());
+            return null;
+        }).when(provider).releaseReadTransaction(DebugUtil.printId(queryId));
+        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+        CompletableFuture<Void> terminated = new CompletableFuture<>();
+        Mockito.when(assignment.getTerminationFuture()).thenReturn(terminated);
+        PluginDrivenScanNode.QueryFinishCleanup cleanup = PluginDrivenScanNode.registerQueryFinishCleanup(session);
+        cleanup.bind(provider);
+        cleanup.waitFor(assignment);
+        CompletableFuture<Void> otherScan = new CompletableFuture<>();
+        scope.registerSplitTask(otherScan);
+        Runnable releaseOther = scope.retain();
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        scope.closeAll();
+        Assertions.assertEquals(0, step.get());
+        Mockito.verifyNoInteractions(provider);
+        terminated.complete(null);
+        Assertions.assertEquals(0, step.get(), "a shared read transaction still belongs to the other scan");
+        releaseOther.run();
+        otherScan.complete(null);
+        Assertions.assertTrue(metadataClosed.await(5, TimeUnit.SECONDS));
+        Assertions.assertEquals(2, step.get());
+        QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        Mockito.verify(provider).releaseReadTransaction(DebugUtil.printId(queryId));
     }
 
     @Test

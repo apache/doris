@@ -418,14 +418,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult,
                     sessionVariable.getSplitBatchSize(), sessionVariable.getSplitQueueCapacity());
-            splitAssignment.init();
+            SplitAssignment assignment = splitAssignment;
+            if (executor != null) {
+                executor.registerSplitAssignment(assignment, () -> unregisterSplitSources(assignment));
+            }
+            splitAssignment.init(sessionVariable.getFirstSplitWaitTimeoutMs());
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
             }
-            if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
+            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
+            if (fileSplit == null && !isFileStreamType()) {
                 return;
             }
-            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
             selectedSplitNum = numApproximateSplits();
             if (selectedSplitNum < 0) {
@@ -441,7 +445,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             for (Backend backend : backendPolicy.getBackends()) {
                 SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
-                Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
+                splitAssignment.publishSource(splitSource, Env.getCurrentEnv().getSplitSourceManager());
                 TScanRangeLocations curLocations = newLocations();
                 TSplitSource tSource = new TSplitSource();
                 tSource.setSplitSourceId(splitSource.getUniqueId());
@@ -746,17 +750,29 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
+    /** LIMIT is successful EOF. Keep the lightweight sources reachable for already-issued BE requests. */
+    @Override
+    public void stopSplitGeneration() {
+        if (splitAssignment != null) {
+            splitAssignment.stop();
+        }
+    }
+
     @Override
     public void stop() {
         if (splitAssignment != null) {
             try {
                 splitAssignment.stop();
             } finally {
-                SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
-                for (Long sourceId : splitAssignment.getSources()) {
-                    manager.removeSplitSource(sourceId);
-                }
+                unregisterSplitSources(splitAssignment);
             }
+        }
+    }
+
+    private static void unregisterSplitSources(SplitAssignment assignment) {
+        SplitSourceManager manager = Env.getCurrentEnv().getSplitSourceManager();
+        for (Long sourceId : assignment.getSources()) {
+            manager.removeSplitSource(sourceId);
         }
     }
 

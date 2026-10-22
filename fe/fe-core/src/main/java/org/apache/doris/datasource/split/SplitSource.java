@@ -32,6 +32,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * If there are many files, splitting these files into scan ranges will consume a lot of time.
@@ -52,7 +53,8 @@ public class SplitSource {
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
     private final long maxWaitTime;
-    private Iterator<TScanRangeLocations> pendingSplits = Collections.emptyIterator();
+    private final AtomicReference<Iterator<TScanRangeLocations>> pendingSplits =
+            new AtomicReference<>(Collections.emptyIterator());
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
@@ -61,6 +63,12 @@ public class SplitSource {
         this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
         splitAssignment.registerSource(uniqueId);
+        splitAssignment.registerConsumer(this);
+    }
+
+    /** Drop buffered ranges without waiting for an in-flight fetch RPC's monitor. */
+    public void close() {
+        pendingSplits.set(Collections.emptyIterator());
     }
 
     public long getUniqueId() {
@@ -83,17 +91,18 @@ public class SplitSource {
             // Check producer errors even while draining a previously fetched batch.
             BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
             if (splitAssignment.isStop()) {
-                pendingSplits = Collections.emptyIterator();
+                pendingSplits.set(Collections.emptyIterator());
                 isLastBatch.set(true);
                 break;
             }
-            while (pendingSplits.hasNext() && scanRanges.size() < maxBatchSize) {
-                scanRanges.add(pendingSplits.next());
+            Iterator<TScanRangeLocations> pending = pendingSplits.get();
+            while (!splitAssignment.isStop() && pending.hasNext() && scanRanges.size() < maxBatchSize) {
+                scanRanges.add(pending.next());
             }
             if (scanRanges.size() == maxBatchSize) {
                 return scanRanges;
             }
-            pendingSplits = Collections.emptyIterator();
+            pendingSplits.set(Collections.emptyIterator());
             // A finished, empty queue is EOF only after the pending batch has been drained.
             if (splits == null) {
                 isLastBatch.set(true);
@@ -102,7 +111,10 @@ public class SplitSource {
             Collection<TScanRangeLocations> batch = splits.poll();
             if (batch != null) {
                 splitAssignment.notifyQueueSpace(backend);
-                pendingSplits = batch.iterator();
+                pendingSplits.set(batch.iterator());
+                if (splitAssignment.isStop()) {
+                    pendingSplits.set(Collections.emptyIterator());
+                }
                 continue;
             }
             if (!scanRanges.isEmpty()) {
@@ -117,7 +129,10 @@ public class SplitSource {
                         TimeUnit.NANOSECONDS);
                 if (batch != null) {
                     splitAssignment.notifyQueueSpace(backend);
-                    pendingSplits = batch.iterator();
+                    pendingSplits.set(batch.iterator());
+                    if (splitAssignment.isStop()) {
+                        pendingSplits.set(Collections.emptyIterator());
+                    }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

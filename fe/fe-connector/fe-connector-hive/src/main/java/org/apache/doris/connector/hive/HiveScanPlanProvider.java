@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -294,7 +295,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         if (hiveHandle.isTransactional()) {
             throw new DorisConnectorException("Transactional Hive scans require snapshot-aware planning");
         }
-        return new HiveSplitSource(session, hiveHandle, request.getRequiredPartitions());
+        return new HiveSplitSource(session, hiveHandle, request.getRequiredPartitions(), request.getScanContext());
     }
 
     private static int sessionInt(ConnectorSession session, String name, int defaultValue) {
@@ -304,6 +305,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final class HiveSplitSource implements ConnectorSplitSource {
         private final HiveTableHandle handle;
+        private final ConnectorScanContext scanContext;
         private final FileSystem fs;
         private final HiveFileFormat tableFormat;
         private final boolean isLzo;
@@ -319,8 +321,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private boolean unpartitionedInitialized;
         private volatile boolean closed;
 
-        HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions) {
+        HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions,
+                ConnectorScanContext scanContext) {
             this.handle = handle;
+            this.scanContext = scanContext;
+            scanContext.checkCancelled();
             this.partitionNames = requiredPartitions.isEmpty() ? null : requiredPartitions;
             this.fs = storage().getFileSystem(session);
             this.tableFormat = HiveFileFormat.detect(handle.getInputFormat(), handle.getSerializationLib(),
@@ -336,6 +341,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public boolean hasNext() {
             while (!closed) {
+                scanContext.checkCancelled();
                 if (ranges.hasNext()) {
                     return true;
                 }
@@ -367,7 +373,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private void loadNextPartitionFiles() {
             partition = partitions.next();
             files = listPartitionFiles(handle.getDbName(), handle.getTableName(),
-                    partition, fs, null).iterator();
+                    partition, fs, null, scanContext).iterator();
+            scanContext.partitionProcessed();
         }
 
         private boolean loadNextPartitions() {
@@ -392,6 +399,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 return true;
             }
             if (partitionNames == null) {
+                scanContext.checkCancelled();
                 partitionNames = hmsClient.listPartitionNames(
                         handle.getDbName(), handle.getTableName(), MAX_PARTITIONS);
             }
@@ -399,6 +407,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             int end = Math.min(partitionNames.size(), nextPartition + partitionBatchSize);
+            scanContext.checkCancelled();
             partitions = convertPartitions(loadPartitionsWithProfile(handle.getDbName(), handle.getTableName(),
                     partitionNames.subList(nextPartition, end)), keys).iterator();
             nextPartition = end;
@@ -416,6 +425,11 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         @Override
         public void close() {
             closed = true;
+            partitions = Collections.emptyIterator();
+            files = Collections.emptyIterator();
+            ranges = Collections.emptyIterator();
+            partitionNames = null;
+            partition = null;
         }
     }
 
@@ -470,7 +484,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (HiveSplitSource source = new HiveSplitSource(
-                session, (HiveTableHandle) request.getTableHandle(), partitionBatch)) {
+                session, (HiveTableHandle) request.getTableHandle(), partitionBatch, request.getScanContext())) {
             while (source.hasNext()) {
                 ranges.add(source.next());
             }
@@ -798,10 +812,18 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
 
     private List<HiveFileStatus> listPartitionFiles(String dbName, String tableName,
             PartitionScanInfo partition, FileSystem fs, PlanCompleteness completeness) {
+        return listPartitionFiles(dbName, tableName, partition, fs, completeness, null);
+    }
+
+    private List<HiveFileStatus> listPartitionFiles(String dbName, String tableName,
+            PartitionScanInfo partition, FileSystem fs, PlanCompleteness completeness,
+            ConnectorScanContext scanContext) {
         List<HiveFileStatus> files;
         try {
-            files = fileListingCache.listDataFiles(dbName, tableName, partition.location,
-                    new ArrayList<>(partition.partitionValues.values()), fs);
+            List<String> values = new ArrayList<>(partition.partitionValues.values());
+            files = scanContext == null
+                    ? fileListingCache.listDataFiles(dbName, tableName, partition.location, values, fs)
+                    : fileListingCache.listDataFiles(dbName, tableName, partition.location, values, fs, scanContext);
         } catch (HiveDirectoryListingException e) {
             // hive.ignore_absent_partitions=false (non-default): a partition whose LOCATION does not exist
             // must fail the query loud with the legacy message rather than be silently skipped. Only a

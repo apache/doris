@@ -598,6 +598,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SPLIT_QUEUE_CAPACITY = "split_queue_capacity";
 
+    public static final String FIRST_SPLIT_WAIT_TIMEOUT_MS = "first_split_wait_timeout_ms";
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -2630,6 +2631,18 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SPLIT_QUEUE_CAPACITY, checker = "checkSplitQueueCapacity", needForward = true,
             description = "Maximum number of queued split batches per backend.")
     public int splitQueueCapacity = 32;
+
+    @VarAttrDef.VarAttr(name = FIRST_SPLIT_WAIT_TIMEOUT_MS, checker = "checkFirstSplitWaitTimeout",
+            needForward = true, description = "First split wait timeout in milliseconds.")
+    public long firstSplitWaitTimeoutMs = 30000;
+
+    public void checkFirstSplitWaitTimeout(String value) throws Exception {
+        checkFieldLongValue(FIRST_SPLIT_WAIT_TIMEOUT_MS, 1, value);
+    }
+
+    public long getFirstSplitWaitTimeoutMs() {
+        return firstSplitWaitTimeoutMs;
+    }
 
     public void checkSplitBatchSize(String value) throws Exception {
         checkFieldValue(SPLIT_BATCH_SIZE, 1, value);
