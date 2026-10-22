@@ -95,6 +95,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
@@ -420,6 +422,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitSum0(Sum0 sum0, C context) {
         return visitAggregateFunction(sum0, context);
+    }
+
+    default R visitTopKMaxCount(TopKMaxCount topKMaxCount, C context) {
+        return visitAggregateFunction(topKMaxCount, context);
+    }
+
+    default R visitTopKMinCount(TopKMinCount topKMinCount, C context) {
+        return visitAggregateFunction(topKMinCount, context);
     }
 
     default R visitTopN(TopN topN, C context) {

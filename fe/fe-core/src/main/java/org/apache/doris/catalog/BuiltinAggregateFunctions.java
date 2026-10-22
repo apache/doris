@@ -102,6 +102,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SumMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
@@ -216,6 +218,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Sum.class, "sum"),
                 agg(Sum0.class, "sum0"),
                 agg(SumMap.class, "sum_map"),
+                agg(TopKMinCount.class, "topk_min_count"),
+                agg(TopKMaxCount.class, "topk_max_count"),
                 agg(TopN.class, "topn"),
                 agg(TopNArray.class, "topn_array"),
                 agg(TopNWeighted.class, "topn_weighted"),
