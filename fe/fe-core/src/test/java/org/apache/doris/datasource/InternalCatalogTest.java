@@ -20,8 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -48,6 +48,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
@@ -62,10 +63,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -88,7 +89,7 @@ public class InternalCatalogTest {
     private FailingCommitInternalCatalog catalog;
     private FakeEnv fakeEnv;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         fakeEnv = new FakeEnv();
         Env env = new TestingEnv();
@@ -98,7 +99,7 @@ public class InternalCatalogTest {
         catalog = new FailingCommitInternalCatalog();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         fakeEnv.close();
     }
@@ -106,19 +107,40 @@ public class InternalCatalogTest {
     @Test
     public void testAddPartitionRollbackPartitionInfoOnCommitFailure() throws Exception {
         AddPartitionOp addPartitionOp = createAddPartitionOp();
-        DdlException exception = Assert.assertThrows(DdlException.class,
+        DdlException exception = Assertions.assertThrows(DdlException.class,
                 () -> catalog.addPartition(db, TABLE_NAME, addPartitionOp, false, 0, true, null));
-        Assert.assertTrue(exception.getMessage().contains("injected commit failure"));
+        Assertions.assertTrue(exception.getMessage().contains("injected commit failure"));
         long newPartitionId = catalog.getCommittedPartitionId();
 
         OlapTable table = (OlapTable) db.getTableOrDdlException(TABLE_NAME);
-        Assert.assertNull(table.getPartition(NEW_PARTITION_NAME));
-        Assert.assertNull(table.getPartition(newPartitionId));
+        Assertions.assertNull(table.getPartition(NEW_PARTITION_NAME));
+        Assertions.assertNull(table.getPartition(newPartitionId));
 
         PartitionInfo partitionInfo = table.getPartitionInfo();
-        Assert.assertNull(partitionInfo.getItem(newPartitionId));
-        Assert.assertNull(partitionInfo.getDataProperty(newPartitionId));
-        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(newPartitionId));
+        Assertions.assertNull(partitionInfo.getItem(newPartitionId));
+        Assertions.assertNull(partitionInfo.getDataProperty(newPartitionId));
+        Assertions.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(newPartitionId));
+    }
+
+    @Test
+    public void testAddPartitionRejectsAnObsoleteRetentionSnapshot() throws Exception {
+        OlapTable table = db.getOlapTableOrDdlException(TABLE_NAME);
+        table.setChangelogConfig(new ChangelogConfig(true, 60, false));
+        catalog.afterTabletCreation = () -> {
+            table.writeLock();
+            try {
+                ChangelogConfig extended = new ChangelogConfig(table.getChangelogConfig());
+                extended.setTtlSeconds(3600);
+                extended.setConfigVersion(1);
+                table.setChangelogConfig(extended);
+            } finally {
+                table.writeUnlock();
+            }
+        };
+        DdlException error = Assertions.assertThrows(DdlException.class,
+                () -> catalog.addPartition(db, TABLE_NAME, createAddPartitionOp(), false, 0, true, null));
+        Assertions.assertTrue(error.getMessage().contains("meta has been changed"), error.getMessage());
+        Assertions.assertNull(table.getPartition(NEW_PARTITION_NAME));
     }
 
     private AddPartitionOp createAddPartitionOp() {
@@ -154,7 +176,7 @@ public class InternalCatalogTest {
         MaterializedIndex baseIndex = new MaterializedIndex(INDEX_ID, IndexState.NORMAL);
         LocalTablet tablet = new LocalTablet(TABLET_ID);
         TabletMeta tabletMeta = new TabletMeta(CatalogTestUtil.testDbId1, TABLE_ID, PARTITION_ID, INDEX_ID, 0,
-                TStorageMedium.HDD);
+                TStorageMedium.HDD, false /* isChangelog */);
         baseIndex.addTablet(tablet, tabletMeta);
         tablet.addReplica(new LocalReplica(REPLICA_ID, BACKEND_ID, 0, ReplicaState.NORMAL));
 
@@ -185,6 +207,7 @@ public class InternalCatalogTest {
 
     private static class FailingCommitInternalCatalog extends InternalCatalog {
         private long committedPartitionId;
+        private Runnable afterTabletCreation = () -> { };
 
         @Override
         protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
@@ -192,7 +215,7 @@ public class InternalCatalogTest {
                 DistributionInfo distributionInfo, DataProperty dataProperty,
                 ReplicaAllocation replicaAlloc, Long versionInfo, Set<String> bfColumns, Set<Long> tabletIdSet,
                 boolean isInMemory, TTabletType tabletType, String storagePolicy,
-                IdGeneratorBuffer idGeneratorBuffer, BinlogConfig binlogConfig, boolean isStorageMediumSpecified)
+                IdGeneratorBuffer idGeneratorBuffer, TabletBinlogConfig binlogConfig, boolean isStorageMediumSpecified)
                 throws DdlException {
             MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
             Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
@@ -200,14 +223,15 @@ public class InternalCatalogTest {
                 partition.updateVisibleVersion(versionInfo);
                 partition.setNextVersion(versionInfo + 1);
             }
+            afterTabletCreation.run();
             return partition;
         }
 
         @Override
         public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                 boolean isCreateTable, boolean isBatchCommit, OlapTable olapTable) throws DdlException {
-            Assert.assertEquals(TABLE_ID, tableId);
-            Assert.assertEquals(1, partitionIds.size());
+            Assertions.assertEquals(TABLE_ID, tableId);
+            Assertions.assertEquals(1, partitionIds.size());
             committedPartitionId = partitionIds.get(0);
             throw new DdlException("injected commit failure");
         }

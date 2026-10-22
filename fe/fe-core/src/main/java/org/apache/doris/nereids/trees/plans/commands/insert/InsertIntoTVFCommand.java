@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -113,10 +112,6 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             }
         }
 
-        if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
-            ctx.getMysqlChannel().reset();
-        }
-
         // 3. Create coordinator
         Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
                 ctx, planner, ctx.getStatsErrorEstimator());
@@ -126,6 +121,9 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
 
         try {
+            // Audit ownership follows the executor that resolved the external sink, not a logical
+            // plan shape that can also represent internal or blackhole writes.
+            executor.setExternalDmlAuditCoordinator(coordinator);
             coordinator.exec();
 
             // Wait for completion

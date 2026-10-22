@@ -103,12 +103,14 @@ public abstract class Tablet {
 
     @SerializedName(value = "id")
     protected long id;
-    // Set only on a row binlog tablet. It points to the corresponding base tablet.
+    // Set only on a changelog tablet. It points to the corresponding base tablet.
+    // ATTN(changelog-rename): formerly "rowBinlogBaseTabletId"; SerializedName "rbbti" kept on purpose
     @SerializedName(value = "rbbti")
-    protected Long rowBinlogBaseTabletId;
-    // Set only on a base tablet. It points to the corresponding row binlog tablet.
+    protected Long changelogBaseTabletId;
+    // Set only on a base tablet. It points to the corresponding changelog tablet.
+    // ATTN(changelog-rename): formerly "rowBinlogTabletId"; SerializedName "rbti" kept on purpose
     @SerializedName(value = "rbti")
-    protected Long rowBinlogTabletId;
+    protected Long changelogTabletId;
 
     public Tablet() {
         this(0L);
@@ -122,20 +124,28 @@ public abstract class Tablet {
         return this.id;
     }
 
-    public long getRowBinlogBaseTabletId() {
-        return rowBinlogBaseTabletId;
+    public long getChangelogBaseTabletId() {
+        return changelogBaseTabletId;
     }
 
-    public void setRowBinlogBaseTabletId(long rowBinlogBaseTabletId) {
-        this.rowBinlogBaseTabletId = rowBinlogBaseTabletId;
+    public boolean hasChangelogBaseTabletId() {
+        return changelogBaseTabletId != null;
     }
 
-    public long getRowBinlogTabletId() {
-        return rowBinlogTabletId;
+    public void setChangelogBaseTabletId(long changelogBaseTabletId) {
+        this.changelogBaseTabletId = changelogBaseTabletId;
     }
 
-    public void setRowBinlogTabletId(long rowBinlogTabletId) {
-        this.rowBinlogTabletId = rowBinlogTabletId;
+    public long getChangelogTabletId() {
+        return changelogTabletId;
+    }
+
+    public boolean hasChangelogTabletId() {
+        return changelogTabletId != null;
+    }
+
+    public void setChangelogTabletId(long changelogTabletId) {
+        this.changelogTabletId = changelogTabletId;
     }
 
     public long getCheckedVersion() {
@@ -211,6 +221,10 @@ public abstract class Tablet {
             }
 
             if (replica.isBad()) {
+                continue;
+            }
+
+            if (replica.isChangelogMissing()) {
                 continue;
             }
 

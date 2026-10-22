@@ -21,6 +21,7 @@
 #include <bthread/countdown_event.h>
 #include <butil/iobuf.h>
 #include <fmt/format.h>
+#include <gen_cpp/Status_types.h>
 
 #include <algorithm>
 #include <chrono>
@@ -38,12 +39,14 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/cloud_warmup_metrics.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/path.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/storage_policy.h"
 #include "util/async_io.h"
 #include "util/bvar_windowed_adder.h"
@@ -122,6 +125,19 @@ void submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_po
         int64_t failed = 0;
         g_cloud_sync_tablet_meta_requests_total << 1;
         for (const auto tablet_id : request->tablet_ids()) {
+            if (request->discover_changelog_ttl()) {
+                if (config::disable_auto_compaction || !config::enable_feature_changelog) {
+                    ++skipped;
+                    continue;
+                }
+                auto st = engine->submit_changelog_ttl(tablet_id, true);
+                if (st.ok()) {
+                    ++synced;
+                } else {
+                    ++failed;
+                }
+                continue;
+            }
             auto tablet = engine->tablet_mgr().get_tablet_if_cached(tablet_id);
             if (!tablet) {
                 ++skipped;
@@ -242,22 +258,21 @@ static std::optional<int64_t> warm_up_rowset_cross_host_latency_us(int64_t start
 
 static void add_file_cache_block_meta_to_response(
         PGetFileCacheMetaResponse* resp, int64_t tablet_id, const std::string& rowset_id,
-        int32_t segment_id, const std::string& file_name,
-        const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple,
-        const RowsetSharedPtr& rowset, bool is_index) {
+        RowsetSegmentView seg, const std::string& file_name,
+        const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple, bool is_index) {
     FileCacheBlockMeta* meta = resp->add_file_cache_block_metas();
     meta->set_tablet_id(tablet_id);
     meta->set_rowset_id(rowset_id);
-    meta->set_segment_id(segment_id);
+    meta->set_segment_id(cast_set<int32_t>(seg.id()));
     meta->set_file_name(file_name);
 
     if (!is_index) {
         // .dat
-        meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
+        meta->set_file_size(seg.file_size());
         meta->set_file_type(doris::FileType::SEGMENT_FILE);
     } else {
         // .idx
-        const auto& idx_file_info = rowset->rowset_meta()->inverted_index_file_info(segment_id);
+        auto idx_file_info = seg.inverted_index_file_info();
         meta->set_file_size(idx_file_info.has_index_size() ? idx_file_info.index_size() : -1);
         meta->set_file_type(doris::FileType::INVERTED_INDEX_FILE);
     }
@@ -268,19 +283,18 @@ static void add_file_cache_block_meta_to_response(
     meta->set_expiration_time(std::get<3>(tuple));
 }
 
-static void process_segment_file_cache_meta(PGetFileCacheMetaResponse* resp,
-                                            const RowsetSharedPtr& rowset, int64_t tablet_id,
-                                            const std::string& rowset_id, int32_t segment_id,
+static void process_segment_file_cache_meta(PGetFileCacheMetaResponse* resp, int64_t tablet_id,
+                                            const std::string& rowset_id, RowsetSegmentView seg,
                                             bool is_index) {
     const char* extension = is_index ? ".idx" : ".dat";
-    std::string file_name = fmt::format("{}_{}{}", rowset_id, segment_id, extension);
+    std::string file_name = fmt::format("{}_{}{}", rowset_id, seg.id(), extension);
     auto cache_key = io::BlockFileCache::hash(file_name);
     auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
     if (!cache) return;
     auto segments_meta = cache->get_hot_blocks_meta(cache_key);
     for (const auto& tuple : segments_meta) {
-        add_file_cache_block_meta_to_response(resp, tablet_id, rowset_id, segment_id, file_name,
-                                              tuple, rowset, is_index);
+        add_file_cache_block_meta_to_response(resp, tablet_id, rowset_id, seg, file_name, tuple,
+                                              is_index);
     }
 }
 
@@ -325,11 +339,9 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
 
         for (const RowsetSharedPtr& rowset : rowsets) {
             std::string rowset_id = rowset->rowset_id().to_string();
-            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
-                process_segment_file_cache_meta(response, rowset, tablet_id, rowset_id, segment_id,
-                                                false);
-                process_segment_file_cache_meta(response, rowset, tablet_id, rowset_id, segment_id,
-                                                true);
+            for (auto seg : rowset->segments()) {
+                process_segment_file_cache_meta(response, tablet_id, rowset_id, seg, false);
+                process_segment_file_cache_meta(response, tablet_id, rowset_id, seg, true);
             }
         }
     }
@@ -712,6 +724,10 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    // Startup restore needs the caller's tablet; older clients omit rowset_meta.
+    if (request->has_rowset_meta()) {
+        ctx.tablet_id = request->rowset_meta().tablet_id();
+    }
     const size_t file_size =
             request->has_file_size()
                     ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))
@@ -1057,20 +1073,20 @@ void record_warmup_ed_skipped_rowset_as_finished(RowsetMeta& rs_meta,
     auto schema_ptr = rs_meta.tablet_schema();
     bool has_inverted_index = schema_ptr->has_inverted_or_ann_index();
     auto idx_version = schema_ptr->get_inverted_index_storage_format();
-    for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-        record_warmup_ed_finish_segment(job_id_str, rs_meta.segment_file_size(segment_id));
+    for (auto seg : rs_meta.segments()) {
+        record_warmup_ed_finish_segment(job_id_str, seg.file_size());
 
         if (!has_inverted_index) {
             continue;
         }
-        auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+        auto inverted_index_info = seg.inverted_index_file_info();
         if (idx_version == InvertedIndexStorageFormatPB::V1) {
             std::unordered_map<int64_t, int64_t> index_size_map;
             for (const auto& info : inverted_index_info.index_info()) {
                 if (info.index_file_size() != -1) {
                     index_size_map[info.index_id()] = info.index_file_size();
                 } else {
-                    VLOG_DEBUG << "Invalid index_file_size for segment_id " << segment_id
+                    VLOG_DEBUG << "Invalid index_file_size for segment_id " << seg.id()
                                << ", index_id " << info.index_id();
                 }
             }
@@ -1082,7 +1098,7 @@ void record_warmup_ed_skipped_rowset_as_finished(RowsetMeta& rs_meta,
             if (inverted_index_info.has_index_size()) {
                 idx_size = inverted_index_info.index_size();
             } else {
-                VLOG_DEBUG << "index_size is not set for segment " << segment_id;
+                VLOG_DEBUG << "index_size is not set for segment " << seg.id();
             }
             record_warmup_ed_finish_index(job_id_str, idx_size);
         }
@@ -1093,7 +1109,8 @@ void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& 
                                   int64_t segment_id, std::shared_ptr<CloudTablet> tablet,
                                   std::shared_ptr<bthread::CountdownEvent> wait, Version version,
                                   int64_t segment_size, int64_t request_ts, int64_t handle_ts,
-                                  std::string job_id_str, int64_t upstream_trigger_ts_ms) {
+                                  std::string job_id_str, int64_t upstream_trigger_ts_ms,
+                                  uint64_t generation) {
     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
         auto sleep_time = dp->param<int>("sleep", 3);
         LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
@@ -1140,7 +1157,7 @@ void handle_segment_download_done(Status st, int64_t tablet_id, const RowsetId& 
                      << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
     }
     if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, st, 1,
-                                               0)
+                                               0, generation)
                 .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
         VLOG_DEBUG << "warmup rowset " << version.to_string() << "(" << rowset_id.to_string()
                    << ") completed";
@@ -1157,7 +1174,7 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
                                          std::shared_ptr<bthread::CountdownEvent> wait,
                                          Version version, uint64_t idx_size, int64_t request_ts,
                                          int64_t handle_ts, std::string job_id_str,
-                                         int64_t upstream_trigger_ts_ms) {
+                                         int64_t upstream_trigger_ts_ms, uint64_t generation) {
     DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
         auto sleep_time = dp->param<int>("sleep", 3);
         LOG_INFO(
@@ -1198,7 +1215,7 @@ void handle_inverted_index_download_done(Status st, int64_t tablet_id, const Row
                      << " rowset_id: " << rowset_id << ", error: " << st;
     }
     if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, st, 0,
-                                               1)
+                                               1, generation)
                 .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
         VLOG_DEBUG << "warmup rowset " << version.to_string() << "(" << rowset_id.to_string()
                    << ") completed";
@@ -1271,9 +1288,11 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                       << " us, tablet_id: " << rs_meta.tablet_id()
                       << ", rowset_id: " << rowset_id.to_string();
         }
-        int64_t expiration_time = tablet_meta->ttl_seconds();
+        int64_t expiration_time = tablet_meta->file_cache_ttl_expiration_time();
 
-        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
+        const auto generation =
+                tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN);
+        if (!generation) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()
                       << ", skip it";
             g_warmup_ed_downstream_progress_tracker.record_task_done(job_id_str,
@@ -1286,9 +1305,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                                                      upstream_trigger_ts_ms);
         }
 
-        for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
+        for (auto seg : rs_meta.segments()) {
+            auto segment_id = seg.id();
             if (!config::file_cache_enable_only_warm_up_idx) {
-                auto segment_size = rs_meta.segment_file_size(segment_id);
+                auto segment_size = seg.file_size();
 
                 // Use rs_meta.fs() instead of storage_resource.value()->fs to support packed files.
                 // PackedFileSystem wrapper in rs_meta.fs() handles the index_map lookup and
@@ -1308,7 +1328,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                     handle_segment_download_done(
                                             st, tablet_id, rowset_id, segment_id, tablet, wait,
                                             version, segment_size, request_ts, handle_ts,
-                                            job_id_str, upstream_trigger_ts_ms);
+                                            job_id_str, upstream_trigger_ts_ms, *generation);
                                 },
                         .tablet_id = tablet_id};
 
@@ -1339,14 +1359,14 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                     handle_inverted_index_download_done(
                                             st, tablet_id, rowset_id, segment_id, index_path,
                                             tablet, wait, version, idx_size, request_ts, handle_ts,
-                                            job_id_str, upstream_trigger_ts_ms);
+                                            job_id_str, upstream_trigger_ts_ms, *generation);
                                 },
                         .tablet_id = tablet_id,
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
                 tablet->update_rowset_warmup_state_inverted_idx_num(
-                        WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, 1);
+                        WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, 1, *generation);
                 if (wait) {
                     wait->add_count();
                 }
@@ -1361,7 +1381,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
             if (schema_ptr->has_inverted_or_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto inverted_index_info = seg.inverted_index_file_info();
                     std::unordered_map<int64_t, int64_t> index_size_map;
                     for (const auto& info : inverted_index_info.index_info()) {
                         if (info.index_file_size() != -1) {
@@ -1377,7 +1397,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         download_inverted_index(idx_path, index_size_map[index->index_id()]);
                     }
                 } else { // InvertedIndexStorageFormatPB::V2
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto inverted_index_info = seg.inverted_index_file_info();
                     int64_t idx_size = 0;
                     if (inverted_index_info.has_index_size()) {
                         idx_size = inverted_index_info.index_size();
@@ -1414,8 +1434,10 @@ void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* co
         return;
     }
     for (const auto& meta : request->cache_metas()) {
-        for (int64_t segment_id = 0; segment_id < meta.num_segments(); segment_id++) {
-            auto file_key = Segment::file_cache_key(meta.rowset_id(), segment_id);
+        for (int64_t pos = 0; pos < meta.num_segments(); pos++) {
+            auto segment_id = rowset_segment_id(meta, pos);
+            auto file_key =
+                    Segment::file_cache_key(meta.rowset_id(), cast_set<uint32_t>(segment_id));
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
             g_file_cache_recycle_cache_finished_segment_num << 1;

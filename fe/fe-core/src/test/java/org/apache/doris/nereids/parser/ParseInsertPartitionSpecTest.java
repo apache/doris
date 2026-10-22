@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
-import org.antlr.v4.runtime.ParserRuleContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -81,30 +80,15 @@ public class ParseInsertPartitionSpecTest {
     }
 
     /**
-     * Helper method to parse SQL and extract PartitionSpecContext using reflection.
+     * Helper method to parse SQL and extract PartitionSpecContext.
      */
-    private Object parsePartitionSpec(String insertSql) throws Exception {
-        // Use NereidsParser.toAst() to parse the SQL and get the AST
-        ParserRuleContext tree = NereidsParser.toAst(
-                insertSql, DorisParser::singleStatement);
-
-        // The tree is a SingleStatementContext, which contains a StatementContext
-        // which contains a StatementBaseContext which contains an InsertTableContext
-        // Use reflection to navigate the AST structure
-        Method getChildMethod = ParserRuleContext.class.getMethod("getChild", int.class);
-
-        // Get statement from singleStatement (index 0)
-        Object statement = getChildMethod.invoke(tree, 0);
-
-        // Get statementBase from statement (index 0)
-        Object statementBase = getChildMethod.invoke(statement, 0);
-
-        // Get insertTable from statementBase (index 0)
-        Object insertTableCtx = getChildMethod.invoke(statementBase, 0);
-
-        // Get partitionSpec() from insertTableCtx using the method
-        Method partitionSpecMethod = insertTableCtx.getClass().getMethod("partitionSpec");
-        return partitionSpecMethod.invoke(insertTableCtx);
+    private DorisParser.PartitionSpecContext parsePartitionSpec(String insertSql) {
+        DorisParser.DmlStatementContext dmlStatementContext = (DorisParser.DmlStatementContext) NereidsParser.toAst(
+                insertSql, DorisParser::dmlStatement);
+        DorisParser.DmlStatementBodyContext dmlStatementBody =
+                ((DorisParser.ExplainableDmlStatementContext) dmlStatementContext).dmlStatementBody();
+        DorisParser.InsertTableContext insertTableContext = (DorisParser.InsertTableContext) dmlStatementBody;
+        return insertTableContext.partitionSpec();
     }
 
     @Test

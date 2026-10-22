@@ -31,6 +31,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -50,14 +51,34 @@ import java.util.Set;
  * refresh mtmv info
  */
 public class RefreshMTMVInfo {
+
+    /**
+     * Explicit refresh mode for manual REFRESH MATERIALIZED VIEW command.
+     */
+    public enum RefreshMode {
+        AUTO,
+        COMPLETE,
+        INCREMENTAL,
+        PARTITIONS
+    }
+
     private final TableNameInfo mvName;
     private List<String> partitions;
-    private boolean isComplete;
+    private RefreshMode refreshMode;
+    // Manual refresh fallback is always explicit in the task request. MV default
+    // policy is handled by scheduled/on-commit tasks, not by this command.
+    private boolean allowFallback;
 
-    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, boolean isComplete) {
+    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, RefreshMode refreshMode) {
+        this(mvName, partitions, refreshMode, defaultAllowFallback(refreshMode));
+    }
+
+    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, RefreshMode refreshMode,
+            boolean allowFallback) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.partitions = Utils.copyRequiredList(partitions);
-        this.isComplete = Objects.requireNonNull(isComplete, "require isComplete object");
+        this.refreshMode = Objects.requireNonNull(refreshMode, "require refreshMode object");
+        this.allowFallback = allowFallback;
     }
 
     /**
@@ -77,11 +98,75 @@ public class RefreshMTMVInfo {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
+            validateRefreshModeCompat(mtmv);
             if (!CollectionUtils.isEmpty(partitions)) {
                 checkPartitionExist(mtmv);
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    private void validateRefreshModeCompat(MTMV mtmv) {
+        if (refreshMode == RefreshMode.COMPLETE && allowFallback) {
+            // COMPLETE is already the terminal refresh method; FALLBACK would
+            // not add another safe attempt.
+            throw new AnalysisException("COMPLETE refresh does not support FALLBACK");
+        }
+        if (!CollectionUtils.isEmpty(partitions) && allowFallback) {
+            // An explicit partitionSpec is an exact user scope and must not be
+            // expanded to a full refresh by fallback.
+            throw new AnalysisException("partitionSpec does not support FALLBACK");
+        }
+        if (!CollectionUtils.isEmpty(partitions) && mtmv.isIvm()) {
+            // IVM MVs should not bypass incremental semantics through a legacy
+            // partitionSpec. Users can explicitly choose the PARTITIONS keyword
+            // when they want the partition-refresh strategy.
+            throw new AnalysisException(
+                    "partitionSpec is not allowed on a materialized view with INCREMENTAL capability, "
+                            + "use PARTITIONS keyword instead.");
+        }
+        RefreshMethod mvRefreshMethod = mtmv.getRefreshInfo() == null
+                ? null : mtmv.getRefreshInfo().getRefreshMethod();
+        if (mvRefreshMethod == null) {
+            throw new AnalysisException("Materialized view has unknown refresh method.");
+        }
+        if (!CollectionUtils.isEmpty(partitions)) {
+            return;
+        }
+        if (!isRefreshModeCompatible(mtmv, mvRefreshMethod)) {
+            throw new AnalysisException("Cannot use " + refreshMode
+                    + " refresh on a materialized view with " + mvRefreshMethod + " refresh policy.");
+        }
+    }
+
+    private boolean isRefreshModeCompatible(MTMV mtmv, RefreshMethod mvRefreshMethod) {
+        if (refreshMode == RefreshMode.AUTO) {
+            // Keep compatibility with legacy manual REFRESH ... AUTO syntax.
+            return true;
+        }
+        switch (mvRefreshMethod) {
+            case COMPLETE:
+                return refreshMode == RefreshMode.COMPLETE;
+            case PARTITIONS:
+                return refreshMode == RefreshMode.PARTITIONS || refreshMode == RefreshMode.COMPLETE;
+            case INCREMENTAL:
+                return refreshMode == RefreshMode.INCREMENTAL
+                        || refreshMode == RefreshMode.PARTITIONS
+                        || refreshMode == RefreshMode.COMPLETE;
+            case AUTO:
+                if (mtmv.isIvm()) {
+                    return refreshMode == RefreshMode.INCREMENTAL
+                            || refreshMode == RefreshMode.PARTITIONS
+                            || refreshMode == RefreshMode.COMPLETE;
+                }
+                if (mtmv.getMvPartitionInfo() != null
+                        && mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
+                    return refreshMode == RefreshMode.PARTITIONS || refreshMode == RefreshMode.COMPLETE;
+                }
+                return refreshMode == RefreshMode.COMPLETE;
+            default:
+                throw new IllegalStateException("Unsupported refresh method: " + mvRefreshMethod);
         }
     }
 
@@ -133,12 +218,29 @@ public class RefreshMTMVInfo {
     }
 
     /**
-     * isComplete
+     * getRefreshMode
      *
-     * @return isComplete
+     * @return RefreshMode
+     */
+    public RefreshMode getRefreshMode() {
+        return refreshMode;
+    }
+
+    public boolean allowFallback() {
+        return allowFallback;
+    }
+
+    public static boolean defaultAllowFallback(RefreshMode refreshMode) {
+        return refreshMode == RefreshMode.AUTO;
+    }
+
+    /**
+     * isComplete - backward compatibility helper
+     *
+     * @return true if refresh mode is COMPLETE
      */
     public boolean isComplete() {
-        return isComplete;
+        return refreshMode == RefreshMode.COMPLETE;
     }
 
     @Override
@@ -146,7 +248,8 @@ public class RefreshMTMVInfo {
         return "RefreshMTMVInfo{"
                 + "mvName=" + mvName
                 + ", partitions=" + partitions
-                + ", isComplete=" + isComplete
+                + ", refreshMode=" + refreshMode
+                + ", allowFallback=" + allowFallback
                 + '}';
     }
 }

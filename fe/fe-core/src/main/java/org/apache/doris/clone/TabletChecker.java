@@ -26,10 +26,12 @@ import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.changelog.ChangelogTabletLocality;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -375,8 +377,17 @@ public class TabletChecker extends MasterDaemon {
                     continue;
                 }
 
-                TabletHealth tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()), aliveBeIds);
+                ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
+                ChangelogTabletLocality.ChangelogHealthResult changelogHealthResult = null;
+                TabletHealth tabletHealth;
+                if (idx.isChangelog()) {
+                    changelogHealthResult = ChangelogTabletLocality.getChangelogHealth(
+                            partition, tablet, replicaAlloc, partition.getVisibleVersion());
+                    tabletHealth = changelogHealthResult.getTabletHealth();
+                } else {
+                    tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
+                            replicaAlloc, aliveBeIds);
+                }
 
                 if (tabletHealth.status == TabletStatus.HEALTHY) {
                     // Only set last status check time when status is healthy.
@@ -401,10 +412,13 @@ public class TabletChecker extends MasterDaemon {
                         TabletSchedCtx.Type.REPAIR,
                         db.getId(), tbl.getId(),
                         partition.getId(), idx.getId(), tablet.getId(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                        replicaAlloc,
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletHealth(tabletHealth);
+                if (changelogHealthResult != null) {
+                    changelogHealthResult.applyTo(tabletCtx);
+                }
                 tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);

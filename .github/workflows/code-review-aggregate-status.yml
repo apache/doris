@@ -1,0 +1,115 @@
+name: Aggregate Code Review Status
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        description: Commit whose PR/base-specific review sources should be aggregated.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: code-review-status-${{ inputs.head_sha }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      # Keep the trusted helper outside the PR checkout; capture the first API failure too.
+      - name: Checkout trusted GitHub API diagnostics
+        timeout-minutes: 2
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha || github.sha }}
+          persist-credentials: false
+          path: .review-api-source
+          sparse-checkout: .github/scripts/review_github_api.py
+          sparse-checkout-cone-mode: false
+
+      - name: Install GitHub API diagnostics
+        timeout-minutes: 1
+        run: |
+          install -m 700 .review-api-source/.github/scripts/review_github_api.py "$RUNNER_TEMP/review_github_api.py"
+          gh --version
+          printf 'REVIEW_GH_VERSION=%s\n' "$(gh --version | sed -n '1p')" >> "$GITHUB_ENV"
+          printf 'REVIEW_GH_HELPER=%s\n' "$RUNNER_TEMP/review_github_api.py" >> "$GITHUB_ENV"
+          printf 'REVIEW_GITHUB_DIAGNOSTICS_DIR=%s\n' "$RUNNER_TEMP/review-github-diagnostics" >> "$GITHUB_ENV"
+
+      - name: Mark aggregate status as pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state='pending' \
+            -f context='code-review' \
+            -f description="Recalculating code review for ${HEAD_SHA:0:12}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Checkout trusted status resolver
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/resolve_code_review_status.py
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve review status across open PR contexts
+        id: resolution
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          pull_pages="$RUNNER_TEMP/code-review-pull-pages.json"
+          pulls="$RUNNER_TEMP/code-review-pulls.json"
+          status_pages="$RUNNER_TEMP/code-review-status-pages.json"
+          statuses="$RUNNER_TEMP/code-review-statuses.json"
+
+          python3 "$REVIEW_GH_HELPER" api --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${REPO}/pulls?state=open&per_page=100" > "$pull_pages"
+          jq '[.[][]]' "$pull_pages" > "$pulls"
+
+          python3 "$REVIEW_GH_HELPER" api --paginate --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${REPO}/commits/${HEAD_SHA}/statuses?per_page=100" > "$status_pages"
+          jq '[.[][]]' "$status_pages" > "$statuses"
+
+          python3 .github/scripts/resolve_code_review_status.py \
+            --pulls-file "$pulls" \
+            --statuses-file "$statuses" \
+            --head-sha "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Publish aggregate code-review status
+        env:
+          DESCRIPTION: ${{ steps.resolution.outputs.description }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REPO: ${{ github.repository }}
+          STATE: ${{ steps.resolution.outputs.state }}
+        run: |
+          python3 "$REVIEW_GH_HELPER" api "repos/${REPO}/statuses/${HEAD_SHA}" \
+            -X POST \
+            -f state="$STATE" \
+            -f context='code-review' \
+            -f description="$DESCRIPTION" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Preserve GitHub API failure diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-api-errors-aggregate-${{ inputs.head_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/review-github-diagnostics/*.json
+          if-no-files-found: ignore

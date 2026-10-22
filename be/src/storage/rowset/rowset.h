@@ -25,14 +25,18 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/file_cache_common.h"
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_meta.h"
@@ -41,6 +45,9 @@
 namespace doris {
 
 class Rowset;
+class RowsetSegmentRange;
+class RowsetSegmentView;
+struct RowLocation;
 
 namespace io {
 class RemoteFileSystem;
@@ -55,7 +62,7 @@ class RowsetReader;
 //    ROWSET_LOADED         |
 //          ↓               |
 //    ROWSET_UNLOADING   -->|
-enum RowsetState {
+enum class RowsetState {
     // state for new created rowset
     ROWSET_UNLOADED,
     // state after load() called
@@ -66,12 +73,12 @@ enum RowsetState {
 
 class RowsetStateMachine {
 public:
-    RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) {}
+    RowsetStateMachine() : _rowset_state(RowsetState::ROWSET_UNLOADED) {}
 
     Status on_load() {
         switch (_rowset_state) {
-        case ROWSET_UNLOADED:
-            _rowset_state = ROWSET_LOADED;
+        case RowsetState::ROWSET_UNLOADED:
+            _rowset_state = RowsetState::ROWSET_LOADED;
             break;
 
         default:
@@ -83,11 +90,11 @@ public:
 
     Status on_close(uint64_t refs_by_reader) {
         switch (_rowset_state) {
-        case ROWSET_LOADED:
+        case RowsetState::ROWSET_LOADED:
             if (refs_by_reader == 0) {
-                _rowset_state = ROWSET_UNLOADED;
+                _rowset_state = RowsetState::ROWSET_UNLOADED;
             } else {
-                _rowset_state = ROWSET_UNLOADING;
+                _rowset_state = RowsetState::ROWSET_UNLOADING;
             }
             break;
 
@@ -100,8 +107,8 @@ public:
 
     Status on_release() {
         switch (_rowset_state) {
-        case ROWSET_UNLOADING:
-            _rowset_state = ROWSET_UNLOADED;
+        case RowsetState::ROWSET_UNLOADING:
+            _rowset_state = RowsetState::ROWSET_UNLOADED;
             break;
 
         default:
@@ -183,7 +190,7 @@ public:
     // NOTICE: can not call this function in multithreads
     void close() {
         RowsetState old_state = _rowset_state_machine.rowset_state();
-        if (old_state != ROWSET_LOADED) {
+        if (old_state != RowsetState::ROWSET_LOADED) {
             return;
         }
         Status st = Status::OK();
@@ -191,7 +198,7 @@ public:
             std::lock_guard close_lock(_lock);
             uint64_t current_refs = _refs_by_reader;
             old_state = _rowset_state_machine.rowset_state();
-            if (old_state != ROWSET_LOADED) {
+            if (old_state != RowsetState::ROWSET_LOADED) {
                 return;
             }
             if (current_refs == 0) {
@@ -200,12 +207,14 @@ public:
             st = _rowset_state_machine.on_close(current_refs);
         }
         if (!st.ok()) {
-            LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
+            LOG(WARNING) << "state transition failed from:"
+                         << static_cast<int>(_rowset_state_machine.rowset_state());
             return;
         }
-        VLOG_NOTICE << "rowset is close. rowset state from:" << old_state << " to "
-                    << _rowset_state_machine.rowset_state() << ", version:" << start_version()
-                    << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
+        VLOG_NOTICE << "rowset is close. rowset state from:" << static_cast<int>(old_state)
+                    << " to " << static_cast<int>(_rowset_state_machine.rowset_state())
+                    << ", version:" << start_version() << "-" << end_version()
+                    << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -242,18 +251,19 @@ public:
     void release() {
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
         uint64_t current_refs = --_refs_by_reader;
-        if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+        if (current_refs == 0 &&
+            _rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADING) {
             {
                 std::lock_guard release_lock(_lock);
                 // rejudge _refs_by_reader because we do not add lock in create reader
                 if (_refs_by_reader == 0 &&
-                    _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+                    _rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
                     static_cast<void>(_rowset_state_machine.on_release());
                 }
             }
-            if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
+            if (_rowset_state_machine.rowset_state() == RowsetState::ROWSET_UNLOADED) {
                 VLOG_NOTICE
                         << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
                         << ", version:" << start_version() << "-" << end_version()
@@ -318,6 +328,8 @@ public:
     void clear_cache();
 
     MOCK_FUNCTION Result<std::string> segment_path(int64_t seg_id);
+    RowsetSegmentView segment(size_t pos);
+    RowsetSegmentRange segments();
 
     std::vector<std::string> get_index_file_names();
 
@@ -376,6 +388,84 @@ protected:
     // it is used to ensure that the version sequence is continuous.
     bool _is_hole_rowset = false;
 };
+
+// Non-owning view over a segment in a Rowset. The referenced Rowset and RowsetMeta must outlive
+// this view. Do not store it or capture it into async callbacks; copy the needed values or keep a
+// RowsetSharedPtr instead.
+class RowsetSegmentView {
+public:
+    using DeleteBitmapKey = std::tuple<RowsetId, uint32_t, int64_t>;
+
+    RowsetSegmentView(Rowset* rowset, size_t pos)
+            : _rowset(rowset), _meta(rowset->rowset_meta()->segment(pos)) {}
+
+    size_t pos() const { return _meta.pos(); }
+    int64_t id() const { return _meta.id(); }
+    RowsetSegmentRef ref() const { return _meta.ref(); }
+    RowsetSegmentMetaView meta() const { return _meta; }
+    int64_t file_size() const { return _meta.file_size(); }
+    InvertedIndexFileInfo inverted_index_file_info() const {
+        return _meta.inverted_index_file_info();
+    }
+    bool has_num_rows() const { return _meta.has_num_rows(); }
+    int64_t num_rows() const { return _meta.num_rows(); }
+    bool has_position_key_bounds() const { return _meta.has_position_key_bounds(); }
+    const KeyBoundsPB& key_bounds() const { return _meta.key_bounds(); }
+
+    std::string file_name() const;
+    Result<std::string> path() const;
+    io::UInt128Wrapper file_cache_key() const;
+    DeleteBitmapKey delete_bitmap_key(int64_t version) const;
+    RowLocation row_location(uint32_t row_id) const;
+    std::vector<std::string> index_file_names() const;
+    Result<std::string> index_file_cache_key(const TabletIndex& index) const;
+
+private:
+    Rowset* _rowset;
+    RowsetSegmentMetaView _meta;
+};
+
+class RowsetSegmentRange {
+public:
+    class Iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = RowsetSegmentView;
+        using difference_type = std::ptrdiff_t;
+
+        Iterator(Rowset* rowset, size_t pos) : _rowset(rowset), _pos(pos) {}
+
+        RowsetSegmentView operator*() const { return {_rowset, _pos}; }
+        Iterator& operator++() {
+            ++_pos;
+            return *this;
+        }
+        bool operator==(const Iterator& other) const {
+            return _rowset == other._rowset && _pos == other._pos;
+        }
+        bool operator!=(const Iterator& other) const { return !(*this == other); }
+
+    private:
+        Rowset* _rowset;
+        size_t _pos;
+    };
+
+    explicit RowsetSegmentRange(Rowset* rowset) : _rowset(rowset) {}
+
+    Iterator begin() const { return {_rowset, 0}; }
+    Iterator end() const { return {_rowset, cast_set<size_t>(_rowset->num_segments())}; }
+
+private:
+    Rowset* _rowset;
+};
+
+inline RowsetSegmentView Rowset::segment(size_t pos) {
+    return RowsetSegmentView(this, pos);
+}
+
+inline RowsetSegmentRange Rowset::segments() {
+    return RowsetSegmentRange(this);
+}
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);

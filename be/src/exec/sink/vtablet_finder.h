@@ -39,7 +39,7 @@ public:
     // which indicates that we should only compute tablet index in the corresponding partition once for the
     // whole time in olap table sink
     // FIND_TABLET_RANDOM_BUCKET is used for V1 adaptive random bucket mode.
-    enum FindTabletMode {
+    enum class FindTabletMode {
         FIND_TABLET_EVERY_ROW,
         FIND_TABLET_EVERY_BATCH,
         FIND_TABLET_EVERY_SINK,

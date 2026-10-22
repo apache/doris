@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -44,6 +45,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_reader_context.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 
@@ -87,8 +89,8 @@ inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
 
 class TabletReader {
     struct KeysParam {
-        std::vector<RowCursor> start_keys;
-        std::vector<RowCursor> end_keys;
+        std::vector<std::optional<RowCursor>> start_keys;
+        std::vector<std::optional<RowCursor>> end_keys;
         bool start_key_include = false;
         bool end_key_include = false;
     };
@@ -126,8 +128,10 @@ public:
 
         BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
+        // Set only by compaction, alongside its extended tablet_schema.
+        VariantCompactionPathsSPtr variant_compaction_paths = nullptr;
         ReaderType reader_type = ReaderType::READER_QUERY;
-        bool read_row_binlog = false;
+        bool read_changelog = false;
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
@@ -135,8 +139,9 @@ public:
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
-        std::vector<OlapTuple> start_key;
-        std::vector<OlapTuple> end_key;
+        // The vectors are range-aligned; nullopt represents an unbounded endpoint.
+        std::vector<std::optional<OlapTuple>> start_key;
+        std::vector<std::optional<OlapTuple>> end_key;
         bool start_key_include = false;
         bool end_key_include = false;
 
@@ -172,8 +177,7 @@ public:
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         VExprContextSPtrs common_expr_ctxs_push_down;
 
-        // used for compaction to record row ids
-        bool record_rowids = false;
+        // Used by compaction to initialize source segment row-id mappings.
         RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
         // used for special optimization for query : ORDER BY key LIMIT n
@@ -183,7 +187,7 @@ public:
         // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
         // For example, use lower rowset version / segment id first.
         bool use_insert_order_when_same = false;
-        // Force globally key-ordered reading for row-binlog scans (e.g. so MIN_DELTA can
+        // Force globally key-ordered reading for changelog scans (e.g. so MIN_DELTA can
         // group consecutive same-key changes across segments). Overlapping segments use the
         // merge iterator; segments proven non-overlapping use an ordered union.
         // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
@@ -222,7 +226,7 @@ public:
 
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
-        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        TChangelogScanType::type changelog_scan_type = TChangelogScanType::NONE;
     };
 
     TabletReader() = default;

@@ -25,7 +25,10 @@ suite("test_hdfs_parquet_group5", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def originalTimeZone = sql "SELECT @@time_zone"
         try {
+            // V2 schema discovery retains UTC timestamp annotations; pin their display timezone.
+            sql "SET time_zone = 'Asia/Shanghai'"
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group5/case_insensitive_column_matching.parquet"
             order_qt_test_0 """ select * from HDFS(
                         "uri" = "${uri}",
@@ -429,6 +432,7 @@ suite("test_hdfs_parquet_group5", "p0,external") {
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
         } finally {
+            sql "SET time_zone = '${originalTimeZone[0][0]}'"
         }
     }
 }

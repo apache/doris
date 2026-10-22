@@ -34,6 +34,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,6 +46,24 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
         createTable("CREATE TABLE cte_inline_tbl (\n"
                 + "  id int NULL,\n"
                 + "  val int NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"1\")");
+        createTable("CREATE TABLE cte_inline_text (\n"
+                + "  id int NULL,\n"
+                + "  c1 text NULL,\n"
+                + "  v variant NULL,\n"
+                + "  INDEX idx_c1 (c1) USING INVERTED PROPERTIES (\"parser\" = \"english\")\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\"replication_num\" = \"1\", \"inverted_index_storage_format\" = \"V3\")");
+        createTable("CREATE TABLE cte_inline_ann (\n"
+                + "  id int NOT NULL,\n"
+                + "  embedding array<float> NOT NULL,\n"
+                + "  INDEX idx_ann (embedding) USING ANN PROPERTIES (\n"
+                + "    \"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"2\")\n"
                 + ") ENGINE=OLAP\n"
                 + "DUPLICATE KEY(id)\n"
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
@@ -96,6 +115,44 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
     }
 
     @Test
+    public void inlineTransitiveRecursiveDependencies() {
+        boolean oldEnableCteMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        int oldCteInlineMode = connectContext.getSessionVariable().cteInlineMode;
+        int oldInlineCteReferencedThreshold = connectContext.getSessionVariable().inlineCTEReferencedThreshold;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        connectContext.getSessionVariable().cteInlineMode = 0;
+        connectContext.getSessionVariable().inlineCTEReferencedThreshold = 1;
+        try {
+            for (String input : new String[] {"base", "middle"}) {
+                String sql = "with recursive "
+                        + "base as (select 1 as src, 2 as dst union all select 2, 3), "
+                        + "middle as (select * from base union all select * from base), "
+                        + "edges as (select * from " + input + " union all select * from " + input + "), "
+                        + "ordinary as (select id from cte_inline_tbl), "
+                        + "r1(n) as (select 1 union all "
+                        + "select e.dst from r1 r join edges e on r.n = e.src), "
+                        + "r2(n) as (select 2 union all "
+                        + "select e.dst from r2 r join edges e on r.n = e.src) "
+                        + "select r1.n, r2.n from r1 join r2 on r1.n = r2.n "
+                        + "join ordinary a on a.id = r1.n join ordinary b on b.id = r2.n";
+                LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+                NereidsPlanner planner = new NereidsPlanner(new StatementContext(connectContext,
+                        new OriginStatement(sql, 0)));
+                planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                        ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                List<LogicalCTEConsumer> consumers = planner.getRewrittenPlan()
+                        .collectToList(p -> p instanceof LogicalCTEConsumer);
+                Assertions.assertEquals(2, consumers.size());
+                Assertions.assertTrue(consumers.stream().allMatch(c -> c.getName().equals("ordinary")));
+            }
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldEnableCteMaterialize;
+            connectContext.getSessionVariable().cteInlineMode = oldCteInlineMode;
+            connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCteReferencedThreshold;
+        }
+    }
+
+    @Test
     public void refreshCteConsumersAfterNormalizeEliminatesEmptyBranch() {
         int oldCteInlineMode = connectContext.getSessionVariable().cteInlineMode;
         int oldInlineCteReferencedThreshold = connectContext.getSessionVariable().inlineCTEReferencedThreshold;
@@ -116,6 +173,30 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
         } finally {
             connectContext.getSessionVariable().cteInlineMode = oldCteInlineMode;
             connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCteReferencedThreshold;
+            connectContext.getSessionVariable().setDisableNereidsRules("");
+        }
+    }
+
+    @Test
+    public void inlineCteWhoseScanHasVirtualColumns() {
+        // The score and ANN TopN and the MATCH projection add virtual columns to the scan of the CTE,
+        // before the optimizer inlines it.
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        try {
+            for (String body : new String[] {
+                    "select id, score() as s from cte_inline_text where c1 match 'apple' order by s desc limit 2",
+                    "select id from cte_inline_ann order by l2_distance_approximate(embedding, [1.0, 2.0]) limit 2",
+                    "select id, c1 match 'apple' as m from cte_inline_text",
+                    // The copied scan also outputs the VARIANT subpath, whose slot the copy has mapped.
+                    "select id, v['x'] as x, c1 match 'apple' as m from cte_inline_text"}) {
+                for (String query : new String[] {"with cte as (%s) select * from cte",
+                        "with cte as (%s) select * from cte union all select * from cte where 1 = 0"}) {
+                    String sql = String.format(query, body);
+                    Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(sql),
+                            sql);
+                }
+            }
+        } finally {
             connectContext.getSessionVariable().setDisableNereidsRules("");
         }
     }

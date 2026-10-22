@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -40,6 +41,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -60,6 +62,9 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -86,6 +91,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private static final int MAX_GLOBAL_TABLET_SET_INITIAL_CAPACITY = 1 << 16;
     private static final Function<Long, Set<Long>> DEFAULT_GLOBAL_TABLET_SET_FACTORY =
             ignored -> ConcurrentHashMap.newKeySet();
+    private static final DateTimeFormatter STALE_ROUTE_CLEAN_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final CloudTabletRebalancerMetrics rebalancerMetrics;
     private long currentRoundTabletScanCount;
@@ -105,6 +111,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private Map<String, List<Long>> clusterToBes;
 
     private Set<Long> allBes;
+    // backend baseline and remaining sweep rounds, see staleRouteSweepNeeded()
+    private Set<Long> lastSweptBackends = null;
+    private int pendingSweepRounds = 0;
 
     // partitionId -> indexId -> be -> tabletIds
     private ConcurrentHashMap<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>> partitionToTablets;
@@ -1003,9 +1012,85 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
+    /**
+     * Decides whether this round sweeps stale routes, and advances the backend baseline. Call once per
+     * round. Without this gate the sweep would walk every replica's route maps once a second under
+     * table.readLock() only to find nothing, which on a large catalog is pure allocation.
+     */
+    @VisibleForTesting
+    boolean staleRouteSweepNeeded(Set<Long> currentBes) {
+        if (!Config.enable_cloud_replica_stale_route_clean) {
+            lastSweptBackends = null;
+            pendingSweepRounds = 0;
+            return false;
+        }
+        if (lastSweptBackends == null || !currentBes.containsAll(lastSweptBackends)) {
+            // Only a backend that went away can strand a route. Two rounds rather than one: a query
+            // thread can pick a backend in hashReplicaToBe() before the drop and publish the route in
+            // getBackendIdImpl() after this pass already visited that replica, so the extra round
+            // catches writers that were in flight during the first one.
+            pendingSweepRounds = 2;
+        }
+        // An addition strands nothing, so it does not trigger a sweep -- but it must still enter the
+        // baseline. Advancing only after a sweep would leave the baseline at the pre-addition set, and
+        // dropping that same backend later would compare equal to it and go unnoticed.
+        lastSweptBackends = currentBes;
+        // Outside the configured window, leave pendingSweepRounds untouched rather than draining it: a
+        // backend that goes away outside the window must still get its two rounds once the window
+        // opens, not lose them to rounds that never actually swept.
+        if (pendingSweepRounds > 0 && isStaleRouteCleanTimeAllowed()) {
+            pendingSweepRounds--;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether the configured cleanup window (cloud_tablet_rebalancer_stale_route_clean_start_time to
+     * ..._end_time) contains the current time. Equal start/end -- including the "00:00"/"00:00" default --
+     * means unrestricted, matching the pre-existing behavior of sweeping whenever staleRouteSweepNeeded()
+     * says a sweep is due. An unparseable configuration also falls back to unrestricted rather than
+     * silently disabling cleanup.
+     */
+    @VisibleForTesting
+    boolean isStaleRouteCleanTimeAllowed() {
+        LocalTime start = parseCleanTime(Config.cloud_tablet_rebalancer_stale_route_clean_start_time);
+        LocalTime end = parseCleanTime(Config.cloud_tablet_rebalancer_stale_route_clean_end_time);
+        if (start == null || end == null || start.equals(end)) {
+            return true;
+        }
+        return isWithinWindow(LocalTime.now(TimeUtils.getDorisZoneId()), start, end);
+    }
+
+    @VisibleForTesting
+    static boolean isWithinWindow(LocalTime now, LocalTime start, LocalTime end) {
+        if (start.isBefore(end)) {
+            return !now.isBefore(start) && !now.isAfter(end);
+        }
+        // across midnight, e.g. 23:00 - 06:00
+        return !now.isBefore(start) || !now.isAfter(end);
+    }
+
+    private static LocalTime parseCleanTime(String time) {
+        try {
+            return LocalTime.parse(time, STALE_ROUTE_CLEAN_TIME_FORMAT);
+        } catch (DateTimeParseException e) {
+            LOG.warn("invalid cloud_tablet_rebalancer_stale_route_clean time: {}", time);
+            return null;
+        }
+    }
+
     private boolean completeRouteInfo() {
         List<UpdateCloudReplicaInfo> updateReplicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         long[] assignedErrNum = {0L};
+        boolean sweepStaleRoutes = staleRouteSweepNeeded(allBes);
+        // Cleanup is independent of compute groups and includes shadow indices of active tables.
+        // Take the catalog and backend set from the same Env so the sweep can never mix the two.
+        Env currentEnv = Env.getCurrentEnv();
+        long staleRouteNum = sweepStaleRoutes
+                ? ((CloudInternalCatalog) currentEnv.getInternalCatalog())
+                        .removeInvalidCloudReplicaRoutes(currentEnv.getClusterInfo())
+                : 0;
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean assigned = false;
@@ -1085,7 +1170,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         });
 
-        LOG.info("collect to editlog route {} infos, error num {}", updateReplicaInfos.size(), assignedErrNum[0]);
+        LOG.info("collect to editlog route {} infos, error num {}, swept stale routes {}, entries dropped {}",
+                updateReplicaInfos.size(), assignedErrNum[0], sweepStaleRoutes, staleRouteNum);
 
         if (updateReplicaInfos.isEmpty()) {
             return true;
@@ -1808,6 +1894,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
 
             cloudReplica.updateClusterToPrimaryBe(clusterId, destBe);
+            if (!cloudReplica.discardRouteIfBackendVanished(destBe)) {
+                // The warmup checker resolves its destination on its own scheduler thread and can stall
+                // there while the compute group is dropped and the sweeps triggered by that drop finish.
+                // Journalling the route now would hand every FE an entry nothing is left to clean.
+                LOG.info("compute group {} lost backend {} while warming up tablet {}, dropping the route",
+                        clusterId, destBe, tabletId);
+                return;
+            }
             UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(tabletMeta.getDbId(),
                     tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(),
                     tabletId, cloudReplica.getId(), clusterId, destBe);

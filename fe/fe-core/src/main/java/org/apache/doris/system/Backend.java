@@ -53,9 +53,11 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -119,6 +121,9 @@ public class Backend implements Writable {
     // the max tablet compaction score of this backend.
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private volatile long tabletMaxCompactionScore = 0;
+    // Bytes of query spill this BE currently holds in object storage, from its latest disk report
+    // (cloud mode, spill_storage_type=s3). Like the disk capacity, only the master FE keeps it.
+    private volatile long remoteSpillBytes = 0;
 
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
@@ -126,7 +131,7 @@ public class Backend implements Writable {
     // the locationTag is also saved in tagMap, use a single field here to avoid
     // creating this everytime we get it.
     @SerializedName(value = "locationTag", alternate = {"tag"})
-    private Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
+    private volatile Tag locationTag = Tag.DEFAULT_BACKEND_TAG;
 
     @SerializedName("nodeRole")
     private Tag nodeRoleTag = Tag.DEFAULT_NODE_ROLE_TAG;
@@ -145,6 +150,8 @@ public class Backend implements Writable {
     // The physical memory available for use by BE.
     @SerializedName("beMemory")
     private long beMemory = 0;
+    @SerializedName("supportsPaimonRustReader")
+    private volatile boolean supportsPaimonRustReader;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -255,6 +262,16 @@ public class Backend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public boolean isPaimonRustReaderSupported() {
+        return supportsPaimonRustReader;
+    }
+
+    /** Connector-facing capabilities reported by this backend. */
+    public Set<String> getConnectorCapabilities() {
+        return supportsPaimonRustReader
+                ? Collections.singleton("paimon-rust-reader") : Collections.emptySet();
     }
 
     public int getBePort() {
@@ -871,6 +888,11 @@ public class Backend implements Writable {
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            // An absent capability also clears support after a downgrade or legacy heartbeat replay.
+            if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
+                isChanged = true;
+                supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -912,6 +934,10 @@ public class Backend implements Writable {
                 this.beMemory = hbResponse.getBeMemory();
             }
 
+            if (hbResponse.getBeStartTime() > 0 && this.lastStartTime != hbResponse.getBeStartTime()) {
+                // A restarted BE no longer holds the spill of its previous run.
+                this.remoteSpillBytes = 0;
+            }
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
@@ -977,6 +1003,14 @@ public class Backend implements Writable {
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore;
+    }
+
+    public void setRemoteSpillBytes(long remoteSpillBytes) {
+        this.remoteSpillBytes = remoteSpillBytes;
+    }
+
+    public long getRemoteSpillBytes() {
+        return remoteSpillBytes;
     }
 
     private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
@@ -1138,4 +1172,3 @@ public class Backend implements Writable {
     }
 
 }
-

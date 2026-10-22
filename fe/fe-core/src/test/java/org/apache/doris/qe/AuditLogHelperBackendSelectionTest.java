@@ -17,27 +17,45 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
+import org.apache.doris.thrift.TQueryStatistics;
+import org.apache.doris.thrift.TQueryStatisticsResult;
+import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
+import org.apache.doris.thrift.TUniqueId;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 public class AuditLogHelperBackendSelectionTest {
 
-    @After
+    @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
     }
@@ -57,6 +75,190 @@ public class AuditLogHelperBackendSelectionTest {
     public void testCloudAuditLogKeepsCloudComputeGroup() throws Exception {
         assertAuditComputeGroup(new BackendSelection.SelectionHint(
                 "load_group", BackendSelection.Mode.PREFER, "test"), "cloud_group", "cloud", "cloud_group");
+    }
+
+    @Test
+    public void testSuccessfulExternalInsertWaitsForItsCoordinatorBackends() throws Exception {
+        InsertIntoTableCommand command = Mockito.mock(InsertIntoTableCommand.class);
+        Mockito.when(command.stmtType()).thenReturn(StmtType.INSERT);
+        assertExternalDmlWaitsForCoordinatorBackends(command, true);
+    }
+
+    @Test
+    public void testFailedExternalInsertWaitsForItsCoordinatorBackends() throws Exception {
+        InsertIntoTableCommand command = Mockito.mock(InsertIntoTableCommand.class);
+        Mockito.when(command.stmtType()).thenReturn(StmtType.INSERT);
+        assertExternalDmlWaitsForCoordinatorBackends(command, false);
+    }
+
+    @Test
+    public void testExternalInsertOverwriteWaitsForItsCoordinatorBackends() throws Exception {
+        InsertOverwriteTableCommand command = Mockito.mock(InsertOverwriteTableCommand.class);
+        Mockito.when(command.stmtType()).thenReturn(StmtType.INSERT);
+        assertExternalDmlWaitsForCoordinatorBackends(command, true);
+    }
+
+    @Test
+    public void testFilesInsertWaitsForItsCoordinatorBackends() throws Exception {
+        InsertIntoTVFCommand command = Mockito.mock(InsertIntoTVFCommand.class);
+        Mockito.when(command.stmtType()).thenReturn(StmtType.INSERT);
+        assertExternalDmlWaitsForCoordinatorBackends(command, true);
+    }
+
+    @Test
+    public void testInternalInsertDoesNotUseExternalDmlBarrier() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
+
+        Assertions.assertTrue(AuditLogHelper.getAuditStatisticsBackendIds(executor).isEmpty());
+    }
+
+    @Test
+    public void testForwardedExternalDmlUsesBackendIdsReturnedByMaster() {
+        Set<Long> expectedBackendIds = Set.of(10001L, 10002L);
+        MasterOpExecutor masterExecutor = Mockito.mock(MasterOpExecutor.class);
+        Mockito.when(masterExecutor.getAuditStatisticsBackendIds()).thenReturn(expectedBackendIds);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(executor, "masterOpExecutor", masterExecutor);
+
+        Assertions.assertEquals(expectedBackendIds,
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
+    }
+
+    @Test
+    public void testResolvedExternalDmlUsesOnlyDispatchedBackends() {
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
+
+        executor.setExternalDmlAuditCoordinator(coordinator);
+
+        Assertions.assertEquals(Set.of(10001L), executor.getExternalDmlAuditBackendIds());
+    }
+
+    @Test
+    public void testOrdinaryQueryWaitsForEveryDispatchedBackend() {
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L, 10002L));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(executor, "coord", coordinator);
+
+        Assertions.assertEquals(Set.of(10001L, 10002L),
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
+
+        Coordinator externalCoordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(externalCoordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10003L));
+        executor.setExternalDmlAuditCoordinator(externalCoordinator);
+        Assertions.assertEquals(Set.of(10001L, 10002L, 10003L),
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
+    }
+
+    @Test
+    public void testPostDispatchErrorKeepsAuditBackendsAfterCoordinatorIsCleared() {
+        ConnectContext context = new ConnectContext();
+        context.setQueryId(new TUniqueId(1L, 2L));
+        StmtExecutor executor = new StmtExecutor(context, "select 1");
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L, 10002L));
+        executor.setCoord(coordinator);
+
+        // executeAndSendResult's finally snapshots the dispatched BEs even when its exception
+        // handler has called setCoord(null) after getNext or result sending failed.
+        executor.setCoord(null);
+        Deencapsulation.invoke(executor, "rememberDispatchedAuditBackends", coordinator);
+        Assertions.assertEquals(Set.of(10001L, 10002L),
+                AuditLogHelper.getAuditStatisticsBackendIds(executor));
+
+        // A retry gets a new query id; its audit must not wait for the failed attempt's BEs.
+        context.setQueryId(new TUniqueId(3L, 4L));
+        Assertions.assertTrue(AuditLogHelper.getAuditStatisticsBackendIds(executor).isEmpty());
+    }
+
+    @Test
+    public void testPostDispatchErrorWaitsForDelayedFinalRemoteSpillReport() {
+        int oldAuditTimeout = Config.query_audit_log_timeout_ms;
+        int oldReportTimeout = Config.be_report_query_statistics_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            Config.be_report_query_statistics_timeout_ms = 1000;
+            ConnectContext context = new ConnectContext();
+            context.setQueryId(new TUniqueId(5L, 6L));
+            StmtExecutor executor = new StmtExecutor(context, "select 1");
+            Coordinator coordinator = Mockito.mock(Coordinator.class);
+            Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L, 10002L));
+            executor.setCoord(coordinator);
+            executor.setCoord(null);
+            Deencapsulation.invoke(executor, "rememberDispatchedAuditBackends", coordinator);
+
+            WorkloadRuntimeStatusMgr mgr = new WorkloadRuntimeStatusMgr();
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("post-dispatch-error").build();
+            mgr.submitFinishQueryToAudit(event, AuditLogHelper.getAuditStatisticsBackendIds(executor));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+            mgr.updateBeQueryStats(finalReport(10001L, event.queryId, 100));
+            Assertions.assertTrue(((List<?>) Deencapsulation.invoke(mgr, "getQueryNeedAudit"))
+                    .isEmpty());
+            mgr.updateBeQueryStats(finalReport(10002L, event.queryId, 200));
+            Assertions.assertEquals(List.of(event), Deencapsulation.invoke(mgr, "getQueryNeedAudit"));
+            Deencapsulation.invoke(mgr, "rebuildQueryStatisticsSnapshot");
+            Assertions.assertEquals(300,
+                    mgr.getQueryStatisticsMap().get(event.queryId).getSpillWriteBytesToRemoteStorage());
+        } finally {
+            Config.query_audit_log_timeout_ms = oldAuditTimeout;
+            Config.be_report_query_statistics_timeout_ms = oldReportTimeout;
+        }
+    }
+
+    private static TReportWorkloadRuntimeStatusParams finalReport(long backendId, String queryId,
+            long remoteWriteBytes) {
+        TQueryStatistics statistics = new TQueryStatistics();
+        statistics.setTotalTasksNum(1);
+        statistics.setFinishedTasksNum(1);
+        statistics.setSpillWriteBytesToRemoteStorage(remoteWriteBytes);
+        TQueryStatisticsResult result = new TQueryStatisticsResult();
+        result.setStatistics(statistics);
+        result.setQueryFinished(true);
+        TReportWorkloadRuntimeStatusParams params = new TReportWorkloadRuntimeStatusParams();
+        params.setBackendId(backendId);
+        params.setQueryStatisticsResultMap(Map.of(queryId, result));
+        return params;
+    }
+
+    private void assertExternalDmlWaitsForCoordinatorBackends(LogicalPlan command, boolean success)
+            throws Exception {
+        ConnectContext context = Mockito.spy(new ConnectContext());
+        context.setStartTime();
+        context.setCurrentUserIdentity(UserIdentity.ROOT);
+        if (success) {
+            context.getState().setOk();
+        } else {
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "external write failed");
+        }
+
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getExternalDmlAuditBackendIds()).thenReturn(Set.of(10001L, 10002L));
+        Mockito.when(executor.getAuditStatisticsBackendIds()).thenReturn(Set.of(10001L, 10002L));
+        Mockito.when(executor.getSummaryProfile()).thenReturn(Mockito.mock(SummaryProfile.class));
+        context.setExecutor(executor);
+
+        LogicalPlanAdapter statement = new LogicalPlanAdapter(command, new StatementContext());
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        WorkloadRuntimeStatusMgr statusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("internal");
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(statusMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            AuditLogHelper.logAuditLog(context, "insert into external_table select 1",
+                    statement, null, true);
+
+            Mockito.verify(statusMgr).submitFinishQueryToAudit(
+                    Mockito.any(AuditEvent.class), Mockito.eq(Set.of(10001L, 10002L)));
+        }
     }
 
     private void assertAuditComputeGroup(BackendSelection.SelectionHint hint, String expectedComputeGroup,
@@ -90,7 +292,7 @@ public class AuditLogHelperBackendSelectionTest {
 
             ArgumentCaptor<AuditEvent> captor = ArgumentCaptor.forClass(AuditEvent.class);
             Mockito.verify(statusMgr).submitFinishQueryToAudit(captor.capture());
-            Assert.assertEquals(expectedComputeGroup, captor.getValue().cloudClusterName);
+            Assertions.assertEquals(expectedComputeGroup, captor.getValue().cloudClusterName);
             Mockito.verifyNoInteractions(provider);
         } finally {
             Config.deploy_mode = oldDeployMode;

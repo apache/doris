@@ -21,8 +21,9 @@
 
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/types.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
@@ -82,31 +83,14 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
     // Create file format transformer based on format type
     switch (_file_format) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_compress_type) {
-        case TFileCompressType::PLAIN:
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
-            break;
-        case TFileCompressType::SNAPPYBLOCK:
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        case TFileCompressType::ZSTD:
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        case TFileCompressType::LZ4BLOCK:
-            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        default:
-            return Status::InternalError("Unsupported compress type {} with parquet",
-                                         to_string(_compress_type));
-        }
+        TParquetCompressionType::type parquet_compression_type =
+                DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
 
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, false};
-        _file_format_transformer.reset(new VParquetTransformer(
+        _file_format_transformer.reset(new VIcebergParquetWriter(
                 state, _file_writer.get(), output_exprs, column_names, false, parquet_options,
-                nullptr, _position_delete_schema.get()));
+                nullptr, *_position_delete_schema));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {

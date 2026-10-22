@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -42,8 +43,27 @@ bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle*
 
 void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::CacheValue& value,
                           SegmentCacheHandle* handle) {
+    // Keep the cache weakly referenced: the cache owns the segment. The raw segment
+    // pointer is only compared while its own initialization invokes the callback.
+    value.segment->set_cache_charge_callback([cache = std::weak_ptr<Cache>(_cache),
+                                              encoded_key = key.encode(),
+                                              segment = value.segment.get()](size_t charge) {
+        auto owner = cache.lock();
+        if (!owner) {
+            return; // The Segment may outlive the cache during shutdown.
+        }
+        auto* entry = owner->lookup(encoded_key);
+        if (entry == nullptr) {
+            return; // Already evicted.
+        }
+        // Another instance of this segment may have replaced the cached entry.
+        if (static_cast<CacheValue*>(owner->value(entry))->segment.get() == segment) {
+            owner->update_charge(entry, charge);
+        }
+        owner->release(entry);
+    });
     auto* lru_handle =
-            LRUCachePolicy::insert(key.encode(), &value, value.segment->meta_mem_usage(),
+            LRUCachePolicy::insert(key.encode(), &value, value.segment->cache_charge(),
                                    value.segment->meta_mem_usage(), CachePriority::NORMAL);
     handle->push_segment(this, lru_handle);
 }
@@ -52,13 +72,13 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
     LRUCachePolicy::erase(key.encode());
 }
 
-Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t segment_id,
+Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, RowsetSegmentRef seg,
                                    SegmentCacheHandle* cache_handle, bool use_cache,
                                    bool need_load_pk_index_and_bf,
                                    OlapReaderStatistics* index_load_stats,
                                    const io::IOContext* io_ctx) {
     auto start = MonotonicMicros();
-    SegmentCache::CacheKey cache_key(rowset->rowset_id(), segment_id);
+    SegmentCache::CacheKey cache_key(rowset->rowset_id(), seg.id);
     if (_segment_cache->lookup(cache_key, cache_handle)) {
         // Has to check the segment status here, because the segment in cache may has something wrong during
         // load index or create column reader.
@@ -73,7 +93,7 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
     }
     // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
     segment_v2::SegmentSharedPtr segment;
-    RETURN_IF_ERROR(rowset->load_segment(segment_id, index_load_stats, &segment, io_ctx));
+    RETURN_IF_ERROR(rowset->load_segment(seg, index_load_stats, &segment, io_ctx));
     if (need_load_pk_index_and_bf) {
         RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats, io_ctx));
     }
@@ -101,9 +121,9 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
-    for (int64_t i = 0; i < rowset->num_segments(); i++) {
-        RETURN_IF_ERROR(load_segment(rowset, i, cache_handle, use_cache, need_load_pk_index_and_bf,
-                                     index_load_stats, io_ctx));
+    for (auto seg : rowset->segments()) {
+        RETURN_IF_ERROR(load_segment(rowset, seg.ref(), cache_handle, use_cache,
+                                     need_load_pk_index_and_bf, index_load_stats, io_ctx));
     }
     cache_handle->set_inited();
     return Status::OK();
@@ -113,9 +133,9 @@ void SegmentLoader::erase_segment(const SegmentCache::CacheKey& key) {
     _segment_cache->erase(key);
 }
 
-void SegmentLoader::erase_segments(const RowsetId& rowset_id, int64_t num_segments) {
-    for (int64_t i = 0; i < num_segments; i++) {
-        erase_segment(SegmentCache::CacheKey(rowset_id, i));
+void SegmentLoader::erase_segments(const RowsetMeta& rowset_meta) {
+    for (auto seg : rowset_meta.segments()) {
+        erase_segment(SegmentCache::CacheKey(rowset_meta.rowset_id(), seg.id()));
     }
 }
 

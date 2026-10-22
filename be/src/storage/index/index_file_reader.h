@@ -20,7 +20,7 @@
 // CLucene is third-party code and is not clean under -Wconversion (which
 // -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
 // someone else's suppressed region depends on include order, so suppress it
-// deliberately here (same pattern as inverted_index_common_impl.h).
+// deliberately here (same pattern as index_common_impl.h).
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
@@ -46,11 +46,11 @@
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/snii/reader/logical_index_reader.h"
-#include "storage/index/snii/reader/snii_segment_reader.h"
-#include "storage/index/snii/snii_bkd_searcher.h"
-#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/snii/reader/logical_index_reader.h"
+#include "storage/index/inverted/snii/reader/snii_segment_reader.h"
+#include "storage/index/inverted/snii/snii_bkd_searcher.h"
+#include "storage/index/inverted/snii/snii_doris_adapter.h"
 
 namespace doris {
 class TabletIndex;
@@ -95,6 +95,16 @@ public:
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr,
             doris::snii::reader::LogicalIndexOpenMode open_mode =
                     doris::snii::reader::LogicalIndexOpenMode::kQuery) const;
+    // SNII only: opens one text logical index by its directory key.
+    Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> open_snii_logical_index(
+            uint64_t index_id, std::string_view suffix, const io::IOContext* io_ctx,
+            doris::snii::reader::LogicalIndexOpenMode open_mode) const;
+    // SNII only: every entry of the container directory, text and blob kinds alike.
+    Result<std::vector<doris::snii::format::LogicalIndexMetadataRef>> snii_logical_indexes() const;
+    // SNII only: reads the CoreMetadata of one text logical index with the caller's IO context.
+    Status snii_core_metadata(uint64_t index_id, std::string_view suffix,
+                              doris::snii::format::CoreMetadata* out,
+                              const io::IOContext* io_ctx = nullptr) const;
     // SNII only: builds the fully validated inheritance view of this container
     // for a BUILD INDEX rewrite. `segment_doc_count` is the segment's row count;
     // every kept logical index must agree with it.

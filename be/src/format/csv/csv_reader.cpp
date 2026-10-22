@@ -283,7 +283,7 @@ Status CsvReader::init_reader(bool is_load) {
 
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        auto data_type_ptr = _file_slot_descs[i]->type();
         if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
             _use_nullable_string_opt[i] = 1;
         }
@@ -366,7 +366,7 @@ Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
 
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        auto data_type_ptr = _file_slot_descs[i]->type();
         if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
             _use_nullable_string_opt[i] = 1;
         }
@@ -416,6 +416,14 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
 
     bool success = false;
     bool is_remove_bom = false;
+    if (_range.start_offset != 0 && _skip_lines > 0 && _enclose == 0 &&
+        _file_format_type == TFileFormatType::FORMAT_CSV_PLAIN) {
+        auto* text_reader = assert_cast<NewPlainTextLineReader*>(_line_reader.get());
+        RETURN_IF_ERROR(text_reader->skip_split_prefix(_range.start_offset, _line_delimiter,
+                                                       &_line_reader_eof, _io_ctx));
+        _skip_lines = 0;
+        is_remove_bom = true;
+    }
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;

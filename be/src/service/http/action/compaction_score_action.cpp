@@ -155,9 +155,9 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
             // cancelled schema change jobs are excluded, see
             // CloudTablet::is_zombie_tablet()
             if (auto tablet = weak_tablet.lock();
-                tablet != nullptr and
-                (tablet->tablet_state() == TABLET_RUNNING ||
-                 (tablet->tablet_state() == TABLET_NOTREADY && tablet->has_active_alter_job()))) {
+                tablet != nullptr and (tablet->tablet_state() == TabletState::TABLET_RUNNING ||
+                                       (tablet->tablet_state() == TabletState::TABLET_NOTREADY &&
+                                        tablet->has_active_alter_job()))) {
                 tablets.push_back(std::move(tablet));
             }
         }

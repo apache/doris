@@ -17,8 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 
 import org.apache.iceberg.DataFiles;
@@ -29,15 +31,20 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -123,6 +130,27 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void metaCacheWeightLimitSeesCatalogAndEveryConsumedEntryLimit() throws Exception {
+        // The SDK manifest content cache is derived on only when no Doris weight limit applies to the catalog. Keys
+        // that create no budget (an entry this connector does not read, an unparsable persisted value) do not count.
+        // MUTATION: checking only the catalog limit, or dropping an entry from the list -> red.
+        assertMetaCacheWeightLimit(false, Collections.emptyMap());
+        assertMetaCacheWeightLimit(true, props("meta.cache.max-weight", "128MB"));
+        for (String entry : IcebergConnector.WEIGHTED_CACHE_ENTRIES) {
+            assertMetaCacheWeightLimit(true, props("meta.cache.iceberg." + entry + ".max-weight", "16MB"));
+        }
+        assertMetaCacheWeightLimit(false, props("meta.cache.iceberg.snapshot.max-weight", "16MB"));
+        assertMetaCacheWeightLimit(false, props("meta.cache.max-weight", "not-a-size"));
+    }
+
+    private static void assertMetaCacheWeightLimit(boolean expected, Map<String, String> properties)
+            throws Exception {
+        try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
+            Assertions.assertEquals(expected, connector.hasMetaCacheWeightLimit(), properties.toString());
+        }
+    }
+
+    @Test
     public void invalidateHooksAreNoThrowOnFreshConnector() {
         // Smoke: the REFRESH TABLE / REFRESH CATALOG hooks must be safe to call (they only touch the
         // connector-internal latest-snapshot cache; the actual invalidate semantics are in
@@ -186,7 +214,7 @@ public class IcebergConnectorCacheTest {
         Table table = tableWithOneManifest();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         IcebergManifestCache manifestCache = connector.manifestCacheForTest();
-        manifestCache.getManifestCacheValue(manifest, table);
+        manifestCache.getManifestCacheValue(manifest, table, table.specs());
         Assertions.assertEquals(1, manifestCache.size(), "the manifest is cached after a load");
 
         // REFRESH TABLE must NOT drop the manifest cache (path-keyed immutable content; legacy parity).
@@ -223,6 +251,50 @@ public class IcebergConnectorCacheTest {
     }
 
     @Test
+    public void weightLimitsReachEveryConnectorOwnedCache() throws Exception {
+        long oneMb = 1024L * 1024L;
+        Map<String, Long> catalogLimited = maxWeightsOf(props("meta.cache.max-weight", "1MB"));
+        for (String cache : new String[] {"iceberg-table", "iceberg-latest-snapshot", "iceberg-partition",
+                "iceberg-format", "iceberg-manifest", "iceberg-equality-delete-field-ids",
+                "iceberg.mvcc-partition-view", "iceberg.list-partitions-view"}) {
+            Assertions.assertEquals(Long.valueOf(oneMb), catalogLimited.get(cache),
+                    "a catalog limit must bound " + cache);
+        }
+
+        Map<String, Long> manifestLimited = maxWeightsOf(props("meta.cache.iceberg.manifest.max-weight", "1MB"));
+        Assertions.assertEquals(Long.valueOf(oneMb), manifestLimited.get("iceberg-manifest"));
+        Assertions.assertEquals(Long.valueOf(-1L), manifestLimited.get("iceberg-table"),
+                "an entry limit must bound only its own entry");
+
+        Map<String, Long> viewLimited = maxWeightsOf(props("meta.cache.iceberg.partition_view.max-weight", "1MB"));
+        Assertions.assertEquals(Long.valueOf(oneMb), viewLimited.get("iceberg.mvcc-partition-view"));
+        Assertions.assertEquals(Long.valueOf(oneMb), viewLimited.get("iceberg.list-partitions-view"),
+                "both physical partition views belong to the partition_view entry");
+        Assertions.assertEquals(Long.valueOf(-1L), viewLimited.get("iceberg-partition"));
+
+        // Only a REST vended-credentials catalog builds the comment cache; the catalog limit bounds it as well.
+        Map<String, String> vended = props("meta.cache.max-weight", "1MB");
+        vended.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        vended.put("iceberg.rest.vended-credentials-enabled", "true");
+        Assertions.assertEquals(Long.valueOf(oneMb), maxWeightsOf(vended).get("iceberg-comment"),
+                "a catalog limit must bound iceberg-comment");
+    }
+
+    /** MAX_WEIGHT of every cache one connector registers: its effective limit, or -1 when only count-bounded. */
+    private static Map<String, Long> maxWeightsOf(Map<String, String> properties) throws Exception {
+        // RecordingConnectorContext always reports catalog id 0, so tell this connector's owner apart by identity.
+        List<CatalogMetaCache> before = MetaCacheGovernance.catalogCaches(0L);
+        try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
+            List<CatalogMetaCache> owners = new ArrayList<>(MetaCacheGovernance.catalogCaches(0L));
+            owners.removeIf(owner -> before.stream().anyMatch(existing -> existing == owner));
+            Assertions.assertEquals(1, owners.size());
+            Map<String, Long> maxWeights = new HashMap<>();
+            owners.get(0).entries().forEach((name, cache) -> maxWeights.put(name, cache.metrics().getMaxWeight()));
+            return maxWeights;
+        }
+    }
+
+    @Test
     public void crossQueryTableCacheEnabledForPlainCatalog() {
         // A plain catalog (no per-user session, no REST vended credentials) has query-independent credentials,
         // so the cross-query RAW-table cache is built and enabled at the default 24h TTL — restoring the legacy
@@ -232,6 +304,102 @@ public class IcebergConnectorCacheTest {
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext()).tableCacheForTest();
         Assertions.assertNotNull(cache, "a plain catalog must build the cross-query table cache");
         Assertions.assertTrue(cache.isEnabled(), "the default 24h TTL enables the cache");
+    }
+
+    @Test
+    public void nonPositiveTableTtlKeepsConnectorLoadsLiveWithAndWithoutQuota() throws Exception {
+        for (String ttl : new String[] {"-1", "0"}) {
+            for (String quotaKey : new String[] {"", "meta.cache.max-weight",
+                    "meta.cache.iceberg.table.max-weight"}) {
+                Map<String, String> properties = props(IcebergConnector.TABLE_CACHE_TTL_SECOND, ttl);
+                if (!quotaKey.isEmpty()) {
+                    properties.put(quotaKey, "1MB");
+                }
+                try (IcebergConnector connector =
+                        new IcebergConnector(properties, new RecordingConnectorContext())) {
+                    IcebergTableCache tables = connector.tableCacheForTest();
+                    IcebergLatestSnapshotCache snapshots = connector.latestSnapshotCacheForTest();
+                    TableIdentifier id = TableIdentifier.of("db1", "t1");
+                    AtomicInteger loads = new AtomicInteger();
+                    Supplier<IcebergLatestSnapshotCache.CachedSnapshot> loader = () -> {
+                        Table table = tables.getOrLoad(id, () -> fakeTable(
+                                Integer.toString(loads.incrementAndGet())));
+                        return new IcebergLatestSnapshotCache.CachedSnapshot(
+                                Long.parseLong(table.name()), table.schema().schemaId());
+                    };
+                    Assertions.assertEquals(1L, snapshots.getOrLoad(id, loader).snapshotId);
+                    Assertions.assertEquals(2L, snapshots.getOrLoad(id, loader).snapshotId);
+                    Assertions.assertEquals(2, loads.get());
+                    Assertions.assertFalse(tables.isEnabled(), ttl + " / " + quotaKey);
+                    Assertions.assertEquals(0, tables.size());
+                    Assertions.assertEquals(0, snapshots.size());
+                    Assertions.assertFalse(connector.partitionCacheForTest().isEnabled());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void independentPartitionTtlKeepsItsNoExpirationSemantics() throws Exception {
+        Map<String, String> properties = props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "-1");
+        properties.put("meta.cache.iceberg.partition.ttl-second", "-1");
+        try (IcebergConnector connector =
+                new IcebergConnector(properties, new RecordingConnectorContext())) {
+            Assertions.assertFalse(connector.tableCacheForTest().isEnabled());
+            Assertions.assertTrue(connector.partitionCacheForTest().isEnabled());
+        }
+    }
+
+    @Test
+    public void disabledTableEntryReadsSnapshotFormatAndCommentLive() throws Exception {
+        // table.enable=false and capacity=0 turn the table entry off, like ttl-second<=0. The latest-snapshot, format
+        // and comment caches take the table entry's keys, so they read live too, and the latest schema bypasses the
+        // name-keyed schema cache. MUTATION: building them from ttl-second alone -> the first pin stays cached -> red.
+        for (String[] off : new String[][] {
+                {IcebergConnector.TABLE_CACHE_ENABLE, "false"}, {IcebergConnector.TABLE_CACHE_CAPACITY, "0"}}) {
+            try (IcebergConnector connector =
+                    new IcebergConnector(props(off[0], off[1]), new RecordingConnectorContext())) {
+                IcebergLatestSnapshotCache snapshots = connector.latestSnapshotCacheForTest();
+                TableIdentifier id = TableIdentifier.of("db1", "t1");
+                AtomicInteger loads = new AtomicInteger();
+                Supplier<IcebergLatestSnapshotCache.CachedSnapshot> loader =
+                        () -> new IcebergLatestSnapshotCache.CachedSnapshot(loads.incrementAndGet(), 0L);
+                Assertions.assertEquals(1L, snapshots.getOrLoad(id, loader).snapshotId);
+                Assertions.assertEquals(2L, snapshots.getOrLoad(id, loader).snapshotId, off[0]);
+                Assertions.assertEquals(0, snapshots.size());
+                Assertions.assertFalse(connector.tableCacheForTest().isEnabled(), off[0]);
+                Assertions.assertFalse(connector.formatCacheForTest().isEnabled(), off[0]);
+                Assertions.assertEquals(OptionalLong.of(0L), connector.schemaCacheTtlSecondOverride(), off[0]);
+            }
+            Map<String, String> vended = restProps(true, false);
+            vended.put(off[0], off[1]);
+            try (IcebergConnector connector = new IcebergConnector(vended, new RecordingConnectorContext())) {
+                Assertions.assertFalse(connector.latestSnapshotCacheForTest().isEnabled(), off[0]);
+                Assertions.assertFalse(connector.commentCacheForTest().isEnabled(), off[0]);
+            }
+        }
+    }
+
+    @Test
+    public void tableEntryKeysExceptMaxWeightSizeSnapshotFormatAndCommentCaches() throws Exception {
+        // The table entry's ttl-second and capacity also size these caches. Its max-weight bounds the table cache
+        // only; the catalog and FE-global limits still bound them. MUTATION: the fixed default capacity -> red;
+        // handing them the whole table spec, max-weight included -> red.
+        Map<String, String> properties = restProps(true, false);
+        properties.put(IcebergConnector.TABLE_CACHE_TTL_SECOND, "600");
+        properties.put(IcebergConnector.TABLE_CACHE_CAPACITY, "7");
+        properties.put("meta.cache.iceberg.table.max-weight", "1MB");
+        try (IcebergConnector connector = new IcebergConnector(properties, new RecordingConnectorContext())) {
+            List.of(connector.latestSnapshotCacheForTest().cacheSpecForTest(),
+                    connector.formatCacheForTest().cacheSpecForTest(),
+                    connector.commentCacheForTest().cacheSpecForTest()).forEach(spec -> {
+                        Assertions.assertTrue(spec.isCacheEnabled());
+                        Assertions.assertEquals(600L, spec.getTtlSecond());
+                        Assertions.assertEquals(7L, spec.getCapacity());
+                        Assertions.assertFalse(spec.isWeightBounded());
+                    });
+            Assertions.assertEquals(OptionalLong.of(600L), connector.schemaCacheTtlSecondOverride());
+        }
     }
 
     @Test
@@ -287,10 +455,75 @@ public class IcebergConnectorCacheTest {
         Assertions.assertEquals(0, cache.size(), "REFRESH CATALOG drops everything");
     }
 
+    @Test
+    public void closeInvalidatesCrossQueryTableCache() throws Exception {
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        IcebergTableCache cache = connector.tableCacheForTest();
+        cache.getOrLoad(TableIdentifier.of("db1", "t1"), () -> fakeTable("db1.t1"));
+        Assertions.assertEquals(1, cache.size());
+
+        connector.close();
+
+        Assertions.assertEquals(0, cache.size(), "connector teardown must release its table-cache ownership");
+    }
+
+    @Test
+    public void directTableCleanupOnlyClosesTableOwnedFileIO() {
+        RecordingFileIO tableFileIO = new RecordingFileIO();
+        FakeIcebergTable table = (FakeIcebergTable) fakeTable("rest.table");
+        table.setIo(tableFileIO);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_REST).run();
+        Assertions.assertEquals(0, tableFileIO.closeCalls,
+                "REST FileIO is owned by the retained REST catalog generation and its FileIOTracker");
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_GLUE).run();
+        Assertions.assertEquals(1, tableFileIO.closeCalls);
+
+        IcebergConnector.cachedTableCleanup(table, IcebergCatalogProperties.TYPE_S3_TABLES).run();
+        Assertions.assertEquals(2, tableFileIO.closeCalls);
+    }
+
+    @Test
+    public void restConfigOnlyTableFileIOIsOwnedByTable() {
+        RecordingFileIO catalogFileIO = new RecordingFileIO();
+        RecordingFileIO configOnlyTableFileIO = new RecordingFileIO();
+
+        Assertions.assertFalse(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, catalogFileIO, catalogFileIO));
+        Assertions.assertTrue(IcebergConnector.shouldCloseTableFileIO(
+                IcebergCatalogProperties.TYPE_REST, configOnlyTableFileIO, catalogFileIO));
+    }
+
+    private static final class RecordingFileIO implements FileIO {
+        private int closeCalls;
+
+        @Override
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException("not used");
+        }
+
+        @Override
+        public void close() {
+            closeCalls++;
+        }
+    }
+
     // ============ PERF-02: partition-view cache (session=user gated) + invalidation ============
 
     private static IcebergPartitionCache.Key partKey(String db, String tbl, long snapshotId) {
-        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId);
+        return new IcebergPartitionCache.Key(TableIdentifier.of(db, tbl), snapshotId, 0, 0);
     }
 
     @Test

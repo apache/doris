@@ -162,7 +162,7 @@ public:
     }
 
     std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
-            std::string_view compaction_policy);
+            std::string_view compaction_policy, int64_t tablet_id);
 
     void sync_storage_vault();
 
@@ -216,7 +216,7 @@ private:
     void _vacuum_stale_rowsets_thread_callback();
     void _sync_tablets_thread_callback();
     void _compaction_tasks_producer_callback();
-    void _binlog_compaction_tasks_producer_callback();
+    void _changelog_compaction_tasks_producer_callback();
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
     Status _adjust_compaction_thread_num();
@@ -224,7 +224,7 @@ private:
     Status _submit_cumulative_compaction_task(
             const CloudTabletSPtr& tablet, int trigger_method = 0,
             CompactionType compaction_type = CompactionType::CUMULATIVE_COMPACTION);
-    Status _submit_binlog_compaction_task(const CloudTabletSPtr& tablet, int trigger_method = 0);
+    Status _submit_changelog_compaction_task(const CloudTabletSPtr& tablet, int trigger_method = 0);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet, int trigger_method = 0);
     Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
                                                   const CloudTabletSPtr& tablet,
@@ -269,8 +269,8 @@ private:
     // tablet_id -> submitted cumu compactions, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             _submitted_cumu_compactions;
-    // submitted binlog cumu compaction task count, guarded by `_compaction_mtx`
-    int _submitted_cumu_binlog_compaction_count = 0;
+    // submitted changelog cumu compaction task count, guarded by `_compaction_mtx`
+    int _submitted_cumu_changelog_compaction_count = 0;
     // tablet_id -> active compaction stop tokens
     std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
             _active_compaction_stop_tokens;

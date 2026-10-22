@@ -1,0 +1,66 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.statistics.analysis;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.statistics.cache.StatisticsCache;
+import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.utframe.TestWithFeService;
+
+import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Field;
+
+public class MVStatisticsTest extends TestWithFeService {
+
+    StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
+        createDatabase("test");
+        connectContext.setDatabase("test");
+        createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
+                + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 1\n"
+                + "PROPERTIES(\n"
+                + "    \"replication_num\"=\"1\"\n"
+                + ");\n");
+        createMv("CREATE MATERIALIZED VIEW mv1 AS SELECT col3 as a1 , SUM(COL2) FROM t1 group by col3");
+    }
+
+    @Test
+    public void testCreate() throws Exception {
+        try (MockedStatic<StatisticsUtil> mockedStatsUtil =
+                     Mockito.mockStatic(StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedStatsUtil.when(() -> StatisticsUtil.execUpdate(Mockito.anyString()))
+                    .thenReturn(null);
+
+            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+            Field f = AnalysisManager.class.getDeclaredField("statisticsCache");
+            f.setAccessible(true);
+            f.set(analysisManager, statisticsCache);
+
+            getSqlStmtExecutor("analyze table t1");
+            Thread.sleep(3000);
+        }
+    }
+}

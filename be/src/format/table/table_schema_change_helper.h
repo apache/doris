@@ -77,11 +77,10 @@ public:
             return nullptr;
         }
 
-        // Presence-only check (does NOT DCHECK). Distinct from children_column_exists, which asserts
-        // the key exists and then reports the file-side exists flag. Callers use this to reject a
-        // projected column that is absent from the table-side schema tree (an FE/BE schema-contract
-        // mismatch) BEFORE calling children_column_exists, turning a would-be process abort into a
-        // graceful per-query error.
+        // Presence-only check. Distinct from children_column_exists, which reports the file-side
+        // exists flag and also returns false for an unregistered key. Callers use this to distinguish
+        // a projected column absent from the table-side schema tree (an FE/BE schema-contract mismatch)
+        // from a registered column that is absent from the data file.
         virtual bool has_children_column(std::string table_column_name) const {
             throw std::logic_error(
                     "has_children_column should not be called on base TableInfoNode");
@@ -188,8 +187,8 @@ public:
         }
 
         bool children_column_exists(std::string table_column_name) const override {
-            DCHECK(children.contains(table_column_name));
-            return children.at(table_column_name).exists;
+            auto child = children.find(table_column_name);
+            return child != children.end() && child->second.exists;
         }
 
         const schema::external::TField* get_missing_column_field(

@@ -323,7 +323,7 @@ public class PaimonTableHandleScanOptionsTest {
 
         // Sanity: columns still resolved (the schema build itself is unaffected by the key flip).
         List<ConnectorColumn> columns = schema.getColumns();
-        Assertions.assertEquals(3, columns.size(),
-                "all columns must still be mapped from the row type");
+        Assertions.assertEquals(5, columns.size(),
+                "data-file metadata columns must be appended");
     }
 }

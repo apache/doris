@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <bit>
 #include <boost/locale.hpp>
+#include <cctype>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -141,9 +142,11 @@ public:
         auto& res_offset = res->get_offsets();
         res_offset.resize(input_rows_count);
 
-        const char* partition_type = chars_list[0]->raw_data();
+        std::string partition_type(chars_list[0]->raw_data(), (*offsets_list[0])[0]);
+        std::transform(partition_type.begin(), partition_type.end(), partition_type.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         // partition type is list|range
-        if (std::strncmp(partition_type, "list", 4) == 0) {
+        if (partition_type == "list") {
             return _auto_partition_type_of_list(chars_list, offsets_list, is_const_args, null_list,
                                                 res_data, res_offset, input_rows_count,
                                                 argument_size, block, result, res);
@@ -256,7 +259,9 @@ private:
                                          auto& res_offset, size_t input_rows_count,
                                          size_t argument_size, Block& block, uint32_t result,
                                          auto& res) const {
-        const char* range_type = chars_list[1]->raw_data();
+        std::string range_type(chars_list[1]->raw_data(), (*offsets_list[1])[0]);
+        std::transform(range_type.begin(), range_type.end(), range_type.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
         res_data.resize(15 * input_rows_count);
         for (int i = 0; i < input_rows_count; i++) {
@@ -292,21 +297,21 @@ private:
             // minute => 2022 12  11 30 00
             // second => 2022 12 12 12 30 20
 
-            if (!strncmp(range_type, "year", 4)) {
+            if (range_type == "year") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 1);
                 memcpy(&res_data[res_offset[i - 1]] + curr_len, "0101", 4);
                 curr_len += 4;
-            } else if (!strncmp(range_type, "month", 5)) {
+            } else if (range_type == "month") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 2);
                 memcpy(&res_data[res_offset[i - 1]] + curr_len, "01", 2);
                 curr_len += 2;
-            } else if (!strncmp(range_type, "day", 3)) {
+            } else if (range_type == "day") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 3);
-            } else if (!strncmp(range_type, "hour", 4)) {
+            } else if (range_type == "hour") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 4);
-            } else if (!strncmp(range_type, "minute", 6)) {
+            } else if (range_type == "minute") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 5);
-            } else if (!strncmp(range_type, "second", 6)) {
+            } else if (range_type == "second") {
                 curr_len += _copy_date_str_of_len_to_res_data(res_data, res_offset, date_str, i, 6);
             }
 
@@ -404,7 +409,7 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope != FunctionContext::THREAD_LOCAL) {
+        if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
         if (!context->is_col_constant(1)) {
@@ -821,6 +826,13 @@ public:
         }
         auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
         auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        // FE only rejects a nonpositive gram_num once it is a literal. A constant expression that
+        // FE cannot evaluate (e.g. `crc32('abc') % 3 - 3`) reaches BE unchecked when the whole
+        // call is folded on BE, so validate here before it is used as a substring length.
+        if (gram_num <= 0) {
+            return Status::InvalidArgument(
+                    "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
+        }
         const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
 
         if (col_const[0]) {
@@ -957,14 +969,23 @@ public:
         const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
         const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
 
-        bool is_ascii = col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
         auto impl_vectors = impl_vectors_utf8<false>;
-        if (col_const[1] && col_const[2] && is_ascii) {
-            impl_vectors = impl_vectors_ascii<true>;
-        } else if (col_const[1] && col_const[2]) {
-            impl_vectors = impl_vectors_utf8<true>;
-        } else if (is_ascii) {
-            impl_vectors = impl_vectors_ascii<false>;
+        if (col_const[1] && col_const[2]) {
+            // Non-ASCII mappings require UTF-8 processing regardless of the source.
+            const bool mapping_ascii = col_from->is_ascii() && col_to->is_ascii();
+            if (mapping_ascii) {
+                const bool source_ascii = col_source->is_ascii();
+                impl_vectors = source_ascii ? impl_vectors_ascii<true> : impl_vectors_mixed<true>;
+            } else {
+                impl_vectors = impl_vectors_utf8<true>;
+            }
+        } else {
+            // A non-ASCII source needs no mapping scans when the mappings vary by row.
+            const bool all_ascii =
+                    col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
+            if (all_ascii) {
+                impl_vectors = impl_vectors_ascii<false>;
+            }
         }
         impl_vectors(col_source, col_from, col_to, col_res.get());
         block.get_by_position(result).column = std::move(col_res);
@@ -972,6 +993,69 @@ public:
     }
 
 private:
+    static bool bytes_is_ascii(const char* data, size_t size) {
+        return simd::VStringFunctions::is_ascii({data, size});
+    }
+
+    // Per-row dispatch: ASCII source rows use the 128-byte table; only non-ASCII
+    // rows fall back to the UTF-8 map. Requires from/to to be ASCII.
+    template <bool IsConst>
+    static void impl_vectors_mixed(const ColumnString* col_source, const ColumnString* col_from,
+                                   const ColumnString* col_to, ColumnString* col_res) {
+        auto& res_chars = col_res->get_chars();
+        auto& res_offsets = col_res->get_offsets();
+        res_chars.reserve(col_source->get_chars().size());
+        res_offsets.reserve(col_source->get_offsets().size());
+        DCHECK_EQ(col_res->size(), 0);
+        AsciiMap map;
+        std::unordered_map<std::string_view, std::string_view> translate_map;
+        if (IsConst) {
+            const auto& from_str = col_from->get_data_at(0);
+            const auto& to_str = col_to->get_data_at(0);
+            if (!build_translate_map_ascii(map, from_str, to_str)) {
+                // No deletes: whole-column table translate; high bytes (>=128) are
+                // identity in the map so multi-byte UTF-8 sequences are preserved.
+                res_offsets.insert(col_source->get_offsets().begin(),
+                                   col_source->get_offsets().end());
+                res_chars.insert(col_source->get_chars().begin(), col_source->get_chars().end());
+                for (size_t i = 0; i < res_chars.size(); ++i) {
+                    auto c = static_cast<UInt8>(res_chars[i]);
+                    if (c < 128) {
+                        res_chars[i] = static_cast<char>(map[c]);
+                    }
+                }
+                return;
+            }
+            translate_map =
+                    build_translate_map_utf8(from_str.to_string_view(), to_str.to_string_view());
+        }
+
+        std::string row_buf;
+        for (size_t i = 0; i < col_source->size(); ++i) {
+            const auto& source_str = col_source->get_data_at(i);
+            if (!IsConst) {
+                const auto& from_str = col_from->get_data_at(i);
+                const auto& to_str = col_to->get_data_at(i);
+                build_translate_map_ascii(map, from_str, to_str);
+                translate_map = build_translate_map_utf8(from_str.to_string_view(),
+                                                         to_str.to_string_view());
+            }
+            if (bytes_is_ascii(source_str.data, source_str.size)) {
+                // ASCII row: O(n) table lookup, no hashing
+                row_buf.clear();
+                row_buf.resize(source_str.size);
+                auto written =
+                        translate_ascii(source_str, map, reinterpret_cast<UInt8*>(row_buf.data()));
+                row_buf.resize(written);
+                col_res->insert_data(row_buf.data(), row_buf.size());
+            } else {
+                // Non-ASCII row: UTF-8 map (built once when IsConst)
+                auto translated_str = translate_utf8(source_str.to_string_view(), translate_map);
+                col_res->insert_data(translated_str.data(), translated_str.size());
+            }
+        }
+    }
+
     template <bool IsConst>
     static void impl_vectors_ascii(const ColumnString* col_source, const ColumnString* col_from,
                                    const ColumnString* col_to, ColumnString* col_res) {
@@ -1106,9 +1190,10 @@ private:
         for (size_t i = 0, char_size = 0; i < source_str.size(); i += char_size) {
             char_size = get_utf8_byte_length(source_str[i]);
             auto c = source_str.substr(i, char_size);
-            if (translate_map.find(c) != translate_map.end()) {
-                if (!translate_map[c].empty()) {
-                    result.append(translate_map[c]);
+            auto it = translate_map.find(c);
+            if (it != translate_map.end()) {
+                if (!it->second.empty()) {
+                    result.append(it->second);
                 }
             } else {
                 result.append(c);
@@ -1269,7 +1354,8 @@ public:
     static bool execute_const_null(ColumnString::MutablePtr& res_col,
                                    PaddedPODArray<UInt8>& res_null_map_data,
                                    size_t input_rows_count, size_t null_index) {
-        if (null_index == 1) {
+        // Only a NULL bits argument makes the result NULL; NULL strings are skipped.
+        if (null_index == 0) {
             res_col->insert_many_defaults(input_rows_count);
             res_null_map_data.assign(input_rows_count, (UInt8)1);
             return true;
@@ -1525,7 +1611,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
 
@@ -1573,7 +1659,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto* state = reinterpret_cast<UnicodeNormalizeState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         if (state == nullptr || state->normalizer == nullptr) {
             return Status::RuntimeError("unicode_normalize function state is not initialized");
         }

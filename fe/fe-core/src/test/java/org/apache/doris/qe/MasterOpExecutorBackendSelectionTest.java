@@ -26,16 +26,20 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
+import org.apache.doris.thrift.TUniqueId;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
+import java.util.Set;
+
 public class MasterOpExecutorBackendSelectionTest {
 
-    @After
+    @AfterEach
     public void resetBackendSelectionProvider() {
         BackendSelectionManager.resetProviderForTest();
     }
@@ -52,10 +56,10 @@ public class MasterOpExecutorBackendSelectionTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
-            LoadException exception = Assert.assertThrows(LoadException.class,
+            LoadException exception = Assertions.assertThrows(LoadException.class,
                     () -> executor.getGroupCommitLoadBeId(1L, ""));
 
-            Assert.assertTrue(exception.getMessage().contains("status code: 1"));
+            Assertions.assertTrue(exception.getMessage().contains("status code: 1"));
         }
     }
 
@@ -78,7 +82,7 @@ public class MasterOpExecutorBackendSelectionTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
-            Assert.assertEquals(123L, executor.getGroupCommitLoadBeId(1L, ""));
+            Assertions.assertEquals(123L, executor.getGroupCommitLoadBeId(1L, ""));
 
             Mockito.verify(journalObservable, Mockito.never()).waitOn(Mockito.anyLong(), Mockito.anyInt());
         }
@@ -98,7 +102,7 @@ public class MasterOpExecutorBackendSelectionTest {
 
             executor.getGroupCommitLoadBeId(1L, "");
 
-            Assert.assertTrue(executor.capturedRequest.getGroupCommitInfo().isSupportsSelectionErrorResult());
+            Assertions.assertTrue(executor.capturedRequest.getGroupCommitInfo().isSupportsSelectionErrorResult());
         }
     }
 
@@ -127,6 +131,47 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
+    public void testForwardResultExposesExternalDmlAuditBackendIds() throws Exception {
+        TMasterOpResult result = new TMasterOpResult();
+        result.setMaxJournalId(0L);
+        result.setAuditStatisticsBackendIds(List.of(10001L, 10002L));
+        ConnectContext context = mockConnectContext();
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, result);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            executor.installForwardResult();
+
+            Assertions.assertEquals(Set.of(10001L, 10002L), executor.getAuditStatisticsBackendIds());
+        }
+    }
+
+    @Test
+    public void testCancelDoesNotEraseForwardedAuditBackendIds() throws Exception {
+        TMasterOpResult queryResult = new TMasterOpResult();
+        queryResult.setAuditStatisticsBackendIds(List.of(10001L, 10002L));
+        ConnectContext context = mockConnectContext();
+        Mockito.when(context.queryId()).thenReturn(new TUniqueId(1L, 2L));
+        Mockito.when(context.getDatabase()).thenReturn("db");
+        Mockito.when(context.getQualifiedUser()).thenReturn("user");
+        Env env = context.getEnv();
+        Mockito.when(env.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        TestingMasterOpExecutor executor = new TestingMasterOpExecutor(context, queryResult);
+        executor.cancelResult = new TMasterOpResult();
+        executor.installForwardResult();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            executor.cancel();
+        }
+
+        Assertions.assertEquals(Set.of(10001L, 10002L), executor.getAuditStatisticsBackendIds());
+    }
+
+    @Test
     public void testDisabledLoadSelectionDoesNotPopulateForwardedInfo() {
         ConnectContext context = new ConnectContext();
         TGroupCommitInfo info = new TGroupCommitInfo();
@@ -136,9 +181,9 @@ public class MasterOpExecutorBackendSelectionTest {
 
         MasterOpExecutor.setGroupCommitLoadSelectionHint(info, context);
 
-        Assert.assertFalse(info.isSetLoadSelectionPreferredKey());
-        Assert.assertFalse(info.isSetLoadSelectionMode());
-        Assert.assertEquals(0, policy.getLoadSelectionHintCalls);
+        Assertions.assertFalse(info.isSetLoadSelectionPreferredKey());
+        Assertions.assertFalse(info.isSetLoadSelectionMode());
+        Assertions.assertEquals(0, policy.getLoadSelectionHintCalls);
     }
 
     @Test
@@ -151,9 +196,9 @@ public class MasterOpExecutorBackendSelectionTest {
 
         MasterOpExecutor.setGroupCommitLoadSelectionHint(info, context);
 
-        Assert.assertEquals("key_a", info.getLoadSelectionPreferredKey());
-        Assert.assertEquals(BackendSelection.Mode.PREFER.name(), info.getLoadSelectionMode());
-        Assert.assertEquals(1, policy.getLoadSelectionHintCalls);
+        Assertions.assertEquals("key_a", info.getLoadSelectionPreferredKey());
+        Assertions.assertEquals(BackendSelection.Mode.PREFER.name(), info.getLoadSelectionMode());
+        Assertions.assertEquals(1, policy.getLoadSelectionHintCalls);
     }
 
     private static final class DisabledLoadSelectionPolicy implements BackendSelectionProvider {
@@ -200,6 +245,7 @@ public class MasterOpExecutorBackendSelectionTest {
 
     private static final class TestingMasterOpExecutor extends MasterOpExecutor {
         private final TMasterOpResult forwardResult;
+        private TMasterOpResult cancelResult;
         private TMasterOpRequest capturedRequest;
 
         private TestingMasterOpExecutor(ConnectContext context, TMasterOpResult forwardResult) {
@@ -210,7 +256,11 @@ public class MasterOpExecutorBackendSelectionTest {
         @Override
         protected TMasterOpResult forward(TMasterOpRequest params) {
             capturedRequest = params;
-            return forwardResult;
+            return params.isCancelQeury() && cancelResult != null ? cancelResult : forwardResult;
+        }
+
+        private void installForwardResult() {
+            result = forwardResult;
         }
     }
 }

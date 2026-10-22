@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
+import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpecs;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNotCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
@@ -35,8 +37,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVar
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -111,6 +116,23 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    public void testLambdaBindingSpecComesFromFunctionRegistration() {
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+
+        assertLambdaBindingSpec(functionRegistry, "array_map", LambdaBindingSpecs.ARRAY_ZIP);
+        assertLambdaBindingSpec(functionRegistry, "array_sort", LambdaBindingSpecs.ARRAY_COMPARATOR);
+        assertLambdaBindingSpec(functionRegistry, "map_filter", LambdaBindingSpecs.MAP_ENTRIES);
+        Assertions.assertTrue(functionRegistry.tryGetBuiltinBuilders("abs").get().stream()
+                .allMatch(builder -> !builder.getLambdaBindingSpec().isPresent()));
+    }
+
+    private void assertLambdaBindingSpec(
+            FunctionRegistry functionRegistry, String functionName, LambdaBindingSpec expectedSpec) {
+        Assertions.assertTrue(functionRegistry.tryGetBuiltinBuilders(functionName).get().stream()
+                .allMatch(builder -> builder.getLambdaBindingSpec().orElse(null) == expectedSpec));
+    }
+
+    @Test
     public void testVariantParseFunctions() {
         PlanChecker.from(connectContext)
                 .analyze("select parse_to_variant('{\"a\":1}'), try_parse_to_variant('{')")
@@ -127,6 +149,39 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
                             return true;
                         })
                 );
+    }
+
+    @Test
+    public void testVariantNestedConstructors() {
+        PlanChecker.from(connectContext)
+                .analyze("select array(parse_to_variant('1')), "
+                        + "map('k', parse_to_variant('2')), "
+                        + "struct(parse_to_variant('3')), "
+                        + "named_struct('v', parse_to_variant('4'))")
+                .matches(
+                        logicalOneRowRelation().when(oneRowRelation -> {
+                            ArrayType array = (ArrayType) oneRowRelation.getProjects().get(0)
+                                    .child(0).getDataType();
+                            MapType map = (MapType) oneRowRelation.getProjects().get(1)
+                                    .child(0).getDataType();
+                            StructType struct = (StructType) oneRowRelation.getProjects().get(2)
+                                    .child(0).getDataType();
+                            StructType namedStruct = (StructType) oneRowRelation.getProjects().get(3)
+                                    .child(0).getDataType();
+                            Assertions.assertTrue(array.getItemType().isVariantType());
+                            Assertions.assertTrue(map.getValueType().isVariantType());
+                            Assertions.assertTrue(struct.getFields().get(0).getDataType().isVariantType());
+                            Assertions.assertTrue(namedStruct.getFields().get(0).getDataType().isVariantType());
+                            return true;
+                        })
+                );
+
+        AnalysisException mapKeyException = Assertions.assertThrowsExactly(
+                AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("select map(parse_to_variant('1'), 1)"));
+        Assertions.assertTrue(mapKeyException.getMessage()
+                .contains("map does not support variant keys"));
     }
 
     @Test

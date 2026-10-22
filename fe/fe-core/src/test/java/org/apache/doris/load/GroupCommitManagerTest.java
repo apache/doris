@@ -25,10 +25,10 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -49,7 +49,7 @@ public class GroupCommitManagerTest {
     private OlapTable table;
     private CloudSystemInfoService systemInfoService;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         originalCloudUniqueId = Config.cloud_unique_id;
         originalDeployMode = Config.deploy_mode;
@@ -66,7 +66,7 @@ public class GroupCommitManagerTest {
         Mockito.when(table.getGroupCommitIntervalMs()).thenReturn(1000);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         Config.cloud_unique_id = originalCloudUniqueId;
         Config.deploy_mode = originalDeployMode;
@@ -90,13 +90,13 @@ public class GroupCommitManagerTest {
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
             GroupCommitManager manager = new GroupCommitManager();
-            Assert.assertEquals(BACKEND_A_ID,
+            Assertions.assertEquals(BACKEND_A_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, VIRTUAL_CLUSTER));
             Mockito.verify(systemInfoService, Mockito.never()).getPhysicalCluster(Mockito.anyString());
             Mockito.verify(systemInfoService, Mockito.never()).getBackend(Mockito.anyLong());
 
             Mockito.clearInvocations(systemInfoService);
-            Assert.assertEquals(BACKEND_A_ID,
+            Assertions.assertEquals(BACKEND_A_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, VIRTUAL_CLUSTER));
             Mockito.verify(systemInfoService).getBackendInCurrentCluster(VIRTUAL_CLUSTER, BACKEND_A_ID);
             Mockito.verify(systemInfoService, Mockito.never()).getCloudIdToBackend(Mockito.anyString());
@@ -106,7 +106,7 @@ public class GroupCommitManagerTest {
             Mockito.clearInvocations(systemInfoService);
             activeBackends.set(ImmutableMap.of(BACKEND_B_ID, backendB));
 
-            Assert.assertEquals(BACKEND_B_ID,
+            Assertions.assertEquals(BACKEND_B_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, VIRTUAL_CLUSTER));
             Mockito.verify(systemInfoService).getBackendInCurrentCluster(VIRTUAL_CLUSTER, BACKEND_A_ID);
             Mockito.verify(systemInfoService).getCloudIdToBackend(VIRTUAL_CLUSTER);
@@ -134,14 +134,14 @@ public class GroupCommitManagerTest {
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
             GroupCommitManager manager = new GroupCommitManager();
-            Assert.assertEquals(BACKEND_A_ID,
+            Assertions.assertEquals(BACKEND_A_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, VIRTUAL_CLUSTER));
 
             Mockito.clearInvocations(systemInfoService);
             activeBackends.set(ImmutableMap.of(BACKEND_A_ID, backendA1, BACKEND_B_ID, backendA2));
             backendA1.setLoadDisabled(true);
 
-            Assert.assertEquals(BACKEND_B_ID,
+            Assertions.assertEquals(BACKEND_B_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, VIRTUAL_CLUSTER));
             Mockito.verify(systemInfoService).getBackendInCurrentCluster(VIRTUAL_CLUSTER, BACKEND_A_ID);
             Mockito.verify(systemInfoService).getCloudIdToBackend(VIRTUAL_CLUSTER);
@@ -166,9 +166,9 @@ public class GroupCommitManagerTest {
             mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
             GroupCommitManager manager = new GroupCommitManager();
-            Assert.assertEquals(BACKEND_A_ID,
+            Assertions.assertEquals(BACKEND_A_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, null));
-            Assert.assertEquals(BACKEND_A_ID,
+            Assertions.assertEquals(BACKEND_A_ID,
                     manager.selectBackendForGroupCommitInternal(TABLE_ID, null));
         }
 

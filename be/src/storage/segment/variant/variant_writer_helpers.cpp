@@ -18,6 +18,7 @@
 #include "storage/segment/variant/variant_writer_helpers.h"
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <span>
 #include <string>
@@ -25,14 +26,13 @@
 #include <utility>
 
 #include "common/cast_set.h"
-#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
 #include "exec/common/variant_util.h"
 #include "storage/index/indexed_column_writer.h"
@@ -86,7 +86,6 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
                     cast_set<uint32_t>(std::max(1, parent_column.variant_doc_hash_shard_count())),
             .doc_materialization_min_rows = cast_set<size_t>(
                     std::max<int64_t>(0, parent_column.variant_doc_materialization_min_rows())),
-            .check_duplicate_json_path = config::variant_enable_duplicate_json_path_check,
     };
     *options = std::move(result);
     return Status::OK();
@@ -100,15 +99,13 @@ Status classify_variant_writer_input(const VariantColumnData& column,
     if (column.column_data == nullptr) {
         return Status::InvalidArgument("{} received null column data", writer_description);
     }
-    const bool is_v1 = check_and_get_column<ColumnVariant>(*column.column_data) != nullptr;
     const bool is_v2 = check_and_get_column<ColumnVariantV2>(*column.column_data) != nullptr;
-    if (!is_v1 && !is_v2) {
-        return Status::InvalidArgument("{} requires ColumnVariant or ColumnVariantV2, got {}",
-                                       writer_description, column.column_data->get_name());
+    if (!is_v2) {
+        return Status::InvalidArgument("{} requires ColumnVariantV2, got {}", writer_description,
+                                       column.column_data->get_name());
     }
 
-    const VariantWriterInputFormat detected_format =
-            is_v1 ? VariantWriterInputFormat::V1 : VariantWriterInputFormat::V2;
+    const VariantWriterInputFormat detected_format = VariantWriterInputFormat::V2;
     if (current_format != VariantWriterInputFormat::UNSET && current_format != detected_format) {
         return Status::InvalidArgument("{} input representation changed within one segment",
                                        writer_description);
@@ -138,8 +135,10 @@ Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantCol
     }
 
     auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->ensure_encoded();
+    });
     DORIS_CHECK(!encoded_batch->is_typed());
     return shredder->append(encoded_batch->read_view(), 0, num_rows, outer_nulls);
 }
@@ -153,7 +152,6 @@ void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn
     meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
     meta->set_compression(opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
-    meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
     if (column.has_path_info()) {
@@ -325,6 +323,20 @@ Status append_sparse_scalar_column(const TabletColumn& tablet_column, ColumnWrit
 
 } // namespace
 
+#ifdef BE_TEST
+namespace {
+std::atomic<uint64_t> g_array_all_null_chunks_for_test = 0;
+} // namespace
+
+uint64_t array_all_null_chunks_for_test() {
+    return g_array_all_null_chunks_for_test.load(std::memory_order_relaxed);
+}
+
+void reset_array_all_null_chunks_for_test() {
+    g_array_all_null_chunks_for_test.store(0, std::memory_order_relaxed);
+}
+#endif
+
 Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
                                       OlapBlockDataConvertor* converter, int column_id,
                                       const DataTypePtr& type, const ColumnPtr& values_column,
@@ -341,15 +353,22 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
     if (total_rows == 0) {
         return Status::OK();
     }
+    const DataTypePtr base_type = remove_nullable(type);
+    if (base_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+#ifdef BE_TEST
+        if (rowids.empty()) {
+            g_array_all_null_chunks_for_test.fetch_add(1, std::memory_order_relaxed);
+        }
+#endif
+        // ARRAY writers materialize a dense N-row column and update offsets, nulls and the
+        // inverted index together. An all-NULL chunk (empty rowids) must take this path too:
+        // append_nulls only writes column data and leaves the inverted index inconsistent.
+        return append_sparse_array_column(tablet_column, writer, converter, column_id, type,
+                                          values_column, rowids, total_rows);
+    }
     if (rowids.empty()) {
         DORIS_CHECK(tablet_column.is_nullable());
         return writer->append_nulls(total_rows);
-    }
-
-    const DataTypePtr base_type = remove_nullable(type);
-    if (base_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-        return append_sparse_array_column(tablet_column, writer, converter, column_id, type,
-                                          values_column, rowids, total_rows);
     }
     return append_sparse_scalar_column(tablet_column, writer, converter, column_id, type,
                                        values_column, rowids, total_rows);
@@ -360,7 +379,7 @@ void maybe_remove_root_jsonb_with_empty_defaults(MutableColumnPtr* root_column, 
     if (!remove_root_jsonb) {
         return;
     }
-    auto bare_jsonb_type = std::make_shared<ColumnVariant::MostCommonType>();
+    auto bare_jsonb_type = std::make_shared<DataTypeJsonb>();
     auto bare_jsonb_col = bare_jsonb_type->create_column();
     bare_jsonb_col->insert_many_defaults(num_rows);
     *root_column = std::move(bare_jsonb_col);

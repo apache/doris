@@ -187,16 +187,16 @@ TEST(HashFunctionTest, murmur_hash_3_128_empty_arguments_test) {
 
         FunctionUtils fn_utils(return_type, {}, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
-        ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-        ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
         block.insert({nullptr, return_type, "result"});
         const auto st = func->execute(fn_ctx, block, {}, 0, 1);
         EXPECT_FALSE(st.ok());
         EXPECT_NE(st.to_string().find("requires at least one argument"), std::string::npos);
 
-        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     };
 
     check_empty_arguments("murmur_hash3_128", std::make_shared<DataTypeInt128>());

@@ -33,6 +33,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.util.BinPacking;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.iceberg.util.StructLikeWrapper;
@@ -81,10 +82,8 @@ public class RewriteDataFilePlanner {
      * Plan and organize file scan tasks into rewrite groups
      */
     public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) {
-        try {
+        try (CloseableIterable<FileScanTask> allTasks = planFileScanTasks(icebergTable)) {
             // Step 1: Plan FileScanTask from Iceberg table
-            Iterable<FileScanTask> allTasks = planFileScanTasks(icebergTable);
-
             // Step 2: First layer - Group tasks by partition (without filtering files)
             Map<StructLikeWrapper, List<FileScanTask>> filesByPartition = groupTasksByPartition(allTasks);
 
@@ -105,7 +104,7 @@ public class RewriteDataFilePlanner {
     /**
      * Plan FileScanTask from Iceberg table
      */
-    private Iterable<FileScanTask> planFileScanTasks(Table icebergTable) {
+    CloseableIterable<FileScanTask> planFileScanTasks(Table icebergTable) {
         // Create table scan with optional filters
         TableScan tableScan = icebergTable.newScan();
 
@@ -124,8 +123,9 @@ public class RewriteDataFilePlanner {
         // the legacy live-rewrite behaviour, which threw, with master's full matrix).
         if (parameters.hasWhereCondition()) {
             ConnectorExpression where = parameters.getWhereCondition().getExpression();
-            List<Expression> predicates = new IcebergPredicateConverter(
-                    icebergTable.schema(), sessionZone, IcebergPredicateConverter.Mode.REWRITE).convert(where);
+            List<Expression> predicates = IcebergPredicateConverter.forTable(
+                    icebergTable, icebergTable.schema(), sessionZone,
+                    IcebergPredicateConverter.Mode.REWRITE).convert(where);
             if (predicates.size() < countTopLevelConjuncts(where)) {
                 throw new DorisConnectorException(
                         "WHERE condition for rewrite_data_files cannot be pushed down to file pruning: " + where);

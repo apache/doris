@@ -88,6 +88,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -123,6 +124,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
 #include "exec/spill/spill_file.h"
+#include "exprs/function/ai/ai_request_executor.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/cluster_info.h"
@@ -204,10 +206,10 @@ bool PipelineFragmentContext::notify_close() {
     return all_closed;
 }
 
-// Must not add lock in this method. Because it will call query ctx cancel. And
-// QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
-// Method like exchange sink buffer will call query ctx cancel. If we add lock here
-// There maybe dead lock.
+// QueryContext is the sole cancellation entry point and invokes this method to apply the accepted
+// cancellation to this fragment. Do not call QueryContext::cancel() from here: doing so would make
+// cancellation bidirectional and allow every task closed with the query error to repeat the whole
+// fragment's timeout diagnostics and dependency-unblocking work.
 void PipelineFragmentContext::cancel(const Status reason) {
     LOG_INFO("PipelineFragmentContext::cancel")
             .tag("query_id", print_id(_query_id))
@@ -241,7 +243,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
         _query_ctx->set_first_error_msg(first_error_msg);
     }
 
-    _query_ctx->cancel(reason, _fragment_id);
     if (!reason.is<ErrorCode::LIMIT_REACH>() && !reason.is<ErrorCode::FINISHED>()) {
         for (auto& id : _fragment_instance_ids) {
             LOG(WARNING) << "PipelineFragmentContext cancel instance: " << print_id(id);
@@ -357,6 +358,10 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
 }
 
 Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
+    DBUG_EXECUTE_IF("fault_inject::PipelineFragmentContext::prepare.skip", {
+        _prepared = true;
+        return Status::OK();
+    });
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -720,6 +725,7 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool, const Descrip
 
 Status PipelineFragmentContext::_create_deferred_local_exchangers() {
     for (auto& info : _deferred_exchangers) {
+        const int source_count = cast_set<int>(info.shared_state->source_deps.size());
         // DANGER ZONE — do not "fix" this line without reading the history.
         //
         // sender_count seeds Exchanger::_running_sink_operators, which the source side
@@ -752,34 +758,29 @@ Status PipelineFragmentContext::_create_deferred_local_exchangers() {
         switch (info.partition_type) {
         case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
         case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
-            info.shared_state->exchanger = ShuffleExchanger::create_unique(
-                    sender_count, _num_instances, info.num_partitions, info.free_blocks_limit,
-                    info.partition_type);
+            info.shared_state->exchanger =
+                    ShuffleExchanger::create_unique(sender_count, source_count, info.num_partitions,
+                                                    info.free_blocks_limit, info.partition_type);
             break;
         case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
             info.shared_state->exchanger = BucketShuffleExchanger::create_unique(
-                    sender_count, _num_instances, info.num_partitions, info.free_blocks_limit);
+                    sender_count, source_count, info.num_partitions, info.free_blocks_limit);
             break;
         case TLocalPartitionType::PASSTHROUGH:
             info.shared_state->exchanger = PassthroughExchanger::create_unique(
-                    sender_count, _num_instances, info.free_blocks_limit);
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::BROADCAST:
             info.shared_state->exchanger = BroadcastExchanger::create_unique(
-                    sender_count, _num_instances, info.free_blocks_limit);
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::PASS_TO_ONE:
-            if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
-                info.shared_state->exchanger = PassToOneExchanger::create_unique(
-                        sender_count, _num_instances, info.free_blocks_limit);
-            } else {
-                info.shared_state->exchanger = BroadcastExchanger::create_unique(
-                        sender_count, _num_instances, info.free_blocks_limit);
-            }
+            info.shared_state->exchanger = PassToOneExchanger::create_unique(
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
             info.shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
-                    sender_count, _num_instances, info.free_blocks_limit);
+                    sender_count, source_count, info.free_blocks_limit);
             break;
         case TLocalPartitionType::NOOP:
         case TLocalPartitionType::LOCAL_MERGE_SORT:
@@ -856,11 +857,17 @@ void PipelineFragmentContext::_propagate_local_exchange_num_tasks() {
         if (pit != id_to_pipe.end()) {
             auto& pipe = pit->second;
             const auto& ops = pipe->operators();
-            const bool le_source =
-                    !ops.empty() && dynamic_cast<LocalExchangeSourceOperatorX*>(ops.front().get());
+            auto* le_source =
+                    !ops.empty() ? dynamic_cast<LocalExchangeSourceOperatorX*>(ops.front().get())
+                                 : nullptr;
             const bool serial_source = !ops.empty() && ops.front()->is_serial_operator();
             if (le_source) {
-                pipe->set_num_tasks(_num_instances);
+                // PASS_TO_ONE is the explicit N-to-one boundary. Its upstream pipeline
+                // keeps all active tasks, while only fragment instance 0 creates the
+                // downstream serial pipeline task.
+                if (le_source->exchange_type() != TLocalPartitionType::PASS_TO_ONE) {
+                    pipe->set_num_tasks(_num_instances);
+                }
             } else if (!serial_source) {
                 int target = pipe->num_tasks();
                 const auto up_it = _dag.find(id);
@@ -1073,22 +1080,12 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case TLocalPartitionType::PASS_TO_ONE:
-        if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
-            // If shared hash table is enabled for BJ, hash table will be built by only one task
-            shared_state->exchanger = PassToOneExchanger::create_unique(
-                    cur_pipe->num_tasks(), _num_instances,
-                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                            ? cast_set<int>(_runtime_state->query_options()
-                                                    .local_exchange_free_blocks_limit)
-                            : 0);
-        } else {
-            shared_state->exchanger = BroadcastExchanger::create_unique(
-                    cur_pipe->num_tasks(), _num_instances,
-                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                            ? cast_set<int>(_runtime_state->query_options()
-                                                    .local_exchange_free_blocks_limit)
-                            : 0);
-        }
+        shared_state->exchanger = PassToOneExchanger::create_unique(
+                cur_pipe->num_tasks(), _num_instances,
+                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                        ? cast_set<int>(
+                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
+                        : 0);
         break;
     case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
@@ -1314,7 +1311,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
-            !_has_row_binlog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
+            !_has_changelog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
             _sink = std::make_shared<OlapTableSinkV2OperatorX>(
                     pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
@@ -1374,6 +1371,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         _sink = std::make_shared<MCTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
                                                        output_exprs);
+        break;
+    }
+    case TDataSinkType::PAIMON_TABLE_SINK: {
+        if (!thrift_sink.__isset.paimon_table_sink) {
+            return Status::InternalError("Missing paimon table sink.");
+        }
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(next_sink_operator_id(), row_desc,
+                                                           output_exprs);
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {
@@ -1537,11 +1542,11 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                         "cache node_id={}",
                         tnode.node_id, _params.fragment.query_cache_param.node_id);
             }
-            if (tnode.olap_scan_node.__isset.read_row_binlog &&
-                tnode.olap_scan_node.read_row_binlog) {
-                // Row-binlog scans read a different data stream: they must
+            if (tnode.olap_scan_node.__isset.read_changelog &&
+                tnode.olap_scan_node.read_changelog) {
+                // Changelog scans read a different data stream: they must
                 // neither serve nor fill the query cache.
-                _query_cache_runtime->disable_for_binlog_scan();
+                _query_cache_runtime->disable_for_changelog_scan();
             }
         }
         op = std::make_shared<OlapScanOperatorX>(
@@ -1727,7 +1732,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         }
 
         // Create source operator (goes on the current / downstream pipeline).
-        op = std::make_shared<BucketedAggSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        auto bucketed_agg_source = std::make_shared<BucketedAggSourceOperatorX>(
+                pool, tnode, next_operator_id(), descs);
+        op = bucketed_agg_source;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
         // Create a new pipeline for the sink side.
@@ -1739,8 +1746,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         // Create sink operator.
-        sink_ops.push_back(std::make_shared<BucketedAggSinkOperatorX>(
-                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        auto bucketed_agg_sink = std::make_shared<BucketedAggSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs);
+        bucketed_agg_source->set_sink_operator(bucketed_agg_sink);
+        sink_ops.push_back(bucketed_agg_sink);
         RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
 
@@ -2047,9 +2056,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     }
     case TPlanNodeType::LOCAL_EXCHANGE_NODE: {
         op = std::make_shared<LocalExchangeSourceOperatorX>(pool, tnode, next_operator_id(), descs);
-        // The downstream pipeline (containing LocalExchangeSource) must have
-        // _num_instances tasks — matching BE-native _inherit_pipeline_properties
-        // which sets pipe_with_source.set_num_tasks(_num_instances).
+        const auto partition_type = tnode.local_exchange_node.partition_type;
+        const bool pass_to_one = partition_type == TLocalPartitionType::PASS_TO_ONE;
+        // Except at an explicit PASS_TO_ONE boundary, the downstream pipeline
+        // (containing LocalExchangeSource) must have _num_instances tasks. This
+        // matches BE-native _inherit_pipeline_properties, which sets
+        // pipe_with_source.set_num_tasks(_num_instances).
         // Without this, when the parent pipeline was reduced by a serial operator
         // (e.g., serial Exchange with use_serial_exchange=true, or UNPARTITIONED
         // Exchange), the downstream inherits the reduced num_tasks via
@@ -2058,14 +2070,23 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         // sink round-robins to all channels and crashes on uninitialized ones.
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         // Restore downstream pipeline's num_tasks (mirroring _inherit_pipeline_properties:
-        // downstream keeps _num_instances, upstream gets the serial/reduced count)
-        cur_pipe->set_num_tasks(_num_instances);
+        // downstream keeps _num_instances, upstream gets the serial/reduced count).
+        // PASS_TO_ONE is the explicit parallel-to-serial boundary: its downstream
+        // pipeline must keep the serial parent's single active task, while the upstream
+        // pipeline is expanded below so every fragment instance keeps an active receiver.
+        if (!pass_to_one) {
+            cur_pipe->set_num_tasks(_num_instances);
+        }
+        const int downstream_num_tasks = cur_pipe->num_tasks();
 
         const auto downstream_pipeline_id = cur_pipe->id();
         if (!_dag.contains(downstream_pipeline_id)) {
             _dag.insert({downstream_pipeline_id, {}});
         }
         cur_pipe = add_pipeline(cur_pipe);
+        if (pass_to_one) {
+            cur_pipe->set_num_tasks(_num_instances);
+        }
         // If this local exchange was inserted because of a serial scan (is_serial_operator),
         // the upstream pipeline (cur_pipe) should have num_tasks=1 (only 1 scan task).
         // We set this now so the exchanger is created with the correct sender count.
@@ -2077,7 +2098,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
         int num_partitions = 0;
         std::map<int, int> shuffle_id_to_instance_idx;
-        auto partition_type = tnode.local_exchange_node.partition_type;
         switch (partition_type) {
         case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
             num_partitions = _params.num_buckets;
@@ -2117,9 +2137,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0;
-        auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
-        shared_state->create_source_dependencies(_num_instances, local_exchange_id,
-                                                 local_exchange_id, "LOCAL_EXCHANGE_OPERATOR");
+        const int source_count = downstream_num_tasks;
+        auto shared_state = LocalExchangeSharedState::create_shared(source_count);
+        shared_state->create_source_dependencies(source_count, local_exchange_id, local_exchange_id,
+                                                 "LOCAL_EXCHANGE_OPERATOR");
         shared_state->create_sink_dependency(sink_id, local_exchange_id, "LOCAL_EXCHANGE_SINK");
         _op_id_to_shared_state.insert({local_exchange_id, {shared_state, shared_state->sink_deps}});
         // Defer exchanger creation: sender count depends on final upstream num_tasks
@@ -2188,7 +2209,7 @@ Status PipelineFragmentContext::submit() {
             DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
                             { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
-                cancel(Status::InternalError("submit context to executor fail"));
+                _query_ctx->cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);
                 _total_tasks = submit_tasks;
                 break;
@@ -2585,7 +2606,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
-    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    const bool requires_external_file_ack =
+            params.__isset.iceberg_commit_datas || params.__isset.paimon_commit_messages;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {
@@ -2656,7 +2678,9 @@ Status PipelineFragmentContext::send_report(bool done) {
                              .runtime_state = _runtime_state.get(),
                              .load_error_url = load_eror_url,
                              .first_error_msg = first_error_msg,
-                             .cancel_fn = [this](const Status& reason) { cancel(reason); }};
+                             .cancel_fn = [query_ctx = _query_ctx](const Status& reason) {
+                                 query_ctx->cancel(reason);
+                             }};
     auto ctx = std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this());
     Status submit_status =
             _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {
@@ -2747,6 +2771,11 @@ PipelineFragmentContext::collect_realtime_profile() const {
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
     _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
+    if (auto statistics = _query_ctx->find_ai_statistics(_fragment_id)) {
+        // Copy into the fragment snapshot exactly once. Tasks never register the shared
+        // profile as a child, and the snapshot retains no pointers into QueryContext.
+        statistics->update_profile_snapshot(*fragment_profile, _runtime_state->profile_level());
+    }
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage

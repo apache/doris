@@ -51,6 +51,7 @@ namespace io {
 class RemoteScanCacheWriteLimiter;
 } // namespace io
 
+class AIExecutionStatistics;
 class PipelineFragmentContext;
 class PipelineTask;
 class QueryTaskController;
@@ -136,11 +137,12 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<PipelineFragmentContext> pip_ctx);
-    void cancel(Status new_status, int fragment_id = -1);
+    // The sole entry point for query cancellation. Only the first error is accepted; it is then
+    // propagated to every PipelineFragmentContext for fragment-local cleanup.
+    void cancel(Status new_status);
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
@@ -282,6 +284,10 @@ public:
                 std::make_shared<std::map<std::string, TAIResource>>(std::move(ai_resources));
     }
 
+    // Shared by every AI evaluator in a fragment; profile collection must not create it.
+    std::shared_ptr<AIExecutionStatistics> get_ai_statistics(int fragment_id);
+    std::shared_ptr<AIExecutionStatistics> find_ai_statistics(int fragment_id) const;
+
     const std::shared_ptr<std::map<std::string, TAIResource>>& get_ai_resources() const {
         return _ai_resources;
     }
@@ -396,6 +402,8 @@ private:
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     std::shared_ptr<std::map<std::string, TAIResource>> _ai_resources;
+    mutable std::mutex _ai_statistics_mutex;
+    std::unordered_map<int, std::shared_ptr<AIExecutionStatistics>> _ai_statistics;
 
     void _report_query_profile();
 

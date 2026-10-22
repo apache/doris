@@ -59,6 +59,7 @@ struct IOContext;
 } // namespace io
 
 class Block;
+class TabletCollectionStatistics;
 
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
                                                         int64_t expiration_time,
@@ -78,10 +79,15 @@ public:
         io::FileCacheStatistics initial_file_cache_stats;
         int64_t limit;
         bool aggregation;
-        bool read_row_binlog = false;
-        TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
+        bool read_changelog = false;
+        TChangelogScanType::type changelog_scan_type = TChangelogScanType::NONE;
+        int32_t bucket_seq = 0;
+        int32_t bucket_num = 0;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
+        // Set when the tablet is split across several scanners, so that they all score with
+        // statistics of the entire tablet instead of only the rowsets each one reads.
+        std::shared_ptr<TabletCollectionStatistics> tablet_collection_statistics;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
@@ -94,7 +100,9 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
-    bool check_partition_pruned() const override;
+    bool is_pruned_by_runtime_filter() const override;
+
+    void release_unopened_resources() override;
 
     void update_realtime_counters() override;
 
@@ -121,6 +129,9 @@ private:
     std::unique_ptr<TabletReader> _tablet_reader;
     std::optional<int64_t> _start_tso;
     std::optional<int64_t> _end_tso;
+    int32_t _bucket_seq;
+    int32_t _bucket_num;
+    std::shared_ptr<TabletCollectionStatistics> _tablet_collection_statistics;
 
 public:
     io::FileCacheStatistics _initial_file_cache_stats;

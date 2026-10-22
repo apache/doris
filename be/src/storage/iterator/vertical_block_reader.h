@@ -35,16 +35,15 @@
 #include "storage/iterators.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_reader.h"
-#include "storage/utils.h"
 
 #pragma once
 
 namespace doris {
-struct RowsetId;
-
 class RowSourcesBuffer;
+class RowsetMeta;
 struct RowBatch;
 struct VerticalCompactionContextStats;
+class VerticalBlockReaderTestAccessor;
 
 class VerticalBlockReader final : public TabletReader {
 public:
@@ -67,11 +66,16 @@ public:
         return _vcollect_iter->merged_rows();
     }
 
-    std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
-
     static uint64_t nextId;
 
 private:
+    friend class VerticalBlockReaderTestAccessor;
+
+    static void _append_grouped_iterator_init_flags(const RowsetMeta& rowset_meta,
+                                                    std::pair<int64_t, int64_t> segment_offsets,
+                                                    size_t added_iterators,
+                                                    std::vector<bool>* iterator_init_flag);
+
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);
@@ -86,8 +90,7 @@ private:
 
     Status _get_segment_iterators(const ReaderParams& read_params,
                                   std::vector<RowwiseIteratorUPtr>* segment_iters,
-                                  std::vector<bool>* iterator_init_flag,
-                                  std::vector<RowsetId>* rowset_ids);
+                                  std::vector<bool>* iterator_init_flag);
 
     void _init_agg_state(const ReaderParams& read_params);
     void _append_agg_data(MutableColumns& columns);
@@ -133,8 +136,6 @@ private:
     std::vector<bool> _stored_has_variable_length_tag;
 
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
-
-    std::vector<RowLocation> _block_row_locations;
 
     // For sparse column compaction optimization
     // Set from reader_params.enable_sparse_optimization (calculated in Merger::vertical_merge_rowsets)

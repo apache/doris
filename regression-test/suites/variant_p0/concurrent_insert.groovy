@@ -16,14 +16,14 @@
 // under the License.
 
 suite("regression_test_variant_concurrent_schema_update", ""){
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    def variantV2Function = "parse_to_variant"
     def table_name = "var_concurrent"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
             v variant,
-            v1 variant 
+            v1 variant
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
@@ -33,7 +33,7 @@ suite("regression_test_variant_concurrent_schema_update", ""){
         for (int k = 1; k <= 60; k++) {
             int x = k % 10;
             sql """insert into ${table_name} values(${x}, ${variantV2Function}('{"k${x}" : ${x}, "x${k}" : 123}'), ${variantV2Function}('{"k${x}" : ${x}, "x${k}" : 123}'))"""
-        } 
+        }
     }
     def t2 = Thread.startDaemon {
         for (int k = 61; k <= 120; k++) {

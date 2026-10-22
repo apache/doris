@@ -15,16 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene/util/bkd/bkd_reader.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_storage_format_v1.h"
 #include "storage/index/index_storage_format_v2.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/clucene/inverted_index_searcher.h"
+#include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/storage_engine.h"
 
 namespace doris::segment_v2 {
@@ -1046,7 +1049,8 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheTest) {
     ASSERT_TRUE(found);
     auto* cache_value_use_cache = cache_handle.get_index_cache_value();
     EXPECT_GE(UnixMillis(), cache_value_use_cache->last_visit_time);
-    auto searcher_variant = cache_value_use_cache->index_searcher;
+    auto searcher_variant =
+            static_cast<CluceneSearcherCacheValue*>(cache_value_use_cache)->searcher;
     EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant));
     config::enable_write_index_searcher_cache = false;
 }
@@ -1179,7 +1183,8 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
     ASSERT_TRUE(found2);
     auto* cache_value_use_cache2 = cache_handle2.get_index_cache_value();
     EXPECT_GE(UnixMillis(), cache_value_use_cache2->last_visit_time);
-    auto searcher_variant2 = cache_value_use_cache2->index_searcher;
+    auto searcher_variant2 =
+            static_cast<CluceneSearcherCacheValue*>(cache_value_use_cache2)->searcher;
     EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant2));
 
     InvertedIndexCacheHandle cache_handle3;
@@ -1189,7 +1194,8 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
     ASSERT_TRUE(found3);
     auto* cache_value_use_cache3 = cache_handle3.get_index_cache_value();
     EXPECT_GE(UnixMillis(), cache_value_use_cache3->last_visit_time);
-    auto searcher_variant3 = cache_value_use_cache3->index_searcher;
+    auto searcher_variant3 =
+            static_cast<CluceneSearcherCacheValue*>(cache_value_use_cache3)->searcher;
     EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant3));
 
     config::enable_write_index_searcher_cache = false;
@@ -1280,8 +1286,8 @@ TEST_F(IndexFileWriterTest, CacheUpdateTest) {
     InvertedIndexCacheHandle cache_handle_new;
     bool found_new = _inverted_index_searcher_cache->lookup(searcher_cache_key, &cache_handle_new);
     ASSERT_TRUE(found_new);
-    EXPECT_NE(cache_handle.get_index_cache_value()->index_searcher,
-              cache_handle_new.get_index_cache_value()->index_searcher);
+    EXPECT_NE(cache_handle.get<CluceneSearcherCacheValue>()->searcher,
+              cache_handle_new.get<CluceneSearcherCacheValue>()->searcher);
 
     config::enable_write_index_searcher_cache = false;
 }
@@ -1333,7 +1339,8 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheV1Test) {
     ASSERT_TRUE(found);
     auto* cache_value_use_cache = cache_handle.get_index_cache_value();
     EXPECT_GE(UnixMillis(), cache_value_use_cache->last_visit_time);
-    auto searcher_variant = cache_value_use_cache->index_searcher;
+    auto searcher_variant =
+            static_cast<CluceneSearcherCacheValue*>(cache_value_use_cache)->searcher;
     EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant));
     config::enable_write_index_searcher_cache = false;
 }
@@ -1381,7 +1388,7 @@ public:
     int64_t num_rows_filtered() const override { return 0; }
     RowsetId rowset_id() override { return _context.rowset_id; }
     RowsetTypePB type() const override { return BETA_ROWSET; }
-    int32_t allocate_segment_id() override { return 0; }
+    Result<int32_t> allocate_segment_id() override { return 0; }
     int32_t get_allocated_segment_id() override { return 0; }
     std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override { return nullptr; }
     bool is_partial_update() override { return false; }

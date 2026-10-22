@@ -89,8 +89,10 @@ Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
     }
 
     auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
+    RETURN_IF_CATCH_EXCEPTION({
+        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->ensure_encoded();
+    });
     return build_from_encoded(encoded_batch->read_view(), 0);
 }
 
@@ -107,7 +109,12 @@ Status VariantV2ColumnWriter::init() {
     _root_only = variant_writer_helpers::has_extracted_variant_columns(
             *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id());
     if (_root_only) {
-        _root_jsonb = ColumnString::create();
+        // Stream the root column instead of buffering a whole segment: the JSONB ColumnString
+        // would otherwise have to hold every row of the segment and could exceed the
+        // ColumnStr<uint32_t> 4 GiB limit before finalize.
+        _root_writer = std::make_unique<ScalarColumnWriter>(
+                _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
+        RETURN_IF_ERROR(_root_writer->init());
         return Status::OK();
     }
 
@@ -127,15 +134,14 @@ Status VariantV2ColumnWriter::append(const VariantColumnData& column, size_t num
         return Status::InternalError("Cannot append ColumnVariantV2 after writer finalization");
     }
     if (_root_only) {
-        DORIS_CHECK(_root_jsonb);
+        DORIS_CHECK(_root_writer);
         if (num_rows > std::numeric_limits<size_t>::max() - _num_rows) {
             return Status::InvalidArgument("Variant writer row count overflows size_t");
         }
         ColumnString::MutablePtr batch_root_jsonb;
         RETURN_IF_ERROR(build_root_only_batch(column, num_rows, outer_nulls, &batch_root_jsonb));
         DORIS_CHECK_EQ(batch_root_jsonb->size(), num_rows);
-        RETURN_IF_CATCH_EXCEPTION(
-                { _root_jsonb->insert_range_from(*batch_root_jsonb, 0, num_rows); });
+        RETURN_IF_ERROR(_append_root_batch(*batch_root_jsonb, outer_nulls));
     } else {
         RETURN_IF_ERROR(variant_writer_helpers::append_variant_v2_to_shredder(
                 _shredder.get(), column, num_rows, outer_nulls));
@@ -148,6 +154,25 @@ Status VariantV2ColumnWriter::append(const VariantColumnData& column, size_t num
     }
     _num_rows += num_rows;
     return Status::OK();
+}
+
+Status VariantV2ColumnWriter::_append_root_batch(const ColumnString& batch,
+                                                 std::span<const uint8_t> outer_nulls) {
+    DORIS_CHECK(_root_writer != nullptr);
+    if (batch.size() == 0) {
+        return Status::OK();
+    }
+    if (!outer_nulls.empty() && outer_nulls.size() != batch.size()) {
+        return Status::InvalidArgument("Variant root outer-null span has {} rows, expected {}",
+                                       outer_nulls.size(), batch.size());
+    }
+    DorisVector<Slice> slices(batch.size());
+    for (size_t row = 0; row < batch.size(); ++row) {
+        slices[row] = batch.get_data_at(row).to_slice();
+    }
+    const uint8_t* null_map =
+            _tablet_column->is_nullable() && !outer_nulls.empty() ? outer_nulls.data() : nullptr;
+    return _root_writer->append(null_map, slices.data(), batch.size());
 }
 
 Status VariantV2ColumnWriter::_write_root(const IColumn* root_jsonb, int& column_id) {
@@ -229,10 +254,8 @@ Status VariantV2ColumnWriter::finalize() {
     }
     if (_root_only) {
         DORIS_CHECK(_shredder == nullptr);
-        DORIS_CHECK(_root_jsonb);
-        int column_id = 0;
-        RETURN_IF_ERROR(_write_root(_root_jsonb.get(), column_id));
-        _root_jsonb.reset();
+        DORIS_CHECK(_root_writer != nullptr);
+        _opts.meta->set_num_rows(_num_rows);
         _is_finalized = true;
         return Status::OK();
     }
@@ -341,8 +364,8 @@ Status VariantV2ColumnWriter::write_bloom_filter_index() {
 uint64_t VariantV2ColumnWriter::estimate_buffer_size() {
     if (!_is_finalized) {
         if (_root_only) {
-            DORIS_CHECK(_root_jsonb);
-            return _outer_nulls->byte_size() + _root_jsonb->byte_size();
+            DORIS_CHECK(_root_writer != nullptr);
+            return _outer_nulls->byte_size() + _root_writer->estimate_buffer_size();
         }
         DORIS_CHECK(_shredder != nullptr);
         return _outer_nulls->byte_size() + _shredder->byte_size();
@@ -353,6 +376,19 @@ uint64_t VariantV2ColumnWriter::estimate_buffer_size() {
     }
     if (_binary_writer != nullptr) {
         size += _binary_writer->estimate_buffer_size();
+    }
+    return size;
+}
+
+uint64_t VariantV2ColumnWriter::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    DORIS_CHECK(_is_finalized);
+    uint64_t size = std::invoke(getter, _root_writer.get());
+    for (const auto& writer : _subcolumn_writers) {
+        size += std::invoke(getter, writer.get());
+    }
+    if (_binary_writer != nullptr) {
+        size += _binary_writer->get_total_data_pages_bytes(getter);
     }
     return size;
 }

@@ -19,8 +19,13 @@
 
 #include <butil/iobuf.h>
 
+#include <atomic>
+#include <mutex>
+#include <vector>
+
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/data_type/data_type.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/utils.h"
 #include "exprs/vexpr_fwd.h"
@@ -52,7 +57,13 @@ public:
 
     Status init(const size_t runtime_size);
     Status insert(const ColumnPtr& column, size_t start);
-    Status merge(const RuntimeFilterWrapper* wrapper);
+    // `other_exclusively_owned` must be true only when `other` has no other reader and will not
+    // be read again after this call: a transitional BLOOM directory taken from it is then moved
+    // in directly instead of cloned. See `RuntimeFilterMerger::merge_from`.
+    Status merge(const RuntimeFilterWrapper* other, bool other_exclusively_owned = false);
+    // Deep copy of the filter. The result shares no mutable data with this wrapper, so the
+    // merger can keep merging into the copy while this one is already used by consumers.
+    Status clone(std::shared_ptr<RuntimeFilterWrapper>* res) const;
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);
 
@@ -81,6 +92,11 @@ public:
     PrimitiveType column_type() const { return _column_return_type; }
 
     bool contain_null() const;
+
+    // The shared vector includes the NULL hash whenever the exact set contains NULL, regardless
+    // of target nullability. A non-nullable target may therefore retain one conservative bucket.
+    std::shared_ptr<const std::vector<uint32_t>> get_or_compute_bucket_prune_hashes(
+            const DataTypePtr& target_type) const;
 
     bool disable_always_true_logic() const { return _disable_always_true_logic; }
 
@@ -157,5 +173,9 @@ private:
     // on state is thread-safe.
     std::atomic<State> _state;
     AtomicStatus _reason;
+
+    mutable std::once_flag _bucket_prune_hashes_once;
+    mutable std::atomic_bool _bucket_prune_hashes_started = false;
+    mutable std::shared_ptr<const std::vector<uint32_t>> _bucket_prune_hashes;
 };
 } // namespace doris

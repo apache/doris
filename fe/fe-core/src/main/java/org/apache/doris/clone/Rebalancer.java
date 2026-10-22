@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.changelog.ChangelogTabletLocality;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -126,11 +127,15 @@ public abstract class Rebalancer {
         if (!FeConstants.runningUnitTest) {
             recycleBin = Env.getCurrentRecycleBin();
         }
+        // The metadata flag rejects the companion without a catalog lookup. The dynamic check below
+        // is still required to reject its paired base tablet.
         return tabletMeta != null
+                && !tabletMeta.isChangelog()
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
-                        tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+                        tabletMeta.getTableId(), tabletMeta.getPartitionId()))
+                && ChangelogTabletLocality.canMoveTabletIndependently(tabletMeta);
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
@@ -177,7 +182,7 @@ public abstract class Rebalancer {
     public void addPrioBackends(List<Backend> backends, long timeoutS) {
         long currentTimeMillis = System.currentTimeMillis();
         for (Backend backend : backends) {
-            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS);
+            prioBackends.put(backend.getId(), currentTimeMillis + timeoutS * 1000L);
         }
     }
 

@@ -231,7 +231,7 @@ struct AggregateFunctionArrayAggData<T> {
 
 template <PrimitiveType T>
     requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
-             !is_date_type(T) && !is_ip(T))
+             !is_date_type(T) && !is_timestamp_ns_type(T) && !is_ip(T))
 struct AggregateFunctionArrayAggData<T> {
     static constexpr PrimitiveType PType = T;
     static constexpr bool use_native_serde = true;
@@ -353,12 +353,20 @@ public:
         this->data(place).insert_result_into(to);
     }
 
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
+
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(places[i] + offset).deserialize_and_merge(*column, i);
         }
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        this->data(place).deserialize_and_merge(column, row);
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
@@ -410,7 +418,8 @@ public:
                 vec.insert_from(vec_src, i);
             } else if constexpr (!is_string_type(Data::PType) && !is_int_or_bool(Data::PType) &&
                                  !is_float_or_double(Data::PType) && !is_decimal(Data::PType) &&
-                                 !is_date_type(Data::PType) && !is_ip(Data::PType)) {
+                                 !is_date_type(Data::PType) && !is_timestamp_ns_type(Data::PType) &&
+                                 !is_ip(Data::PType)) {
                 auto& vec = col_null->get_nested_column();
                 vec.insert_from(col_src.get_nested_column(), i);
             } else {

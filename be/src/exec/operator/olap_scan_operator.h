@@ -27,8 +27,9 @@
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
-#include "storage/index/snii/snii_prx_profile.h"
+#include "storage/index/inverted/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
@@ -78,6 +79,7 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
+    Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
 
     bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
@@ -115,10 +117,10 @@ private:
     bool _storage_no_merge() override;
 
     bool _read_mor_as_dup();
-    // True for MIN_DELTA / DETAIL binlog scans, which read through BlockReader's merge (op
+    // True for MIN_DELTA / DETAIL changelog scans, which read through BlockReader's merge (op
     // synthesis + BEFORE/AFTER split) and thus must keep predicates above the reader. Returns bool
-    // to avoid leaking the thrift binlog-scan-type enum into this header.
-    bool _is_binlog_merge_scan() const;
+    // to avoid leaking the thrift changelog-scan-type enum into this header.
+    bool _is_changelog_merge_scan() const;
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
@@ -133,9 +135,16 @@ private:
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
+    void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
+
     Status _build_key_ranges_and_filters();
 
+    bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
+                                             int32_t bucket_num) const;
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    bool _has_rf_bucket_prune_metadata = false;
+    RuntimeFilterBucketPruner _rf_bucket_pruner;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
@@ -151,12 +160,17 @@ private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
     snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
-    snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
+    RuntimeProfile::Counter* _condition_cache_lookup_counter = nullptr;
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_tso_prune_timer = nullptr;
+    RuntimeProfile::Counter* _rowsets_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _segments_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _tablets_pruned_by_tso_counter = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
 
     RuntimeProfile::Counter* _io_timer = nullptr;
@@ -257,6 +271,11 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_conjuncts_short_circuited_counter = nullptr;
+    // Approximate (gram) index: rows pruned / candidate rows left for expression re-verification.
+    RuntimeProfile::Counter* _gram_index_filter_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_candidate_counter = nullptr;
+    RuntimeProfile::Counter* _gram_index_gate_gave_up_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 

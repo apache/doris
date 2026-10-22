@@ -19,14 +19,18 @@ package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.interceptor.AuthInterceptor;
+import org.apache.doris.httpv2.interceptor.WebUiAvailabilityInterceptor;
 
-import org.springframework.boot.web.server.ErrorPage;
+import org.springframework.boot.web.error.ErrorPage;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
-import org.springframework.boot.web.servlet.server.ConfigurableServletWebServerFactory;
+import org.springframework.boot.web.server.servlet.ConfigurableServletWebServerFactory;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.filter.UrlHandlerFilter;
 import org.springframework.web.multipart.support.StandardServletMultipartResolver;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -39,9 +43,13 @@ public class WebConfigurer implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new WebUiAvailabilityInterceptor())
+                .addPathPatterns("/**")
+                .order(Ordered.HIGHEST_PRECEDENCE);
         registry.addInterceptor(new AuthInterceptor())
                 .addPathPatterns("/rest/v1/**")
-                .excludePathPatterns("/", "/api/**", "/rest/v1/login", "/rest/v1/logout", "/static/**", "/metrics")
+                .excludePathPatterns("/", "/api/**", "/rest/v1/login",
+                        "/rest/v1/logout", "/static/**", "/metrics")
                 .excludePathPatterns("/image", "/info", "/version", "/put", "/journal_id", "/role", "/check", "/dump");
     }
 
@@ -58,11 +66,23 @@ public class WebConfigurer implements WebMvcConfigurer {
     @Override
     public void configurePathMatch(PathMatchConfigurer configurer) {
         configurer.setPathMatcher(new AntPathMatcher());
-        configurer.setUseTrailingSlashMatch(true);
+    }
+
+    @Bean
+    public FilterRegistrationBean<UrlHandlerFilter> trailingSlashFilter() {
+        // Spring 7 removed optional trailing-slash matching. Wrap requests before MVC routing
+        // and authentication so existing clients keep their URLs, methods, bodies and queries.
+        FilterRegistrationBean<UrlHandlerFilter> registration = new FilterRegistrationBean<>(
+                UrlHandlerFilter.trailingSlashHandler("/**").wrapRequest().build());
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+        return registration;
     }
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
+        if (!Config.enable_web_ui) {
+            return;
+        }
         registry.addViewController("/notFound")
                 .setStatusCode(HttpStatus.OK)
                 .setViewName("forward:/index.html");
@@ -74,9 +94,11 @@ public class WebConfigurer implements WebMvcConfigurer {
 
     @Bean
     public WebServerFactoryCustomizer<ConfigurableServletWebServerFactory> containerCustomizer() {
-        return container -> container.addErrorPages(
-                new ErrorPage(HttpStatus.NOT_FOUND, "/notFound")
-        );
+        return container -> {
+            if (Config.enable_web_ui) {
+                container.addErrorPages(new ErrorPage(HttpStatus.NOT_FOUND, "/notFound"));
+            }
+        };
     }
 
     @Bean(name = "multipartResolver")

@@ -79,7 +79,7 @@ public class HiveConnectorInvalidateTest {
         fileCache.listDataFiles("db", "t2", "file:///wh/db/t2", FS);
         Assertions.assertEquals(2, fileCache.size());
 
-        connector.invalidateTable(cachingClient, "db", "t1");
+        connector.invalidateTable("db", "t1");
 
         // Metastore cache: t1 re-fetches; t2 (a different table) is still served from the cache.
         cachingClient.getTable("db", "t1");
@@ -110,7 +110,7 @@ public class HiveConnectorInvalidateTest {
         fileCache.listDataFiles("db2", "t1", "file:///wh/db2/t1", FS);
         Assertions.assertEquals(2, fileCache.size());
 
-        connector.invalidateDb(cachingClient, "db1");
+        connector.invalidateDb("db1");
 
         // Metastore cache: every db1 table re-fetches (t1 AND t2); db2 (another database) is still cached.
         cachingClient.getTable("db1", "t1");
@@ -135,7 +135,7 @@ public class HiveConnectorInvalidateTest {
         fileCache.listDataFiles("db", "t1", "file:///wh/db/t1", FS);
         Assertions.assertEquals(1, fileCache.size());
 
-        connector.invalidateAll(cachingClient);
+        connector.invalidateAll();
 
         // Both caches fully cleared: the metastore entry re-fetches and the file cache is empty.
         cachingClient.getTable("db", "t1");
@@ -174,7 +174,6 @@ public class HiveConnectorInvalidateTest {
         // table. The values are derived purely from the partition NAME (no metastore lookup), which is what stops
         // an evicted partition-metadata entry from leaving a stale listing (the #65334 failure mode).
         HiveConnector connector = new HiveConnector(props(), new FakeConnectorContext());
-        CachingHmsClient cachingClient = (CachingHmsClient) connector.wrapWithCache(new RecordingHmsClient());
         HiveFileListingCache fileCache = connector.fileListingCacheForTest();
 
         // Two partitions of table t, plus a same-named partition of a DIFFERENT table t2 (must survive: scoped
@@ -187,7 +186,7 @@ public class HiveConnectorInvalidateTest {
                 Collections.singletonList("2024-01-01"), FS);
         Assertions.assertEquals(3, fileCache.size());
 
-        connector.invalidatePartition(cachingClient, "db", "t", Collections.singletonList("dt=2024-01-01"));
+        connector.invalidatePartition("db", "t", Collections.singletonList("dt=2024-01-01"));
 
         // Exactly one entry dropped (t's dt=2024-01-01); t's other partition and t2's same-named partition survive.
         Assertions.assertEquals(2, fileCache.size(),
@@ -211,7 +210,7 @@ public class HiveConnectorInvalidateTest {
         cachingClient.getPartitions("db", "t", Arrays.asList("dt=2024-01-01", "dt=2024-01-02"));
         Assertions.assertEquals(1, raw.getPartitionsCalls);
 
-        connector.invalidatePartition(cachingClient, "db", "t", Collections.singletonList("dt=2024-01-01"));
+        connector.invalidatePartition("db", "t", Collections.singletonList("dt=2024-01-01"));
 
         // dt=2024-01-01 re-fetches (a new delegate round-trip); dt=2024-01-02 is still served from the cache.
         cachingClient.getPartitions("db", "t", Collections.singletonList("dt=2024-01-01"));

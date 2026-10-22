@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <list>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,6 +54,8 @@ class FileScannerV2 final : public Scanner {
 public:
     static constexpr const char* NAME = "FileScannerV2";
     static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
+    static const std::string FileReadBytesProfile;
+    static const std::string FileReadTimeProfile;
 
     struct RealtimeCounterDeltas {
         int64_t scan_rows = 0;
@@ -89,8 +92,9 @@ public:
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
     static Status TEST_validate_variant_projection(TFileFormatType::type format_type,
-                                                   bool has_variant_projection) {
-        return _validate_variant_projection(format_type, has_variant_projection);
+                                                   bool has_variant_projection,
+                                                   const std::string& table_format) {
+        return _validate_variant_projection(format_type, has_variant_projection, table_format);
     }
     static Status TEST_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
@@ -107,6 +111,18 @@ public:
                   std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
                   ShardedKVCache* kv_cache,
                   const std::unordered_map<std::string, int>* colname_to_slot_id);
+
+    // Standalone scanner used by TopN two-phase materialization.
+    FileScannerV2(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* params,
+                  const std::unordered_map<std::string, int>* colname_to_slot_id,
+                  TupleDescriptor* tuple_desc)
+            : Scanner(state, profile), _params(params) {
+        (void)colname_to_slot_id;
+        _output_tuple_desc = tuple_desc;
+    }
+
+    Status read_by_rows(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                        Block* result_block, int64_t* init_reader_ms, int64_t* get_block_ms);
 
     Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
     Status _open_impl(RuntimeState* state) override;
@@ -127,7 +143,8 @@ private:
     static Status _validate_scan_range(const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range);
     static Status _validate_variant_projection(TFileFormatType::type format_type,
-                                               bool has_variant_projection);
+                                               bool has_variant_projection,
+                                               const std::string& table_format);
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();
@@ -205,6 +222,7 @@ private:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
+    format::parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;

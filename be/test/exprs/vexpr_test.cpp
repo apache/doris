@@ -35,11 +35,14 @@
 #include <type_traits>
 
 #include "common/object_pool.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
@@ -55,12 +58,47 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "gtest/gtest_pred_impl.h"
 #include "information_schema/schema_scanner.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/timezone_utils.h"
+
+TEST(TEST_VEXPR, DecimalV2TypeIsCanonicalAtConstruction) {
+    using namespace doris;
+    auto type = make_nullable(std::make_shared<DataTypeDecimalV2>(18, 2));
+    VSlotRef direct(1, 0, 1, type, "amount");
+    EXPECT_EQ(direct.data_type(), type);
+
+    TScalarType scalar;
+    scalar.__set_type(TPrimitiveType::DECIMALV2);
+    scalar.__set_precision(18);
+    scalar.__set_scale(2);
+    TTypeNode type_node;
+    type_node.__set_type(TTypeNodeType::SCALAR);
+    type_node.__set_scalar_type(scalar);
+    TTypeDesc desc;
+    desc.types.push_back(type_node);
+    TExprNode node;
+    node.__set_type(desc);
+    node.__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+    node.__set_is_nullable(true);
+    node.__set_num_children(0);
+    TDecimalLiteral literal;
+    literal.__set_value("123.45");
+    node.__set_decimal_literal(literal);
+    VLiteral from_thrift(node);
+    EXPECT_TRUE(from_thrift.data_type()->is_nullable());
+    EXPECT_TRUE(from_thrift.data_type()->equals(*type));
+    const auto& decimal =
+            assert_cast<const DataTypeDecimalV2&>(*remove_nullable(from_thrift.data_type()));
+    EXPECT_EQ(decimal.get_precision(), 27);
+    EXPECT_EQ(decimal.get_scale(), 9);
+    EXPECT_EQ(decimal.get_original_precision(), 18);
+    EXPECT_EQ(decimal.get_original_scale(), 2);
+}
 
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;
@@ -725,7 +763,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
 
             ColumnPtr result_column;
             ASSERT_TRUE(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column).ok());
-            auto sv = (*result_column)[0].get<TYPE_VARBINARY>();
+            // The view borrows the Field's owned bytes, so keep the Field alive for the assertion.
+            const auto result_field = (*result_column)[0];
+            const auto& sv = result_field.get<TYPE_VARBINARY>();
             EXPECT_EQ(value, std::string(sv.data(), sv.size()));
         }
     }
@@ -891,11 +931,10 @@ TEST(VExprExecuteColumnTest, TypeMismatchFails) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnPasses) {
+TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnIsWrapped) {
     using namespace doris;
     FakeVExpr expr;
-    // Declared type is Nullable(Int32) but result is Int32 (non-nullable).
-    // This mirrors the use_default_implementation_for_nulls optimization and must pass.
+    // Declared type is Nullable(Int32), so the result must carry a nullable column wrapper.
     expr.set_data_type(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
 
     auto col = ColumnInt32::create();
@@ -905,6 +944,7 @@ TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnPasses) {
     ColumnPtr result;
     auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
     EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(result->is_nullable());
 }
 
 TEST(VExprExecuteColumnTest, ColumnNothingPassesTypeCheck) {

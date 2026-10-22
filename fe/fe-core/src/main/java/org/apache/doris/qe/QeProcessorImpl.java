@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
 
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
@@ -170,7 +171,9 @@ public final class QeProcessorImpl implements QeProcessor {
             }
             queryToInstancesNum.put(queryId, instancesNum);
             userToInstancesCount.computeIfAbsent(user, ignored -> new AtomicInteger(0)).addAndGet(instancesNum);
-            MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
+            if (MetricRepo.isInit) {
+                MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
+            }
         }
     }
 
@@ -335,7 +338,7 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     private static boolean hasExternalCommitData(TReportExecStatusParams params) {
-        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        return CommitDataSerializer.hasCommitData(params);
     }
 
     private static String externalFileReportKey(TReportExecStatusParams params) {

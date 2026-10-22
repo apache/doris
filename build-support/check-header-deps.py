@@ -69,16 +69,81 @@ INCLUDE_ROOT = "be/src"
 # through the listed headers. An exception is only appropriate for a header that
 # carries declarations or plain data types and pulls in nothing of its own -- adding
 # one should be a deliberate decision, which is exactly why they are listed here
-# instead of being inferred.
+# instead of being inferred. A hub ending in "/" names every header under it.
 RULES = [
+    *[
+        (
+            "storage/index/inverted/common/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "common vocabulary cannot depend on a processing stage or a storage format",
+        )
+        for module in ("analysis", "query", "reader", "clucene", "snii")
+    ],
+    *[
+        (
+            "storage/index/inverted/analysis/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "text analysis cannot depend on query execution, readers or storage formats",
+        )
+        for module in ("query", "reader", "clucene", "snii")
+    ],
+    (
+        "storage/index/inverted/query/",
+        "storage/index/inverted/analysis/",
+        {
+            "storage/index/inverted/analysis/gram/gram_density.h",
+            "storage/index/inverted/analysis/gram/gram_extractor.h",
+            "storage/index/inverted/analysis/gram/gram_family.h",
+            "storage/index/inverted/analysis/gram/gram_scheme.h",
+        },
+        "query lowering uses gram schemes but cannot depend on text analysis machinery",
+    ),
+    *[
+        (
+            "storage/index/inverted/query/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "the shared query engine cannot depend on a reader or storage format",
+        )
+        for module in ("reader", "clucene", "snii")
+    ],
+    *[
+        (
+            "storage/index/inverted/reader/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "shared reader execution cannot depend on a storage format",
+        )
+        for module in ("clucene", "snii")
+    ],
+    (
+        "storage/index/inverted/clucene/",
+        "storage/index/inverted/snii/",
+        set(),
+        "storage formats cannot include each other",
+    ),
+    (
+        "storage/index/inverted/snii/",
+        "storage/index/inverted/clucene/",
+        set(),
+        "storage formats cannot include each other",
+    ),
+    (
+        "storage/index/inverted/snii/",
+        "storage/index/inverted/query/engine/",
+        set(),
+        "the SNII format implements the query SPI without including the engine",
+    ),
     (
         "runtime/exec_env.h",
         "storage/index/",
         {
             # A leaf statistics struct with no project includes of its own, which
             # storage/olap_common.h carries as a plain data type.
-            "storage/index/inverted/inverted_index_stats.h",
-            "storage/index/snii/snii_query_stats.h",
+            "storage/index/inverted/common/inverted_index_stats.h",
+            "storage/index/inverted/common/snii_query_stats.h",
         },
         "ExecEnv only ever names index types as pointers and already forward-declares "
         "them; reaching the index implementation headers from here puts the whole "
@@ -143,17 +208,41 @@ RULES = [
         "into every TU that includes ExecEnv",
     ),
     (
+        "common/status.h",
+        "gen_cpp/",
+        set(),
+        "Status is included by essentially every TU; its error-code constants "
+        "carry literal values pinned to Status.thrift by static_asserts in "
+        "status.cpp, and the TStatus/PStatus converters are declared on "
+        "forward declarations with bodies in status.cpp, precisely so no "
+        "generated thrift/protobuf header rides this superhighway",
+    ),
+    (
+        "common/exception.h",
+        "gen_cpp/",
+        set(),
+        "Exception only uses ErrorCode constants and Status; it reaches "
+        "nearly every TU through status/exception macros and must stay free "
+        "of generated headers for the same reason as common/status.h",
+    ),
+    (
+        "util/hash_util.hpp",
+        "gen_cpp/",
+        set(),
+        "hash_util is carried by string_ref.h, column_string.h, "
+        "vdatetime_value.h and storage/olap_common.h into most of the "
+        "backend; the std::hash specializations for TUniqueId and "
+        "TNetworkAddress live with their carriers (util/uid_util.h, "
+        "util/network_util.h), so no thrift header is needed here",
+    ),
+    (
         "runtime/exec_env.h",
         "gen_cpp/",
-        {
-            # Status embeds TStatus/PStatus; these two ride in through
-            # common/status.h and are the only generated headers ExecEnv may keep.
-            "gen_cpp/Status_types.h",
-            "gen_cpp/types.pb.h",
-        },
+        set(),
         "ExecEnv reaches ~1060 TUs, so any generated protobuf/thrift header it "
         "pulls in is reparsed by most of the backend; every thrift struct it "
-        "stores is behind a pointer or forward declaration",
+        "stores is behind a pointer or forward declaration (the old "
+        "Status_types/types.pb ride-along died with the common/status.h cut)",
     ),
     (
         "runtime/thread_context.h",
@@ -194,10 +283,10 @@ RULES = [
         "runtime/thread_context.h",
         "gen_cpp/",
         {
-            # Status embeds TStatus/PStatus (ride in through common/status.h);
-            # TUniqueId lives in Types_types.h; the profile family rides in
-            # through runtime_profile.h held by the memory-tracker chain.
-            "gen_cpp/Status_types.h",
+            # PUniqueId is embedded by value in util/uid_util.h (rides in via
+            # mem_tracker_limiter.h); TUniqueId lives in Types_types.h; the
+            # profile family rides in through runtime_profile.h held by the
+            # memory-tracker chain.
             "gen_cpp/types.pb.h",
             "gen_cpp/Types_types.h",
             "gen_cpp/Metrics_types.h",
@@ -205,7 +294,7 @@ RULES = [
             "gen_cpp/runtime_profile.pb.h",
         },
         "ThreadContext reaches ~1000 TUs; any generated protobuf/thrift header "
-        "beyond the status/types/profile carriers listed here is reparsed by "
+        "beyond the types/profile carriers listed here is reparsed by "
         "most of the backend",
     ),
     (
@@ -373,7 +462,19 @@ RULES = [
 # is exact; angle and quoted forms are both caught). These are headers whose
 # formatting/queueing bodies were deliberately moved out of line -- the ban keeps
 # the heavy third-party template machinery from re-entering every includer.
+# (header, banned include spelling or prefix, why). A header ending in "/" names
+# every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
+    (
+        "storage/index/inverted/query/",
+        "CLucene/",
+        "query algorithms use the format SPI and do not include CLucene headers",
+    ),
+    (
+        "storage/index/inverted/query/",
+        "CLucene.h",
+        "query algorithms use the format SPI and do not include CLucene headers",
+    ),
     (
         "core/uint24.h",
         "fmt/",
@@ -425,19 +526,13 @@ ANGLE_BANS = [
         "-fno-access-control UT build on libc++",
     ),
     (
-        "storage/index/inverted/query_v2/collect/top_k_collector.h",
+        "storage/index/inverted/query/engine/collect/top_k_collector.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
         "the -fno-access-control UT build on libc++",
     ),
     (
-        "storage/index/inverted/query_v2/composite_reader.h",
-        "ranges",
-        "rides the inverted-index query stack; <ranges> is heavy and breaks "
-        "the -fno-access-control UT build on libc++",
-    ),
-    (
-        "storage/index/inverted/query_v2/wand/block_wand.h",
+        "storage/index/inverted/query/engine/wand/block_wand.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
         "the -fno-access-control UT build on libc++",
@@ -471,7 +566,8 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/field.h": 60,
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
-    "exec/pipeline/dependency.h": 357,
+    # This dependency hub includes the shared read SPI and SNII gram metadata.
+    "exec/pipeline/dependency.h": 359,
     "pch/pch.h": 8,
 }
 
@@ -482,6 +578,13 @@ FORWARD_CLOSURE_BUDGETS = {
 # intended.
 # Baselines: master 9a48f8120c0, 2026-08-18.
 REVERSE_REACH_BASELINES = {
+    # Locked down by the common/status.h decouple (P35): Status_types must not
+    # creep back toward its old everything-line reach of 2453 TUs.
+    "gen_cpp/Status_types.h": 37,
+    # Still carried legitimately by util/uid_util.h (PUniqueId by value) and
+    # the profile family; the status.h cut brought these down from 2458/2091.
+    "gen_cpp/types.pb.h": 1791,
+    "gen_cpp/Types_types.h": 1993,
     "gen_cpp/segment_v2.pb.h": 1234,
     "gen_cpp/PaloInternalService_types.h": 1133,
     "util/threadpool.h": 988,
@@ -540,6 +643,18 @@ def load_includes():
     return includes
 
 
+def hub_headers(hub, includes):
+    """The headers a hub names: itself, or every header under it for a directory."""
+    if not hub.endswith("/"):
+        return [hub]
+    prefix = os.path.join(INCLUDE_ROOT, hub)
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(prefix) and path.endswith((".h", ".hpp"))
+    )
+
+
 def resolve(header, includes):
     """Maps an include spelling to a repo path, or None when it is external."""
     path = os.path.join(INCLUDE_ROOT, header)
@@ -586,11 +701,19 @@ def translation_units_affected(includes):
 
 def enforce(includes):
     failures = 0
-    for hub, forbidden, allowed, why in RULES:
-        if resolve(hub, includes) is None:
-            print(f"error: rule names a missing header: {hub}", file=sys.stderr)
+    for rule_hub, forbidden, allowed, why in RULES:
+        hubs = hub_headers(rule_hub, includes)
+        if not hubs or any(resolve(hub, includes) is None for hub in hubs):
+            print(f"error: rule names a missing header: {rule_hub}", file=sys.stderr)
             failures += 1
             continue
+        failures += enforce_rule(hubs, forbidden, allowed, why, includes)
+    return failures
+
+
+def enforce_rule(hubs, forbidden, allowed, why, includes):
+    failures = 0
+    for hub in hubs:
         chains = reachable(hub, includes)
         for header, chain in sorted(chains.items()):
             if not header.startswith(forbidden) or header.endswith(FWD_SUFFIX):
@@ -621,14 +744,24 @@ def forward_closure(hub, includes):
 ANY_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"]([^>"]+)[>"]')
 
 
-def enforce_angle_bans():
+def enforce_angle_bans(includes):
     failures = 0
-    for header, banned, why in ANGLE_BANS:
-        path = os.path.join(INCLUDE_ROOT, header)
-        if not os.path.exists(path):
-            print(f"error: angle ban names a missing header: {header}", file=sys.stderr)
+    for ban_header, banned, why in ANGLE_BANS:
+        headers = hub_headers(ban_header, includes)
+        if not headers or any(
+            not os.path.exists(os.path.join(INCLUDE_ROOT, h)) for h in headers
+        ):
+            print(f"error: angle ban names a missing header: {ban_header}", file=sys.stderr)
             failures += 1
             continue
+        failures += enforce_angle_ban(headers, banned, why)
+    return failures
+
+
+def enforce_angle_ban(headers, banned, why):
+    failures = 0
+    for header in headers:
+        path = os.path.join(INCLUDE_ROOT, header)
         with open(path, encoding="utf-8", errors="ignore") as handle:
             spellings = [m.group(1) for m in map(ANY_INCLUDE.match, handle) if m]
         hits = [
@@ -866,7 +999,7 @@ def main():
     else:
         failures = (
             enforce(includes)
-            + enforce_angle_bans()
+            + enforce_angle_bans(includes)
             + enforce_budgets(includes)
             + enforce_pch(includes)
         )
