@@ -60,6 +60,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     private static final String DORIS_JNI_PROPERTY_PREFIX = "paimon.jni.";
     /** The suffix after this prefix is passed to Paimon as a dynamic table option. */
     public static final String TABLE_OPTION_PREFIX = PaimonReaderOptions.TABLE_OPTION_PREFIX;
+    private static final String HADOOP_S3A_PREFIX = "fs.s3a.";
 
     private Map<String, String> tableOptionsMap = Collections.emptyMap();
 
@@ -121,6 +122,34 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
     protected void appendUserHadoopConfig(Configuration  conf) {
         normalizeS3Config().forEach(conf::set);
+    }
+
+    /**
+     * Mirrors the S3 credentials Doris assembled into the Hadoop configuration
+     * onto the catalog options, so the pinned Paimon 2.1 SDK sees them.
+     *
+     * <p>Doris stores a catalog's storage credentials (fs.s3a.access.key, fs.s3a.secret.key,
+     * fs.s3a.endpoint, ...) only in the Hadoop Configuration handed to
+     * CatalogContext.create(options, conf) — the paimon 1.4 FileIO consulted exactly
+     * that conf. The pinned 2.1 S3FileIO instead reads its credentials exclusively from
+     * CatalogContext.options() (S3FileIO#configure -> loadHadoopConfigFromContext copies
+     * the s3./s3a./fs.s3a.-prefixed option entries and never looks at the conf), so
+     * without this mirror every s3-warehouse catalog initializes the SDK with no
+     * credentials and the first file operation fails on the ambient AWS provider chain
+     * ("Unable to load credentials from system settings"). Mirroring the whole fs.s3a.*
+     * set keeps user extras (path style, connection limits) flowing as well; entries
+     * outside the prefix are not the SDK's concern.
+     */
+    protected void mirrorHadoopS3OptionsToCatalogOptions(Configuration conf) {
+        if (conf == null || catalogOptions == null) {
+            return;
+        }
+        conf.forEach(entry -> {
+            String key = entry.getKey();
+            if (key.startsWith(HADOOP_S3A_PREFIX) && StringUtils.isNotBlank(entry.getValue())) {
+                catalogOptions.set(key, entry.getValue());
+            }
+        });
     }
 
     public Map<String, String> getCatalogOptionsMap() {

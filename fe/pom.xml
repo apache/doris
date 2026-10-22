@@ -418,7 +418,7 @@ under the License.
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
-        <paimon.version>2.1-community-release-2.1-BETA-SNAPSHOT</paimon.version>
+        <paimon.version>2.1.0</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
