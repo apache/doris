@@ -224,9 +224,15 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private void checkAggregateFunction(Plan plan) {
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isDistinct()) {
+            for (NamedExpression expression : ((LogicalProject<?>) plan).getProjects()) {
+                checkSpatialGroupingType(expression);
+            }
+        }
         if (plan instanceof Aggregate) {
             Aggregate<?> aggregate = (Aggregate<?>) plan;
             for (Expression expr : aggregate.getGroupByExpressions()) {
+                checkSpatialGroupingType(expr);
                 if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
                     throw new AnalysisException(
                             "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
@@ -254,6 +260,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     }
                 }
             }
+        }
+    }
+
+    private void checkSpatialGroupingType(Expression expression) {
+        if (expression.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("GROUP BY and DISTINCT do not support spatial keys: " + expression.toSql());
         }
     }
 

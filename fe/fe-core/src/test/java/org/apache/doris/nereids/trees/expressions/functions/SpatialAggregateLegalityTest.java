@@ -78,6 +78,69 @@ import java.util.List;
 
 public class SpatialAggregateLegalityTest {
     @Test
+    public void spatialGroupingAndDistinctAreRejectedBeforeSimplification() {
+        for (String spatial : List.of("GEOMETRY", "GEOMETRY('EPSG:3857')",
+                "GEOGRAPHY", "GEOGRAPHY('OGC:CRS84', 'vincenty')")) {
+            String source = " from (select 1 id, CAST(NULL AS " + spatial + ") shape) shapes";
+            for (String query : List.of("select shape, count(*)" + source + " group by shape",
+                    "select id, shape, count(*)" + source + " group by id, shape",
+                    "select shape, count(*)" + source + " group by grouping sets ((shape), ())",
+                    "select distinct shape" + source,
+                    "select distinct id, shape" + source,
+                    "select array(shape), count(*)" + source + " group by array(shape)")) {
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(query).rewrite(), query);
+                Assertions.assertTrue(error.getMessage().contains(
+                        "GROUP BY and DISTINCT do not support spatial keys"), error.getMessage());
+            }
+            // Group only the ordinary key; spatial expressions remain values.
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze("select id, any_value(shape), count(shape), map_agg(id, shape)"
+                            + source + " group by id").rewrite());
+            for (String signature : List.of("min(" + spatial + ")", "max(" + spatial + ")")) {
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                                .analyze("select CAST(NULL AS AGG_STATE<" + signature + ">)").rewrite());
+                Assertions.assertTrue(error.getMessage().contains("does not support spatial arguments"),
+                        error.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void minMaxAndCountDistinctRejectSpatialComparisons() {
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (DataType spatial : List.of(new GeometryType("OGC:CRS84"), new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"), new GeographyType("OGC:CRS84", "vincenty"))) {
+            for (DataType type : List.of(spatial, ArrayType.of(spatial))) {
+                for (boolean nullable : List.of(false, true)) {
+                    for (Expression value : List.of(new SlotReference("shape", type, nullable),
+                            new NullLiteral(type))) {
+                        for (AggregateFunction function : List.of(new Min(value), new Max(value))) {
+                            for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                                    new CombineCombinator(function.getArguments(), function))) {
+                                Assertions.assertThrows(AnalysisException.class,
+                                        entry::checkLegalityBeforeTypeCoercion);
+                                Assertions.assertThrows(AnalysisException.class, entry::checkLegalityAfterRewrite);
+                            }
+                        }
+                        for (Count count : List.of(new Count(true, value), new Count(true, integer, value))) {
+                            Assertions.assertThrows(AnalysisException.class, count::checkLegalityBeforeTypeCoercion);
+                            Assertions.assertThrows(AnalysisException.class, count::checkLegalityAfterRewrite);
+                        }
+                        Assertions.assertDoesNotThrow(new Count(value)::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertDoesNotThrow(new AnyValue(value)::checkLegalityBeforeTypeCoercion);
+                    }
+                }
+            }
+        }
+        for (BoundFunction function : List.of(new Min(integer), new Max(integer), new Count(true, integer))) {
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
     public void declaredSpatialMapStatesRejectKeysWithoutAProducer() {
         MemoTestUtils.createConnectContext();
         for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
@@ -134,7 +197,7 @@ public class SpatialAggregateLegalityTest {
             for (String signature : List.of("map_agg(INT, " + spatial + ")",
                     "map_agg_v2(INT, " + spatial + ")", "count_map(MAP<INT, " + spatial + ">)",
                     "min_map(MAP<INT, " + spatial + ">)", "max_map(MAP<INT, " + spatial + ">)",
-                    "any_value(" + spatial + ")", "min(" + spatial + ")", "max(" + spatial + ")",
+                    "any_value(" + spatial + ")",
                     "count(" + spatial + ")", "array_agg(" + spatial + ")",
                     "collect_list(" + spatial + ")", "collect_list(" + spatial + ", INT)")) {
                 String sql = "select CAST(NULL AS AGG_STATE<" + signature + ">)";
@@ -428,13 +491,13 @@ public class SpatialAggregateLegalityTest {
         for (DataType type : List.of(new GeometryType("EPSG:3857"),
                 new GeographyType("OGC:CRS84", "spherical"), IntegerType.INSTANCE)) {
             Expression value = new SlotReference("value", type);
-            for (BoundFunction function : List.of(new AnyValue(value), new Min(value), new Max(value))) {
-                Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
-                Assertions.assertEquals(type, function.getDataType());
-            }
+            AnyValue function = new AnyValue(value);
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertEquals(type, function.getDataType());
         }
         Expression integer = new SlotReference("value", IntegerType.INSTANCE);
-        for (BoundFunction function : List.of(new Ndv(integer), new Histogram(integer), new CollectSet(integer))) {
+        for (BoundFunction function : List.of(new Min(integer), new Max(integer),
+                new Ndv(integer), new Histogram(integer), new CollectSet(integer))) {
             Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
         }
     }

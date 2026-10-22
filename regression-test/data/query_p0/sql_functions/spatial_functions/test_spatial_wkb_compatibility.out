@@ -35,15 +35,20 @@ true	false	true	true	true
 -- !default_geography_crs_case --
 0	POINT (1 2)
 
--- !single_group_geometry --
+-- !explicit_wkb_group_geometry --
 \N	2
-POINT (1 2)	2
-POINT (3 4)	2
+00000000013FF00000000000004000000000000000	2
+0101000000000000000000F03F0000000000000040	2
 
--- !single_distinct_geometry --
+-- !explicit_wkb_distinct_geometry --
 \N
-POINT (1 2)
-POINT (3 4)
+00000000013FF00000000000004000000000000000
+0101000000000000000000F03F0000000000000040
+
+-- !ordinary_key_spatial_value_geometry --
+0	\N	0
+1	POINT (1 2)	2
+2	POINT (3 4)	2
 
 -- !single_join_geometry --
 8
@@ -52,10 +57,10 @@ POINT (3 4)
 12
 
 -- !single_value_aggregates_geometry --
-POINT (3 4)	POINT (1 2)	true
+true
 
 -- !single_value_nulls_geometry --
-true	true	true
+true
 
 -- !case_materialization_geometry --
 0	POINT (1 2)	POINT (1 2)	POINT (1 2)
@@ -68,15 +73,20 @@ true	true	true
 -- !window_trim_geometry --
 300	256	257	0	0
 
--- !single_group_geography --
+-- !explicit_wkb_group_geography --
 \N	2
-POINT (1 2)	2
-POINT (3 4)	2
+00000000013FF00000000000004000000000000000	2
+0101000000000000000000F03F0000000000000040	2
 
--- !single_distinct_geography --
+-- !explicit_wkb_distinct_geography --
 \N
-POINT (1 2)
-POINT (3 4)
+00000000013FF00000000000004000000000000000
+0101000000000000000000F03F0000000000000040
+
+-- !ordinary_key_spatial_value_geography --
+0	\N	0
+1	POINT (1 2)	2
+2	POINT (3 4)	2
 
 -- !single_join_geography --
 8
@@ -85,10 +95,10 @@ POINT (3 4)
 12
 
 -- !single_value_aggregates_geography --
-POINT (3 4)	POINT (1 2)	true
+true
 
 -- !single_value_nulls_geography --
-true	true	true
+true
 
 -- !case_materialization_geography --
 0	POINT (1 2)	POINT (1 2)	POINT (1 2)
@@ -100,4 +110,7 @@ true	true	true
 
 -- !window_trim_geography --
 300	256	257	0	0
+
+-- !ordinary_min_max --
+0	2	3
 

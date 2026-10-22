@@ -316,6 +316,25 @@ public class CreateIcebergSpatialV3Table {
     // These factories do not implement scalar spatial values. Fail in FE, including
     // analytic DISTINCT, which is rewritten to multi_distinct_count after binding.
     for (String column : ["geom", "geog"]) {
+        for (String query : [
+                "select ${column}, count(*) from geometry_values group by ${column}",
+                "select id, ${column}, count(*) from geometry_values group by id, ${column}",
+                "select ${column}, count(*) from geometry_values group by grouping sets ((${column}), ())",
+                "select distinct ${column} from geometry_values",
+                "select distinct id, ${column} from geometry_values"]) {
+            test {
+                sql query
+                exception "GROUP BY and DISTINCT do not support spatial keys"
+            }
+        }
+        for (String expression : ["min(${column})", "max(${column})",
+                "min(${column}) over ()", "max(${column}) over ()",
+                "count(distinct ${column})", "count(distinct id, ${column})"]) {
+            test {
+                sql "select ${expression} from geometry_values"
+                exception "does not support spatial arguments"
+            }
+        }
         // Compare only implemented types; MAP_CONTAINS_KEY must not inspect spatial values.
         for (String expression : [
                 "map_contains_value(map(id, ${column}), ${column})",
@@ -369,7 +388,7 @@ public class CreateIcebergSpatialV3Table {
         for (String expression : ["multi_distinct_count(${column})", "count(distinct ${column}) over ()"]) {
             test {
                 sql """select ${expression} from geometry_values"""
-                exception "multi_distinct_count does not support spatial arguments"
+                exception "does not support spatial arguments"
             }
         }
         for (String function : ["group_array_union", "group_array_intersect"]) {
@@ -436,7 +455,8 @@ public class CreateIcebergSpatialV3Table {
                 }
             }
         }
-        for (String signature : ["map_agg(${spatial}, INT)", "map_agg_v2(${spatial}, INT)",
+        for (String signature : ["min(${spatial})", "max(${spatial})",
+                "map_agg(${spatial}, INT)", "map_agg_v2(${spatial}, INT)",
                 "linear_histogram(${spatial}, DOUBLE)", "linear_histogram(${spatial}, DOUBLE, DOUBLE)"]) {
             test {
                 sql """select /*+ SET_VAR(enable_agg_state=true) */ CAST(NULL AS AGG_STATE<${signature}>)
@@ -446,7 +466,7 @@ public class CreateIcebergSpatialV3Table {
         }
         List<String> supportedStates = ["map_agg(INT, ${spatial})", "map_agg_v2(INT, ${spatial})",
                 "count_map(MAP<INT, ${spatial}>)", "min_map(MAP<INT, ${spatial}>)",
-                "max_map(MAP<INT, ${spatial}>)", "any_value(${spatial})", "min(${spatial})", "max(${spatial})",
+                "max_map(MAP<INT, ${spatial}>)", "any_value(${spatial})",
                 "count(${spatial})", "array_agg(${spatial})", "collect_list(${spatial})",
                 "collect_list(${spatial}, INT)"]
         String projections = supportedStates.collect { "CAST(NULL AS AGG_STATE<${it}>)" }.join(", ")
@@ -564,9 +584,9 @@ public class CreateIcebergSpatialV3Table {
     }
     sql """insert into geometry_values select id + 10, geom, geog
         from geometry_values where id = 1"""
-    order_qt_spatial_grouping """
-        select ST_AsText(geom), ST_AsText(geog), count(*)
-        from geometry_values group by geom, geog
+    order_qt_spatial_values_ordinary_grouping """
+        select id, ST_AsText(any_value(geom)), ST_AsText(any_value(geog)), count(*)
+        from geometry_values group by id
     """
     // Bare Iceberg spatial slots must not generate unsupported IN/Bloom runtime predicates.
     [geom: "ST_GeometryFromWKBTyped", geog: "ST_GeogFromWKB"].each { column, constructor ->

@@ -65,14 +65,14 @@ geog	GEOGRAPHY('OGC:CRS84', 'spherical')	Yes	true	\N
 0101000000000000000000F03F0000000000000040	0101000000000000000000F03F0000000000000040	2	010100000000000000000008400000000000001040	0101000000000000000000F03F0000000000000040
 
 -- !spatial_declared_state_nulls_geometry --
-0	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-1	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+0	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+1	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !spatial_declared_state_nulls_geography --
-0	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-1	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
-2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+0	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+1	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !ordinary_declared_state_nulls --
 0	\N	\N	\N	\N	\N	\N	\N
@@ -184,11 +184,12 @@ true	true	false	false	true	true
 3	\N	\N	\N
 4	\N	true	\N
 
--- !spatial_grouping --
-\N	\N	1
-\N	POINT (3 4)	1
-POINT (1 2)	POINT (1 2)	2
-POINT (3 4)	\N	1
+-- !spatial_values_ordinary_grouping --
+1	POINT (1 2)	POINT (1 2)	1
+11	POINT (1 2)	POINT (1 2)	1
+2	\N	\N	1
+3	POINT (3 4)	\N	1
+4	\N	POINT (3 4)	1
 
 -- !spatial_scan_join_geom_1 --
 5

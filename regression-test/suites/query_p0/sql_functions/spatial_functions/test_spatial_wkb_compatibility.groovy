@@ -61,7 +61,7 @@ suite("test_spatial_wkb_compatibility") {
         ST_AsText(cast(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')
             as GEOGRAPHY('ogc:crs84', 'spherical')))"""
 
-    // Exercise one spatial key: two keys take a different serialized-key dispatch path.
+    // Native spatial keys have no SQL equality/order contract; raw bytes remain accessible.
     [geometry: "ST_GeometryFromWKBTyped", geography: "ST_GeogFromWKB"].each { kind, constructor ->
         def point1 = "0101000000000000000000F03F0000000000000040"
         def point2 = "010100000000000000000008400000000000001040"
@@ -69,22 +69,55 @@ suite("test_spatial_wkb_compatibility") {
         def nullableShapes = """select number as id, ${constructor}(case number % 3
             when 0 then null when 1 then '${point1}' else '${point2}' end) as shape
             from numbers("number" = "6")"""
-        "order_qt_single_group_${kind}"("""with shapes as (${nullableShapes})
-            select ST_AsText(shape), count(*) from shapes group by shape""")
-        "order_qt_single_distinct_${kind}"("""with shapes as (${nullableShapes})
-            select ST_AsText(shape) from (select distinct shape from shapes) d""")
+        def encodedShapes = """select number as id, ${constructor}(case number % 3
+            when 0 then null when 1 then '${point1}'
+            else '00000000013FF00000000000004000000000000000' end) as shape
+            from numbers("number" = "6")"""
+        for (String query : [
+                "select shape, count(*) from shapes group by shape",
+                "select id, shape, count(*) from shapes group by id, shape",
+                "select shape, count(*) from shapes group by grouping sets ((shape), ())",
+                "select distinct shape from shapes",
+                "select distinct id, shape from shapes",
+                "select array(shape), count(*) from shapes group by array(shape)"]) {
+            test {
+                sql "with shapes as (${encodedShapes}) ${query}"
+                exception "GROUP BY and DISTINCT do not support spatial keys"
+            }
+        }
+        for (String expression : ["min(shape)", "max(shape)", "min(shape) over ()", "max(shape) over ()",
+                "count(distinct shape)", "count(distinct id, shape)", "count(distinct shape) over ()"]) {
+            test {
+                sql "with shapes as (${encodedShapes}) select ${expression} from shapes"
+                exception "does not support spatial arguments"
+            }
+        }
+        // A no-FROM single row has no DISTINCT plan; use a real multi-row input.
+        for (String query : ["select distinct ${constructor}(NULL) from numbers('number'='3')",
+                "select count(*) from numbers('number'='3') group by ${constructor}(NULL)",
+                "select min(${constructor}(NULL))", "select max(${constructor}(NULL))",
+                "select count(distinct ${constructor}(NULL))"]) {
+            test {
+                sql query
+                exception "support spatial"
+            }
+        }
+        "order_qt_explicit_wkb_group_${kind}"("""with shapes as (${encodedShapes})
+            select hex(ST_AsBinary(shape)), count(*) from shapes group by hex(ST_AsBinary(shape))""")
+        "order_qt_explicit_wkb_distinct_${kind}"("""with shapes as (${encodedShapes})
+            select distinct hex(ST_AsBinary(shape)) from shapes""")
+        "order_qt_ordinary_key_spatial_value_${kind}"("""with shapes as (${nullableShapes})
+            select id % 3, ST_AsText(any_value(shape)), count(shape) from shapes group by id % 3""")
         // The shared key dispatcher is also used by nullable and NULL-safe equijoins.
         "qt_single_join_${kind}"("""with shapes as (${nullableShapes})
             select count(*) from shapes l join shapes r on l.shape = r.shape""")
         "qt_single_null_safe_join_${kind}"("""with shapes as (${nullableShapes})
             select count(*) from shapes l join shapes r on l.shape <=> r.shape""")
 
-        // MIN/MAX compare stored WKB, while ANY_VALUE must keep an owning spatial state.
+        // ANY_VALUE keeps an owning spatial state without defining spatial ordering.
         "qt_single_value_aggregates_${kind}"("""with shapes as (${nullableShapes})
-            select ST_AsText(min(shape)), ST_AsText(max(shape)),
-                ST_AsText(any_value(shape)) in ('POINT (1 2)', 'POINT (3 4)') from shapes""")
+            select ST_AsText(any_value(shape)) in ('POINT (1 2)', 'POINT (3 4)') from shapes""")
         "qt_single_value_nulls_${kind}"("""select
-            min(${constructor}(null)) is null, max(${constructor}(null)) is null,
             any_value(${constructor}(null)) is null from numbers("number" = "3")""")
         ["ndv", "approx_count_distinct", "histogram", "collect_set"].each { aggregate ->
             test {
@@ -130,5 +163,7 @@ suite("test_spatial_wkb_compatibility") {
                 ${windowShape('number')} as expected_last
                 from numbers("number" = "300")) w""")
     }
+    qt_ordinary_min_max """select min(number), max(number), count(distinct number)
+        from numbers('number'='3')"""
 
 }
