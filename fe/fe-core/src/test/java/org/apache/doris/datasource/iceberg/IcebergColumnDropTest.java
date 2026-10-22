@@ -106,6 +106,14 @@ public class IcebergColumnDropTest {
                 .withProperty(TableProperties.FORMAT_VERSION, Integer.toString(format)).create();
     }
 
+    private Table createUnpartitionedTable(String name, int format) {
+        Schema schema = new Schema(Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "metric", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "other", Types.IntegerType.get()));
+        return catalog.buildTable(TableIdentifier.of("db", name), schema)
+                .withProperty(TableProperties.FORMAT_VERSION, Integer.toString(format)).create();
+    }
+
     private TableMetadata metadata(String name) {
         return ((HasTableOperations) catalog.loadTable(TableIdentifier.of("db", name))).operations().current();
     }
@@ -228,7 +236,7 @@ public class IcebergColumnDropTest {
 
     @Test
     public void testRestDropRebasesWithoutChangingPartitionFieldsAndCleansWriterProperties() throws Exception {
-        Table table = createTable("rest_rebase", 2, false);
+        Table table = createUnpartitionedTable("rest_rebase", 2);
         String property = TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "other";
         int historicalOtherId = table.schema().findField("other").fieldId();
         table.updateProperties().set(property, "full")
@@ -239,21 +247,22 @@ public class IcebergColumnDropTest {
         TableMetadata after = metadata("rest_rebase");
         Assert.assertNull(after.schema().findField("other"));
         Assert.assertFalse(after.properties().containsKey(property));
+        Assert.assertEquals("preserved", after.properties().get("concurrent-property"));
         Assert.assertEquals(Integer.valueOf(historicalOtherId), NameMappingParser.fromJson(
                 after.properties().get(TableProperties.DEFAULT_NAME_MAPPING)).find("other").id());
         Assert.assertEquals(1, rest.commitAttempts);
         Assert.assertTrue(rest.requirements.stream()
                 .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
         Assert.assertFalse(rest.clientChanges.stream().anyMatch(MetadataUpdate.RemovePartitionSpecs.class::isInstance));
-        Assert.assertEquals(2, after.specs().size());
-        Assert.assertEquals(table.spec().fields().get(0).fieldId(), after.lastAssignedPartitionId());
+        Assert.assertEquals(1, after.specs().size());
+        Assert.assertEquals(999, after.lastAssignedPartitionId());
         Assert.assertEquals(0, after.defaultSpecId());
         Assert.assertFalse(rest.clientChanges.stream().anyMatch(MetadataUpdate.AddPartitionSpec.class::isInstance));
     }
 
     @Test
     public void testRestDropRejectsConcurrentPartitionSource() {
-        Table table = createTable("rest_race", 2, false);
+        Table table = createUnpartitionedTable("rest_race", 2);
         RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), "other");
         UserException error = Assert.assertThrows(UserException.class,
                 () -> drop(new BaseTable(rest, table.name()), ColumnPath.of("other")));
@@ -278,7 +287,7 @@ public class IcebergColumnDropTest {
 
     @Test
     public void testRestFormatV1UnreferencedDrop() throws Exception {
-        Table table = createTable("rest_v1", 1, false);
+        Table table = createUnpartitionedTable("rest_v1", 1);
         RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), null);
         int partitionId = metadata("rest_v1").lastAssignedPartitionId();
         drop(new BaseTable(rest, table.name()), ColumnPath.of("other"));
@@ -286,6 +295,46 @@ public class IcebergColumnDropTest {
         Assert.assertNotNull(metadata("rest_v1").schema().findField("metric"));
         Assert.assertEquals(partitionId, metadata("rest_v1").lastAssignedPartitionId());
         Assert.assertEquals(1, rest.commitAttempts);
+    }
+
+    @Test
+    public void testRestRejectsOrdinaryColumnOnPartitionedTables() {
+        for (int format : new int[] {1, 2, 3}) {
+            String name = "rest_partitioned_" + format;
+            Table table = createTable(name, format, false);
+            assertRestPartitionHistoryRejected(name, table, ColumnPath.of("other"));
+        }
+    }
+
+    @Test
+    public void testRestRejectsNestedColumnAndParentAfterPartitionHistoryExpires() {
+        Table table = createTable("rest_expired_nested", 2, true);
+        table.updateSpec().removeField(table.spec().fields().get(0).name()).commit();
+        table.expireSnapshots().cleanExpiredMetadata(true).commit();
+        Assert.assertTrue(metadata("rest_expired_nested").spec().isUnpartitioned());
+        Assert.assertEquals(1, metadata("rest_expired_nested").specs().size());
+        assertRestPartitionHistoryRejected("rest_expired_nested", table, ColumnPath.fromDotName("info.other"));
+        assertRestPartitionHistoryRejected("rest_expired_nested", table, ColumnPath.of("info"));
+    }
+
+    private void assertRestPartitionHistoryRejected(String name, Table table, ColumnPath path) {
+        String before = metadata(name).metadataFileLocation();
+        RestTableOperations rest = new RestTableOperations(((HasTableOperations) table).operations(), null);
+        UserException error = Assert.assertThrows(UserException.class,
+                () -> drop(new BaseTable(rest, table.name()), path));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("partition field history"));
+        Assert.assertEquals(0, rest.commitAttempts);
+        Assert.assertEquals(before, metadata(name).metadataFileLocation());
+    }
+
+    @Test
+    public void testDirectDropAllowsExpiredPartitionSource() throws Exception {
+        Table table = createTable("direct_expired_source", 2, false);
+        table.updateSpec().removeField("metric").commit();
+        table.expireSnapshots().cleanExpiredMetadata(true).commit();
+        Assert.assertEquals(1, metadata("direct_expired_source").specs().size());
+        drop(table, ColumnPath.of("metric"));
+        Assert.assertNull(metadata("direct_expired_source").schema().findField("metric"));
     }
 
     @Test
@@ -476,7 +525,7 @@ public class IcebergColumnDropTest {
 
     @Test
     public void testUnconfiguredRestCommitFailsBeforeWriting() {
-        Table table = createTable("unsupported_rest", 2, false);
+        Table table = createUnpartitionedTable("unsupported_rest", 2);
         ExternalCatalog unconfigured = Mockito.mock(ExternalCatalog.class);
         Mockito.when(unconfigured.getExecutionAuthenticator()).thenReturn(authenticator);
         Mockito.when(unconfigured.getProperties()).thenReturn(Collections.emptyMap());
@@ -584,19 +633,16 @@ public class IcebergColumnDropTest {
             commitAttempts++;
             Assert.assertTrue("DROP must submit once", injectConcurrentSpec);
             injectConcurrentSpec = false;
-            TableMetadata base = delegate.current();
             UpdateTableRequest request = UpdateTableRequest.create(
                     commit.identifier(), commit.requirements(), commit.updates());
             request = UpdateTableRequestParser.fromJson(UpdateTableRequestParser.toJson(request));
             clientChanges = request.updates();
             requirements = request.requirements();
-            int specId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
             if (sourceColumn == null) {
-                PartitionSpec concurrentSpec = PartitionSpec.builderFor(base.schema()).withSpecId(specId).build();
-                delegate.commit(base, TableMetadata.buildFrom(base).addPartitionSpec(concurrentSpec).build());
+                new BaseTable(delegate, "concurrent_property").updateProperties()
+                        .set("concurrent-property", "preserved").commit();
             } else {
-                // Let the real SDK allocate a fresh partition field ID; reusing 1000 from a builder
-                // would not model a legal concurrent addition when the table is already partitioned.
+                // This never-partitioned base requires the real SDK to allocate a fresh partition field ID.
                 new BaseTable(delegate, "concurrent_spec").updateSpec().addField(sourceColumn)
                         .addNonDefaultSpec().commit();
             }

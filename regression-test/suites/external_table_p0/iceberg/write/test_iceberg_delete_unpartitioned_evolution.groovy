@@ -88,6 +88,11 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         as select * from demo.${dbName}.replace_to_unpartitioned
     """
     sql """refresh table ${dbName}.replace_to_unpartitioned"""
+    // Even an ordinary column is unsafe to DROP through REST after partition IDs were allocated.
+    test {
+        sql """alter table replace_to_unpartitioned drop column metric"""
+        exception "partition field history"
+    }
     def replacedSpecs = sql """select distinct spec_id from replace_to_unpartitioned\$data_files"""
     assertEquals(1, replacedSpecs.size())
     assertTrue((replacedSpecs[0][0] as int) > 0)

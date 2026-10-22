@@ -36,10 +36,13 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.MetadataUpdate;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -113,6 +116,7 @@ public class IcebergRestSchemaCommitTest {
     private boolean tableToken;
     private boolean requireTableToken;
     private boolean concurrentPartition;
+    private Runnable beforeTransaction = () -> { };
     private int transactionStatus = 204;
     private int transactionPosts;
     private int ordinaryPosts;
@@ -150,6 +154,7 @@ public class IcebergRestSchemaCommitTest {
             java.util.List<TableCommit> commits = invocation.getArgument(1);
             Assert.assertEquals(1, commits.size());
             submitted = commits.get(0);
+            beforeTransaction.run();
             return invocation.callRealMethod();
         }).when(rest).commitTransaction(Mockito.any(), Mockito.anyList());
         Mockito.doAnswer(invocation -> {
@@ -287,6 +292,66 @@ public class IcebergRestSchemaCommitTest {
         Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
         Assert.assertEquals(2, backendOps().current().specs().size());
         Assert.assertEquals(0, ordinaryPosts);
+    }
+
+    @Test
+    public void testStaleWriterCannotRestoreExpiredPartitionSourceBeforeDrop() throws Exception {
+        assertStalePartitionWriterRejected(2);
+    }
+
+    @Test
+    public void testStaleFormatV3WriterCannotRestoreExpiredPartitionSource() throws Exception {
+        assertStalePartitionWriterRejected(3);
+    }
+
+    private void assertStalePartitionWriterRejected(int format) throws Exception {
+        org.apache.iceberg.Table writer = backend.loadTable(ID);
+        writer.updateProperties().set(TableProperties.FORMAT_VERSION, Integer.toString(format)).commit();
+        writer.updateSpec().addField("a").commit();
+        writer.updateSpec().removeField("a").addField("id").commit();
+        UpdatePartitionSpec stale = new BaseTable(load(empty), "stale_writer")
+                .updateSpec().addNonDefaultSpec().addField("a");
+        assertExpiredSourceRejected(stale);
+    }
+
+    @Test
+    public void testUpgradedV1AliasesCannotMakeExpiredPartitionHistoryLookComplete() throws Exception {
+        Schema schema = backendOps().refresh().schema();
+        backend.dropTable(ID);
+        backend.buildTable(ID, schema)
+                .withPartitionSpec(PartitionSpec.builderFor(schema).identity("a").build())
+                .withProperty(TableProperties.FORMAT_VERSION, "1").create();
+        TableOperations operations = backendOps();
+        TableMetadata base = operations.refresh();
+        // V1 allows the same partition ID to mean different source fields in different specs.
+        PartitionSpec aliased = PartitionSpecParser.fromJson(base.schema(), "{\"spec-id\":1,\"fields\":["
+                + "{\"name\":\"id\",\"transform\":\"identity\",\"source-id\":1,\"field-id\":1000},"
+                + "{\"name\":\"b\",\"transform\":\"identity\",\"source-id\":3,\"field-id\":1001}]}");
+        operations.commit(base, TableMetadata.buildFrom(base).setDefaultPartitionSpec(aliased)
+                .upgradeFormatVersion(2).build());
+        UpdatePartitionSpec stale = new BaseTable(load(empty), "upgraded_stale_writer")
+                .updateSpec().removeField("id").addField("a").addNonDefaultSpec();
+        assertExpiredSourceRejected(stale);
+        Assert.assertTrue(backendOps().current().specs().stream().anyMatch(spec ->
+                spec.fields().stream().anyMatch(field -> field.fieldId() == 1000 && field.sourceId() == 1)));
+    }
+
+    private void assertExpiredSourceRejected(UpdatePartitionSpec stale) throws Exception {
+        int counter = backendOps().refresh().lastAssignedPartitionId();
+        backend.loadTable(ID).expireSnapshots().cleanExpiredMetadata(true).commit();
+        Assert.assertEquals(1, backendOps().refresh().specs().size());
+        Assert.assertEquals(counter, backendOps().current().lastAssignedPartitionId());
+        beforeTransaction = stale::commit;
+        int beforeOrdinaryPosts = ordinaryPosts;
+        UserException error = Assert.assertThrows(UserException.class, () -> drop(load(empty), empty, "a"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("partition field history"));
+        Assert.assertEquals(0, transactionPosts);
+        Assert.assertEquals(beforeOrdinaryPosts, ordinaryPosts);
+        stale.commit();
+        Assert.assertEquals(counter, backendOps().refresh().lastAssignedPartitionId());
+        Assert.assertNotNull(backendOps().current().schema().findField("a"));
+        Assert.assertTrue(backendOps().current().specs().stream().anyMatch(spec ->
+                spec.fields().stream().anyMatch(field -> field.sourceId() == 2)));
     }
 
     @Test

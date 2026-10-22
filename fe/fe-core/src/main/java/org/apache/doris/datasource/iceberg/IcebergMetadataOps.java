@@ -114,6 +114,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
     private static final String PROP_LOCATION = "location";
+    // Iceberg partition field IDs start at 1000; the SDK keeps this boundary package-private.
+    private static final int INITIAL_PARTITION_FIELD_ID = 1000;
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -1019,6 +1021,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         ResolvedColumnPath resolvedPath = validatePinnedDropIdentity(
                 table.name(), path, loaded, loadedSubtreeIds, base);
         validateNotUsedByRetainedPartitionSpec(base, resolvedPath);
+        if (isRestTableOperations(operations)
+                && base.lastAssignedPartitionId() >= INITIAL_PARTITION_FIELD_ID) {
+            // An old SDK writer may restore an expired spec using recycled field IDs without advancing
+            // the partition counter. REST has no full-metadata CAS to protect that missing history.
+            throw new UserException("Cannot safely drop column from an Iceberg REST table"
+                    + " with partition field history: " + resolvedPath.getFullPath()
+                    + "; DROP requires a table that has never allocated partition field IDs");
+        }
 
         // Stage the standard SDK update against exactly the validated base. Recapturing operations.current()
         // here could instead delete a same-name replacement published on a shared handle after refresh.
@@ -1030,7 +1040,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         stagedTable.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
         TableMetadata schemaUpdate = schemaCapture.committed();
         if (isRestTableOperations(operations)) {
-            // No retained spec references the target, so a new SDK partition reference must allocate a field ID.
+            // This table has never allocated partition IDs, so a new SDK reference must advance the counter.
             // Use the mode captured with this table generation, even if ALTER has changed the live catalog.
             IcebergRestProperties restProperties = (IcebergRestProperties)
                     lease.getRuntimeContext().getMetastoreProperties();
@@ -1091,8 +1101,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             TableMetadata metadata, ResolvedColumnPath columnPath) throws UserException {
         Set<Integer> droppedFieldIds = TypeUtil.indexById(
                 Types.StructType.of(columnPath.getField())).keySet();
-        // Every retained spec resolves partition types by source field ID against the current schema. Checking
-        // the current spec too establishes that a later REST requirement can detect any new SDK reference.
+        // Every retained spec resolves partition types by source field ID against the current schema,
+        // including the default spec and historical specs without live files.
         boolean usedByRetainedSpec = metadata.specs().stream()
                 .anyMatch(spec -> spec.fields().stream().anyMatch(field ->
                         droppedFieldIds.contains(field.sourceId())));
