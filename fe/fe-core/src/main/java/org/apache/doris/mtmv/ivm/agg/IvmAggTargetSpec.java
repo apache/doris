@@ -43,14 +43,17 @@ public class IvmAggTargetSpec {
     private final Alias visibleAlias;
     private final Map<IvmAggStateKey, Alias> hiddenStateAliases;
     private final List<Expression> targetArguments;
+    private final long minMaxTopK;
 
     public IvmAggTargetSpec(int ordinal, IvmAggFunctionKind functionKind, Alias visibleAlias,
-            Map<IvmAggStateKey, Alias> hiddenStateAliases, List<Expression> targetArguments) {
+            Map<IvmAggStateKey, Alias> hiddenStateAliases, List<Expression> targetArguments,
+            long minMaxTopK) {
         this.ordinal = ordinal;
         this.functionKind = Objects.requireNonNull(functionKind);
         this.visibleAlias = Objects.requireNonNull(visibleAlias);
         this.hiddenStateAliases = ImmutableMap.copyOf(hiddenStateAliases);
         this.targetArguments = ImmutableList.copyOf(targetArguments);
+        this.minMaxTopK = minMaxTopK;
     }
 
     /** Hidden aggregate aliases that must be appended to the normalized aggregate output. */
@@ -67,6 +70,6 @@ public class IvmAggTargetSpec {
         // No value-state carrier yet: normalize materializes one only if an upper layer drops the
         // visible column, which is not known while the spec is still being built.
         return new IvmAggTarget(ordinal, functionKind, visibleAlias.toSlot(), hiddenSlots.build(), null,
-                visibleAlias.isNameFromChild(), targetArguments);
+                visibleAlias.isNameFromChild(), targetArguments, minMaxTopK);
     }
 }

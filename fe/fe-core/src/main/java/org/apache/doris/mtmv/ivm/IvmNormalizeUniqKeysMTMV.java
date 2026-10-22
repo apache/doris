@@ -40,6 +40,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -198,6 +200,12 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     // The IVM rewrite context of this statement; normalize only runs when it is present, so it needs no
     // presence checks of its own.
     private IvmRewriteContext ivmRewriteContext;
+    // The query plan as it entered normalize; the MIN/MAX capacity auto-detection reads its leaves
+    // and joins before any row-id columns are injected.
+    private Plan inputPlan;
+    // MIN/MAX capacity resolved once per statement (explicit property, or auto 0 for an
+    // append-only plan, or the default).
+    private Long resolvedMinMaxTopK;
     private Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
     private final IdentityHashMap<Plan, List<Slot>> identityKeysByNode = new IdentityHashMap<>();
     private int sinkKeyCounter;
@@ -227,6 +235,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             return plan;
         }
         this.rewriteResult = rewriteResult;
+        this.inputPlan = plan;
         excludedTriggerTables = statementContext.getExcludedTriggerTables();
         this.useFullKeys = resolveUseFullKeys();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
@@ -259,6 +268,61 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 + ", currentPlan=" + currentPlan.treeString()
                 + ". Run a full refresh to rebuild IVM layout baseline.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
+    }
+
+    /**
+     * The MIN/MAX top-K capacity of this MV, resolved once per statement.
+     *
+     * <p>An explicit {@code ivm_minmax_top_k} always wins, including an explicit 0. Otherwise the
+     * plan shape decides: an append-only changelog whose joins only produce appends can never
+     * retract a non-NULL value, so the extreme alone is enough (0). Any other plan keeps the
+     * default capacity so deleting the current extreme stays derivable.
+     *
+     * <p>The resolved value is recorded on the rewrite context so CREATE can persist it; later
+     * refreshes read the persisted property instead of re-deriving it.
+     */
+    private long resolveMinMaxTopK(List<Alias> aggAliases) {
+        boolean hasExtremal = aggAliases.stream()
+                .anyMatch(alias -> alias.child() instanceof Min || alias.child() instanceof Max);
+        if (!hasExtremal) {
+            return 0;
+        }
+        if (resolvedMinMaxTopK != null) {
+            return resolvedMinMaxTopK;
+        }
+        Long explicit = ivmRewriteContext.getMinMaxTopK();
+        long topK = explicit != null
+                ? explicit
+                : (isAppendOnlyInnerJoinPlan(inputPlan) ? 0 : IvmUtil.DEFAULT_MINMAX_TOP_K);
+        resolvedMinMaxTopK = topK;
+        ivmRewriteContext.setResolvedMinMaxTopK(topK);
+        return topK;
+    }
+
+    /**
+     * True when every leaf scan reads an append-only changelog and every join is INNER/CROSS.
+     *
+     * <p>Both halves are premises, not guarantees: a DUP table can still be DELETEd from, which is
+     * why the extreme-only mode falls back when the delete side sees a non-NULL value. This is the
+     * local equivalent of the {@code SupportChangelog} interface; when that lands, the scan half is
+     * replaced by it and external connectors answer for themselves.
+     */
+    private static boolean isAppendOnlyInnerJoinPlan(Plan plan) {
+        Set<Plan> nodes = plan.collect(node ->
+                node instanceof LogicalJoin || node instanceof LogicalOlapScan);
+        for (Plan node : nodes) {
+            if (node instanceof LogicalJoin) {
+                JoinType joinType = ((LogicalJoin<?, ?>) node).getJoinType();
+                if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
+                    return false;
+                }
+            } else {
+                if (((LogicalOlapScan) node).getTable().getKeysType() != KeysType.DUP_KEYS) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private boolean resolveUseFullKeys() {
@@ -778,6 +842,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         }
 
         // Pass 2: build targets, reusing pooled columns where the hidden state expression matches.
+        long minMaxTopK = resolveMinMaxTopK(aggAliases);
         List<IvmAggTarget> aggTargets = new ArrayList<>();
         for (int i = 0; i < aggAliases.size(); i++) {
             Alias origAlias = aggAliases.get(i);
@@ -785,7 +850,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             // The registry chooses the aggregate processor. The processor owns the hidden state set for its
             // function, so adding a new aggregate function should only require a new processor registration.
             IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(
-                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs);
+                    i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs, minMaxTopK);
             aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
 
@@ -900,7 +965,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
 
             resolved.add(new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
                     resolvedVisible, resolvedHidden.build(), target.getValueStateSlot(),
-                    target.visibleColumnNameIsGenerated(), target.getExprArgs()));
+                    target.visibleColumnNameIsGenerated(), target.getExprArgs(),
+                    target.getMinMaxTopK()));
         }
         return resolved;
     }

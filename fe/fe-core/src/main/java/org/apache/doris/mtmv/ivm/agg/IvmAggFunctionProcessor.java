@@ -27,9 +27,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
-import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -63,10 +64,11 @@ public abstract class IvmAggFunctionProcessor {
      * pool, and appended to {@code hiddenAggOutputs}.
      */
     IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
-            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs) {
+            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs,
+            long minMaxTopK) {
         ImmutableMap.Builder<IvmAggStateKey, Alias> hiddenAliases = ImmutableMap.builder();
         for (IvmAggStateKey stateKey : hiddenStateKeys(function)) {
-            AggregateFunction stateFunc = hiddenStateAggregate(stateKey, function);
+            AggregateFunction stateFunc = hiddenStateAggregate(stateKey, function, minMaxTopK);
             IvmAggColumnKey key = IvmAggColumnKey.of(
                     IvmAggFunctionKind.valueOf(stateKey.name()), stateFunc.child(0));
             Slot existingSlot = aggColumnPool.get(key);
@@ -81,7 +83,7 @@ public abstract class IvmAggFunctionProcessor {
             hiddenAggOutputs.add(newAlias);
         }
         return new IvmAggTargetSpec(ordinal, handledFunctionKind(), visibleAlias,
-                hiddenAliases.build(), targetArguments(function));
+                hiddenAliases.build(), targetArguments(function), minMaxTopK);
     }
 
     /** Appends the processor-owned delta aggregate outputs for this target. */
@@ -148,8 +150,14 @@ public abstract class IvmAggFunctionProcessor {
         return ImmutableList.of(function.child(0));
     }
 
-    /** Aggregate function used to materialize one hidden state during normalize. */
-    protected AggregateFunction hiddenStateAggregate(IvmAggStateKey stateKey, AggregateFunction function) {
+    /**
+     * Aggregate function used to materialize one hidden state during normalize.
+     *
+     * <p>{@code minMaxTopK} is the MV's resolved MIN/MAX capacity; only the MIN_TOPK/MAX_TOPK states
+     * read it, the other states ignore it.
+     */
+    protected AggregateFunction hiddenStateAggregate(IvmAggStateKey stateKey, AggregateFunction function,
+            long minMaxTopK) {
         switch (stateKey) {
             case COUNT:
                 return new Count(function.child(0));
@@ -157,10 +165,10 @@ public abstract class IvmAggFunctionProcessor {
                 return new Sum(function.child(0));
             case BITMAP_UNION:
                 return new BitmapUnion(function.child(0));
-            case MIN_COUNT:
-                return new CountAtMin(function.child(0));
-            case MAX_COUNT:
-                return new CountAtMax(function.child(0));
+            case MIN_TOPK:
+                return new TopKMinCount(function.child(0), new BigIntLiteral(minMaxTopK));
+            case MAX_TOPK:
+                return new TopKMaxCount(function.child(0), new BigIntLiteral(minMaxTopK));
             default:
                 throw new IllegalArgumentException("Unsupported IVM aggregate state: " + stateKey);
         }
