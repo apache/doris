@@ -14,3 +14,12 @@
 -- !empty_and_null --
 [1]	\N	[]
 
+-- !capture_column_zero --
+[1]
+
+-- !capture_column_two --
+[1]
+
+-- !nonnullable_body --
+[1, 2]
+
