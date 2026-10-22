@@ -70,8 +70,10 @@ suite("test_ivm_minmax_topk_2") {
         FROM ivm_topk_2_t
         GROUP BY category
     """
-    // CREATE persisted the auto-selected capacity.
-    order_qt_show_create """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mv"""
+    // CREATE persisted the auto-selected capacity. Assert the one property instead of pinning the
+    // whole DDL, whose unrelated defaults would make the golden churn.
+    def autoDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mv"""
+    assertTrue(autoDdl.toString().contains('"ivm_minmax_top_k" = "0"'))
 
     sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mv")
@@ -112,7 +114,8 @@ suite("test_ivm_minmax_topk_2") {
         )
         AS SELECT MIN(score) AS mn FROM ivm_topk_2_mow_t
     """
-    order_qt_mow_show_create """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mow_mv"""
+    def explicitZeroDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mow_mv"""
+    assertTrue(explicitZeroDdl.toString().contains('"ivm_minmax_top_k" = "0"'))
     sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mow_mv")
     ivm_hidden_qt("mow_state_initial", """SELECT * FROM ivm_topk_2_mow_mv""")
