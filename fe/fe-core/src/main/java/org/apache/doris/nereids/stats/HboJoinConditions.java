@@ -108,7 +108,8 @@ public class HboJoinConditions {
      */
     private static Optional<List<String>> keyParts(Join join) {
         Set<String> operands = new TreeSet<>();
-        List<String> pairs = new ArrayList<>();
+        List<String> forward = new ArrayList<>();
+        List<String> backward = new ArrayList<>();
         for (Expression conjunct : join.getHashJoinConjuncts()) {
             if (!(conjunct instanceof EqualTo) && !(conjunct instanceof NullSafeEqual)) {
                 return Optional.empty();
@@ -121,9 +122,36 @@ public class HboJoinConditions {
             operands.add(left.get());
             operands.add(right.get());
             String name = conjunct instanceof NullSafeEqual ? "NullSafeEqual" : "EqualTo";
-            pairs.add(name + "(col(" + canonicalFirst(join, conjunct, left.get(), right.get())
-                    + "),col(" + canonicalSecond(join, conjunct, left.get(), right.get()) + "))");
+            Integer leftSide = sideOf(join, conjunct.child(0));
+            Integer rightSide = sideOf(join, conjunct.child(1));
+            if (leftSide == null || rightSide == null || leftSide.equals(rightSide)) {
+                String first = left.get().compareTo(right.get()) <= 0 ? left.get() : right.get();
+                String second = first.equals(left.get()) ? right.get() : left.get();
+                String pair = name + "(col(" + first + "),col(" + second + "))";
+                forward.add(pair);
+                backward.add(pair);
+            } else {
+                forward.add(leftSide == 0
+                        ? name + "(col(" + left.get() + "),col(" + right.get() + "))"
+                        : name + "(col(" + right.get() + "),col(" + left.get() + "))");
+                backward.add(leftSide == 0
+                        ? name + "(col(" + right.get() + "),col(" + left.get() + "))"
+                        : name + "(col(" + left.get() + "),col(" + right.get() + "))");
+            }
         }
+        if (forward.isEmpty()) {
+            return Optional.empty();
+        }
+        forward.sort(String::compareTo);
+        backward.sort(String::compareTo);
+        // An inner join is commutative, so one global orientation of its two sides is chosen: the pairs are
+        // ordered by side all together, and the lexicographically smaller orientation is the key. Ordering
+        // each pair on its own would lose the incidence of a self join (which operands share a column),
+        // and flipping each pair on its own would lose commutativity. An outer join preserves a side, so
+        // its orientation is fixed (the operand of the left child first).
+        List<String> pairs = isCommutative(join.getJoinType())
+                && String.join(SEP, backward).compareTo(String.join(SEP, forward)) < 0
+                ? backward : forward;
         if (pairs.isEmpty()) {
             return Optional.empty();
         }
@@ -167,38 +195,6 @@ public class HboJoinConditions {
             }
         }
         return String.join(",", identities);
-    }
-
-    /**
-     * The operand which is written first for a pair of the key.
-     *
-     * <p>A join whose sides are not interchangeable (an outer, semi or anti join) orders the operands by
-     * the side they are read from, so the join of the same table with the columns reversed
-     * ({@code a.k = b.v} against {@code a.v = b.k}) keeps two keys, and the same pair written in either
-     * order ({@code b.v = a.k} against {@code a.k = b.v}) keeps one. An inner join is commutative, so
-     * its operands are sorted by their identity: the optimizer may swap its children, and the count of a
-     * self join does not depend on which occurrence is called the left one.
-     */
-    private static String canonicalFirst(Join join, Expression conjunct, String left, String right) {
-        Integer leftSide = sideOf(join, conjunct.child(0));
-        Integer rightSide = sideOf(join, conjunct.child(1));
-        if (isCommutative(join.getJoinType()) || leftSide == null || rightSide == null
-                || leftSide.equals(rightSide)) {
-            return left.compareTo(right) <= 0 ? left : right;
-        }
-        // the operand read from the left child is written first, whichever order the pair was written in
-        return leftSide == 0 ? left : right;
-    }
-
-    /** The operand which is written second for a pair of the key (see {@link #canonicalFirst}). */
-    private static String canonicalSecond(Join join, Expression conjunct, String left, String right) {
-        Integer leftSide = sideOf(join, conjunct.child(0));
-        Integer rightSide = sideOf(join, conjunct.child(1));
-        if (isCommutative(join.getJoinType()) || leftSide == null || rightSide == null
-                || leftSide.equals(rightSide)) {
-            return left.compareTo(right) <= 0 ? right : left;
-        }
-        return leftSide == 0 ? right : left;
     }
 
     /** Whether the operands of an equality are interchangeable without changing the row count. */
