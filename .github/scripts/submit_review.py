@@ -30,6 +30,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from review_github_api import decode_json, redact, run_gh
+
 
 SUBMISSION_FILE = "review-submission.json"
 REJECTION_FILE = "review-submission-rejected.json"
@@ -96,16 +98,7 @@ def validate_submission(value):
 
 
 def diagnostic_text(value):
-    if isinstance(value, bytes):
-        value = value.decode("utf-8", errors="replace")
-    value = value or ""
-    # These are the credentials consumed by gh. Artifacts do not inherit the
-    # GitHub Actions log masker, so remove them before persisting API output.
-    for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
-        token = os.environ.get(name)
-        if token:
-            value = value.replace(token, "[REDACTED]")
-    value = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+)\b", "[REDACTED]", value)
+    value = redact(value)
     return value[:65536] + ("\n[truncated after 65536 characters]" if len(value) > 65536 else "")
 
 
@@ -135,14 +128,14 @@ def api(path, remaining, *, payload=None, paginated=False):
         command += ["--method", "POST", "--input", "-"]
     method = "POST" if payload is not None else "GET"
     try:
-        result = subprocess.run(
+        result = run_gh(
             command, input=json.dumps(payload) if payload is not None else None,
             capture_output=True, text=True, check=True, timeout=min(30, remaining()),
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         raise GitHubAPIError(path, method, error, error.stdout, error.stderr) from None
     try:
-        value = json.loads(result.stdout)
+        value = decode_json(result, command)
     except json.JSONDecodeError as error:
         raise GitHubAPIError(path, method, error, result.stdout, result.stderr) from None
     return [item for page in value for item in page] if paginated else value

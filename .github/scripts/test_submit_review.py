@@ -166,8 +166,10 @@ class FinalReviewTest(unittest.TestCase):
             self.assertEqual("failure", self.verify()["state"])
         self.assertEqual(1, len(self.posts))
         diagnostic = json.loads((self.context / submitter.API_ERRORS_FILE).read_text())
-        self.assertEqual((30, "partial response", "timed out"),
-                         (diagnostic["timeout_seconds"], diagnostic["stdout"], diagnostic["stderr"]))
+        self.assertEqual((30, "partial response"),
+                         (diagnostic["timeout_seconds"], diagnostic["stdout"]))
+        self.assertTrue(diagnostic["stderr"].startswith("timed out"))
+        self.assertIn("timeout=30", diagnostic["stderr"])
 
     def test_runner_failure_keeps_original_post_error(self):
         (self.context / "codex_goal_prompt.txt").write_text("Review the PR")
@@ -626,7 +628,7 @@ class ReviewWorkflowTest(unittest.TestCase):
 class GitHubAPITest(unittest.TestCase):
     def test_read_all_pages_and_bound_timeout(self):
         with mock.patch.object(submitter.subprocess, "run", return_value=SimpleNamespace(
-            stdout='[[{"id":1}], [{"id":2}]]'
+            stderr="", stdout='[[{"id":1}], [{"id":2}]]'
         )) as command:
             self.assertEqual([{"id": 1}, {"id": 2}], submitter.api("reviews", lambda: 7, paginated=True))
         self.assertEqual(7, command.call_args.kwargs["timeout"])
