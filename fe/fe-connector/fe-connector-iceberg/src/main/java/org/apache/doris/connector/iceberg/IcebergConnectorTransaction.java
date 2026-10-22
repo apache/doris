@@ -1469,11 +1469,51 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     @Override
     public void rollback() {
-        // Insert-mode: nothing to undo on the FE side — an uncommitted SDK transaction simply discards
-        // its pending manifests (legacy IcebergTransaction.rollback no-ops the insert path). The rewrite
-        // path's file-list cleanup is a P6.4 procedure concern, out of scope here.
-        LOG.info("Iceberg transaction {} rollback called; uncommitted manifests will be discarded.",
-                transactionId);
+        List<TIcebergCommitData> pending;
+        synchronized (this) {
+            pending = new ArrayList<>(commitDataList);
+            commitDataList.clear();
+        }
+        Table rollbackTable = table;
+        if (rollbackTable == null || pending.isEmpty()) {
+            LOG.info("Iceberg transaction {} rollback called; no external files were reported.",
+                    transactionId);
+            return;
+        }
+
+        Set<String> paths = new HashSet<>();
+        for (TIcebergCommitData data : pending) {
+            if (data != null && data.isSetFilePath() && data.getFilePath() != null
+                    && !data.getFilePath().isEmpty()) {
+                paths.add(data.getFilePath());
+            }
+        }
+        if (paths.isEmpty()) {
+            LOG.info("Iceberg transaction {} rollback called; no external files were reported.",
+                    transactionId);
+            return;
+        }
+
+        try {
+            context.executeAuthenticated(() -> {
+                for (String path : paths) {
+                    try {
+                        rollbackTable.io().deleteFile(path);
+                    } catch (Exception e) {
+                        // Rollback is best-effort. A missing file is already clean, while an IO failure
+                        // must be logged for orphan-file maintenance rather than masking the query error.
+                        LOG.warn("Failed to delete uncommitted Iceberg file {} for transaction {}: {}",
+                                path, transactionId, e.getMessage());
+                    }
+                }
+                return null;
+            });
+            LOG.info("Iceberg transaction {} rollback attempted to delete {} reported external file(s).",
+                    transactionId, paths.size());
+        } catch (Exception e) {
+            LOG.warn("Failed to clean reported Iceberg files for transaction {}: {}", transactionId,
+                    e.getMessage());
+        }
     }
 
     @Override
