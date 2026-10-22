@@ -200,6 +200,9 @@ private:
 class TabletCooldownTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        // The remote filesystem mock does not initialize branch-4.1's file-cache factory.
+        _saved_enable_file_cache = config::enable_file_cache;
+        config::enable_file_cache = false;
         s_fs.reset(
                 new RemoteFileSystemMock("", std::to_string(kResourceId), io::FileSystemType::S3));
         StorageResource resource {s_fs};
@@ -241,7 +244,13 @@ public:
         engine_ref = nullptr;
         exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
+        delete_storage_policy(kStoragePolicyId);
+        delete_storage_resource(kResourceId);
+        config::enable_file_cache = _saved_enable_file_cache;
     }
+
+private:
+    static inline bool _saved_enable_file_cache = false;
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,

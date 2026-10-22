@@ -21,6 +21,8 @@ shuffle_send_rows	bigint	Yes	false	\N	NONE
 shuffle_send_bytes	bigint	Yes	false	\N	NONE
 spill_write_bytes_from_local_storage	bigint	Yes	false	\N	NONE
 spill_read_bytes_from_local_storage	bigint	Yes	false	\N	NONE
+spill_write_bytes_to_remote_storage	bigint	Yes	false	\N	NONE
+spill_read_bytes_from_remote_storage	bigint	Yes	false	\N	NONE
 scan_bytes_from_local_storage	bigint	Yes	false	\N	NONE
 scan_bytes_from_remote_storage	bigint	Yes	false	\N	NONE
 parse_time_ms	int	Yes	false	\N	NONE

@@ -104,6 +104,10 @@ public class AuditEvent {
     public long spillWriteBytesToLocalStorage = -1;
     @AuditField(value = "SpillReadBytesFromLocalStorage", colName = "spill_read_bytes_from_local_storage")
     public long spillReadBytesFromLocalStorage = -1;
+    @AuditField(value = "SpillWriteBytesToRemoteStorage", colName = "spill_write_bytes_to_remote_storage")
+    public long spillWriteBytesToRemoteStorage = -1;
+    @AuditField(value = "SpillReadBytesFromRemoteStorage", colName = "spill_read_bytes_from_remote_storage")
+    public long spillReadBytesFromRemoteStorage = -1;
     @AuditField(value = "ScanBytesFromLocalStorage", colName = "scan_bytes_from_local_storage")
     public long scanBytesFromLocalStorage = -1;
     @AuditField(value = "ScanBytesFromRemoteStorage", colName = "scan_bytes_from_remote_storage")
@@ -345,6 +349,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
             auditEvent.spillReadBytesFromLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillWriteBytesToRemoteStorage(long bytes) {
+            auditEvent.spillWriteBytesToRemoteStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillReadBytesFromRemoteStorage(long bytes) {
+            auditEvent.spillReadBytesFromRemoteStorage = bytes;
             return this;
         }
 

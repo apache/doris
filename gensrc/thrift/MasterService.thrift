@@ -123,6 +123,9 @@ struct TReportRequest {
     15: optional list<AgentService.TIndexPolicy> index_policy
     // Running query/loading tasks
     16: optional i64 running_tasks
+    // Bytes of query spill the BE currently holds in object storage (cloud mode,
+    // spill_storage_type=s3), sent with the disk report and kept by the master FE for SHOW DATA.
+    17: optional i64 remote_spill_bytes
 }
 
 struct TMasterResult {
