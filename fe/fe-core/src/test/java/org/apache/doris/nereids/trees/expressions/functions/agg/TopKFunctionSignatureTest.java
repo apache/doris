@@ -54,16 +54,9 @@ class TopKFunctionSignatureTest {
             FunctionSignature signature = function.getSignature();
             Assertions.assertEquals(IntegerType.INSTANCE, signature.getArgType(0));
             Assertions.assertEquals(BigIntType.INSTANCE, signature.getArgType(1));
-            StructType resultType = (StructType) signature.returnType;
-            Assertions.assertEquals(2, resultType.getFields().size());
-            Assertions.assertFalse(resultType.getField("values").isNullable());
-            Assertions.assertTrue(resultType.getField("values").getDataType() instanceof ArrayType);
-            StructType pairType = (StructType) ((ArrayType) resultType.getField("values").getDataType())
-                    .getItemType();
-            assertPairType(IntegerType.INSTANCE, pairType);
-            // bound is nullable even for a NOT NULL input type, because "not truncated" is a NULL.
-            Assertions.assertTrue(resultType.getField("bound").isNullable());
-            Assertions.assertEquals(IntegerType.INSTANCE, resultType.getField("bound").getDataType());
+            // The aggregate returns the sorted list itself; truncation is inferred by the caller.
+            ArrayType resultType = (ArrayType) signature.returnType;
+            assertPairType(IntegerType.INSTANCE, (StructType) resultType.getItemType());
             Assertions.assertFalse(function.nullable());
         }
     }

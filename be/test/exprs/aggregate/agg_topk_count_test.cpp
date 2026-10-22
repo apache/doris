@@ -54,15 +54,12 @@ AggregateFunctionPtr create_function(AggregateFunctionSimpleFactory& factory,
 struct TopKResult {
     std::vector<int32_t> values;
     std::vector<int64_t> counts;
-    bool bound_is_null = true;
-    int32_t bound = 0;
 };
 
 TopKResult read_result(const IColumn& column) {
     TopKResult result;
-    const auto& result_struct = assert_cast<const ColumnStruct&>(column);
-    const auto& values_column = assert_cast<const ColumnArray&>(result_struct.get_column(0));
-    const auto& pair_nullable = assert_cast<const ColumnNullable&>(values_column.get_data());
+    const auto& array = assert_cast<const ColumnArray&>(column);
+    const auto& pair_nullable = assert_cast<const ColumnNullable&>(array.get_data());
     const auto& pair_column = assert_cast<const ColumnStruct&>(pair_nullable.get_nested_column());
     const auto& value_column = assert_cast<const ColumnInt32&>(pair_column.get_column(0));
     const auto& count_column = assert_cast<const ColumnInt64&>(pair_column.get_column(1));
@@ -70,12 +67,6 @@ TopKResult read_result(const IColumn& column) {
         EXPECT_EQ(pair_nullable.get_null_map_data()[i], 0);
         result.values.push_back(value_column.get_element(i));
         result.counts.push_back(count_column.get_element(i));
-    }
-    const auto& bound_column = assert_cast<const ColumnNullable&>(result_struct.get_column(1));
-    result.bound_is_null = bound_column.is_null_at(0);
-    if (!result.bound_is_null) {
-        result.bound =
-                assert_cast<const ColumnInt32&>(bound_column.get_nested_column()).get_element(0);
     }
     return result;
 }
@@ -118,18 +109,14 @@ TEST(TopKCountTest, MinAndMaxWithTruncation) {
             aggregate(create_function(factory, "topk_min_count", argument_types), arena, input, 2);
     EXPECT_EQ(min_result.values, (std::vector<int32_t> {1, 2}));
     EXPECT_EQ(min_result.counts, (std::vector<int64_t> {3, 1}));
-    EXPECT_FALSE(min_result.bound_is_null);
-    EXPECT_EQ(min_result.bound, 2);
 
     auto max_result =
             aggregate(create_function(factory, "topk_max_count", argument_types), arena, input, 2);
     EXPECT_EQ(max_result.values, (std::vector<int32_t> {4, 3}));
     EXPECT_EQ(max_result.counts, (std::vector<int64_t> {1, 2}));
-    EXPECT_FALSE(max_result.bound_is_null);
-    EXPECT_EQ(max_result.bound, 3);
 }
 
-TEST(TopKCountTest, NotTruncatedKeepsBoundNull) {
+TEST(TopKCountTest, ExactlyKDistinctValues) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_topk_count(factory);
     DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
@@ -141,7 +128,6 @@ TEST(TopKCountTest, NotTruncatedKeepsBoundNull) {
                             {1, 2, 2}, 2);
     EXPECT_EQ(result.values, (std::vector<int32_t> {1, 2}));
     EXPECT_EQ(result.counts, (std::vector<int64_t> {1, 2}));
-    EXPECT_TRUE(result.bound_is_null);
 }
 
 TEST(TopKCountTest, KZeroTracksExtremeOnly) {
@@ -153,15 +139,13 @@ TEST(TopKCountTest, KZeroTracksExtremeOnly) {
 
     auto min_result = aggregate(create_function(factory, "topk_min_count", argument_types), arena,
                                 {5, 1, 9}, 0);
-    EXPECT_TRUE(min_result.values.empty());
-    EXPECT_FALSE(min_result.bound_is_null);
-    EXPECT_EQ(min_result.bound, 1);
+    EXPECT_EQ(min_result.values, (std::vector<int32_t> {1}));
+    EXPECT_EQ(min_result.counts, (std::vector<int64_t> {1}));
 
     auto max_result = aggregate(create_function(factory, "topk_max_count", argument_types), arena,
                                 {5, 1, 9}, 0);
-    EXPECT_TRUE(max_result.values.empty());
-    EXPECT_FALSE(max_result.bound_is_null);
-    EXPECT_EQ(max_result.bound, 9);
+    EXPECT_EQ(max_result.values, (std::vector<int32_t> {9}));
+    EXPECT_EQ(max_result.counts, (std::vector<int64_t> {1}));
 }
 
 TEST(TopKCountTest, EmptyInput) {
@@ -175,7 +159,6 @@ TEST(TopKCountTest, EmptyInput) {
         for (int64_t k : {0, 4}) {
             auto result = aggregate(create_function(factory, name, argument_types), arena, {}, k);
             EXPECT_TRUE(result.values.empty());
-            EXPECT_TRUE(result.bound_is_null);
         }
     }
 }
@@ -217,19 +200,15 @@ TEST(TopKCountTest, MergePartialStates) {
         return result;
     };
 
-    // MIN: {1:1, 5:2} + {2:2, 9:1} -> the first two are {1, 2}; the k-th value is the new bound.
+    // MIN: {1:1, 5:2} + {2:2, 9:1} -> the first two are {1, 2}.
     TopKResult min_merged = merge_states("topk_min_count", {5, 1, 5}, {2, 2, 9}, 2);
     EXPECT_EQ(min_merged.values, (std::vector<int32_t> {1, 2}));
     EXPECT_EQ(min_merged.counts, (std::vector<int64_t> {1, 2}));
-    EXPECT_FALSE(min_merged.bound_is_null);
-    EXPECT_EQ(min_merged.bound, 2);
 
-    // MAX: {5:2, 1:1} + {9:1, 2:2} -> {9, 5}, the 2nd largest is the new bound.
+    // MAX: {5:2, 1:1} + {9:1, 2:2} -> {9, 5}.
     TopKResult max_merged = merge_states("topk_max_count", {1, 5, 5}, {9, 2, 2}, 2);
     EXPECT_EQ(max_merged.values, (std::vector<int32_t> {9, 5}));
     EXPECT_EQ(max_merged.counts, (std::vector<int64_t> {1, 2}));
-    EXPECT_FALSE(max_merged.bound_is_null);
-    EXPECT_EQ(max_merged.bound, 5);
 }
 
 TEST(TopKCountTest, SerializeDeserializeRoundTrip) {
@@ -275,8 +254,6 @@ TEST(TopKCountTest, SerializeDeserializeRoundTrip) {
         TopKResult target_values = read_result(*target_result);
         EXPECT_EQ(source_values.values, target_values.values);
         EXPECT_EQ(source_values.counts, target_values.counts);
-        EXPECT_EQ(source_values.bound_is_null, target_values.bound_is_null);
-        EXPECT_EQ(source_values.bound, target_values.bound);
 
         function->destroy(source);
         function->destroy(target);
@@ -348,7 +325,6 @@ TEST(TopKCountTest, MergeOverflowIsReported) {
         BufferWritable writer(*serialized);
         writer.write_binary(true);                    // has_k
         writer.write_binary(static_cast<int64_t>(2)); // k
-        writer.write_binary(false);                   // has_bound
         writer.write_binary(static_cast<int64_t>(1)); // entry count
         int64_t size_bytes = value_type->get_uncompressed_serialized_bytes(*values, 0);
         writer.write_binary(size_bytes);
@@ -435,7 +411,6 @@ TEST(TopKCountTest, NullValueRowsAreIgnored) {
     TopKResult result = read_result(*result_column);
     EXPECT_EQ(result.values, (std::vector<int32_t> {3}));
     EXPECT_EQ(result.counts, (std::vector<int64_t> {2}));
-    EXPECT_TRUE(result.bound_is_null);
 
     function->destroy(place);
 }

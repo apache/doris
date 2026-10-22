@@ -64,10 +64,10 @@ template <template <PrimitiveType> class FunctionTemplate>
 AggregateFunctionPtr create_topk_count(const std::string& name, const DataTypes& argument_types,
                                        const bool result_is_nullable,
                                        const AggregateFunctionAttr& attr) {
-    // The function always returns a non-nullable struct, the same contract the generic nullable
+    // The function always returns a non-nullable array, the same contract the generic nullable
     // adapter enforced.
     if (!attr.is_foreach && result_is_nullable) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "{} must return a non-nullable struct", name);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "{} must return a non-nullable array", name);
     }
     auto type = argument_types[0]->get_primitive_type();
     if (type == TYPE_CHAR || type == TYPE_STRING || type == TYPE_JSONB) {
