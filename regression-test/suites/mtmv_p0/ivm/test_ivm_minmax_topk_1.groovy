@@ -74,8 +74,10 @@ suite("test_ivm_minmax_topk_1") {
         return taskResult[0]
     }
 
-    // The resolved capacity is persisted at CREATE.
-    order_qt_show_create """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
+    // The resolved capacity is persisted at CREATE. Assert the one property instead of pinning the
+    // whole DDL, whose unrelated defaults would make the golden churn.
+    def createDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
+    assertTrue(createDdl.toString().contains('"ivm_minmax_top_k" = "2"'))
 
     sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
@@ -132,7 +134,8 @@ suite("test_ivm_minmax_topk_1") {
 
     // A different capacity cannot be interpreted against the old state: ALTER rebuilds the MV.
     sql """ALTER MATERIALIZED VIEW ivm_topk_1_mv SET ("ivm_minmax_top_k" = "4")"""
-    order_qt_show_create_after_alter """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
+    def alteredDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
+    assertTrue(alteredDdl.toString().contains('"ivm_minmax_top_k" = "4"'))
     sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     ivm_hidden_qt("state_after_alter", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
