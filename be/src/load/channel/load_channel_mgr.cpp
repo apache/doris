@@ -65,8 +65,10 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
 }
 
 size_t LoadChannelMgr::num_active_channels() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return _load_channels.size();
+    // Construction can release the last QueryContext and block on spill cleanup.
+    // A busy manager counts as pending work so shutdown can still check its deadline.
+    std::unique_lock<std::mutex> lock(_lock, std::try_to_lock);
+    return lock.owns_lock() ? _load_channels.size() : 1;
 }
 
 void LoadChannelMgr::stop() {
