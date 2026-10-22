@@ -3533,11 +3533,8 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
             [](const segment_v2::SegmentSharedPtr& segment, const TabletSchema& schema,
                SlotDescriptor* slot, const std::vector<uint32_t>& row_ids, MutableColumnPtr& result,
                StorageReadOptions& read_options, ColumnIteratorUPtr& iterator) -> Status {
-        for (const uint32_t row_id : row_ids) {
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(schema, slot, row_id, result,
-                                                            read_options, iterator));
-        }
-        return Status::OK();
+        return segment->seek_and_read_by_rowid(schema, slot, row_ids, result, read_options,
+                                               iterator);
     };
     ASSERT_FALSE(_tablet_schema->column(0).variant_is_v2());
     for (size_t mode = 0; mode < 2; ++mode) {
