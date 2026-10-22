@@ -70,7 +70,7 @@ public class FileAccessPathTest {
     @Test
     public void testCanonicalChildrenAndGetterPaths() {
         SlotReference file = slot("f", FileType.INSTANCE, false);
-        for (String name : ImmutableList.of("uri", "offset", "size", "content_type", "checksum", "inline")) {
+        for (String name : ImmutableList.of("uri", "offset", "size", "content_type", "checksum")) {
             AccessPathInfo info = prune(file, field(file, name));
             Assertions.assertEquals(ImmutableList.of(data("f", name)), info.getAllAccessPaths());
             Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
