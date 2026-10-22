@@ -82,6 +82,14 @@ protected:
     std::unique_ptr<LoadChannelMgr> _mgr;
 };
 
+TEST_F(LoadChannelMgrTest, GracefulShutdownCountsReceiverUntilFinish) {
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+    auto channel = create_channel();
+    EXPECT_EQ(_mgr->num_active_channels(), 1);
+    _mgr->_finish_load_channel(channel);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
+
 TEST_F(LoadChannelMgrTest, FailedBatchCancelsRetainedChannelAndCachesReason) {
     auto channel = create_channel();
     PTabletWriterAddBlockRequest request;

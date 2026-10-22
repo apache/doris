@@ -64,6 +64,11 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     });
 }
 
+size_t LoadChannelMgr::num_active_channels() {
+    std::lock_guard<std::mutex> lock(_lock);
+    return _load_channels.size();
+}
+
 void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
