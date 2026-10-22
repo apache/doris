@@ -29,6 +29,7 @@ class LambdaFunctionFactory;
 void register_function_array_map(LambdaFunctionFactory& factory);
 void register_function_array_filter(LambdaFunctionFactory& factory);
 void register_function_array_sort(LambdaFunctionFactory& factory);
+void register_function_array_sorted_merge(LambdaFunctionFactory& factory);
 
 class LambdaFunctionFactory {
     using Creator = std::function<LambdaFunctionPtr()>;
@@ -64,6 +65,7 @@ public:
             register_function_array_map(instance);
             register_function_array_filter(instance);
             register_function_array_sort(instance);
+            register_function_array_sorted_merge(instance);
         });
         return instance;
     }

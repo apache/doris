@@ -118,7 +118,7 @@ public abstract class TopKCountFunction extends NotNullableAggregateFunction
         return dataType;
     }
 
-    /** The pair element shared by the state column, the aggregate result and topk_merge_*. */
+    /** The pair element shared by the state column and the aggregate result. */
     public static StructType pairType(DataType valueType) {
         return new StructType(ImmutableList.of(
                 new StructField("value", valueType, false, ""),
