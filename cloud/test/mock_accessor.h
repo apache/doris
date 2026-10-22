@@ -91,7 +91,7 @@ private:
     std::set<std::string> objects_;
 };
 
-inline MockAccessor::MockAccessor(std::string uri) : StorageVaultAccessor(AccessorType::MOCK) {
+inline MockAccessor::MockAccessor(std::string uri) : StorageVaultAccessor(AccessorType::MOCK, uri) {
     uri_ = std::move(uri);
 }
 

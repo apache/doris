@@ -77,10 +77,9 @@ private:
 
     HdfsSPtr fs_;
 
+    // The inherited `uri_` is fs_name/prefix, e.g. hdfs://localhost:8020/test_prefix. It must not
+    // be shadowed here, otherwise `uri()` of the base class returns an empty string.
     std::string prefix_; // Either be empty or start with '/' if length > 1
-    // format: fs_name/prefix/
-    // e.g.: hdfs://localhost:8020/test_prefix/
-    std::string uri_;
 };
 
 } // namespace doris::cloud

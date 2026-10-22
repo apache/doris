@@ -1073,6 +1073,12 @@ int InstanceChecker::do_inverted_check() {
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            if (stopped()) {
+                // A stop during the rowset load of a tablet leaves the cache invalid, so each
+                // remaining object of the tablet would start another rowset meta read; stop here
+                LOG(INFO) << "inverted check stopped, instance_id=" << instance_id_;
+                return -1;
+            }
             const auto& path = file->path;
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic

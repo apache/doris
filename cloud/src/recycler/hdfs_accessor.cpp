@@ -325,11 +325,24 @@ private:
     std::vector<DirEntries> level_dirs_;
 };
 
-HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
-        : StorageVaultAccessor(AccessorType::HDFS), info_(info), prefix_(info.prefix()) {
-    if (!prefix_.empty() && prefix_[0] != '/') {
-        prefix_.insert(prefix_.begin(), '/');
+namespace {
+
+// Either empty or starts with '/', e.g. "p1" and "/p1" are the same directory
+std::string accessor_prefix(const HdfsVaultInfo& info) {
+    std::string prefix = info.prefix();
+    if (!prefix.empty() && prefix[0] != '/') {
+        prefix.insert(prefix.begin(), '/');
     }
+    return prefix;
+}
+
+} // namespace
+
+HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
+        : StorageVaultAccessor(AccessorType::HDFS,
+                               info.build_conf().fs_name() + accessor_prefix(info)),
+          info_(info),
+          prefix_(accessor_prefix(info)) {
     uri_ = info.build_conf().fs_name() + prefix_;
 }
 

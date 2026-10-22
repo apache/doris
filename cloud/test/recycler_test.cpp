@@ -5343,6 +5343,71 @@ TEST(CheckerTest, inverted_check_rowset_meta_read_error_is_not_leak) {
     ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
 }
 
+TEST(CheckerTest, inverted_check_stops_when_stopped) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+    for (int v = 0; v < 3; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
+    }
+
+    // The checker is stopped while the rowsets of the first object's tablet are being read
+    int rowset_reads = 0;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [&](auto&& args) {
+                ++rowset_reads;
+                checker.stop();
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // No more objects are checked, so no more rowset reads are started
+    ASSERT_EQ(checker.do_inverted_check(), -1);
+    ASSERT_EQ(rowset_reads, 1);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 1);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+}
+
+#ifdef ENABLE_HDFS_STORAGE_VAULT
+TEST(HdfsAccessorLocationTest, location) {
+    auto make_info = [](const std::string& fs_name, const std::string& prefix) {
+        HdfsVaultInfo info;
+        info.set_prefix(prefix);
+        info.mutable_build_conf()->set_fs_name(fs_name);
+        return info;
+    };
+    // No init and no HDFS needed: the location only depends on the configuration. It lives here
+    // because hdfs_accessor_test skips everything without a test HDFS.
+    auto info1 = make_info("hdfs://nn1:8020", "p1");
+    auto info1_again = make_info("hdfs://nn1:8020", "p1");
+    auto info2 = make_info("hdfs://nn1:8020", "p2");
+    auto info3 = make_info("hdfs://nn2:8020", "p1");
+    HdfsAccessor accessor1(info1);
+    HdfsAccessor accessor1_again(info1_again);
+    HdfsAccessor accessor2(info2);
+    HdfsAccessor accessor3(info3);
+
+    EXPECT_EQ(accessor1.uri(), "hdfs://nn1:8020/p1");
+    EXPECT_EQ(accessor1.location(), accessor1.uri());
+    EXPECT_EQ(accessor1.location(), accessor1_again.location());
+    EXPECT_NE(accessor1.location(), accessor2.location());
+    EXPECT_NE(accessor1.location(), accessor3.location());
+}
+#endif
+
 // TODO(Xiaocc): We need one mocked accessor which provides one async stream like list function
 // to do the following test
 TEST(CheckerTest, DISABLED_abnormal_inverted_check) {

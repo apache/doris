@@ -111,9 +111,6 @@ public:
     // returns 0 for success otherwise error
     int init();
 
-    // endpoint, bucket and prefix as configured, `uri()` is normalized
-    std::string location() const override;
-
     int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
 
     int delete_directory(const std::string& dir_path) override;
