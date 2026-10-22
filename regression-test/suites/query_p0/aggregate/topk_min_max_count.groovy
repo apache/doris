@@ -66,7 +66,8 @@ suite("topk_min_max_count") {
         (21, 'e', 0,    0,  's',  0.00, NULL, 1.0),
         (22, 'e', 0,    0,  's',  0.00, NULL, CAST('NaN' AS DOUBLE))"""
 
-    // k = 0: no list, bound is the extreme value of this side (NULL when no non-NULL input).
+    // k = 0: the array holds the extreme value of this side and its row count; it is empty when
+    // no non-NULL input was seen.
     order_qt_min_k0 """
         SELECT grp, topk_min_count(i, 0) FROM topk_min_max_count_t GROUP BY grp
     """
@@ -93,7 +94,7 @@ suite("topk_min_max_count") {
         SELECT grp, topk_max_count(i, 2) FROM topk_min_max_count_t GROUP BY grp
     """
 
-    // k larger than the distinct count: bound stays NULL (not truncated).
+    // k larger than the distinct count: the array holds every distinct value.
     order_qt_min_k8 """
         SELECT grp, topk_min_count(i, 8) FROM topk_min_max_count_t GROUP BY grp
     """
@@ -102,7 +103,7 @@ suite("topk_min_max_count") {
         SELECT grp, topk_max_count(i, 8) FROM topk_min_max_count_t GROUP BY grp
     """
 
-    // Empty input and all-NULL groups return (empty list, NULL bound), never NULL.
+    // Empty input and all-NULL groups return an empty array, never NULL.
     order_qt_min_empty_input """
         SELECT topk_min_count(i, 2) FROM topk_min_max_count_t WHERE id < 0
     """
@@ -111,7 +112,7 @@ suite("topk_min_max_count") {
         SELECT grp, topk_min_count(i, 2) FROM topk_min_max_count_t WHERE grp = 'c' GROUP BY grp
     """
 
-    // A NOT NULL input type still has a nullable bound.
+    // A NOT NULL input type behaves the same.
     order_qt_min_not_null_type """
         SELECT grp, topk_min_count(ni, 2) FROM topk_min_max_count_t GROUP BY grp
     """
@@ -120,7 +121,7 @@ suite("topk_min_max_count") {
         SELECT topk_min_count(ni, 2) FROM topk_min_max_count_t WHERE id < 0
     """
 
-    // The value list and bound follow MIN/MAX for strings, decimals and datetimes.
+    // The array follows MIN/MAX for strings, decimals and datetimes.
     order_qt_min_string """
         SELECT grp, topk_min_count(s, 2), topk_max_count(s, 2)
         FROM topk_min_max_count_t GROUP BY grp
@@ -140,6 +141,16 @@ suite("topk_min_max_count") {
     order_qt_double_special_values """
         SELECT grp, topk_min_count(f, 8), topk_max_count(f, 8)
         FROM topk_min_max_count_t WHERE grp = 'e' GROUP BY grp
+    """
+
+    // The array can be inspected with the ordinary array functions, so its shape is
+    // ARRAY<STRUCT<value,count>> rather than a dedicated type.
+    order_qt_result_shape """
+        SELECT grp,
+               cardinality(topk_min_count(i, 2)),
+               element_at(topk_min_count(i, 2), 1).value,
+               element_at(topk_min_count(i, 2), 1).count
+        FROM topk_min_max_count_t GROUP BY grp
     """
 
     // min/max of the state list agrees with MIN/MAX for groups that fit in k.

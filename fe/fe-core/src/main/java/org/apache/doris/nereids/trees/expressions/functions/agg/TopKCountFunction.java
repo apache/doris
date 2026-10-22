@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -41,12 +40,11 @@ import java.util.List;
 /**
  * Shared implementation of {@code topk_min_count(x, k)} and {@code topk_max_count(x, k)}.
  *
- * <p>Both aggregates return {@code STRUCT<values ARRAY<STRUCT<value T, count BIGINT>>, bound T>}.
- * {@code values} holds at most k distinct non-NULL values ordered by value (ascending for MIN,
- * descending for MAX) with the number of rows equal to each value. {@code bound} is NULL when the
- * group was not truncated; otherwise it is the k-th value and {@code bound IS NOT NULL} is the
- * truncation flag. With {@code k = 0} no list is built and {@code bound} is the extreme value seen
- * on this side (NULL when no non-NULL input was seen).
+ * <p>Both aggregates return {@code ARRAY<STRUCT<value T, count BIGINT>>}: at most k distinct
+ * non-NULL values ordered by value (ascending for MIN, descending for MAX) with the number of rows
+ * equal to each value. There is no truncation flag; the caller infers it from the length (a list of
+ * exactly k entries is conservatively treated as possibly truncated). With {@code k = 0} the array
+ * holds at most the extreme value and its row count.
  */
 public abstract class TopKCountFunction extends NotNullableAggregateFunction
         implements CustomSignature, NullIgnoringAggregateFunction {
@@ -104,13 +102,10 @@ public abstract class TopKCountFunction extends NotNullableAggregateFunction
 
     @Override
     public Expression resultForEmptyInput() {
-        ArrayType valuesType = (ArrayType) ((StructType) getDataType()).getField("values").getDataType();
-        return new StructLiteral(ImmutableList.of(
-                new ArrayLiteral(new ArrayList<>(), valuesType),
-                NullLiteral.INSTANCE), getDataType());
+        return new ArrayLiteral(new ArrayList<>(), getDataType());
     }
 
-    /** The value type stored in the list and in bound; DECIMALV2 is replaced by its V3 form. */
+    /** The value type stored in the list; DECIMALV2 is replaced by its V3 form. */
     public static DataType normalizeValueType(DataType dataType) {
         if (dataType instanceof DecimalV2Type) {
             return DecimalV3Type.forType(dataType);
@@ -125,13 +120,9 @@ public abstract class TopKCountFunction extends NotNullableAggregateFunction
                 new StructField("count", BigIntType.INSTANCE, false, "")));
     }
 
-    /**
-     * Builds {@code STRUCT<values ARRAY<STRUCT<value T, count BIGINT>>, bound T NULL>}.
-     */
-    public static StructType resultType(DataType valueType) {
-        return new StructType(ImmutableList.of(
-                new StructField("values", ArrayType.of(pairType(valueType)), false, ""),
-                new StructField("bound", valueType, true, "")));
+    /** The aggregate returns the sorted list itself; truncation is inferred by the caller. */
+    public static ArrayType resultType(DataType valueType) {
+        return ArrayType.of(pairType(valueType));
     }
 
     /**

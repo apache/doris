@@ -51,16 +51,14 @@ constexpr int64_t MAX_TOPK_K = 65536;
  *
  * The entries are held as two parallel structures: a column with the distinct values (sorted
  * ascending for MIN / descending for MAX, at most k entries) and their non-negative int64 counts.
- * Only values with count > 0 are kept. `bound` is a one-row column with the extreme value seen
- * when k == 0, or the k-th value once the list was truncated when k >= 1; `has_bound` is the
- * truncation flag, and for k >= 1 `bound IS NULL` means "the list holds every distinct value".
+ * Only values with count > 0 are kept. With k == 0 the list holds at most the single extreme
+ * value and its row count; the caller derives truncation from the list length, so the state
+ * carries no separate bound.
  */
 struct AggregateTopKCountData {
     const DataTypePtr value_type;
     bool has_k = false;
     int64_t k = 0;
-    bool has_bound = false;
-    MutableColumnPtr bound_column;
     MutableColumnPtr value_column;
     // Tracked so that the per-group counts participate in query memory accounting: at the maximum
     // k this buffer alone is 512 KiB per group.
@@ -68,7 +66,6 @@ struct AggregateTopKCountData {
 
     explicit AggregateTopKCountData(const DataTypes& argument_types_)
             : value_type(remove_nullable(argument_types_[0])),
-              bound_column(value_type->create_column()),
               value_column(value_type->create_column()) {}
 
     AggregateTopKCountData(const AggregateTopKCountData&) = delete;
@@ -78,14 +75,13 @@ struct AggregateTopKCountData {
 /**
  * topk_min_count(x, k) / topk_max_count(x, k).
  *
- * Result: STRUCT<values ARRAY<STRUCT<value T, count BIGINT>>, bound T NULL>. NULL inputs are
- * ignored (the nullable-argument wrapper never calls add for them). `values` is ordered by value
- * (ascending for MIN), holds at most k distinct values, and `bound` is the truncation point: the
- * k-th value when more than k distinct values were seen, otherwise NULL.
+ * Result: ARRAY<STRUCT<value T, count BIGINT>>. NULL inputs are ignored (the nullable-argument
+ * wrapper never calls add for them). The array is ordered by value (ascending for MIN), holds at
+ * most k distinct values with count > 0, and carries no truncation flag: the caller infers it
+ * from the length (a list of exactly k entries is treated as possibly truncated).
  *
- * With k = 0 no list is built: `values` is empty and `bound` is the extreme value seen on this
- * side (NULL when there was no non-NULL input), which lets the append-only IVM path compute
- * MIN/MAX from the delta extreme alone.
+ * With k = 0 the array holds at most the extreme value and its row count, which lets the
+ * append-only IVM path compute MIN/MAX from the delta extreme alone.
  */
 template <PrimitiveType T, bool IsMin>
 class AggregateFunctionTopKCount final
@@ -143,7 +139,7 @@ public:
                             other.k);
         }
         if (state.k == 0) {
-            merge_bound(state, other);
+            merge_extreme(state, other);
             return;
         }
         merge_values(state, other);
@@ -153,10 +149,6 @@ public:
         const auto& state = Base::data(place);
         buf.write_binary(state.has_k);
         buf.write_binary(state.k);
-        buf.write_binary(state.has_bound);
-        if (state.has_bound) {
-            write_column(buf, *state.bound_column);
-        }
         auto size = static_cast<int64_t>(state.counts.size());
         buf.write_binary(size);
         write_column(buf, *state.value_column);
@@ -169,12 +161,6 @@ public:
         auto& state = Base::data(place);
         buf.read_binary(state.has_k);
         buf.read_binary(state.k);
-        buf.read_binary(state.has_bound);
-        if (state.has_bound) {
-            state.bound_column = read_column(buf);
-        } else {
-            state.bound_column = state.value_type->create_column();
-        }
         int64_t size = 0;
         buf.read_binary(size);
         state.value_column = read_column(buf);
@@ -185,11 +171,10 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& state = Base::data(place);
-        auto& result_struct = assert_cast<ColumnStruct&>(to);
-        auto& values_column = assert_cast<ColumnArray&>(result_struct.get_column(0));
-        // The array element is nullable in the planned type (ARRAY<STRUCT<...>> defaults to
-        // contains_null = true), but a produced entry never is.
-        auto& pair_nullable = assert_cast<ColumnNullable&>(values_column.get_data());
+        auto& result_array = assert_cast<ColumnArray&>(to);
+        // The array element is nullable in the planned type (ArrayType contains_null), but a
+        // produced entry never is.
+        auto& pair_nullable = assert_cast<ColumnNullable&>(result_array.get_data());
         auto& pair_column = assert_cast<ColumnStruct&>(pair_nullable.get_nested_column());
         auto& value_column = pair_column.get_column(0);
         auto& count_column = assert_cast<ColumnInt64&>(pair_column.get_column(1));
@@ -198,16 +183,7 @@ public:
             count_column.get_data().push_back(state.counts[i]);
             pair_nullable.get_null_map_data().push_back(0);
         }
-        values_column.get_offsets().push_back(pair_column.size());
-
-        auto& bound_column = assert_cast<ColumnNullable&>(result_struct.get_column(1));
-        if (state.has_bound) {
-            bound_column.get_nested_column().insert_from(*state.bound_column, 0);
-            bound_column.get_null_map_data().push_back(0);
-        } else {
-            bound_column.get_nested_column().insert_default();
-            bound_column.get_null_map_data().push_back(1);
-        }
+        result_array.get_offsets().push_back(pair_column.size());
     }
 
     static DataTypePtr make_return_type(const DataTypePtr& value_type) {
@@ -216,9 +192,7 @@ public:
                 Strings {"value", "count"});
         // ArrayType defaults contains_null to true on the FE side, so the pair element is nullable
         // in the planned type even though the aggregate never produces a NULL entry.
-        auto values_type = std::make_shared<DataTypeArray>(make_nullable(pair_type));
-        return std::make_shared<DataTypeStruct>(DataTypes {values_type, make_nullable(value_type)},
-                                                Strings {"values", "bound"});
+        return std::make_shared<DataTypeArray>(make_nullable(pair_type));
     }
 
 private:
@@ -276,12 +250,6 @@ private:
         return result;
     }
 
-    static void set_bound_from_value(AggregateTopKCountData& state, size_t index) {
-        state.bound_column->clear();
-        state.bound_column->insert_from(*state.value_column, index);
-        state.has_bound = true;
-    }
-
     /// Inserts (value, count) at `pos`, keeping the value column sorted by value.
     static void insert_entry(AggregateTopKCountData& state, size_t pos, const IColumn& column,
                              size_t row_num, int64_t count) {
@@ -308,16 +276,18 @@ private:
     /// k == 0 fast path: only the extreme value is tracked.
     static void add_value(AggregateTopKCountData& state, const IColumn& column, size_t row_num) {
         if (state.k == 0) {
-            if (!state.has_bound) {
-                state.bound_column->clear();
-                state.bound_column->insert_from(column, row_num);
-                state.has_bound = true;
+            if (state.counts.empty()) {
+                state.value_column->insert_from(column, row_num);
+                state.counts.push_back(1);
                 return;
             }
-            int cmp = compare_at(column, row_num, *state.bound_column, 0);
-            if (IsMin ? cmp < 0 : cmp > 0) {
-                state.bound_column->clear();
-                state.bound_column->insert_from(column, row_num);
+            int cmp = compare_at(column, row_num, *state.value_column, 0);
+            if (cmp == 0) {
+                state.counts[0] = checked_add(state.counts[0], 1);
+            } else if (IsMin ? cmp < 0 : cmp > 0) {
+                state.value_column->clear();
+                state.value_column->insert_from(column, row_num);
+                state.counts[0] = 1;
             }
             return;
         }
@@ -347,44 +317,41 @@ private:
         // rejected distinct value (ascending inputs at k = 65536 otherwise copy ~k values each).
         if (left == state.value_column->size() &&
             std::cmp_greater_equal(state.value_column->size(), state.k)) {
-            if (!state.has_bound) {
-                set_bound_from_value(state, state.value_column->size() - 1);
-            }
             return;
         }
 
         insert_entry(state, left, column, row_num, 1);
         if (static_cast<int64_t>(state.value_column->size()) > state.k) {
-            // More than k distinct values: drop the worst one. The k-th (last kept) value is the
-            // new truncation point, even when the value just inserted was the dropped one.
+            // More than k distinct values: drop the worst one.
             state.value_column->pop_back(1);
             state.counts.pop_back();
-            set_bound_from_value(state, state.value_column->size() - 1);
         }
     }
 
-    static void merge_bound(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
-        if (!other.has_bound) {
+    /// k == 0: the state holds at most the extreme value and its count.
+    static void merge_extreme(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
+        if (other.counts.empty()) {
             return;
         }
-        if (!state.has_bound) {
-            state.bound_column->clear();
-            state.bound_column->insert_from(*other.bound_column, 0);
-            state.has_bound = true;
+        if (state.counts.empty()) {
+            state.value_column->insert_from(*other.value_column, 0);
+            state.counts.push_back(other.counts[0]);
             return;
         }
-        int cmp = compare_at(*other.bound_column, 0, *state.bound_column, 0);
-        if (IsMin ? cmp < 0 : cmp > 0) {
-            state.bound_column->clear();
-            state.bound_column->insert_from(*other.bound_column, 0);
+        int cmp = compare_at(*state.value_column, 0, *other.value_column, 0);
+        if (cmp == 0) {
+            state.counts[0] = checked_add(state.counts[0], other.counts[0]);
+        } else if (IsMin ? cmp > 0 : cmp < 0) {
+            state.value_column->clear();
+            state.value_column->insert_from(*other.value_column, 0);
+            state.counts[0] = other.counts[0];
         }
     }
 
     /// Merges two sorted lists, summing the counts of equal values and truncating to k.
     static void merge_values(AggregateTopKCountData& state, const AggregateTopKCountData& other) {
         if (other.counts.empty()) {
-            // The other partial state saw no non-NULL row, so it has neither entries nor a bound.
-            DCHECK(!other.has_bound);
+            // The other partial state saw no non-NULL row.
             return;
         }
         auto merged = state.value_column->clone_empty();
@@ -425,23 +392,13 @@ private:
             }
         }
 
-        // Once a side is truncated, values outside its bound were dropped, so the union cannot be
-        // complete either: the k-th merged value becomes the new truncation point.
-        bool truncated = state.has_bound || other.has_bound;
         auto merged_size = static_cast<int64_t>(merged->size());
         if (merged_size > state.k) {
             merged->pop_back(merged_size - state.k);
             merged_counts.resize(static_cast<size_t>(state.k));
-            truncated = true;
         }
         state.value_column = std::move(merged);
         state.counts = std::move(merged_counts);
-        state.has_bound = truncated;
-        if (truncated) {
-            set_bound_from_value(state, state.value_column->size() - 1);
-        } else {
-            state.bound_column->clear();
-        }
     }
 
     /// Writes a length-prefixed column blob. The declared length is

@@ -27,7 +27,7 @@ import java.util.List;
 
 /**
  * topk_min_count(x, k): the k smallest distinct non-NULL values of x with their row counts.
- * See {@link TopKCountFunction} for the returned struct and the truncation encoding.
+ * See {@link TopKCountFunction} for the returned array and the truncation encoding.
  */
 public class TopKMinCount extends TopKCountFunction {
 
