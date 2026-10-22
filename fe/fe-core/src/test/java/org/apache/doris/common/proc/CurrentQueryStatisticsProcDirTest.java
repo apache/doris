@@ -27,6 +27,15 @@ import org.junit.Test;
 public class CurrentQueryStatisticsProcDirTest {
 
     @Test
+    public void testRemoteSpillColumnsAreAppendedLast() {
+        // Old FE rows omit the appended columns during a rolling upgrade.
+        int n = CurrentQueryStatisticsProcDir.TITLE_NAMES.size();
+        Assert.assertEquals("Progress", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 3));
+        Assert.assertEquals("SpillWriteBytesToRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 2));
+        Assert.assertEquals("SpillReadBytesFromRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 1));
+    }
+
+    @Test
     public void testProgressNormal() {
         // 7 out of 20 tasks finished = 35.0%
         Assert.assertEquals("35.0%", CurrentQueryStatisticsProcDir.formatProgress(20, 7));
