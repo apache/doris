@@ -78,6 +78,62 @@ import java.util.List;
 
 public class SpatialAggregateLegalityTest {
     @Test
+    public void spatialSetComparisonsRejectKeysButUnionAllKeepsValues() {
+        for (String spatial : List.of("GEOMETRY", "GEOMETRY('EPSG:3857')",
+                "GEOGRAPHY", "GEOGRAPHY('OGC:CRS84', 'vincenty')")) {
+            for (String type : List.of(spatial, "ARRAY<" + spatial + ">")) {
+                String input = "select CAST(NULL AS " + type + ") shape";
+                for (String operation : List.of("UNION", "UNION DISTINCT", "INTERSECT", "EXCEPT")) {
+                    String sql = input + " " + operation + " " + input;
+                    Exception error = Assertions.assertThrows(Exception.class,
+                            () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+                    Assertions.assertTrue(error.getMessage().contains(
+                            "GROUP BY and DISTINCT do not support spatial keys"), error.getMessage());
+                }
+                Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze(input + " UNION ALL " + input).rewrite());
+            }
+        }
+        for (String operation : List.of("UNION", "UNION DISTINCT", "INTERSECT", "EXCEPT", "UNION ALL")) {
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze("select 1 " + operation + " select 2").rewrite());
+        }
+    }
+
+    @Test
+    public void distinctSpatialListsRejectComparisonButPlainListsRemainAdmitted() {
+        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
+                new GeographyType("OGC:CRS84", "spherical"))) {
+            for (boolean nullable : List.of(false, true)) {
+                for (Expression value : List.of(new SlotReference("shape", spatial, nullable),
+                        new NullLiteral(spatial))) {
+                    for (AggregateFunction function : List.of(new ArrayAgg(true, value), new CollectList(true, value),
+                            new CollectList(true, value, new IntegerLiteral(2)))) {
+                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                                function::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertEquals(function.getName() + " DISTINCT does not support spatial arguments",
+                                error.getMessage());
+                        Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+                        Assertions.assertThrows(AnalysisException.class,
+                                StateCombinator.create(function)::checkLegalityBeforeTypeCoercion);
+                    }
+                    for (BoundFunction function : List.of(new ArrayAgg(value), new CollectList(value),
+                            new CollectList(value, new IntegerLiteral(2)))) {
+                        Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+                        Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+                    }
+                }
+            }
+        }
+        Expression integer = new SlotReference("id", IntegerType.INSTANCE);
+        for (BoundFunction function : List.of(new ArrayAgg(true, integer), new CollectList(true, integer),
+                new CollectList(true, integer, new IntegerLiteral(2)))) {
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
     public void spatialGroupingAndDistinctAreRejectedBeforeSimplification() {
         for (String spatial : List.of("GEOMETRY", "GEOMETRY('EPSG:3857')",
                 "GEOGRAPHY", "GEOGRAPHY('OGC:CRS84', 'vincenty')")) {

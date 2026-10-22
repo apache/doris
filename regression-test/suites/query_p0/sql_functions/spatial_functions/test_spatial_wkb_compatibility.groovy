@@ -73,6 +73,32 @@ suite("test_spatial_wkb_compatibility") {
             when 0 then null when 1 then '${point1}'
             else '00000000013FF00000000000004000000000000000' end) as shape
             from numbers("number" = "6")"""
+        for (String operation : ["union", "union distinct", "intersect", "except"]) {
+            test {
+                sql """with shapes as (${encodedShapes})
+                    select shape from shapes where id = 1 ${operation}
+                    select shape from shapes where id = 2"""
+                exception "GROUP BY and DISTINCT do not support spatial keys"
+            }
+        }
+        for (String aggregate : ["array_agg", "collect_list"]) {
+            test {
+                sql """with shapes as (${encodedShapes})
+                    select ${aggregate}(distinct shape) from shapes"""
+                exception "${aggregate} DISTINCT does not support spatial arguments"
+            }
+        }
+        test {
+            sql """with shapes as (${encodedShapes}) select collect_list(distinct shape, 2) from shapes"""
+            exception "collect_list DISTINCT does not support spatial arguments"
+        }
+        "order_qt_spatial_union_all_${kind}"("""with shapes as (${encodedShapes})
+            select ST_AsText(shape), hex(ST_AsBinary(shape)) from (
+                select shape from shapes where id = 1 union all
+                select shape from shapes where id = 2) s""")
+        "qt_spatial_plain_lists_${kind}"("""with shapes as (${encodedShapes})
+            select size(array_agg(shape)), size(collect_list(shape)), size(collect_list(shape, 2))
+            from shapes""")
         for (String query : [
                 "select shape, count(*) from shapes group by shape",
                 "select id, shape, count(*) from shapes group by id, shape",

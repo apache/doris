@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScala
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -45,7 +46,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -224,6 +227,14 @@ public class CheckAnalysis implements AnalysisRuleFactory {
     }
 
     private void checkAggregateFunction(Plan plan) {
+        if (plan instanceof LogicalSetOperation) {
+            LogicalSetOperation set = (LogicalSetOperation) plan;
+            if (!(set instanceof LogicalUnion) || set.getQualifier() != Qualifier.ALL) {
+                for (NamedExpression output : set.getOutputs()) {
+                    checkSpatialGroupingType(output);
+                }
+            }
+        }
         if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isDistinct()) {
             for (NamedExpression expression : ((LogicalProject<?>) plan).getProjects()) {
                 checkSpatialGroupingType(expression);

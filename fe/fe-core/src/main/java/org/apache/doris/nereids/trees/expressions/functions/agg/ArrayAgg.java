@@ -85,5 +85,13 @@ public class ArrayAgg extends NotNullableAggregateFunction
                 && getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException("array_agg does not support nested spatial arguments");
         }
+        if (distinct && getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("array_agg DISTINCT does not support spatial arguments");
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 }

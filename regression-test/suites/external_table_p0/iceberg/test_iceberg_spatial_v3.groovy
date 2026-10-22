@@ -1009,4 +1009,40 @@ public class CreateIcebergSpatialV3Table {
         select id, ST_AsText(geom), hex(ST_AsBinary(geom)), ST_AsText(geog)
         from geometry_values
     """
+    // Append after existing checks: identical points with different endian encodings and a NULL.
+    sql """insert into geometry_values values
+        (101, ST_GeometryFromWKBTyped('0101000000000000000000F03F0000000000000040'),
+            ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')),
+        (102, ST_GeometryFromWKBTyped('00000000013FF00000000000004000000000000000'),
+            ST_GeogFromWKB('00000000013FF00000000000004000000000000000')),
+        (103, NULL, NULL)"""
+    for (String column : ["geom", "geog"]) {
+        for (String operation : ["union", "union distinct", "intersect", "except"]) {
+            test {
+                sql """select ${column} from geometry_values where id = 101 ${operation}
+                    select ${column} from geometry_values where id = 102"""
+                exception "GROUP BY and DISTINCT do not support spatial keys"
+            }
+        }
+        for (String aggregate : ["array_agg", "collect_list"]) {
+            for (int phase : [1, 2]) {
+                test {
+                    sql """select /*+ SET_VAR(agg_phase=${phase}) */ ${aggregate}(distinct ${column})
+                        from geometry_values where id in (101, 102, 103)"""
+                    exception "${aggregate} DISTINCT does not support spatial arguments"
+                }
+            }
+        }
+        test {
+            sql """select collect_list(distinct ${column}, 2)
+                from geometry_values where id in (101, 102, 103)"""
+            exception "collect_list DISTINCT does not support spatial arguments"
+        }
+        "order_qt_spatial_union_all_${column}"("""select ST_AsText(shape), hex(ST_AsBinary(shape))
+            from (select ${column} shape from geometry_values where id = 101 union all
+                select ${column} shape from geometry_values where id = 102) s""")
+        "qt_spatial_plain_lists_${column}"("""select size(array_agg(${column})),
+            size(collect_list(${column})), size(collect_list(${column}, 2))
+            from geometry_values where id in (101, 102, 103)""")
+    }
 }
