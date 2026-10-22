@@ -834,6 +834,7 @@ TEST_F(DNSCacheTest, invalidation_resolves_replaced_pod_and_clears_negative_cach
     EXPECT_EQ(ip, "10.0.0.1");
     current_ip = "10.0.0.2";
     cache.invalidate("be.test");
+    EXPECT_EQ(1u, cache.size_for_test());
     ASSERT_TRUE(cache.get("be.test", &ip).ok());
     EXPECT_EQ(ip, "10.0.0.2");
     fail = true;
@@ -844,6 +845,48 @@ TEST_F(DNSCacheTest, invalidation_resolves_replaced_pod_and_clears_negative_cach
     cache.invalidate("be.test");
     ASSERT_TRUE(cache.get("be.test", &ip).ok());
     EXPECT_EQ(ip, "10.0.0.3");
+}
+
+TEST_F(DNSCacheTest, invalidation_preserves_fallback_during_transient_dns_failure) {
+    config::dns_cache_max_consecutive_failures = 1;
+    config::dns_cache_negative_ttl_seconds = 3600;
+    bool fail = false;
+    int resolver_calls = 0;
+    std::string current_ip = "10.0.0.1";
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        ++resolver_calls;
+        *error = fail ? EAI_AGAIN : 0;
+        if (fail) {
+            return Status::InternalError("temporary resolver outage");
+        }
+        ip = current_ip;
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    fail = true;
+    for (int i = 0; i < 3; ++i) {
+        cache.invalidate("be.test");
+        ASSERT_TRUE(cache.get("be.test", &ip).ok());
+        EXPECT_EQ(ip, "10.0.0.1");
+        EXPECT_EQ(0u, cache.negative_cache_size_for_test());
+    }
+    EXPECT_EQ(resolver_calls, 4);
+    EXPECT_EQ(cache.failure_count_for_test("be.test"), 3u);
+    cache.refresh_for_test();
+    EXPECT_EQ(1u, cache.size_for_test());
+
+    // A new connection after DNS recovers must not wait for the negative TTL,
+    // whether the peer kept its address or moved to a new pod.
+    fail = false;
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.1");
+    current_ip = "10.0.0.2";
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(0u, cache.failure_count_for_test("be.test"));
 }
 
 } // end of namespace doris

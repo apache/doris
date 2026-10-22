@@ -28,6 +28,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -64,7 +65,8 @@ public:
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
 
-    // Force resolution after a connection to a replaced pod fails.
+    // Force resolution on the next get(), retaining the last known IP as fallback
+    // if a socket error coincides with a transient DNS failure.
     void invalidate(const std::string& hostname);
 
 private:
@@ -148,6 +150,8 @@ private:
     Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
+    // Cached hostnames that must be resolved again before their next use.
+    std::unordered_set<std::string> _refresh_pending;
     // hostname -> consecutive resolution failure bookkeeping
     std::unordered_map<std::string, FailureState> failure_count;
     // hostname -> eviction timestamp; effective deadline is computed as

@@ -48,8 +48,11 @@ DNSCache::~DNSCache() {
 
 void DNSCache::invalidate(const std::string& hostname) {
     std::unique_lock<std::shared_mutex> lock(mutex);
-    cache.erase(hostname);
-    failure_count.erase(hostname);
+    // ECONNRESET/EPIPE do not prove the cached IP is obsolete. Keep the fallback
+    // and DNS failure history; only fresh DNS or normal authoritative eviction replaces it.
+    if (cache.count(hostname) != 0) {
+        _refresh_pending.insert(hostname);
+    }
     _negative_cache.erase(hostname);
 }
 
@@ -58,7 +61,9 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
-        if (it != cache.end()) {
+        // A socket failure requires a new lookup, but its old address remains a
+        // fallback when the resolver temporarily returns EAI_AGAIN.
+        if (it != cache.end() && _refresh_pending.count(hostname) == 0) {
             *ip = it->second;
             return Status::OK();
         }
@@ -109,7 +114,14 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
         }
     }
 
-    // First access (or negative TTL expired): resolve and populate the cache.
+    // Claim the refresh before resolving so an invalidation arriving during DNS
+    // resolution is retained for the next get(). Cache hits above still use shared_lock.
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        _refresh_pending.erase(hostname);
+    }
+
+    // First access, forced refresh or negative TTL expiry: resolve and populate the cache.
     // Consume the IP returned by _update() directly to avoid a second cache
     // lookup — operator[] under a shared_lock would mutate the map and could
     // reinsert an empty entry if a concurrent refresh cycle evicted the hostname
@@ -217,6 +229,7 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname, bool* is_fr
 
 void DNSCache::_evict_locked(const std::string& hostname) {
     cache.erase(hostname);
+    _refresh_pending.erase(hostname);
     failure_count.erase(hostname);
     int32_t ttl = config::dns_cache_negative_ttl_seconds;
     if (ttl > 0) {
