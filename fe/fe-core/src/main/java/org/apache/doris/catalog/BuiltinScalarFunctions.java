@@ -562,6 +562,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrDefau
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrZero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMax;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformValues;
@@ -1167,6 +1169,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToDate.class, "to_date"),
             scalar(ToDateV2.class, "to_datev2"),
             scalar(ToDays.class, "to_days"),
+            scalar(TopKMergeMin.class, "topk_merge_min"),
+            scalar(TopKMergeMax.class, "topk_merge_max"),
             scalar(ToIpv4.class, "to_ipv4"),
             scalar(ToIpv4OrDefault.class, "to_ipv4_or_default"),
             scalar(ToIpv4OrNull.class, "to_ipv4_or_null"),

@@ -92,6 +92,7 @@ void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
+void register_function_topk_merge(SimpleFunctionFactory& factory);
 void register_function_variant_element(SimpleFunctionFactory& factory);
 void register_function_variant_parse(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
@@ -341,6 +342,7 @@ public:
             register_function_array(instance);
             register_function_map(instance);
             register_function_struct(instance);
+            register_function_topk_merge(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);

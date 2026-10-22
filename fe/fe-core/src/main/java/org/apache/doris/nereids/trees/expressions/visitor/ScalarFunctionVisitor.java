@@ -580,6 +580,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrDefau
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrZero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMax;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformValues;
@@ -2660,6 +2662,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToBitmapWithCheck(ToBitmapWithCheck toBitmapWithCheck, C context) {
         return visitScalarFunction(toBitmapWithCheck, context);
+    }
+
+    default R visitTopKMergeMax(TopKMergeMax topKMergeMax, C context) {
+        return visitScalarFunction(topKMergeMax, context);
+    }
+
+    default R visitTopKMergeMin(TopKMergeMin topKMergeMin, C context) {
+        return visitScalarFunction(topKMergeMin, context);
     }
 
     default R visitToDate(ToDate toDate, C context) {

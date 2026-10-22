@@ -75,6 +75,7 @@ set(EXPRS_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_sum.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_topn_array.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_topn_weighted.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_topk_count.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/aggregate/aggregate_function_uniq.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/function/ai/ai_functions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/function/array/function_array_aggregation.cpp
