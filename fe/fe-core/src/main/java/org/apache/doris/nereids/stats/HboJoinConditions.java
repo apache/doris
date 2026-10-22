@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -119,11 +120,9 @@ public class HboJoinConditions {
             }
             operands.add(left.get());
             operands.add(right.get());
-            // equality is commutative: the operands are sorted so `a = b` and `b = a` collapse
             String name = conjunct instanceof NullSafeEqual ? "NullSafeEqual" : "EqualTo";
-            pairs.add(left.get().compareTo(right.get()) <= 0
-                    ? name + "(col(" + left.get() + "),col(" + right.get() + "))"
-                    : name + "(col(" + right.get() + "),col(" + left.get() + "))");
+            pairs.add(name + "(col(" + canonicalFirst(join, conjunct, left.get(), right.get())
+                    + "),col(" + canonicalSecond(join, conjunct, left.get(), right.get()) + "))");
         }
         if (pairs.isEmpty()) {
             return Optional.empty();
@@ -168,6 +167,60 @@ public class HboJoinConditions {
             }
         }
         return String.join(",", identities);
+    }
+
+    /**
+     * The operand which is written first for a pair of the key.
+     *
+     * <p>A join whose sides are not interchangeable (an outer, semi or anti join) orders the operands by
+     * the side they are read from, so the join of the same table with the columns reversed
+     * ({@code a.k = b.v} against {@code a.v = b.k}) keeps two keys, and the same pair written in either
+     * order ({@code b.v = a.k} against {@code a.k = b.v}) keeps one. An inner join is commutative, so
+     * its operands are sorted by their identity: the optimizer may swap its children, and the count of a
+     * self join does not depend on which occurrence is called the left one.
+     */
+    private static String canonicalFirst(Join join, Expression conjunct, String left, String right) {
+        Integer leftSide = sideOf(join, conjunct.child(0));
+        Integer rightSide = sideOf(join, conjunct.child(1));
+        if (isCommutative(join.getJoinType()) || leftSide == null || rightSide == null
+                || leftSide.equals(rightSide)) {
+            return left.compareTo(right) <= 0 ? left : right;
+        }
+        // the operand read from the left child is written first, whichever order the pair was written in
+        return leftSide == 0 ? left : right;
+    }
+
+    /** The operand which is written second for a pair of the key (see {@link #canonicalFirst}). */
+    private static String canonicalSecond(Join join, Expression conjunct, String left, String right) {
+        Integer leftSide = sideOf(join, conjunct.child(0));
+        Integer rightSide = sideOf(join, conjunct.child(1));
+        if (isCommutative(join.getJoinType()) || leftSide == null || rightSide == null
+                || leftSide.equals(rightSide)) {
+            return left.compareTo(right) <= 0 ? right : left;
+        }
+        return leftSide == 0 ? right : left;
+    }
+
+    /** Whether the operands of an equality are interchangeable without changing the row count. */
+    private static boolean isCommutative(JoinType joinType) {
+        return joinType == JoinType.INNER_JOIN || joinType == JoinType.CROSS_JOIN;
+    }
+
+    /** The side (0 or 1) of the join a slot is read from, null when it cannot be told. */
+    private static Integer sideOf(Join join, Expression operand) {
+        if (!(operand instanceof SlotReference)) {
+            return null;
+        }
+        ExprId exprId = ((SlotReference) operand).getExprId();
+        Plan joinPlan = (Plan) join;
+        for (int side = 0; side < joinPlan.arity(); side++) {
+            for (Slot slot : joinPlan.child(side).getOutput()) {
+                if (slot.getExprId().equals(exprId)) {
+                    return side;
+                }
+            }
+        }
+        return null;
     }
 
     /** Whether every slot of a residual condition names its table (collecting those identities). */
