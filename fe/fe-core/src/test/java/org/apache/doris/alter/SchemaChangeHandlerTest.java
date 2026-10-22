@@ -1328,14 +1328,14 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             String dropIndexStmt = "ALTER TABLE test." + tableName + " DROP INDEX idx_v1";
             Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(dropIndexStmt, connectContext));
-            Assertions.assertTrue(e.getMessage().contains("has been built specified index"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("has an unfinished index change job"), e.getMessage());
             Assertions.assertTrue(tbl.getIndexes().stream().anyMatch(idx -> idx.getIndexName().equals("idx_v1")));
             Assertions.assertEquals(schemaVersion, tbl.getIndexMetaByIndexId(tbl.getBaseIndexId()).getSchemaVersion());
 
             // The check must run before DROP COLUMN updates the bloom filter columns in place.
             String dropColumnAndIndexStmt = "ALTER TABLE test." + tableName + " DROP COLUMN v2, DROP INDEX idx_v1";
             e = Assertions.assertThrows(Exception.class, () -> alterTable(dropColumnAndIndexStmt, connectContext));
-            Assertions.assertTrue(e.getMessage().contains("has been built specified index"), e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains("has an unfinished index change job"), e.getMessage());
             Assertions.assertEquals(Sets.newHashSet("v2"), tbl.getCopiedBfColumns());
             Assertions.assertNotNull(tbl.getColumn("v2"));
 
