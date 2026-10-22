@@ -36,7 +36,6 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
-import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -51,6 +50,7 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.TableStreamManager;
+import org.apache.doris.changelog.ChangelogTtlDiscovery;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
@@ -568,7 +568,7 @@ public class Env {
     private ConstraintManager constraintManager;
 
     private BinlogGcer binlogGcer;
-    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
+    private final ChangelogTtlDiscovery changelogTtlDiscovery = new ChangelogTtlDiscovery();
 
     private QueryCancelWorker queryCancelWorker;
 
@@ -2084,7 +2084,7 @@ public class Env {
         // binlog gcer
         binlogGcer.start();
         if (Config.isCloudMode()) {
-            rowBinlogTtlDiscovery.start();
+            changelogTtlDiscovery.start();
         }
         columnIdFlusher.start();
         insertOverwriteManager.start();
@@ -3851,8 +3851,18 @@ public class Env {
                                              boolean writeEditLog,
                                              List<Pair<PartitionPersistInfo, Partition>> batchPartitions)
             throws DdlException {
+        addPartition(db, tableName, addPartitionOp, isCreateTable, generatedPartitionId,
+                writeEditLog, batchPartitions, false);
+    }
+
+    public void addPartition(Database db, String tableName, AddPartitionOp addPartitionOp,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog,
+                                             List<Pair<PartitionPersistInfo, Partition>> batchPartitions,
+                                             boolean enforceAutoPartitionLimit)
+            throws DdlException {
         getInternalCatalog().addPartition(db, tableName, addPartitionOp,
-                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions);
+                isCreateTable, generatedPartitionId, writeEditLog, batchPartitions, enforceAutoPartitionLimit);
     }
 
     public void addMultiPartitions(Database db, String tableName, AlterMultiPartitionOp multiPartitionOp)
@@ -4020,6 +4030,13 @@ public class Env {
             sb.append(",\n\"").append(entry.getKey()).append("\" = \"");
             sb.append(entry.getValue()).append("\"");
         }
+    }
+
+    // Whether the database of the table gives changelog to the tables created in it. A table that is not in a
+    // database, like one read from a backup, has no such default.
+    private static boolean hasChangelogDefault(OlapTable olapTable) {
+        DatabaseIf db = olapTable.getDatabase();
+        return db instanceof Database && ((Database) db).getChangelogConfig().isEnable();
     }
 
     private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
@@ -4294,6 +4311,16 @@ public class Env {
         if (Config.enable_feature_binlog) {
             BinlogConfig binlogConfig = olapTable.getBinlogConfig();
             binlogConfig.appendToShowCreateTable(sb);
+        }
+
+        // changelog
+        if (olapTable.hasChangelog()) {
+            if (Config.enable_feature_changelog) {
+                olapTable.getChangelogConfig().appendToShowCreateTable(sb);
+            }
+        } else if (hasChangelogDefault(olapTable)) {
+            // Keep the table out of the changelog default of its database when the statement runs again.
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE).append("\" = \"false\"");
         }
 
         // group commit interval ms
@@ -4735,7 +4762,7 @@ public class Env {
 
         sb.append(" (\n");
         int idx = 0;
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = table.getBaseSchemaForDisplay(false);
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -6441,6 +6468,18 @@ public class Env {
         editLog.logUpdateBinlogConfig(info);
     }
 
+    // The changelog config is journaled as OP_UPDATE_BINLOG_CONFIG too: its replay rebuilds both configs from
+    // the table properties.
+    public void updateChangelogConfig(Database db, OlapTable table, ChangelogConfig newChangelogConfig) {
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        table.setChangelogConfig(newChangelogConfig);
+        getSqlCacheManager().invalidateAboutTable(table);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        newChangelogConfig.toProperties());
+        editLog.logUpdateBinlogConfig(info);
+    }
+
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
         String ctlName = info.getCtlName();
@@ -6481,9 +6520,7 @@ public class Env {
                     }
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
-                    BinlogConfig newBinlogConfig = new BinlogConfig();
-                    newBinlogConfig.mergeFromProperties(properties, true);
-                    olapTable.setBinlogConfig(newBinlogConfig);
+                    // buildProperty has rebuilt the binlog and the changelog config from the table properties.
                     getSqlCacheManager().invalidateAboutTable(olapTable);
                     break;
                 default:
@@ -7094,10 +7131,10 @@ public class Env {
             }
             getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
                     new BaseTableInfo(olapTable), replacedPartitions,
-                    "Base table partitions were replaced without row binlog");
+                    "Base table partitions were replaced without changelog");
         } else {
             getMtmvService().getRelationManager().markIvmBaselineRebuild(
-                    new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
+                    new BaseTableInfo(olapTable), "Base table partitions were replaced without changelog");
         }
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,

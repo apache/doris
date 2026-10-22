@@ -265,41 +265,37 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
             FROM t_char_map_avro
         """
 
-        // The writer takes a map key from the Arrow batch BE sends, where a ROW key holding a ROW is a columnar row
-        // that cannot be hashed, so keys are compared by their bytes: such a key is padded, and two keys that
-        // padding makes equal fail the row as above.
-        sql """INSERT INTO t_char_map_row_key VALUES (1, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 7))"""
+        // SQL rejects complex MAP keys before the Paimon writer runs, even when padding would keep them distinct.
+        // PaimonWriteSchemaTest covers the writer's complex-key normalization directly; these statements check
+        // the SQL boundary and that rejected writes leave each table empty.
+        test {
+            sql """INSERT INTO t_char_map_row_key VALUES (1, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 7))"""
+            exception "MAP key type must be a primitive type"
+        }
         test {
             sql """
                 INSERT INTO t_char_map_row_key VALUES (2, map(named_struct('c', 'k', 'r', named_struct('i', 1)), 1,
                     named_struct('c', 'k ', 'r', named_struct('i', 1)), 2))
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        order_qt_map_row_key_padded """
-            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
-            FROM t_char_map_row_key
-        """
+        order_qt_map_row_key_rejected """SELECT count(*) FROM t_char_map_row_key"""
 
-        // Paimon compares maps regardless of the order of their entries, and its Avro reader keeps one of two keys
-        // whose nested maps differ only in that order, so such keys that padding makes equal fail the row too. A
-        // key holding a map is padded.
+        // A STRUCT containing a MAP is still a complex key, regardless of the nested entry order.
         test {
             sql """
                 INSERT INTO t_char_map_nested_map_key VALUES (1, map(named_struct('c', 'k', 'm', map('a', 1, 'b', 2)),
                     10, named_struct('c', 'k ', 'm', map('b', 2, 'a', 1)), 20))
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        sql """INSERT INTO t_char_map_nested_map_key VALUES (2, map(named_struct('c', 'k', 'm', map('a', 1)), 10))"""
-        order_qt_map_nested_map_key_padded """
-            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'), map_values(m)[1]
-            FROM t_char_map_nested_map_key
-        """
+        test {
+            sql """INSERT INTO t_char_map_nested_map_key VALUES (2, map(named_struct('c', 'k', 'm', map('a', 1)), 10))"""
+            exception "MAP key type must be a primitive type"
+        }
+        order_qt_map_nested_map_key_rejected """SELECT count(*) FROM t_char_map_nested_map_key"""
 
-        // Paimon compares a DOUBLE regardless of the bits of a NaN, and its Avro reader keeps one of two keys that
-        // differ only so, while a NaN cast at run time keeps its sign. So the keys (k, NaN) and (k , -NaN), which
-        // padding makes equal, fail the row too. A key holding a NaN is padded.
+        // Runtime NaN values do not bypass the key-type check in INSERT SELECT.
         sql """INSERT INTO internal.${dbName}.char_nan_source VALUES ('NaN', '-NaN')"""
         test {
             sql """
@@ -308,21 +304,18 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
                     named_struct('c', 'k ', 'd', cast(neg AS DOUBLE)), 20)
                 FROM internal.${dbName}.char_nan_source
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        sql """
-            INSERT INTO t_char_map_nan_key
-            SELECT 2, map(named_struct('c', 'k', 'd', cast(neg AS DOUBLE)), 10) FROM internal.${dbName}.char_nan_source
-        """
-        order_qt_map_nan_key_padded """
-            SELECT id, map_size(m), concat('[', struct_element(map_keys(m)[1], 'c'), ']'),
-                struct_element(map_keys(m)[1], 'd'), map_values(m)[1]
-            FROM t_char_map_nan_key
-        """
+        test {
+            sql """
+                INSERT INTO t_char_map_nan_key
+                SELECT 2, map(named_struct('c', 'k', 'd', cast(neg AS DOUBLE)), 10) FROM internal.${dbName}.char_nan_source
+            """
+            exception "MAP key type must be a primitive type"
+        }
+        order_qt_map_nan_key_rejected """SELECT count(*) FROM t_char_map_nan_key"""
 
-        // Paimon's Avro reader keeps the last of the entries of a map whose keys are equal, so a nested map holding
-        // NaN -> 1 and -NaN -> 2 reads back as {NaN: 2}, and the keys (k, {NaN: 1, -NaN: 2}) and (k , {NaN: 2}),
-        // which padding then makes equal, fail the row too. Keys whose nested maps keep other last values are padded.
+        // Nesting those NaNs inside another MAP also fails at the outer STRUCT key.
         test {
             sql """
                 INSERT INTO t_char_map_nested_nan_key
@@ -330,20 +323,18 @@ suite("test_paimon_write_char_padding", "p0,external,paimon") {
                     named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 2)), 20)
                 FROM internal.${dbName}.char_nan_source
             """
-            exception "into the same key"
+            exception "MAP key type must be a primitive type"
         }
-        sql """
-            INSERT INTO t_char_map_nested_nan_key
-            SELECT 2, map(named_struct('c', 'k', 'm', map(cast(pos AS DOUBLE), 1, cast(neg AS DOUBLE), 2)), 10,
-                named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 1)), 20)
-            FROM internal.${dbName}.char_nan_source
-        """
-        order_qt_map_nested_nan_key_padded """
-            SELECT id, map_size(m),
-                array_join(array_sort(array_map(k -> concat('[', struct_element(k, 'c'), ']'), map_keys(m))), '|'),
-                array_join(array_sort(map_values(m)), '|')
-            FROM t_char_map_nested_nan_key
-        """
+        test {
+            sql """
+                INSERT INTO t_char_map_nested_nan_key
+                SELECT 2, map(named_struct('c', 'k', 'm', map(cast(pos AS DOUBLE), 1, cast(neg AS DOUBLE), 2)), 10,
+                    named_struct('c', 'k ', 'm', map(cast(pos AS DOUBLE), 1)), 20)
+                FROM internal.${dbName}.char_nan_source
+            """
+            exception "MAP key type must be a primitive type"
+        }
+        order_qt_map_nested_nan_key_rejected """SELECT count(*) FROM t_char_map_nested_nan_key"""
 
         // A partition value is padded whether it comes from the rows or from a static PARTITION clause, so a
         // second static overwrite of 'x' replaces the partition the first one wrote.

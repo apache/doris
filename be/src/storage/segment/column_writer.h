@@ -643,6 +643,14 @@ public:
 
     size_t get_non_null_size() const { return none_null_size; }
 
+#ifdef BE_TEST
+    // Force small chunk budgets so tests can exercise multi-chunk flushes cheaply.
+    static void set_chunk_bytes_for_test(size_t bytes);
+    static void set_chunk_values_for_test(size_t values);
+    size_t num_chunks_for_test() const;
+    size_t max_chunk_bytes_for_test() const;
+#endif
+
     Status finalize();
 
 private:
@@ -651,12 +659,29 @@ private:
                       std::span<const uint8_t> outer_nulls);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_builder();
+    Status _promote_chunks(DataTypePtr* inferred_type);
+    Status _seal_chunk();
+    // Bounded value chunks; each chunk is finalized and flushed independently so the writer never
+    // holds a segment-sized ColumnString.
+    struct ValueChunk {
+        std::unique_ptr<VariantPathBuilder> builder;
+        size_t row_begin = 0;
+        size_t rows = 0;
+    };
+    static constexpr size_t kChunkBytes = 256ULL << 20;
+    static constexpr size_t kChunkValues = 4ULL << 20;
     bool is_finalized() const;
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
     VariantWriterInputFormat _input_format = VariantWriterInputFormat::UNSET;
     std::unique_ptr<VariantPathBuilder> _v2_builder;
+    std::vector<ValueChunk> _chunks;
+    size_t _chunk_row_begin = 0;
+    size_t _chunk_rows = 0;
+    // Type carried into the next chunk. Inferred promotions also check and update sealed chunks
+    // so fallback follows the same sequence as one uninterrupted builder.
+    DataTypePtr _running_type;
     size_t _num_rows = 0;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;

@@ -17,8 +17,8 @@
 
 package org.apache.doris.cloud.transaction;
 
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
@@ -55,6 +55,7 @@ import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
@@ -288,11 +289,11 @@ public class CloudGlobalTransactionMgrTest {
             "normal,TXN_STATUS_COMMITTED,12345,success", "normal,TXN_STATUS_VISIBLE,-1,success",
             "normal,TXN_STATUS_VISIBLE,,success",
             "subtxn,TXN_STATUS_VISIBLE,12345,success", "2pc,TXN_STATUS_VISIBLE,12345,2pc_error"})
-    public void testDisabledRowBinlogCommitRetry(String mode, String status, Long persistedTso, String outcome)
+    public void testDisabledChangelogCommitRetry(String mode, String status, Long persistedTso, String outcome)
             throws Exception {
         long expectedTso = persistedTso == null ? -1 : persistedTso;
         boolean streamingJob = mode.equals("streaming");
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
         OlapTable plainTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
         OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
@@ -301,7 +302,6 @@ public class CloudGlobalTransactionMgrTest {
             table.addPartition(new CloudPartition(partition.getId(), partition.getName(), partition.getBaseIndex(),
                     partition.getDistributionInfo(), db.getId(), table.getId()));
         }
-        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         ReentrantReadWriteLock jobLock = new ReentrantReadWriteLock(true);
         StreamingTaskTxnCommitAttachment attachment = streamingJob
@@ -321,11 +321,8 @@ public class CloudGlobalTransactionMgrTest {
         }
         masterTransMgr.getCallbackFactory().addCallback(callback);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
-            Config.enable_feature_binlog = false;
-            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
-            binlogConfig.setEnable(true);
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
-            table.setBinlogConfig(binlogConfig);
+            Config.enable_feature_changelog = false;
+            table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
             Mockito.doReturn(new TSOService()).when(masterEnv).getTSOService();
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             if (status.equals("rpc_error")) {
@@ -373,7 +370,7 @@ public class CloudGlobalTransactionMgrTest {
                 } else {
                     TransactionCommitFailedException exception = Assertions.assertThrows(
                             TransactionCommitFailedException.class, commit);
-                    Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+                    Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_changelog"));
                 }
                 Assertions.assertEquals(0, jobLock.getWriteHoldCount());
                 Assertions.assertNull(plainTable.getCommitLockOwner());
@@ -404,25 +401,27 @@ public class CloudGlobalTransactionMgrTest {
             while (jobLock.isWriteLockedByCurrentThread()) {
                 jobLock.writeLock().unlock();
             }
-            table.setBinlogConfig(originalBinlogConfig);
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            disableChangelog(table);
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
+    }
+
+    // Turns a fixture table that a test gave changelog back into a table without changelog.
+    private static void disableChangelog(OlapTable table) {
+        table.getTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false");
+        table.getTableProperty().buildBinlogConfig();
     }
 
     @Test
     public void testCommitTransactionRetriesWithTsoAboveFence() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                 .getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             FakeEnv.setEnv(masterEnv);
-            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
-            binlogConfig.setEnable(true);
-            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
-            table.setBinlogConfig(binlogConfig);
+            table.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
 
             TSOService tsoService = Mockito.mock(TSOService.class);
             Mockito.when(tsoService.getCommitTSO(Mockito.eq(CatalogTestUtil.testDbId1),
@@ -466,8 +465,8 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.verify(proxy, Mockito.never()).getTxn(Mockito.any());
             Mockito.verify(tsoService).markTxnFinished(CatalogTestUtil.testDbId1, 123533L);
         } finally {
-            table.setBinlogConfig(originalBinlogConfig);
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            disableChangelog(table);
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 

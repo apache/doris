@@ -583,14 +583,14 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
 
-// Binlog Compaction
-DECLARE_mInt64(binlog_compaction_wait_timesec_after_visible);
-DECLARE_mInt64(binlog_compaction_goal_size_mbytes);
-DECLARE_mInt32(binlog_compaction_task_num_per_disk);
-DECLARE_mInt32(binlog_compaction_file_count_threshold);
-DECLARE_mInt32(binlog_level_compaction_max_deltas);
-DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(max_binlog_compaction_threads);
+// Changelog compaction
+DECLARE_mInt64(changelog_compaction_wait_timesec_after_visible);
+DECLARE_mInt64(changelog_compaction_goal_size_mbytes);
+DECLARE_mInt32(changelog_compaction_task_num_per_disk);
+DECLARE_mInt32(changelog_compaction_file_count_threshold);
+DECLARE_mInt32(changelog_level_compaction_max_deltas);
+DECLARE_mInt64(changelog_compaction_time_threshold_seconds);
+DECLARE_mInt32(max_changelog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -1570,6 +1570,8 @@ DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+// enable changelog
+DECLARE_Bool(enable_feature_changelog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);

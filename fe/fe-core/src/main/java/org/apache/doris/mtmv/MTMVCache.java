@@ -32,6 +32,8 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.rules.rewrite.PullUpPredicates;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -44,12 +46,14 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The cache for materialized view cache
@@ -65,13 +69,17 @@ public class MTMVCache {
     private final Plan originalFinalPlan;
     private final Statistics statistics;
     private final List<Pair<Plan, StructInfo>> partRulesRewrittenPlanAndStructInfos;
+    // Guarantees expressed only in the definition's output slots, including session-variable guards.
+    private final Set<Expression> outputPredicates;
 
     public MTMVCache(Pair<Plan, StructInfo> allRulesRewrittenPlanAndStructInfo, Plan originalFinalPlan,
-            Statistics statistics, List<Pair<Plan, StructInfo>> partRulesRewrittenPlanAndStructInfos) {
+            Statistics statistics, List<Pair<Plan, StructInfo>> partRulesRewrittenPlanAndStructInfos,
+            Set<Expression> outputPredicates) {
         this.allRulesRewrittenPlanAndStructInfo = allRulesRewrittenPlanAndStructInfo;
         this.originalFinalPlan = originalFinalPlan;
         this.statistics = statistics;
         this.partRulesRewrittenPlanAndStructInfos = partRulesRewrittenPlanAndStructInfos;
+        this.outputPredicates = ImmutableSet.copyOf(outputPredicates);
     }
 
     public Pair<Plan, StructInfo> getAllRulesRewrittenPlanAndStructInfo() {
@@ -80,6 +88,16 @@ public class MTMVCache {
 
     public Plan getOriginalFinalPlan() {
         return originalFinalPlan;
+    }
+
+    public Set<Expression> getOutputPredicates() {
+        return outputPredicates;
+    }
+
+    /** Keep the definition plan without claiming that its predicates hold for stored rows. */
+    public MTMVCache withoutOutputPredicates() {
+        return new MTMVCache(allRulesRewrittenPlanAndStructInfo, originalFinalPlan,
+                statistics, partRulesRewrittenPlanAndStructInfos, ImmutableSet.of());
     }
 
     public Statistics getStatistics() {
@@ -142,6 +160,19 @@ public class MTMVCache {
                     .orElse(rewritePlan);
             Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(
                     addGuardRewritePlan, cascadesContext);
+            // Analysis records nondeterministic functions before constant folding erases their origin.
+            // Replanning current_date(), for example, cannot establish a guarantee about rows stored
+            // by an earlier refresh. Do not export output guarantees from such a definition.
+            // Alias UDF definitions can also change between refresh and cache reconstruction,
+            // even when the expanded function body is deterministic.
+            // A lower MV may have refreshed since this MV's rows were stored. Derive guarantees
+            // from this definition alone, without importing the lower MV's current output facts.
+            Set<Expression> outputPredicates = (cascadesContext.getStatementContext().hasNondeterministic()
+                    || cascadesContext.getStatementContext().hasAliasUdf())
+                    ? ImmutableSet.of()
+                    : finalPlanStructInfoPair.key().accept(new PullUpPredicates(true, cascadesContext), null).stream()
+                            .filter(predicate -> !predicate.containsVolatileExpression())
+                            .collect(ImmutableSet.toImmutableSet());
             List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
                 Plan addGuardplan = exprRewriter
@@ -150,7 +181,8 @@ public class MTMVCache {
                 tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
             }
             return new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
-                    ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
+                    ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite,
+                    outputPredicates);
         } finally {
             createCacheContext.getStatementContext().setForceRecordTmpPlan(false);
             mvSqlStatementContext.setForceRecordTmpPlan(false);

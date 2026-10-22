@@ -39,9 +39,9 @@
 #include "common/metrics/metrics.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
-#include "storage/binlog.h"
 #include "storage/binlog_config.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
+#include "storage/changelog.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -282,15 +282,15 @@ public:
     void check_tablet_path_exists();
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction(
-            std::optional<int64_t> row_binlog_ttl_cutoff_tso = std::nullopt);
+            std::optional<int64_t> changelog_ttl_cutoff_tso = std::nullopt);
     // MUST hold shared `_meta_lock`. Use this when the caller already holds the
     // header lock (e.g. the time-series cumulative score path under
     // suitable_for_compaction) to avoid recursive shared acquisition.
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
-    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction(
-            std::optional<int64_t> row_binlog_ttl_cutoff_tso = std::nullopt);
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_changelog_compaction(
+            std::optional<int64_t> changelog_ttl_cutoff_tso = std::nullopt);
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
             const std::set<int64_t>& alter_index_uids, bool is_drop_op);
 
@@ -629,8 +629,8 @@ private:
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
 
-    bool _skip_binlog_compaction = false;
-    int64_t _skip_binlog_compaction_ts;
+    bool _skip_changelog_compaction = false;
+    int64_t _skip_changelog_compaction_ts;
 
     // cooldown related
     CooldownConf _cooldown_conf;

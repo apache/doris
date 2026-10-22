@@ -118,10 +118,10 @@ public class ShowDataCommandTest {
         ShowDataCommand command = new ShowDataCommand(tableNameInfo, keys, properties, false);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
-        // Ensure show data result includes binlog columns in metadata.
+        // Ensure show data result includes changelog columns in metadata.
         Assertions.assertTrue(command.getMetaData().getColumns().stream()
-                        .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
-                "SHOW DATA should contain BinlogSize column");
+                        .anyMatch(c -> c.getName().equalsIgnoreCase("ChangelogSize")),
+                "SHOW DATA should contain ChangelogSize column");
     }
 
     @Test
@@ -141,8 +141,8 @@ public class ShowDataCommandTest {
 
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
         Assertions.assertTrue(command.getMetaData().getColumns().stream()
-                        .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
-                "SHOW DATA should contain BinlogSize column");
+                        .anyMatch(c -> c.getName().equalsIgnoreCase("ChangelogSize")),
+                "SHOW DATA should contain ChangelogSize column");
     }
 
     @Test
@@ -227,8 +227,8 @@ public class ShowDataCommandTest {
 
         Mockito.when(t1.isManagedTable()).thenReturn(true);
         Mockito.when(t2.isManagedTable()).thenReturn(true);
-        Mockito.when(t1.getBinlogSize()).thenReturn(5L);
-        Mockito.when(t2.getBinlogSize()).thenReturn(7L);
+        Mockito.when(t1.getChangelogSize()).thenReturn(5L);
+        Mockito.when(t2.getChangelogSize()).thenReturn(7L);
 
         SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
         List<OrderKey> keys = ImmutableList.of(new OrderKey(tableName, true, false));

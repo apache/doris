@@ -18,6 +18,7 @@
 #include "storage/segment/variant/variant_writer_helpers.h"
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <span>
 #include <string>
@@ -322,6 +323,20 @@ Status append_sparse_scalar_column(const TabletColumn& tablet_column, ColumnWrit
 
 } // namespace
 
+#ifdef BE_TEST
+namespace {
+std::atomic<uint64_t> g_array_all_null_chunks_for_test = 0;
+} // namespace
+
+uint64_t array_all_null_chunks_for_test() {
+    return g_array_all_null_chunks_for_test.load(std::memory_order_relaxed);
+}
+
+void reset_array_all_null_chunks_for_test() {
+    g_array_all_null_chunks_for_test.store(0, std::memory_order_relaxed);
+}
+#endif
+
 Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
                                       OlapBlockDataConvertor* converter, int column_id,
                                       const DataTypePtr& type, const ColumnPtr& values_column,
@@ -338,15 +353,22 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
     if (total_rows == 0) {
         return Status::OK();
     }
+    const DataTypePtr base_type = remove_nullable(type);
+    if (base_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+#ifdef BE_TEST
+        if (rowids.empty()) {
+            g_array_all_null_chunks_for_test.fetch_add(1, std::memory_order_relaxed);
+        }
+#endif
+        // ARRAY writers materialize a dense N-row column and update offsets, nulls and the
+        // inverted index together. An all-NULL chunk (empty rowids) must take this path too:
+        // append_nulls only writes column data and leaves the inverted index inconsistent.
+        return append_sparse_array_column(tablet_column, writer, converter, column_id, type,
+                                          values_column, rowids, total_rows);
+    }
     if (rowids.empty()) {
         DORIS_CHECK(tablet_column.is_nullable());
         return writer->append_nulls(total_rows);
-    }
-
-    const DataTypePtr base_type = remove_nullable(type);
-    if (base_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-        return append_sparse_array_column(tablet_column, writer, converter, column_id, type,
-                                          values_column, rowids, total_rows);
     }
     return append_sparse_scalar_column(tablet_column, writer, converter, column_id, type,
                                        values_column, rowids, total_rows);

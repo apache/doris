@@ -119,8 +119,8 @@ public:
 
     IntCounter* base_compaction_task_running_total = nullptr;
     IntCounter* base_compaction_task_pending_total = nullptr;
-    IntCounter* binlog_compaction_task_running_total = nullptr;
-    IntCounter* binlog_compaction_task_pending_total = nullptr;
+    IntCounter* changelog_compaction_task_running_total = nullptr;
+    IntCounter* changelog_compaction_task_pending_total = nullptr;
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
 
@@ -172,7 +172,7 @@ public:
     IntGauge* tablet_size_based_max_compaction_score = nullptr;
     IntGauge* tablet_time_series_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
-    IntGauge* tablet_binlog_max_compaction_score = nullptr;
+    IntGauge* tablet_changelog_max_compaction_score = nullptr;
 
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
