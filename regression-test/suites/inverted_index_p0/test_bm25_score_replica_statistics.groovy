@@ -141,6 +141,26 @@ suite("test_bm25_score_replica_statistics", "p0") {
         }
     }
 
+    // A bucket whose rows are all deleted still has segments but no row a query can match. Scoring
+    // must return nothing for it instead of failing.
+    def emptiedTableName = "test_bm25_score_replica_statistics_emptied"
+    createTable(emptiedTableName, 1)
+    sql "INSERT INTO ${emptiedTableName} VALUES (1, 'we should try these jobs'), (2, 'more jobs'), (3, 'other')"
+    sql "DELETE FROM ${emptiedTableName} WHERE id > 0"
+    def emptied = sql """
+        SELECT id, score() FROM ${emptiedTableName}
+        WHERE SEARCH('content:jobs') ORDER BY score() DESC LIMIT 10
+    """
+    assertEquals(0, emptied.size())
+    sql "INSERT INTO ${emptiedTableName} VALUES (4, 'jobs again')"
+    def refilled = sql """
+        SELECT id, score() FROM ${emptiedTableName}
+        WHERE SEARCH('content:jobs') ORDER BY score() DESC LIMIT 10
+    """
+    assertEquals(1, refilled.size())
+    assertEquals(4, refilled[0][0])
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "DROP TABLE IF EXISTS ${freshTableName}"
+    sql "DROP TABLE IF EXISTS ${emptiedTableName}"
 }

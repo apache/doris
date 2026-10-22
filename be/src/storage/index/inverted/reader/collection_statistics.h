@@ -126,6 +126,9 @@ private:
     uint64_t get_doc_num() const;
 
     uint64_t _total_num_docs = 0;
+    // Whether a collected segment held rows the scan does not return, so that no documents can
+    // mean every row is hidden.
+    bool _counted_hidden_docs = false;
     std::unordered_map<std::wstring, uint64_t> _total_num_tokens;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> _term_doc_freqs;
 

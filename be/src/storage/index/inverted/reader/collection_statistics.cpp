@@ -453,6 +453,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         }
 
         commit_snii_scoring_segment(std::move(segment_accumulator));
+        _counted_hidden_docs = _counted_hidden_docs || !hidden_docs.empty();
         return Status::OK();
     }
 
@@ -543,6 +544,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
     }
 
     _total_num_docs += static_cast<uint64_t>(total_segment_docs);
+    _counted_hidden_docs = _counted_hidden_docs || !hidden_docs.empty();
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 
@@ -590,6 +592,7 @@ void CollectionStatistics::commit_snii_scoring_segment(
 
 void CollectionStatistics::clear() {
     _total_num_docs = 0;
+    _counted_hidden_docs = false;
     _total_num_tokens.clear();
     _term_doc_freqs.clear();
     _avg_dl_by_col.clear();
@@ -598,6 +601,7 @@ void CollectionStatistics::clear() {
 
 void CollectionStatistics::copy_collected_from(const CollectionStatistics& other) {
     _total_num_docs = other._total_num_docs;
+    _counted_hidden_docs = other._counted_hidden_docs;
     _total_num_tokens = other._total_num_tokens;
     _term_doc_freqs = other._term_doc_freqs;
     _avg_dl_by_col.clear();
@@ -655,7 +659,9 @@ uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& luc
 }
 
 uint64_t CollectionStatistics::get_doc_num() const {
-    if (_total_num_docs == 0) {
+    // A tablet whose rows are all hidden has no document a query can match, so its statistics
+    // are empty rather than missing.
+    if (_total_num_docs == 0 && !_counted_hidden_docs) {
         throw Exception(
                 ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
                 "Index statistics collection failed: No data available for SimilarityCollector");
@@ -672,7 +678,7 @@ float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_c
 
     const uint64_t total_term_cnt = get_total_term_cnt_by_col(lucene_col_name);
     const uint64_t total_doc_cnt = get_doc_num();
-    float avg_dl = total_doc_cnt > 0 ? float((double)total_term_cnt / (double)total_doc_cnt) : 0.0F;
+    float avg_dl = total_doc_cnt > 0 ? float((double)total_term_cnt / (double)total_doc_cnt) : 1.0F;
     _avg_dl_by_col[lucene_col_name] = avg_dl;
     return avg_dl;
 }

@@ -23,6 +23,7 @@
 
 #include <atomic>
 #include <barrier>
+#include <cmath>
 #include <future>
 #include <memory>
 #include <string>
@@ -1019,6 +1020,40 @@ TEST_F(CollectionStatisticsTest, HiddenRowsAreCollectedLikeCompactedAway) {
                         .ok());
     expect_collected_stats(L"1", 3, 36);
     expect_collected_term(L"1", L"alpha", 2);
+}
+
+// A tablet whose rows were all deleted or overwritten still has segments to collect from, but no
+// document a query can match. Its statistics are empty, not missing.
+TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
+    auto tablet_schema = create_legacy_v3_schema();
+    const std::string segment_path = test_dir_ + "/all_rows_hidden_0.dat";
+    ASSERT_TRUE(
+            write_legacy_v3_segment(tablet_schema, segment_path, 0, {"alpha beta", "alpha"}).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    constexpr int64_t kVersion = 3;
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(0), .version = kVersion};
+    for (const auto seg : rowset->segments()) {
+        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 0);
+        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 1);
+    }
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_match_expr_contexts("alpha"), nullptr, &hidden);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(stats_->get_doc_num(), 0);
+    expect_collected_term(L"1", L"alpha", 0);
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_avg_dl(L"1")));
+    EXPECT_TRUE(std::isfinite(stats_->get_or_calculate_idf(L"1", L"alpha")));
+
+    // Without any collected segment the statistics are still reported missing.
+    CollectionStatistics nothing_collected;
+    EXPECT_THROW(nothing_collected.get_doc_num(), Exception);
 }
 
 namespace {
