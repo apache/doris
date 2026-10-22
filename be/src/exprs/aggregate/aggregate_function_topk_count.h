@@ -285,6 +285,13 @@ private:
     /// Inserts (value, count) at `pos`, keeping the value column sorted by value.
     static void insert_entry(AggregateTopKCountData& state, size_t pos, const IColumn& column,
                              size_t row_num, int64_t count) {
+        if (pos == state.value_column->size()) {
+            // Appending needs no rebuild: the state column is mutable, so ascending MIN input
+            // (descending MAX input) fills the list without copying the retained prefix.
+            state.value_column->insert_from(column, row_num);
+            state.counts.push_back(count);
+            return;
+        }
         auto new_values = state.value_column->clone_empty();
         new_values->reserve(state.value_column->size() + 1);
         for (size_t i = 0; i < pos; ++i) {

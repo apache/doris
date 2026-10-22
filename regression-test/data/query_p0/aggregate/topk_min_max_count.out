@@ -151,3 +151,14 @@ e	0	0	{"values":[{"value":0, "count":5}], "bound":null}	{"values":[{"value":0, "
 -- !merge_decimal_null_bounds --
 {"values":[{"value":1.23, "count":1}], "bound":null}
 
+-- !merge_min_cancel_at_int64_max --
+{"values":[{"value":1, "count":9223372036854775807}], "bound":null}
+
+-- !merge_min_different_keys_one_block --
+{"values":[], "bound":1}
+{"values":[{"value":10, "count":1}], "bound":10}
+
+-- !merge_max_different_keys_one_block --
+{"values":[], "bound":3}
+{"values":[{"value":3, "count":1}], "bound":3}
+
