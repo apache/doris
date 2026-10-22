@@ -70,6 +70,13 @@ under the License.
                         <execId>validate</execId>
                     </execIds>
                 </execution>
+                <!-- Partial cache restores may still run plugin isolation tests. Regenerate their
+                     runtime classpath with this checkout's paths instead of caching the local file. -->
+                <execution artifactId="maven-dependency-plugin">
+                    <execIds>
+                        <execId>plugin-runtime-classpath</execId>
+                    </execIds>
+                </execution>
                 <!-- The wipe of target/lib that be-java-extensions/pom.xml binds right before the
                      copy-dependencies forced below. The two run as a pair or not at all: a copy
                      without the wipe deploys the union of every dependency set the directory has
