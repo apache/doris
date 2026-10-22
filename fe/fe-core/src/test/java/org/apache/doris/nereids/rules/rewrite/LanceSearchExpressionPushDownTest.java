@@ -333,14 +333,103 @@ class LanceSearchExpressionPushDownTest {
 
     @Test
     void reservedResultColumnKeepsAnOtherwiseValidVectorQueryScalar() {
+        for (String name : ImmutableList.of("_distance", "_DISTANCE")) {
+            assertUnprojectedSchemaFallback(ImmutableList.of(Field.nullable(name,
+                    new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE))));
+        }
+    }
+
+    @Test
+    void unprojectedReservedPrefixColumnsKeepBothVectorMetricsScalar() {
+        for (String name : ImmutableList.of(Column.GLOBAL_ROWID_COL, Column.GLOBAL_ROWID_COL + "legacy")) {
+            assertUnprojectedSchemaFallback(ImmutableList.of(Field.nullable(name, ArrowType.Utf8.INSTANCE)));
+        }
+    }
+
+    @Test
+    void unprojectedCaseInsensitiveDuplicatesKeepBothVectorMetricsScalar() {
+        assertUnprojectedSchemaFallback(ImmutableList.of(Field.nullable("payload", ArrowType.Utf8.INSTANCE),
+                Field.nullable("PAYLOAD", ArrowType.Utf8.INSTANCE)));
+    }
+
+    private void assertUnprojectedSchemaFallback(List<Field> additionalFields) {
         List<Field> fields = new ArrayList<>(metadata.getSchema().getFields());
-        fields.add(Field.nullable("_distance", new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)));
-        LanceTableMetadata collision = LanceTableMetadata.createSnapshotWithIndexes(
+        fields.addAll(additionalFields);
+        ImmutableMap.Builder<String, Integer> fieldIds = ImmutableMap.builder();
+        for (int i = 0; i < fields.size(); i++) {
+            fieldIds.put(fields.get(i).getName(), i);
+        }
+        LanceTableMetadata schema = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
+                new Schema(fields), Collections.emptyList(), fieldIds.build(), Collections.emptyList());
+        Mockito.when(table.getMetadata(Mockito.any())).thenReturn(schema);
+        context.getSessionVariable().feDebug = true;
+        for (Expression expression : ImmutableList.of(new L2DistanceApproximate(embedding, vector()),
+                new InnerProductApproximate(embedding, vector()))) {
+            Alias result = new Alias(expression, "distance");
+            LogicalTopN<?> topN = new LogicalTopN<>(ImmutableList.of(new OrderKey(result.toSlot(),
+                    expression instanceof L2DistanceApproximate, false)), 1, 0,
+                    new LogicalProject<>(ImmutableList.of(id, result), scan));
+            Plan plan = PlanChecker.from(context, topN).rewrite().getPlan();
+            Assertions.assertTrue(plan.collectToList(LogicalTVFRelation.class::isInstance).isEmpty(),
+                    plan.treeString());
+            Assertions.assertEquals(1, plan.collectToList(LogicalFileScan.class::isInstance).size());
+            Assertions.assertEquals(result.getExprId(), plan.getOutput().get(1).getExprId());
+        }
+    }
+
+    @Test
+    void fullTextSchemaValidationStillReportsAnExplicitError() {
+        List<Field> fields = new ArrayList<>(metadata.getSchema().getFields());
+        fields.add(Field.nullable(Column.GLOBAL_ROWID_COL + "legacy", ArrowType.Utf8.INSTANCE));
+        LanceTableMetadata schema = LanceTableMetadata.createSnapshotWithIndexes(
                 new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 42,
                 new Schema(fields), Collections.emptyList(),
-                ImmutableMap.of("id", 0, "body", 1, "embedding", 2, "_distance", 3), Collections.emptyList());
-        Mockito.when(table.getMetadata(Mockito.any())).thenReturn(collision);
-        Assertions.assertTrue(rewrite(new L2DistanceApproximate(embedding, vector()), true, scan)
+                ImmutableMap.of("id", 0, "body", 1, "embedding", 2, Column.GLOBAL_ROWID_COL + "legacy", 3),
+                Collections.emptyList());
+        Mockito.when(table.getMetadata(Mockito.any())).thenReturn(schema);
+        Plan input = new LogicalFilter<>(ImmutableSet.of(new MatchAny(body, new StringLiteral("apple"))), scan);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> rewrite(new Score(), false, input));
+        Assertions.assertTrue(error.getMessage().contains("reserved Doris internal column prefix"));
+    }
+
+    @Test
+    void fullTextFullRewritePreservesNullableScoresWithDebugValidation() {
+        context.getSessionVariable().feDebug = true;
+        Plan input = new LogicalFilter<>(ImmutableSet.of(new MatchAny(body, new StringLiteral("apple")),
+                new GreaterThan(new Score(), new FloatLiteral(0.5f))), scan);
+        Alias result = new Alias(new Score(), "relevance");
+        LogicalTopN<?> topN = new LogicalTopN<>(ImmutableList.of(new OrderKey(result.toSlot(), false, false)),
+                5, 0, new LogicalProject<>(ImmutableList.of(id, result), input));
+        Plan plan = PlanChecker.from(context, topN).rewrite().getPlan();
+        search(plan);
+        Assertions.assertEquals(result.getExprId(), plan.getOutput().get(1).getExprId());
+        Assertions.assertTrue(plan.getOutput().get(1).nullable(), plan.treeString());
+        Assertions.assertFalse(plan.anyMatch(p -> ((Plan) p).getExpressions().stream()
+                .anyMatch(e -> e.anyMatch(Score.class::isInstance))), plan.treeString());
+    }
+
+    @Test
+    void secondaryOrderingKeepsBothVectorMetricsScalar() {
+        for (Expression expression : ImmutableList.of(new L2DistanceApproximate(embedding, vector()),
+                new InnerProductApproximate(embedding, vector()))) {
+            Alias result = new Alias(expression, "distance");
+            LogicalTopN<?> topN = new LogicalTopN<>(ImmutableList.of(new OrderKey(result.toSlot(),
+                    expression instanceof L2DistanceApproximate, false), new OrderKey(id, true, false)),
+                    1, 0, new LogicalProject<>(ImmutableList.of(id, result), scan));
+            Plan plan = PlanChecker.from(context, topN).rewrite().getPlan();
+            Assertions.assertTrue(plan.collectToList(LogicalTVFRelation.class::isInstance).isEmpty(),
+                    plan.treeString());
+        }
+    }
+
+    @Test
+    void nativeVectorValidationCannotReplaceScalarEvaluationErrors() {
+        ArrayLiteral wrongDimension = new ArrayLiteral(ImmutableList.of(new FloatLiteral(1)));
+        Assertions.assertTrue(rewrite(new L2DistanceApproximate(embedding, wrongDimension), true, scan)
+                .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
+        Assertions.assertTrue(rewrite(new InnerProductApproximate(embedding, wrongDimension), false, scan)
                 .collectToList(LogicalTVFRelation.class::isInstance).isEmpty());
     }
 

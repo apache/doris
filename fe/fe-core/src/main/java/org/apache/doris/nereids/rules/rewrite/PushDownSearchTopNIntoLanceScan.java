@@ -241,6 +241,11 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
                 resultName = VectorSearchTableValuedFunction.DISTANCE_COLUMN;
             }
         } catch (org.apache.doris.common.AnalysisException e) {
+            // TVF validation is stricter than a pruned table scan (including unrelated reserved
+            // names or case collisions). An optional vector optimization must retain scalar SQL.
+            if (!score) {
+                return null;
+            }
             throw new AnalysisException(e.getMessage(), e);
         }
         LogicalTVFRelation relation = new LogicalTVFRelation(scan.getRelationId(),
