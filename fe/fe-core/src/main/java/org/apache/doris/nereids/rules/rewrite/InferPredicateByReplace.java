@@ -28,14 +28,12 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.DependsOnColumnIndex;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -134,11 +132,6 @@ public class InferPredicateByReplace {
 
         @Override
         public Void visitOr(Or or, Map<Expression, Set<Expression>> context) {
-            // MATCH and SEARCH depend on the inverted index of their column, so they can differ on an equal
-            // column, and a copy would also add to score().
-            if (or.containsType(Match.class, Search.class, SearchExpression.class)) {
-                return null;
-            }
             for (Expression expr : getAllSubExpressions(or)) {
                 context.computeIfAbsent(expr, k -> new LinkedHashSet<>()).add(or);
             }
@@ -244,8 +237,9 @@ public class InferPredicateByReplace {
         }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
-            // Inference can evaluate a predicate on rows that never reach its original filter.
-            if (input.anyMatch(expr -> expr instanceof NoneMovableFunction
+            // Inference can evaluate a predicate on rows that never reach its original filter,
+            // and it replaces the column of the predicate with an equal one.
+            if (input.anyMatch(expr -> expr instanceof NoneMovableFunction || expr instanceof DependsOnColumnIndex
                     || !((ExpressionTrait) expr).isDeterministic())
                     || input.getInputSlots().size() != 1) {
                 continue;

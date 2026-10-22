@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -93,11 +94,12 @@ public class InferPredicateByReplaceTest {
     }
 
     @Test
-    public void testDoNotInferMatchOrSearchInsideOr() {
+    public void testDoNotInferPredicatesThatDependOnColumnIndex() {
         SlotReference a = new SlotReference("a", StringType.INSTANCE);
         SlotReference b = new SlotReference("b", StringType.INSTANCE);
         for (Expression predicate : ImmutableList.of(
                 new Or(new MatchAny(a, new StringLiteral("apple")), new MatchAny(a, new StringLiteral("pear"))),
+                new EqualTo(new MatchAny(a, new StringLiteral("apple")), BooleanLiteral.TRUE),
                 new Or(new Search(new StringLiteral("a:apple")), new EqualTo(a, new StringLiteral("pear"))))) {
             Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(new EqualTo(a, b), predicate));
 
