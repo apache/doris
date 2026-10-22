@@ -1422,11 +1422,14 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
     // the final group and can flush a sidecar without writing a data Block.
     const size_t possible_peer_ends =
             incoming_rows + (local_state._open_partition_rows > 0 ? 1 : 0);
-    const bool peer_write = local_state._has_peer_group_functions &&
-                            ((pending_peer_bytes > 0 && local_state._batch_store &&
-                              local_state._batch_store->has_spilled_peer_groups()) ||
-                             pending_peer_bytes + possible_peer_ends * sizeof(int64_t) >=
-                                     static_cast<size_t>(state->spill_buffer_size_bytes()));
+    // A revoke can leave an existing sidecar with an empty buffer. EOS still appends the
+    // final peer end before seal() writes it, so that write needs admission too.
+    const bool peer_write =
+            local_state._has_peer_group_functions &&
+            (((pending_peer_bytes > 0 || possible_peer_ends > 0) && local_state._batch_store &&
+              local_state._batch_store->has_spilled_peer_groups()) ||
+             pending_peer_bytes + possible_peer_ends * sizeof(int64_t) >=
+                     static_cast<size_t>(state->spill_buffer_size_bytes()));
     if (eos && incoming_rows == 0 && !data_write && !peer_write) {
         // An empty EOS merely publishes an in-memory batch; the previous write peak is stale.
         return 0;

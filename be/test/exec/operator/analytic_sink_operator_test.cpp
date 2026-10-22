@@ -1294,6 +1294,30 @@ void AnalyticSinkOperatorTest::prepare_cume_dist_without_partition() {
     create_local_state();
 }
 
+TEST_F(AnalyticSinkOperatorTest, SpillAdmissionReservesFinalPeerAfterRevoke) {
+    ASSERT_TRUE(spill_file_manager.init().ok());
+    Initialize(8);
+    prepare_cume_dist_without_partition();
+
+    Block input = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2});
+    auto status = sink->sink(state.get(), &input, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    status = sink->revoke_memory(state.get());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(sink_local_state->_batch_store->has_spilled_peer_groups());
+    EXPECT_EQ(sink_local_state->_batch_store->pending_data_bytes(), 0);
+    EXPECT_EQ(sink_local_state->_batch_store->pending_peer_bytes(), 0);
+
+    // Revocation wrote the end of peer {1, 1}; empty EOS must still write peer {2}.
+    Block eos_block = ColumnHelper::create_block<DataTypeInt64>({});
+    EXPECT_GE(sink->get_reserve_mem_size(state.get(), true, &eos_block), 3 * 64 * 1024);
+    status = sink->sink(state.get(), &eos_block, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    expect_next_spill_block(source.get(), state.get(),
+                            order_block_with_double_result({1, 1, 2}, {2.0 / 3, 2.0 / 3, 1.0}));
+    expect_spill_source_eos(source.get(), state.get());
+}
+
 TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
     ASSERT_TRUE(spill_file_manager.init().ok());
 
