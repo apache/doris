@@ -18,7 +18,6 @@
 package org.apache.doris.cloud.alter;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -28,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -429,7 +429,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
     @Override
     protected void updatePartitionProperties(Database db, OlapTable table, Partition partition,
-            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
             Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
             int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
         Preconditions.checkNotNull(binlogConfig);
@@ -475,7 +475,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean disableAutoCompaction = false;
         boolean enableMowLightDelete = false;
         int verticalCompactionNumColumnsPerGroup = 5;
-        BinlogConfig binlogConfig;
+        TabletBinlogConfig binlogConfig;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -502,9 +502,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         List<Long> tabletIds = new ArrayList<>();
         olapTable.readLock();
         try {
-            boolean includeRowBinlog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+            boolean includeChangelog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
             for (MaterializedIndex index
-                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)) {
+                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeChangelog)) {
                 for (Tablet tablet : index.getTablets()) {
                     tabletIds.add(tablet.getId());
                 }

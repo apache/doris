@@ -183,7 +183,7 @@ void finish_rowset_compaction_job(
         int num_input_rowsets, int64_t output_cumulative_point, FinishTabletJobResponse& res,
         int64_t proposal_base_compaction_cnt = 0, int64_t proposal_cumulative_compaction_cnt = 0,
         bool include_proposal_snapshot = true,
-        std::optional<int64_t> row_binlog_ttl_seconds = std::nullopt) {
+        std::optional<int64_t> changelog_ttl_seconds = std::nullopt) {
     brpc::Controller cntl;
     FinishTabletJobRequest req;
     req.set_action(FinishTabletJobRequest::COMMIT);
@@ -192,8 +192,8 @@ void finish_rowset_compaction_job(
     compaction->set_id(job_id);
     compaction->set_initiator("BE1");
     compaction->set_type(type);
-    if (row_binlog_ttl_seconds.has_value()) {
-        compaction->set_row_binlog_ttl_seconds(*row_binlog_ttl_seconds);
+    if (changelog_ttl_seconds.has_value()) {
+        compaction->set_changelog_ttl_seconds(*changelog_ttl_seconds);
     }
     if (include_proposal_snapshot) {
         compaction->set_base_compaction_cnt(proposal_base_compaction_cnt);
@@ -4770,10 +4770,10 @@ TEST(MetaServiceJobTest, LegacyParallelCumuFinishValidatesCurrentInputRange) {
 // Keep dependent transaction assertions and policy variants together; assertion macros
 // inflate the branch count without adding independent production control flow.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(MetaServiceJobTest, RowBinlogTtlCommitChecksCurrentConfiguration) {
+TEST(MetaServiceJobTest, ChangelogTtlCommitChecksCurrentConfiguration) {
     for (bool versioned : {false, true}) {
         auto meta_service = get_meta_service(!versioned);
-        const std::string ttl_instance = "row_binlog_ttl_commit";
+        const std::string ttl_instance = "changelog_ttl_commit";
         MOCK_GET_INSTANCE_ID(ttl_instance);
         if (versioned) {
             create_and_refresh_instance(meta_service.get(), ttl_instance);
@@ -4793,7 +4793,7 @@ TEST(MetaServiceJobTest, RowBinlogTtlCommitChecksCurrentConfiguration) {
             meta->set_tablet_id(tablet_id);
             auto* config = meta->mutable_binlog_config();
             config->set_enable(true);
-            config->set_binlog_format(doris::BinlogFormatPB::ROW);
+            config->set_binlog_format(doris::BinlogFormatPB::CHANGELOG);
             config->set_ttl_seconds(seconds);
             config->set_max_bytes(1024);
             config->set_max_history_nums(10);
@@ -4839,10 +4839,10 @@ TEST(MetaServiceJobTest, RowBinlogTtlCommitChecksCurrentConfiguration) {
     }
 }
 
-TEST(MetaServiceJobTest, RowBinlogConfigRejectsOutOfOrderUpdates) {
+TEST(MetaServiceJobTest, ChangelogConfigRejectsOutOfOrderUpdates) {
     for (bool versioned : {false, true}) {
         auto service = get_meta_service(!versioned);
-        const std::string instance = "row_binlog_config_generation";
+        const std::string instance = "changelog_config_generation";
         MOCK_GET_INSTANCE_ID(instance);
         if (versioned) {
             create_and_refresh_instance(service.get(), instance);
@@ -4856,7 +4856,7 @@ TEST(MetaServiceJobTest, RowBinlogConfigRejectsOutOfOrderUpdates) {
             meta->set_tablet_id(tablet_id);
             auto* config = meta->mutable_binlog_config();
             config->set_enable(true);
-            config->set_binlog_format(doris::BinlogFormatPB::ROW);
+            config->set_binlog_format(doris::BinlogFormatPB::CHANGELOG);
             config->set_ttl_seconds(ttl);
             config->set_max_bytes(1024);
             config->set_max_history_nums(10);

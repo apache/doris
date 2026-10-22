@@ -122,8 +122,8 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
     for (const auto& m : morphemes) {
         if (!m.known) {
             const auto cat = dict_->char_category(first_codepoint(text, m.byte_start, m.byte_len));
-            if (cat == inverted_index::kuromoji::CAT_SPACE ||
-                cat == inverted_index::kuromoji::CAT_SYMBOL) {
+            if (cat == inverted_index::kuromoji::CharCategory::CAT_SPACE ||
+                cat == inverted_index::kuromoji::CharCategory::CAT_SYMBOL) {
                 continue;
             }
         }

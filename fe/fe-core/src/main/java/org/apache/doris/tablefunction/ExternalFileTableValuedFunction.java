@@ -477,15 +477,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         // add fetched file columns
         Set<String> columnLowerNames = new HashSet<>();
+        boolean preserveColumnCase = fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON;
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx).toLowerCase();
+            String originalColName = result.getColumnNames(idx);
+            String colLowerName = originalColName.toLowerCase();
             // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
             // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
             } else {
-                columnLowerNames.add(colName);
+                columnLowerNames.add(colLowerName);
+                String colName = preserveColumnCase ? originalColName : colLowerName;
                 columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
             }
         }
@@ -493,6 +496,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
+            String colLowerName = colName.toLowerCase();
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException(
+                        "Path partition column conflicts with an existing column: " + colName);
+            }
+            columnLowerNames.add(colLowerName);
             columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }

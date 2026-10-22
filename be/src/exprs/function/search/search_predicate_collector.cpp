@@ -144,6 +144,11 @@ Status SearchPredicateCollector::collect_from_clause(const TSearchClause& clause
                                                      const FieldBindingMap& field_bindings,
                                                      CollectInfoMap* collect_infos) {
     const std::string& clause_type = clause.clause_type;
+    // Lucene pure NOT injects a fieldless constant-score match-all child.
+    if (clause_type == "MATCH_ALL_DOCS") {
+        return Status::OK();
+    }
+
     if (clause_type == "NESTED") {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "Scoring nested search clauses is not supported");

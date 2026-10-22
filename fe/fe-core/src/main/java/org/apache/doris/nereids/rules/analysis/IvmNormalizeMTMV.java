@@ -122,7 +122,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
      *
      * <p>{@link KeysType#DUP_KEYS} means the MV is a detail table a refresh only ever appends to,
      * and it needs both halves of "no refresh can undo or rewrite a row the MV already holds": every
-     * base table is an append-only detail table, whose row binlog carries APPEND events only, and no
+     * base table is an append-only detail table, whose changelog carries APPEND events only, and no
      * operator of the query corrects a row already materialized. Of the operators the normalize
      * supports, exactly two do correct one -- an aggregate, whose delta changes the row of a group
      * (DISTINCT included, and GROUPING SETS, which is a repeat of aggregates), and an outer join,

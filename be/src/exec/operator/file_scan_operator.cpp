@@ -35,6 +35,7 @@
 #include "exec/scan/scanner_context.h"
 #include "format/format_common.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/parquet/parquet_profile.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
@@ -68,6 +69,11 @@ int file_scanners_per_instance(RuntimeState* state) {
 }
 
 } // namespace
+
+FileScanLocalState::FileScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : ScanLocalState<FileScanLocalState>(state, parent) {}
+
+FileScanLocalState::~FileScanLocalState() = default;
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
@@ -231,6 +237,10 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         return Status::NotSupported(
                 "External VARIANT columns require FileScannerV2; the legacy file scanner does "
                 "not support VARIANT");
+    }
+    if (use_file_scanner_v2) {
+        _parquet_profile_cache =
+                std::make_unique<format::parquet::ParquetProfileCache>(_scanner_profile.get());
     }
     for (int i = 0; i < _max_scanners; ++i) {
         ScannerSPtr scanner;

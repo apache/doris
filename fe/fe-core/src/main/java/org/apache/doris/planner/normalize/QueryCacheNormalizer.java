@@ -22,8 +22,8 @@ package org.apache.doris.planner.normalize;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
 import org.apache.doris.planner.AggregationNode;
@@ -127,8 +127,8 @@ public class QueryCacheNormalizer implements Normalizer {
     private boolean containsTtlScan(PlanNode planRoot) {
         if (planRoot instanceof OlapScanNode) {
             OlapTable table = ((OlapScanNode) planRoot).getOlapTable();
-            if (table instanceof RowBinlogTableWrapper
-                    && ((RowBinlogTableWrapper) table).getOriginTable().hasRowBinlogTtl()) {
+            if (table instanceof OlapChangelogTableWrapper
+                    && ((OlapChangelogTableWrapper) table).getOriginTable().hasChangelogTtl()) {
                 return true;
             }
         }

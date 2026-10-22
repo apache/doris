@@ -87,7 +87,7 @@ public class IvmNormalizeDupKeysMTMV extends DefaultPlanRewriter<Set<TableNameIn
                     "IVM detail MV error: table " + table.getName() + " is " + table.getKeysType()
                             + ", but a detail MV can only be built over duplicate-key detail tables");
         }
-        IvmUtil.validateBinlogEnabled(excludedTriggerTables, scan);
+        IvmUtil.validateChangelogEnabled(excludedTriggerTables, scan);
         return scan;
     }
 

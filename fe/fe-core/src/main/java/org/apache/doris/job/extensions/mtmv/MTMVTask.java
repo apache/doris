@@ -1183,7 +1183,7 @@ public class MTMVTask extends AbstractTask {
                     + ", reason=" + ivmResult.getFailureReason()
                     + ", detail=" + ivmResult.getDetailMessage());
         }
-        if (ivmResult.getFailureReason() == IvmFailureReason.BINLOG_BROKEN) {
+        if (ivmResult.getFailureReason() == IvmFailureReason.CHANGELOG_BROKEN) {
             // The previous task already entered the IVM execution phase. If
             // fallback is allowed, jump directly to COMPLETE recovery instead of
             // trying PARTITIONS first.

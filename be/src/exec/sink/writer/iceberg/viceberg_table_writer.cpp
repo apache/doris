@@ -33,6 +33,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/iceberg_partition_path.h"
+#include "exec/sink/writer/iceberg/iceberg_write_validator.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -402,6 +403,7 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
+    RETURN_IF_ERROR(iceberg::validate_write_block(*_schema, output_block));
 
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
             writer_positions;
@@ -570,8 +572,14 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             if (writer_iter == _partitions_to_writers.end()) {
                 if (_partitions_to_writers.size() + 1 >
                     config::table_sink_partition_write_max_partition_nums_per_writer) {
-                    return Status::InternalError(
-                            "Too many open partitions {}",
+                    return Status::InvalidArgument(
+                            "Too many open partitions for Iceberg writer: open partitions={}, "
+                            "attempted partitions={}, limit={}. This is a per-writer limit "
+                            "controlled by BE configuration "
+                            "'table_sink_partition_write_max_partition_nums_per_writer'. "
+                            "Split the write into multiple statements or increase this "
+                            "configuration.",
+                            _partitions_to_writers.size(), _partitions_to_writers.size() + 1,
                             config::table_sink_partition_write_max_partition_nums_per_writer);
                 }
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));
