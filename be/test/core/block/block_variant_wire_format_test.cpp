@@ -69,13 +69,13 @@ Status deserialize_block(const PBlock& wire, Block& block) {
     return block.deserialize(wire, &uncompressed_bytes, &decompression_time);
 }
 
-void expect_unsupported_variant(const PBlock& wire) {
+void expect_unsupported_variant(const PBlock& wire, size_t preceding_columns = 0) {
     Block decoded;
     const Status status = deserialize_block(wire, decoded);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
     EXPECT_NE(status.to_string().find("Unsupported VARIANT block format"), std::string::npos)
             << status;
-    EXPECT_EQ(decoded.columns(), 0);
+    EXPECT_EQ(decoded.columns(), preceding_columns);
 }
 
 } // namespace
@@ -101,40 +101,41 @@ TEST(BlockVariantWireFormatTest, RejectsLegacyVariantMetadata) {
     }
 }
 
-TEST(BlockVariantWireFormatTest, ChecksAllMetadataBeforeReadingPayload) {
-    PBlock wire;
-    wire.set_be_exec_version(BeExecVersionManager::get_newest_version());
-    wire.add_column_metas()->set_type(PGenericType::INT32);
-    auto* variant = wire.add_column_metas();
-    variant->set_name("legacy_variant");
-    variant->set_type(PGenericType::VARIANT);
-    variant->set_is_nullable(true);
-    // Neither decompression nor decoding the preceding integer column may run first.
-    for (bool compressed : {false, true}) {
-        wire.set_compressed(compressed);
-        wire.set_column_values("not a serialized block");
-        expect_unsupported_variant(wire);
+TEST(BlockVariantWireFormatTest, RejectsLegacyVariantAfterPrecedingColumn) {
+    auto numbers = ColumnInt32::create();
+    numbers->insert_value(1);
+    numbers->insert_value(2);
+    Block source = variant_block(false);
+    source.insert(0, {std::move(numbers), std::make_shared<DataTypeInt32>(), "n"});
+    for (auto compression : {segment_v2::NO_COMPRESSION, segment_v2::SNAPPY}) {
+        PBlock wire = serialize_block(source, compression);
+        wire.mutable_column_metas(1)->clear_variant_is_v2();
+        expect_unsupported_variant(wire, 1);
     }
 }
 
 TEST(BlockVariantWireFormatTest, RejectsLegacyVariantInsideComplexTypes) {
-    for (auto container : {PGenericType::LIST, PGenericType::MAP, PGenericType::STRUCT}) {
-        PBlock wire;
-        wire.set_be_exec_version(BeExecVersionManager::get_newest_version());
-        auto* meta = wire.add_column_metas();
-        meta->set_type(container);
-        meta->set_name("nested_variant");
-        if (container == PGenericType::MAP) {
-            meta->add_children()->set_type(PGenericType::STRING);
+    const DataTypePtr variant = std::make_shared<DataTypeVariantV2>();
+    const DataTypePtr array = std::make_shared<DataTypeArray>(make_nullable(variant));
+    const DataTypes types = {
+            std::make_shared<DataTypeArray>(array),
+            std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(), array),
+            std::make_shared<DataTypeStruct>(DataTypes {array}, Strings {"v"})};
+    for (const auto& type : types) {
+        auto column = type->create_column();
+        column->insert_default();
+        Block source({{std::move(column), type, "nested_variant"}});
+        for (auto compression : {segment_v2::NO_COMPRESSION, segment_v2::SNAPPY}) {
+            PBlock wire = serialize_block(source, compression);
+            auto* meta = wire.mutable_column_metas(0);
+            if (meta->type() == PGenericType::MAP) {
+                meta = meta->mutable_children(1);
+            } else {
+                meta = meta->mutable_children(0);
+            }
+            meta->mutable_children(0)->clear_variant_is_v2();
+            expect_unsupported_variant(wire);
         }
-        auto* array = meta->add_children();
-        array->set_type(PGenericType::LIST);
-        auto* variant = array->add_children();
-        variant->set_type(PGenericType::VARIANT);
-        variant->set_is_nullable(true);
-        variant->set_variant_enable_doc_mode(false);
-        wire.set_column_values("not a serialized block");
-        expect_unsupported_variant(wire);
     }
 }
 
