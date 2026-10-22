@@ -133,6 +133,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -2319,6 +2320,10 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(String rawSql, List<AlterOp> alterOps, Database db,
                         OlapTable olapTable)
             throws UserException {
+        // The clause loop below updates some live table metadata in place. If the statement ends before it
+        // publishes its changes (any return or exception before that), the finally block undoes these updates.
+        Runnable restoreLiveColumnMetadata = null;
+        boolean published = false;
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -2379,8 +2384,13 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
-            Map<String, List<String>> sequenceMapping = olapTable.getColumnSeqMapping() == null ? new HashMap<>()
-                    : new HashMap<>(olapTable.getColumnSeqMapping());
+            // Copy the column groups too: processDropSequenceMapping removes columns from them, and the table's
+            // mapping must only change through the schema change job.
+            Map<String, List<String>> sequenceMapping = new HashMap<>();
+            if (olapTable.getColumnSeqMapping() != null) {
+                olapTable.getColumnSeqMapping().forEach(
+                        (seqColumn, columnGroup) -> sequenceMapping.put(seqColumn, new ArrayList<>(columnGroup)));
+            }
 
             Map<String, String> sequenceMappingSettings = new HashMap<>();
             for (AlterOp alterOp : alterOps) {
@@ -2404,6 +2414,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         + " ALTER statement, please run them in separate statements.");
             }
 
+            restoreLiveColumnMetadata = snapshotLiveColumnMetadata(olapTable,
+                    indexSchemaMap.get(olapTable.getBaseIndexId()));
+            // ADD INDEX IF NOT EXISTS of an existing index and DROP INDEX IF EXISTS of a missing one only skip
+            // their own clause.
+            int skippedClauseCount = 0;
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();
                 // alter table properties
@@ -2569,7 +2584,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     CreateIndexOp createIndexOp = (CreateIndexOp) alterOp;
                     Index index = createIndexOp.getIndex();
                     if (processAddIndex(createIndexOp, olapTable, newIndexes)) {
-                        return;
+                        skippedClauseCount++;
+                        continue;
                     }
                     lightSchemaChange = false;
 
@@ -2630,7 +2646,8 @@ public class SchemaChangeHandler extends AlterHandler {
                             if (dropIndexOp.isSetIfExists()) {
                                 LOG.info("drop index[{}] which does not exist on table[{}]",
                                         dropIndexOp.getIndexName(), olapTable.getName());
-                                return;
+                                skippedClauseCount++;
+                                continue;
                             }
                             throw new DdlException("index " + dropIndexOp.getIndexName() + " does not exist");
                         }
@@ -2657,7 +2674,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     } else {
                         // Original full-table DROP INDEX logic
                         if (processDropIndex(dropIndexOp, olapTable, newIndexes)) {
-                            return;
+                            skippedClauseCount++;
+                            continue;
                         }
                         lightSchemaChange = false;
 
@@ -2679,6 +2697,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     Preconditions.checkState(false);
                 }
             } // end for alter clauses
+            if (skippedClauseCount == alterOps.size()) {
+                return;
+            }
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
@@ -2696,15 +2717,19 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("only support light schema change operator when use table with changelog");
             }
 
+            // From here on the chosen path publishes the changes; validation inside these calls is not covered by
+            // the restore in the finally block.
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
+                published = true;
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         null, isDropIndex, jobId, false, propertyMap);
             } else if (useLightIndexChange) {
                 Index.checkConflict(newIndexes, olapTable.getCopiedBfColumns());
                 long jobId = Env.getCurrentEnv().getNextId();
                 // For light index changes, directly modify table metadata first.
+                published = true;
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                         alterIndexes, isDropIndex, jobId, false, propertyMap);
             } else if (buildIndexChange) {
@@ -2712,13 +2737,18 @@ public class SchemaChangeHandler extends AlterHandler {
                     throw new DdlException("Altered index is empty. please check your alter stmt.");
                 }
                 if (Config.enable_light_index_change) {
+                    published = true;
                     buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
                             alterIndexes, indexOnPartitions, isDropIndex);
                 }
             } else {
+                published = true;
                 createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, sequenceMapping);
             }
         } finally {
+            if (!published && restoreLiveColumnMetadata != null) {
+                restoreLiveColumnMetadata.run();
+            }
             olapTable.writeUnlock();
         }
     }
@@ -3938,6 +3968,28 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.warn("Exception:", e);
             throw new UserException(e.getMessage());
         }
+    }
+
+    // The clause loop of process() updates some live table metadata in place before the statement publishes
+    // its changes: the bloom filter columns (processDropColumn) and the generated column references of the
+    // base schema columns (removeColumnWhenDropGeneratedColumn). Returns an action that restores them.
+    private static Runnable snapshotLiveColumnMetadata(OlapTable olapTable, List<Column> baseSchema) {
+        Set<String> bfColumns = olapTable.getCopiedBfColumns();
+        double bfFpp = olapTable.getBfFpp();
+        // Column equality is by value, the references must be restored on the very same objects.
+        Map<Column, Set<String>> generatedColumnRefs = new IdentityHashMap<>();
+        for (Column column : baseSchema) {
+            if (column.getGeneratedColumnsThatReferToThis() != null) {
+                generatedColumnRefs.put(column, new HashSet<>(column.getGeneratedColumnsThatReferToThis()));
+            }
+        }
+        return () -> {
+            olapTable.setBloomFilterInfo(bfColumns, bfFpp);
+            generatedColumnRefs.forEach((column, refs) -> {
+                column.getGeneratedColumnsThatReferToThis().clear();
+                column.getGeneratedColumnsThatReferToThis().addAll(refs);
+            });
+        };
     }
 
     // Inverted index supports light schema change in both cloud and local mode.

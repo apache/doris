@@ -1548,6 +1548,83 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testFailedAlterKeepsLiveColumnMetadata() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        // In each statement DROP COLUMN updates live metadata in place, then the missing index fails it.
+        String missingIndexError = "index missing_idx does not exist";
+
+        dropTable("test.sc_failed_alter_generated_column", false);
+        createTable("CREATE TABLE test.sc_failed_alter_generated_column (\n"
+                + "k1 INT,\n"
+                + "b INT,\n"
+                + "g INT AS (b + 1),\n"
+                + "v2 STRING\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'bloom_filter_columns' = 'v2');");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_failed_alter_generated_column",
+                Table.TableType.OLAP);
+        assertAlterFails("ALTER TABLE test.sc_failed_alter_generated_column DROP COLUMN g, DROP INDEX missing_idx",
+                missingIndexError);
+        Assertions.assertNotNull(tbl.getColumn("g"));
+        Assertions.assertEquals(Sets.newHashSet("g"), tbl.getColumn("b").getGeneratedColumnsThatReferToThis());
+        assertAlterFails("ALTER TABLE test.sc_failed_alter_generated_column DROP COLUMN v2, DROP INDEX missing_idx",
+                missingIndexError);
+        Assertions.assertNotNull(tbl.getColumn("v2"));
+        Assertions.assertEquals(Sets.newHashSet("v2"), tbl.getCopiedBfColumns());
+
+        dropTable("test.sc_failed_alter_seq_map", false);
+        createTable("CREATE TABLE test.sc_failed_alter_seq_map "
+                + "(k1 bigint, k2 date, c varchar(20), d varchar(20), s1 bigint) ENGINE = OLAP\n"
+                + "UNIQUE KEY(k1, k2) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'sequence_mapping.s1' = 'c,d', 'enable_unique_key_merge_on_write' = 'false')");
+        OlapTable seqMapTbl = (OlapTable) db.getTableOrMetaException("sc_failed_alter_seq_map",
+                Table.TableType.OLAP);
+        assertAlterFails("ALTER TABLE test.sc_failed_alter_seq_map DROP COLUMN c, DROP INDEX missing_idx",
+                missingIndexError);
+        Assertions.assertNotNull(seqMapTbl.getColumn("c"));
+        Assertions.assertEquals(Lists.newArrayList("c", "d"), seqMapTbl.getColumnSeqMapping().get("s1"));
+    }
+
+    @Test
+    public void testIfExistsSkipsOnlyItsClause() throws Exception {
+        String tableName = "sc_if_exists_skips_clause";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "x INT,\n"
+                + "v1 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        String alterPrefix = "ALTER TABLE test." + tableName + " ";
+
+        // A statement whose clauses are all skipped still succeeds without changing anything.
+        alterTable(alterPrefix + "DROP INDEX IF EXISTS missing_idx", connectContext);
+        alterTable(alterPrefix + "ADD INDEX IF NOT EXISTS idx_v1 (v1) USING INVERTED", connectContext);
+        Assertions.assertNotNull(tbl.getColumn("x"));
+
+        // The other clauses still run.
+        alterTable(alterPrefix + "DROP COLUMN x, DROP INDEX IF EXISTS missing_idx", connectContext);
+        jobSize++;
+        Assertions.assertNull(tbl.getColumn("x"));
+        Assertions.assertEquals(Lists.newArrayList("idx_v1"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+    }
+
+    private void assertAlterFails(String sql, String expectedMessage) {
+        Exception e = Assertions.assertThrows(Exception.class, () -> alterTable(sql, connectContext));
+        Assertions.assertTrue(e.getMessage().contains(expectedMessage), e.getMessage());
+    }
+
+    @Test
     public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
         createAnalyzerAliasTable("sc_ik_alias");
         alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "
