@@ -599,6 +599,39 @@ suite("test_iceberg_initial_defaults", "p0,external") {
                         sparkUpdateMergeVerification)
     }
 
+    // DEFAULT(column) elsewhere in a write must also resolve to the pinned write-default (35); the read
+    // schema carries none. Rows 20-22 come from VALUES and INSERT ... SELECT with and without FROM, then the
+    // UPDATE and MERGE predicates must match all of them. A plain SELECT writes nothing and is rejected.
+    tableNames.each { String format, String currentTable ->
+        sql """INSERT INTO ${currentTable} (id, default_int) VALUES (20, DEFAULT(default_int))"""
+        sql """
+            INSERT INTO ${currentTable} (id, default_int)
+            SELECT 21, DEFAULT(default_int) FROM ${currentTable} WHERE id = 7
+        """
+        sql """INSERT INTO ${currentTable} (id, default_int) SELECT 22, DEFAULT(default_int)"""
+        sql """
+            UPDATE ${currentTable}
+            SET default_string = 'update-where-default'
+            WHERE id IN (20, 21, 22) AND default_int = DEFAULT(default_int)
+        """
+        sql """
+            MERGE INTO ${currentTable} t
+            USING (SELECT 22 AS id) s
+            ON t.id = s.id AND t.default_int = DEFAULT(t.default_int)
+            WHEN MATCHED THEN UPDATE SET default_string = 'merge-on-default'
+        """
+        "order_qt_${format}_default_references" """
+            SELECT id, default_int, default_string
+            FROM ${currentTable}
+            WHERE id IN (20, 21, 22)
+            ORDER BY id
+        """
+    }
+    test {
+        sql """SELECT DEFAULT(default_int) FROM ${parquetTable}"""
+        exception "must reference a column of the table that this statement writes"
+    }
+
     // Pin a branch while default_int still has write-default 35, then evolve the table-current
     // schema to 36. Iceberg selects the branch as the parent snapshot but writes the new snapshot
     // with the table-current schema, so VALUES(DEFAULT) normalization and the writer must both use
