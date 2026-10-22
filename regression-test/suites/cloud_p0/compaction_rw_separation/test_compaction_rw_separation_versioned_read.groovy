@@ -26,6 +26,9 @@ suite('test_compaction_rw_separation_versioned_read', 'docker') {
     ]
     options.beConfigs += [
         'enable_compaction_rw_separation=true',
+        // Versioned-read instances require the v2 delete bitmap store for MOW tables.
+        'delete_bitmap_store_write_version=2',
+        'delete_bitmap_store_read_version=2',
         'compaction_cluster_takeover_timeout_ms=600000',
         'cluster_status_cache_refresh_interval_sec=5',
         'file_cache_enter_disk_resource_limit_mode_percent=99',
@@ -60,8 +63,13 @@ suite('test_compaction_rw_separation_versioned_read', 'docker') {
                 "http://${be.ip}:${be.httpPort}/api/compaction/run?tablet_id=${tabletId}&compact_type=full")
         assertEquals(0, code, "Failed to trigger full compaction: ${out}, ${err}")
         def submitResult = new JsonSlurper().parseText(out.trim())
-        assertEquals('success', submitResult.status.toLowerCase(),
-                "Failed to submit full compaction: ${submitResult}")
+        if (submitResult.status.toLowerCase() != 'success') {
+            // A non-owner is rejected synchronously while preparing the compaction.
+            assertFalse(expectSuccess, "Failed to submit full compaction: ${submitResult}")
+            assertTrue(submitResult.msg.contains('owned by another active compute group'),
+                    "Unexpected full compaction rejection: ${submitResult}")
+            return
+        }
 
         def after = null
         def deadline = System.currentTimeMillis() + 90000L
