@@ -107,11 +107,11 @@ WrapperType create_cast_to_file(const DataTypePtr& from_type) {
     if (!status.ok()) {
         return create_unsupport_wrapper(std::string(status.msg()));
     }
-    return [from_type, mapping](FunctionContext*, Block& block, const ColumnNumbers& arguments,
-                                uint32_t result, size_t, const NullMap::value_type* null_map) {
-        const auto source =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        block.get_by_position(result).column = DORIS_TRY(cast_struct_to_file(
+    return [from_type, mapping](RuntimeState*, const ColumnWithTypeAndName& source_column,
+                                ColumnWithTypeAndName& target_column, size_t,
+                                const NullMap::value_type* null_map) {
+        const auto source = source_column.column->convert_to_full_column_if_const();
+        target_column.column = DORIS_TRY(cast_struct_to_file(
                 assert_cast<const ColumnStruct&>(*source),
                 assert_cast<const DataTypeStruct&>(*from_type), mapping, null_map));
         return Status::OK();

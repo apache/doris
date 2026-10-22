@@ -83,7 +83,8 @@ Status FunctionToFile::create_filesystem(const TS3Resource& resource, const std:
 }
 
 Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::THREAD_LOCAL || context->get_function_state(scope)) {
+    if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL ||
+        context->get_function_state(scope)) {
         return Status::OK();
     }
     auto* runtime = context->state();
@@ -95,10 +96,10 @@ Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionS
         return Status::InvalidArgument("TO_FILE requires query resources");
     }
     const auto* resource_column = context->get_constant_col(0);
-    if (!resource_column || resource_column->column_ptr->is_null_at(0)) {
+    if (!resource_column || resource_column->column_ptr()->is_null_at(0)) {
         return Status::InvalidArgument("TO_FILE resource must be a non-NULL constant string");
     }
-    const auto resource_name = resource_column->column_ptr->get_data_at(0).to_string();
+    const auto resource_name = resource_column->column_ptr()->get_data_at(0).to_string();
     const auto resource = resources->find(resource_name);
     if (resource == resources->end()) {
         return Status::InvalidArgument("TO_FILE resource '{}' is missing from query resources",
@@ -115,7 +116,7 @@ Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionS
 }
 
 Status FunctionToFile::close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         context->set_function_state(scope, nullptr);
     }
     return Status::OK();
@@ -125,8 +126,8 @@ Status FunctionToFile::close(FunctionContext* context, FunctionContext::Function
 Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, uint32_t result,
                                     size_t input_rows_count) const {
-    auto* state =
-            static_cast<ToFileState*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    auto* state = static_cast<ToFileState*>(
+            context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     if (!state) {
         return Status::InternalError("TO_FILE has no fragment-local state");
     }
