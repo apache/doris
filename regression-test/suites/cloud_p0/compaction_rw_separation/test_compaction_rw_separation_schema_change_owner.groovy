@@ -57,8 +57,13 @@ suite('test_compaction_rw_separation_schema_change_owner', 'docker') {
                 "http://${be.ip}:${be.httpPort}/api/compaction/run?tablet_id=${tabletId}&compact_type=full")
         assertEquals(0, code, "Failed to trigger full compaction: ${out}, ${err}")
         def submitResult = new JsonSlurper().parseText(out.trim())
-        assertEquals('success', submitResult.status.toLowerCase(),
-                "Failed to submit full compaction: ${submitResult}")
+        if (submitResult.status.toLowerCase() != 'success') {
+            // A non-owner is rejected synchronously while preparing the compaction.
+            assertFalse(expectSuccess, "Failed to submit full compaction: ${submitResult}")
+            assertTrue(submitResult.msg.contains('owned by another active compute group'),
+                    "Unexpected full compaction rejection: ${submitResult}")
+            return
+        }
 
         def after = null
         def deadline = System.currentTimeMillis() + 90000L

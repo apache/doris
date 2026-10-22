@@ -113,6 +113,13 @@ Status CloudFullCompaction::request_global_lock() {
         return Status::Error<BE_NO_SUITABLE_VERSION>(
                 "tablet is not authorized for compaction by this compute group");
     }
+    // Hold the owner token observed above so tests can commit loads before the job starts.
+    DBUG_EXECUTE_IF("CloudFullCompaction::request_global_lock.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == cloud_tablet()->tablet_id()) {
+            DBUG_BLOCK;
+        }
+    });
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     _expiration = now + config::compaction_timeout_seconds;
