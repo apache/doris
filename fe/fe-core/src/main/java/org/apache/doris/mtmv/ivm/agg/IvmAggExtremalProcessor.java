@@ -217,16 +217,22 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
             Expression deleteBound = deltaBound(deleted, topK, valueType);
             Expression effectiveBound = nonNullExtremum(oldBound, insertBound, deleteBound);
 
-            Expression merged = mergeValues(oldValues, inserted, deleted, effectiveBound, valuesType,
-                    topK);
+            Expression candidates = mergeValues(oldValues, inserted, deleted, effectiveBound,
+                    valuesType);
+            // No non-NULL value is left: the state is complete again, so nothing is carried over
+            // even if an untrusted deletion outside the bound survived the merge.
+            Expression values = new ArraySlice(candidates, new BigIntLiteral(1L),
+                    new BigIntLiteral(topK));
+            Expression stateValues = new If(new EqualTo(newCount, new BigIntLiteral(0L)),
+                    new ArrayLiteral(ImmutableList.of(), valuesType), values);
             // The trusted range is used up when nothing survived while the group still has rows.
             Expression exhausted = new And(
-                    new EqualTo(new Cardinality(merged), new BigIntLiteral(0L)),
+                    new EqualTo(new Cardinality(candidates), new BigIntLiteral(0L)),
                     ctx.isPositive(newCount));
             Expression guard = new AssertTrue(new Not(exhausted),
                     new StringLiteral(fallbackMessage()));
-            stateExpr = guarded(guard, merged, valuesType);
-            boundExpr = buildBound(oldBound, insertBound, deleteBound, effectiveBound, merged,
+            stateExpr = guarded(guard, stateValues, valuesType);
+            boundExpr = buildBound(oldBound, insertBound, deleteBound, effectiveBound, candidates,
                     oldCount, deltaCount, topK, valueType);
             extreme = elementAt(elementAt(stateExpr, 1L), "value");
         }
@@ -295,15 +301,16 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
     /**
      * Builds the merged list out of generic array functions: negate the delete side's counts so all
      * three lists are added, merge them with array_sorted_merge (two chained calls, because the
-     * function merges two sorted arrays at a time), keep the positive counts and truncate to
-     * {@code K}.
+     * function merges two sorted arrays at a time) and keep the positive counts. The result is the
+     * pre-truncation candidate list; the caller slices it to K and uses its length as the bound
+     * position.
      *
      * <p>The merge lambda combines two elements with the same value by adding their counts and
      * returns NULL when the values differ, which keeps both entries. Each list holds distinct
      * values, so a key appears at most twice across two lists and one fold is enough.
      */
     private Expression mergeValues(Expression oldValues, Expression inserted, Expression deleted,
-            Expression effectiveBound, ArrayType valuesType, long topK) {
+            Expression effectiveBound, ArrayType valuesType) {
         DataType pairType = valuesType.getItemType();
         // Only the trusted range (v <= bE for MIN, v >= bE for MAX) is known exactly by every
         // side; outside it a truncated side may be missing occurrences, so the counts would be
@@ -317,8 +324,7 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
                 mergeLambda(oldTrusted, insertTrusted, pairType), BooleanLiteral.of(isTopKAscending()));
         merged = new ArraySortedMerge(
                 mergeLambda(merged, negatedDeletes, pairType), BooleanLiteral.of(isTopKAscending()));
-        Expression positive = new ArrayFilter(positiveCountLambda(merged));
-        return new ArraySlice(positive, new BigIntLiteral(1L), new BigIntLiteral(topK));
+        return new ArrayFilter(positiveCountLambda(merged));
     }
 
     /**

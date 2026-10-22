@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -686,19 +685,21 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testExtremeOnlyGuardRejectsRetractions() {
         AggRewriteResult result = rewriteAggWithTopK(buildMinAgg(buildScan()), 0);
 
-        // K = 0 relies on the append-only premise: a non-NULL delete-side bound means a value was
+        // K = 0 relies on the append-only premise: a non-empty delete-side array means a value was
         // retracted, which the extreme-only merge cannot handle.
         List<AssertTrue> allAssertTrue = new ArrayList<>();
         for (NamedExpression expr : getApplyProject(result).getProjects()) {
             collectAssertTrue(expr, allAssertTrue);
         }
         AssertTrue boundaryGuard = allAssertTrue.stream()
-                .filter(at -> at.child(0) instanceof IsNull)
+                .filter(at -> at.child(0) instanceof EqualTo
+                        && at.child(0).child(0) instanceof Cardinality)
                 .findFirst()
                 .orElse(null);
         Assertions.assertNotNull(boundaryGuard,
-                "Extreme-only guard should be assert_true(IS NULL(delete-side bound))");
-        Assertions.assertInstanceOf(IsNull.class, boundaryGuard.child(0));
+                "Extreme-only guard should be assert_true(cardinality(delete-side array) = 0)");
+        Assertions.assertInstanceOf(EqualTo.class, boundaryGuard.child(0));
+        Assertions.assertInstanceOf(Cardinality.class, boundaryGuard.child(0).child(0));
         assertGuardMessage(boundaryGuard);
     }
 

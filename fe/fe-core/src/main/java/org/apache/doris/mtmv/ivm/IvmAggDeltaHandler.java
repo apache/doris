@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Aggregate delta rewrite handler for IVM.
@@ -161,8 +162,18 @@ class IvmAggDeltaHandler {
                 agg, delta, aggMeta, context, visitor.getRewriteState(), childResult.get().maxDeltaIndex);
         Slot dmlFactorSlot = helper.findSlotByName(applyProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequenceSlot = helper.findSlotByName(applyProject.getOutput(), Column.SEQUENCE_COL);
+        // The states the apply computes but the aggregate schema does not carry (the derived
+        // MIN/MAX bound). A project above this plan must not re-derive them.
+        Set<String> aggregateOutputNames = agg.getOutput().stream()
+                .map(Slot::getName)
+                .collect(Collectors.toSet());
+        Set<String> ownedHiddenStateNames = aggMeta.getAggTargets().stream()
+                .flatMap(target -> target.getHiddenStateSlots().values().stream())
+                .map(Slot::getName)
+                .filter(name -> !aggregateOutputNames.contains(name))
+                .collect(Collectors.toSet());
         return Optional.of(new IvmDeltaRewriteResult(applyProject, dmlFactorSlot, sequenceSlot,
-                childResult.get().maxDeltaIndex));
+                childResult.get().maxDeltaIndex, ownedHiddenStateNames));
     }
 
     /**
@@ -356,9 +367,11 @@ class IvmAggDeltaHandler {
                         new TinyIntLiteral((byte) -1), new TinyIntLiteral((byte) 1));
 
         List<NamedExpression> finalOutputs = new ArrayList<>();
+        Set<String> emittedColumnNames = new HashSet<>();
         // Keep the normalized aggregate schema here. The normalize-added top project computes row-id above this
         // project, and the final sink project reorders columns by MV schema.
         for (Slot target : normalizedAgg.getOutput()) {
+            emittedColumnNames.add(target.getName());
             // A group key output takes the delta-side key slot: a group that is new in the
             // delta has no MV row to copy from. Same-named keys are disambiguated by slot
             // identity against aggMeta's ordered group keys.
@@ -372,6 +385,25 @@ class IvmAggDeltaHandler {
                         + target.getName());
             }
             finalOutputs.add(new Alias(target.getExprId(), expr, target.getName()));
+        }
+        // Hidden states the aggregate does not output itself (a derived state such as MIN/MAX's bound
+        // column, computed by the project above the aggregate) still have to reach the MV row. They
+        // are already in the expression map; append the ones the aggregate schema did not cover,
+        // keeping the normalized slot's expr id so the sink still binds to this output.
+        for (IvmAggTarget aggTarget : aggMeta.getAggTargets()) {
+            for (Slot hiddenSlot : aggTarget.getHiddenStateSlots().values()) {
+                String name = hiddenSlot.getName();
+                if (emittedColumnNames.contains(name)) {
+                    continue;
+                }
+                Expression expr = finalByColumnName.get(name);
+                if (expr == null) {
+                    throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                            "IVM agg delta rewrite missing state expression for column: " + name);
+                }
+                emittedColumnNames.add(name);
+                finalOutputs.add(new Alias(hiddenSlot.getExprId(), expr, name));
+            }
         }
         finalOutputs.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
         finalOutputs.add(new Alias(rewriteState.toSequence(maxDeltaIndex), Column.SEQUENCE_COL));

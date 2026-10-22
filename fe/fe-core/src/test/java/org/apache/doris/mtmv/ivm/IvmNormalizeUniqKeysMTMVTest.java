@@ -43,6 +43,7 @@ import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -60,6 +61,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -1095,6 +1098,35 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK")));
         Assertions.assertTrue(outputNames.contains(
                 IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND")));
+        // The extreme-only mode does not use the bound, so its state column is a typed NULL.
+        Assertions.assertInstanceOf(NullLiteral.class,
+                ((Alias) projectOutput(topProject, IvmUtil.ivmAggHiddenColumnName(0,
+                        "MIN_TOPK_BOUND"))).child());
+    }
+
+    @Test
+    void testBoundIsDerivedFromTheTopKArray() {
+        IvmRewriteContext rewriteContext = IvmRewriteContext.create("test_mtmv");
+        rewriteContext.setMinMaxTopK(8L);
+        LogicalAggregate<Plan> agg = minAgg(scan);
+        JobContext jobContext = newJobContextForRoot(agg, true, Collections.emptySet(),
+                Optional.of(rewriteContext));
+        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
+
+        // A full refresh initializes the bound from the array it just built: an array shorter than
+        // K is complete (NULL bound), otherwise its K-th value is the truncation point.
+        NamedExpression boundOutput = projectOutput((LogicalProject<?>) result,
+                IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND"));
+        Assertions.assertTrue(boundOutput.anyMatch(node -> node instanceof CaseWhen));
+        Assertions.assertTrue(boundOutput.anyMatch(node -> node instanceof Cardinality));
+        Assertions.assertTrue(boundOutput.anyMatch(node -> node instanceof ElementAt));
+    }
+
+    private static NamedExpression projectOutput(LogicalProject<?> project, String name) {
+        return project.getProjects().stream()
+                .filter(output -> name.equals(output.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing project output " + name));
     }
 
     @Test
@@ -1128,6 +1160,10 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK")));
         Assertions.assertTrue(outputNames.contains(
                 IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK_BOUND")));
+        // The extreme-only mode does not use the bound, so its state column is a typed NULL.
+        Assertions.assertInstanceOf(NullLiteral.class,
+                ((Alias) projectOutput(topProject, IvmUtil.ivmAggHiddenColumnName(0,
+                        "MAX_TOPK_BOUND"))).child());
     }
 
     @Test
