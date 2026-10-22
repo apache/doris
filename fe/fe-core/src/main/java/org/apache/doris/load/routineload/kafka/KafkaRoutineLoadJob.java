@@ -893,8 +893,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-        LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
-                this.id, jobProperties, dataSourceProperties);
+        LOG.info("modify the properties of kafka routine load job: {}, job property keys: {}, "
+                        + "datasource property keys: {}",
+                this.id, jobProperties.keySet(), dataSourceProperties == null ? Collections.emptySet()
+                        : MapUtils.emptyIfNull(dataSourceProperties.getOriginalDataSourceProperties()).keySet());
     }
 
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {
