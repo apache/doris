@@ -143,7 +143,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
 
     private static final Logger LOG = LogManager.getLogger(ExpressionTranslator.class);
-    private static final int MAX_SIMPLE_CASE_BRANCHES = 256;
+    // BE reserves index 0 for ELSE and stores branch indices in uint16_t.
+    private static final int MAX_SIMPLE_CASE_BRANCHES = 65_534;
 
     /**
      * The entry function of ExpressionTranslator.

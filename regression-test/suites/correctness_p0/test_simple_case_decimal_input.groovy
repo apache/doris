@@ -170,7 +170,7 @@ suite("test_simple_case_decimal_input") {
                 explain {
                     sql query
                     contains "CASE "
-                    if (simpleCase && !shortCircuit && branches == 256) {
+                    if (simpleCase && !shortCircuit) {
                         notContains "CASE WHEN"
                     } else {
                         contains "CASE WHEN"

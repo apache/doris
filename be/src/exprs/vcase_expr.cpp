@@ -29,9 +29,11 @@
 #include "core/column/column.h"
 #include "core/column/column_execute_util.h"
 #include "core/custom_allocator.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -40,6 +42,75 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
+
+namespace {
+
+template <PrimitiveType PType>
+constexpr bool supports_simple_case = is_number(PType) || PType == TYPE_STRING;
+
+template <PrimitiveType PType>
+constexpr size_t simple_case_lookup_threshold() {
+    static_assert(supports_simple_case<PType>);
+    if constexpr (sizeof(typename ColumnElementView<PType>::ElementType) <= sizeof(uint32_t)) {
+        return 64;
+    } else if constexpr (sizeof(typename ColumnElementView<PType>::ElementType) <=
+                         sizeof(uint64_t)) {
+        return 32;
+    } else {
+        return 8;
+    }
+}
+
+template <PrimitiveType PType>
+struct SimpleCaseLookupState {
+    using Key = typename ColumnElementView<PType>::ElementType;
+    using Hash = std::conditional_t<PType == TYPE_STRING, StringRefHash, phmap::Hash<Key>>;
+
+    // StringRef keys borrow storage from the expression's VLiteral children.
+    doris::flat_hash_map<Key, uint16_t, Hash> table;
+    DorisVector<uint16_t> first_branch;
+};
+
+template <PrimitiveType PType>
+bool match_simple_case_key(const ColumnView<PType>& input_view,
+                           typename ColumnElementView<PType>::ElementType key,
+                           uint16_t branch_index, DorisVector<uint16_t>& selected) {
+    if (input_view.is_const) {
+        const bool matches = input_view.value_at(0) == key;
+        if (matches && selected[0] == 0) {
+            std::ranges::fill(selected, branch_index);
+        }
+        return matches;
+    }
+    bool has_match = false;
+    for (size_t row = 0; row < selected.size(); ++row) {
+        // Compare before masking NULL rows to keep this loop branch-free and
+        // friendly to automatic vectorization.
+        bool matches = input_view.value_at(row) == key;
+        matches &= !input_view.is_null_at(row);
+        has_match |= matches;
+        selected[row] = matches && selected[row] == 0 ? branch_index : selected[row];
+    }
+    return has_match;
+}
+
+template <PrimitiveType PType>
+void lookup_simple_case_keys(const SimpleCaseLookupState<PType>& state,
+                             const ColumnView<PType>& input_view, DorisVector<uint16_t>& selected,
+                             DorisVector<uint8_t>& matched) {
+    for (size_t row = 0; row < selected.size(); ++row) {
+        if (input_view.is_null_at(row)) {
+            continue;
+        }
+        const auto entry = state.table.find(input_view.value_at(row));
+        if (entry != state.table.end()) {
+            selected[row] = entry->second;
+            matched[entry->second] = 1;
+        }
+    }
+}
+
+} // namespace
 
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node),
@@ -52,7 +123,7 @@ Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprC
     if (_has_case_expr) {
         DORIS_CHECK(_children.size() >= 3U + _has_else_expr);
         DORIS_CHECK((_children.size() - 1 - _has_else_expr) % 2 == 0);
-        DORIS_CHECK((_children.size() - 1 - _has_else_expr) / 2 <= 256);
+        DORIS_CHECK((_children.size() - 1 - _has_else_expr) / 2 < UINT16_MAX);
         const auto input_type = remove_nullable(_children[0]->data_type());
         for (size_t i = 1; i < _children.size() - _has_else_expr; i += 2) {
             DORIS_CHECK(_children[i]->is_literal());
@@ -80,10 +151,44 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+        if (_has_case_expr) {
+            _open_simple_case_lookup(context);
+        }
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     _open_finished = true;
     return Status::OK();
+}
+
+void VCaseExpr::_open_simple_case_lookup(VExprContext* context) {
+    const size_t branch_count = (_children.size() - 1 - _has_else_expr) / 2;
+    const auto initialize = [&]<typename Type>(Type) {
+        constexpr auto PType = Type::PType;
+        if constexpr (supports_simple_case<PType>) {
+            if (branch_count < simple_case_lookup_threshold<PType>()) {
+                return false;
+            }
+            auto state = std::make_shared<SimpleCaseLookupState<PType>>();
+            state->table.reserve(branch_count);
+            state->first_branch.resize(branch_count);
+            for (size_t branch = 0; branch < branch_count; ++branch) {
+                const auto& column =
+                        assert_cast<const VLiteral&>(*_children[1 + branch * 2]).get_column_ptr();
+                const auto key = ColumnView<PType>::create(column).value_at(0);
+                const auto [entry, inserted] =
+                        state->table.emplace(key, static_cast<uint16_t>(branch + 1));
+                state->first_branch[branch] =
+                        inserted ? static_cast<uint16_t>(branch + 1) : entry->second;
+            }
+            context->fn_context(_fn_context_index)
+                    ->set_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL,
+                                         std::move(state));
+            return true;
+        }
+        return false;
+    };
+    dispatch_switch_all(remove_nullable(_children[0]->data_type())->get_primitive_type(),
+                        initialize);
 }
 
 void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
@@ -108,8 +213,7 @@ Status VCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
         Status status;
         const auto execute = [&]<typename Type>(Type) {
             constexpr auto PType = Type::PType;
-            if constexpr ((is_int(PType) && PType != TYPE_LARGEINT) || is_decimalv3(PType) ||
-                          PType == TYPE_STRING) {
+            if constexpr (supports_simple_case<PType>) {
                 status =
                         _execute_simple_case<PType>(context, block, selector, count, result_column);
                 return true;
@@ -117,7 +221,11 @@ Status VCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
             return false;
         };
         const auto input_type = remove_nullable(_children[0]->data_type())->get_primitive_type();
-        if (input_type == TYPE_CHAR || !dispatch_switch_all(input_type, execute)) {
+        bool dispatched = dispatch_switch_number(input_type, execute);
+        if (!dispatched && input_type != TYPE_CHAR) {
+            dispatched = dispatch_switch_all(input_type, execute);
+        }
+        if (!dispatched) {
             return Status::NotSupported("simple case input type {} is not supported",
                                         _children[0]->data_type()->get_name());
         }
@@ -167,6 +275,35 @@ Status VCaseExpr::execute_column_impl(VExprContext* context, const Block* block,
 }
 
 template <PrimitiveType PType>
+Status VCaseExpr::_execute_simple_case_lookup(VExprContext* context, const Block* block,
+                                              const Selector* selector, size_t count,
+                                              const ColumnPtr& input,
+                                              ColumnPtr& result_column) const {
+    const auto* state = static_cast<const SimpleCaseLookupState<PType>*>(
+            context->fn_context(_fn_context_index)
+                    ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    DCHECK(state);
+    const auto input_view = ColumnView<PType>::create(input);
+    DorisVector<uint16_t> selected(count, 0);
+    const size_t branch_count = (_children.size() - 1 - _has_else_expr) / 2;
+    DorisVector<uint8_t> matched(branch_count + 1, 0);
+    lookup_simple_case_keys(*state, input_view, selected, matched);
+    std::vector<ColumnPtr> then_columns(branch_count + 1);
+    if (_has_else_expr) {
+        RETURN_IF_ERROR(
+                _children.back()->execute_column(context, block, selector, count, then_columns[0]));
+    }
+    for (size_t branch = 0; branch < branch_count; ++branch) {
+        if (matched[state->first_branch[branch]]) {
+            RETURN_IF_ERROR(_children[2 + branch * 2]->execute_column(
+                    context, block, selector, count, then_columns[branch + 1]));
+        }
+    }
+    result_column = _execute_update_result<uint16_t>(selected.data(), then_columns, count);
+    return Status::OK();
+}
+
+template <PrimitiveType PType>
 Status VCaseExpr::_execute_simple_case(VExprContext* context, const Block* block,
                                        const Selector* selector, size_t count,
                                        ColumnPtr& result_column) const {
@@ -181,6 +318,10 @@ Status VCaseExpr::_execute_simple_case(VExprContext* context, const Block* block
         return _children.back()->execute_column(context, block, selector, count, result_column);
     }
     const auto input_view = ColumnView<PType>::create(input);
+    if (!input_view.is_const && branch_count >= simple_case_lookup_threshold<PType>()) {
+        return _execute_simple_case_lookup<PType>(context, block, selector, count, input,
+                                                  result_column);
+    }
     DorisVector<uint16_t> selected(count, 0);
     std::vector<ColumnPtr> then_columns(branch_count + 1);
     if (_has_else_expr) {
@@ -197,23 +338,7 @@ Status VCaseExpr::_execute_simple_case(VExprContext* context, const Block* block
         const auto branch_index = static_cast<uint16_t>(branch + 1);
         // Keep searched CASE's batch skipping, including shadowed duplicate keys.
         // A matching THEN still evaluates the entire batch, not just selected rows.
-        bool has_match = false;
-        if (input_view.is_const) {
-            has_match = input_view.value_at(0) == key;
-            if (has_match && selected[0] == 0) {
-                std::ranges::fill(selected, branch_index);
-            }
-        } else {
-            for (size_t row = 0; row < count; ++row) {
-                // Compare before masking NULL rows to keep this loop branch-free and
-                // friendly to automatic vectorization.
-                bool matches = input_view.value_at(row) == key;
-                matches &= !input_view.is_null_at(row);
-                has_match |= matches;
-                selected[row] = matches && selected[row] == 0 ? branch_index : selected[row];
-            }
-        }
-        if (has_match) {
+        if (match_simple_case_key(input_view, key, branch_index, selected)) {
             RETURN_IF_ERROR(_children[2 + branch * 2]->execute_column(
                     context, block, selector, count, then_columns[branch + 1]));
         }
