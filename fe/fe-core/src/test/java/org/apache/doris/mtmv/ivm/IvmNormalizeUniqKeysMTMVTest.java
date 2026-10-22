@@ -798,14 +798,16 @@ class IvmNormalizeUniqKeysMTMVTest {
                 Pair.of(new Count(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"))),
                 // MIN/MAX no longer carry their old value in the visible column: the top-K state
-                // holds both the list and the old extreme, so dropping the visible column adds
-                // no carrier.
+                // holds the list and a separate bound column, so dropping the visible column
+                // adds no carrier.
                 Pair.of(new Min(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
-                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND"))),
                 Pair.of(new Max(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COUNT"),
-                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK"))),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK"),
+                        IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK_BOUND"))),
                 Pair.of(new CollectList(nameSlot), concat(groupCount,
                         IvmUtil.ivmAggHiddenColumnName(0, "COLLECT_LIST"))),
                 Pair.of(new BitmapUnion(new BitmapFromString(nameSlot)), concat(groupCount,
@@ -1073,7 +1075,8 @@ class IvmNormalizeUniqKeysMTMVTest {
         JobContext jobContext = newJobContextForRoot(agg, true);
         Plan result = new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
 
-        // Normalization should succeed; no hidden MIN column, but COUNT and MIN_TOPK state columns.
+        // Normalization should succeed; no hidden MIN column, but the COUNT and MIN_TOPK state
+        // columns plus its derived bound column.
         Assertions.assertInstanceOf(LogicalProject.class, result);
         IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
@@ -1082,6 +1085,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertEquals(IvmAggFunctionKind.MIN, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MIN_TOPK_BOUND));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
@@ -1089,6 +1093,8 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK")));
+        Assertions.assertTrue(outputNames.contains(
+                IvmUtil.ivmAggHiddenColumnName(0, "MIN_TOPK_BOUND")));
     }
 
     @Test
@@ -1112,6 +1118,7 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertEquals(IvmAggFunctionKind.MAX, target.getFunctionKind());
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK));
+        Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.MAX_TOPK_BOUND));
 
         LogicalProject<?> topProject = (LogicalProject<?>) result;
         Set<String> outputNames = topProject.getOutput().stream()
@@ -1119,6 +1126,8 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK")));
+        Assertions.assertTrue(outputNames.contains(
+                IvmUtil.ivmAggHiddenColumnName(0, "MAX_TOPK_BOUND")));
     }
 
     @Test

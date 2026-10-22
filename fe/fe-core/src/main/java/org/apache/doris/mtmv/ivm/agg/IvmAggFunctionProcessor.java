@@ -82,8 +82,15 @@ public abstract class IvmAggFunctionProcessor {
             aggColumnPool.put(key, newAlias.toSlot());
             hiddenAggOutputs.add(newAlias);
         }
+        ImmutableMap<IvmAggStateKey, Alias> stateAliases = hiddenAliases.build();
+        ImmutableMap.Builder<IvmAggStateKey, Alias> derivedAliases = ImmutableMap.builder();
+        for (IvmAggStateKey stateKey : derivedStateKeys(function)) {
+            String colName = IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name());
+            derivedAliases.put(stateKey, new Alias(
+                    derivedStateExpression(stateKey, function, stateAliases, minMaxTopK), colName));
+        }
         return new IvmAggTargetSpec(ordinal, handledFunctionKind(), visibleAlias,
-                hiddenAliases.build(), targetArguments(function), minMaxTopK);
+                stateAliases, derivedAliases.build(), targetArguments(function), minMaxTopK);
     }
 
     /** Appends the processor-owned delta aggregate outputs for this target. */
@@ -126,6 +133,24 @@ public abstract class IvmAggFunctionProcessor {
     /** Hidden state columns this function needs in the normalized MV schema. */
     protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
         return ImmutableList.of();
+    }
+
+    /**
+     * Hidden state columns computed by the project above the normalized aggregate from the
+     * {@link #hiddenStateKeys} columns. They have no aggregate of their own, so they are not part
+     * of the aggregate output list.
+     */
+    protected List<IvmAggStateKey> derivedStateKeys(AggregateFunction function) {
+        return ImmutableList.of();
+    }
+
+    /**
+     * Builds the expression of one {@link #derivedStateKeys} state from the aggregate output
+     * {@code stateAliases}, in the project above the normalized aggregate.
+     */
+    protected Expression derivedStateExpression(IvmAggStateKey stateKey, AggregateFunction function,
+            Map<IvmAggStateKey, Alias> stateAliases, long minMaxTopK) {
+        throw new IllegalArgumentException("Unsupported derived IVM aggregate state: " + stateKey);
     }
 
     /**

@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -312,27 +313,22 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
     /**
      * True when every leaf scan reads an append-only changelog and every join is INNER/CROSS.
      *
-     * <p>Both halves are premises, not guarantees: a DUP table can still be DELETEd from, which is
-     * why the extreme-only mode falls back when the delete side sees a non-NULL value. This is the
-     * local equivalent of the {@code SupportChangelog} interface; when that lands, the scan half is
-     * replaced by it and external connectors answer for themselves.
+     * <p>Both halves are premises, not guarantees: an append-only changelog can still carry a
+     * DELETE (a DUP table with changelog accepts one), which is why the extreme-only mode falls
+     * back when the delete side sees a non-NULL value. The scan half is answered by
+     * {@link SupportChangelog#isChangelogAppendOnly()}, the same contract the append-only detail
+     * model uses in {@link org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV#judgeKeysType},
+     * so external connectors answer for themselves.
      */
     private static boolean isAppendOnlyInnerJoinPlan(Plan plan) {
-        Set<Plan> nodes = plan.collect(node ->
-                node instanceof LogicalJoin || node instanceof LogicalOlapScan);
-        for (Plan node : nodes) {
+        return !plan.anyMatch(node -> {
             if (node instanceof LogicalJoin) {
                 JoinType joinType = ((LogicalJoin<?, ?>) node).getJoinType();
-                if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
-                    return false;
-                }
-            } else {
-                if (((LogicalOlapScan) node).getTable().getKeysType() != KeysType.DUP_KEYS) {
-                    return false;
-                }
+                return joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN;
             }
-        }
-        return true;
+            return node instanceof SupportChangelog
+                    && !((SupportChangelog) node).isChangelogAppendOnly();
+        });
     }
 
     private boolean resolveUseFullKeys() {
@@ -854,6 +850,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // Pass 2: build targets, reusing pooled columns where the hidden state expression matches.
         long minMaxTopK = resolveMinMaxTopK(aggAliases);
         List<IvmAggTarget> aggTargets = new ArrayList<>();
+        List<IvmAggTargetSpec> aggTargetSpecs = new ArrayList<>();
         for (int i = 0; i < aggAliases.size(); i++) {
             Alias origAlias = aggAliases.get(i);
             AggregateFunction aggFunc = (AggregateFunction) origAlias.child();
@@ -861,6 +858,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
             // function, so adding a new aggregate function should only require a new processor registration.
             IvmAggTargetSpec aggTargetSpec = aggFunctionRegistry.buildTargetSpec(
                     i, aggFunc, origAlias, aggColumnPool, hiddenAggOutputs, minMaxTopK);
+            aggTargetSpecs.add(aggTargetSpec);
             aggTargets.add(aggTargetSpec.toPlaceholderTarget());
         }
 
@@ -887,15 +885,27 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // Add agg-level row-id to IvmRewriteResult (child entries are kept for strategy lookup)
         rewriteResult.addRowId(rowIdAlias.toSlot(), !scalarAgg);
 
-        // Project output: row_id first, then all Aggregate output slots (original + hidden)
+        // Derived hidden state is computed here, above the aggregate, because it is a projection of
+        // another state column rather than an aggregate of its own (MIN/MAX's bound column).
+        List<NamedExpression> derivedHiddenOutputs = new ArrayList<>();
+        for (IvmAggTargetSpec spec : aggTargetSpecs) {
+            derivedHiddenOutputs.addAll(spec.getDerivedStateOutputs());
+        }
+
+        // Project output: row_id first, then all Aggregate output slots (original + hidden),
+        // then the derived hidden states.
         ImmutableList.Builder<NamedExpression> projectOutputs = ImmutableList.builder();
         projectOutputs.add(rowIdAlias);
         for (NamedExpression aggOutput : newAgg.getOutputExpressions()) {
             projectOutputs.add(aggOutput.toSlot());
         }
+        projectOutputs.addAll(derivedHiddenOutputs);
 
-        // Resolve IvmAggTarget slots from the new Aggregate output
-        List<Slot> newAggSlots = newAgg.getOutput();
+        // Resolve IvmAggTarget slots from the new Aggregate output and the derived project outputs
+        List<Slot> newAggSlots = new ArrayList<>(newAgg.getOutput());
+        for (NamedExpression derivedOutput : derivedHiddenOutputs) {
+            newAggSlots.add(derivedOutput.toSlot());
+        }
         // groupCountSlot is at origOutputs.size() (first hidden output after original outputs)
         Slot groupCountSlot = newAggSlots.get(origOutputs.size());
         List<IvmAggTarget> resolvedTargets = resolveAggTargetSlots(aggTargets, newAggSlots);

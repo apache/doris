@@ -23,13 +23,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.TopKMergeMax;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+
+import java.util.List;
 
 /** MAX-specific top-K state, delta and merge. */
 class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     IvmAggMaxProcessor() {
-        super(IvmAggFunctionKind.MAX, IvmAggStateKey.MAX_TOPK, "DELMAX");
+        super(IvmAggFunctionKind.MAX, IvmAggStateKey.MAX_TOPK,
+                IvmAggStateKey.MAX_TOPK_BOUND, "DELMAX");
     }
 
     @Override
@@ -43,16 +45,14 @@ class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression buildMerge(Expression oldValues, Expression oldBound,
-            Expression insertValues, Expression insertBound, Expression deleteValues, Expression deleteBound,
-            Expression oldCount, Expression deltaCount, long topK) {
-        return new TopKMergeMax(oldValues, oldBound, insertValues, insertBound,
-                deleteValues, deleteBound, oldCount, deltaCount, new BigIntLiteral(topK));
+    protected boolean isTopKAscending() {
+        return false;
     }
 
     @Override
-    protected Expression betterExtreme(Expression oldExtreme, Expression insertedExtreme) {
-        return new Greatest(oldExtreme, insertedExtreme);
+    protected Expression leastOrGreatest(List<Expression> values) {
+        return new Greatest(values.get(0),
+                values.subList(1, values.size()).toArray(new Expression[0]));
     }
 
     @Override

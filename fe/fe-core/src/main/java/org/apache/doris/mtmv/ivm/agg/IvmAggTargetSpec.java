@@ -42,16 +42,18 @@ public class IvmAggTargetSpec {
     private final IvmAggFunctionKind functionKind;
     private final Alias visibleAlias;
     private final Map<IvmAggStateKey, Alias> hiddenStateAliases;
+    private final Map<IvmAggStateKey, Alias> derivedStateAliases;
     private final List<Expression> targetArguments;
     private final long minMaxTopK;
 
     public IvmAggTargetSpec(int ordinal, IvmAggFunctionKind functionKind, Alias visibleAlias,
-            Map<IvmAggStateKey, Alias> hiddenStateAliases, List<Expression> targetArguments,
-            long minMaxTopK) {
+            Map<IvmAggStateKey, Alias> hiddenStateAliases, Map<IvmAggStateKey, Alias> derivedStateAliases,
+            List<Expression> targetArguments, long minMaxTopK) {
         this.ordinal = ordinal;
         this.functionKind = Objects.requireNonNull(functionKind);
         this.visibleAlias = Objects.requireNonNull(visibleAlias);
         this.hiddenStateAliases = ImmutableMap.copyOf(hiddenStateAliases);
+        this.derivedStateAliases = ImmutableMap.copyOf(derivedStateAliases);
         this.targetArguments = ImmutableList.copyOf(targetArguments);
         this.minMaxTopK = minMaxTopK;
     }
@@ -61,10 +63,21 @@ public class IvmAggTargetSpec {
         return ImmutableList.copyOf(hiddenStateAliases.values());
     }
 
+    /**
+     * Hidden state aliases computed by the project above the normalized aggregate, from the
+     * aggregate's own state columns. They are not aggregate outputs.
+     */
+    public List<NamedExpression> getDerivedStateOutputs() {
+        return ImmutableList.copyOf(derivedStateAliases.values());
+    }
+
     /** Builds target metadata before the normalized Aggregate assigns final output slots. */
     public IvmAggTarget toPlaceholderTarget() {
         ImmutableMap.Builder<IvmAggStateKey, Slot> hiddenSlots = ImmutableMap.builder();
         for (Map.Entry<IvmAggStateKey, Alias> entry : hiddenStateAliases.entrySet()) {
+            hiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
+        }
+        for (Map.Entry<IvmAggStateKey, Alias> entry : derivedStateAliases.entrySet()) {
             hiddenSlots.put(entry.getKey(), entry.getValue().toSlot());
         }
         // No value-state carrier yet: normalize materializes one only if an upper layer drops the
