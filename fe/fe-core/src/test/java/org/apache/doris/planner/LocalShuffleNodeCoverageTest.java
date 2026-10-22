@@ -36,9 +36,11 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
@@ -117,6 +119,32 @@ public class LocalShuffleNodeCoverageTest {
                 fragment::toThrift);
         Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"),
                 rejected.getMessage());
+    }
+
+    @Test
+    public void testTranslatorRejectsMixedStorageHashTypes() {
+        PlanNode mixed = mixedStorageLayoutUnion();
+        for (PlanNode root : Lists.newArrayList(mixed,
+                new LocalExchangeNode(nextPlanNodeId(), mixed, LocalExchangeType.PASSTHROUGH))) {
+            PlanTranslatorContext context = new PlanTranslatorContext();
+            PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), root, DataPartition.UNPARTITIONED);
+            context.addPlanFragment(fragment);
+            PhysicalPlan plan = Mockito.mock(PhysicalPlan.class);
+            PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context);
+            Mockito.when(plan.getOutput()).thenReturn(Collections.emptyList());
+            // Inject the translated tree at the visitor seam, not a mocked validation
+            // failure. Without translatePlan's validation this call returns normally:
+            // neither distribution/local-exchange planning nor serialization runs here.
+            Mockito.doReturn(fragment).when(plan)
+                    .<PlanFragment, PlanTranslatorContext>accept(translator, context);
+
+            IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class,
+                    () -> translator.translatePlan(plan));
+            Assertions.assertTrue(rejected.getMessage().contains("fragment " + fragment.getFragmentId()),
+                    rejected.getMessage());
+            Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"),
+                    rejected.getMessage());
+        }
     }
 
     /**
@@ -270,6 +298,46 @@ public class LocalShuffleNodeCoverageTest {
                 NestedLoopJoinNode nested = new NestedLoopJoinNode(nextPlanNodeId(), probe, build,
                         Collections.emptyList(), JoinOperator.CROSS_JOIN, false);
                 Assertions.assertSame(probe.getStorageHashLayout(), nested.getStorageHashLayout());
+            }
+        }
+    }
+
+    @Test
+    public void testBroadcastAndNestedLoopPreserveAmbiguousProbeLayouts() {
+        UnionNode partial = new UnionNode(nextPlanNodeId(), new TupleId(123));
+        partial.addChild(storageLayoutNode(null));
+        partial.addChild(storageLayoutNode(HashDistributionInfo.HashType.IDENTITY));
+        Assertions.assertEquals(StorageHashLayout.State.UNKNOWN, partial.getStorageHashLayout().getState());
+
+        for (PlanNode probe : Lists.newArrayList(partial, mixedStorageLayoutUnion())) {
+            StorageHashLayout.State expectedState = probe.getStorageHashLayout().getState();
+            // A CRC32 build must not turn UNKNOWN(IDENTITY) into CONFLICT or fill in a
+            // definite layout. Both joins derive every state exclusively from the probe.
+            PlanNode build = storageLayoutNode(HashDistributionInfo.HashType.CRC32);
+            HashJoinNode broadcast = new HashJoinNode(nextPlanNodeId(), probe, build,
+                    JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
+                    Collections.emptyList(), null, null, false);
+            broadcast.setDistributionMode(DistributionMode.BROADCAST);
+            NestedLoopJoinNode nested = new NestedLoopJoinNode(nextPlanNodeId(), probe, build,
+                    Collections.emptyList(), JoinOperator.CROSS_JOIN, false);
+
+            for (PlanNode join : Lists.newArrayList(broadcast, nested)) {
+                StorageHashLayout layout = join.getStorageHashLayout();
+                String context = join.getClass().getSimpleName() + ": " + expectedState;
+                Assertions.assertEquals(expectedState, layout.getState(), context);
+                Assertions.assertThrows(IllegalStateException.class, layout::getHashType, context);
+                // UNKNOWN must retain its IDENTITY evidence across the join: a later
+                // CRC32 input still conflicts, rather than being accepted as the only layout.
+                Assertions.assertSame(StorageHashLayout.CONFLICT,
+                        layout.merge(StorageHashLayout.known(HashDistributionInfo.HashType.CRC32)), context);
+                PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), join, DataPartition.UNPARTITIONED);
+                if (expectedState == StorageHashLayout.State.CONFLICT) {
+                    Assertions.assertThrows(IllegalStateException.class, fragment::validateStorageHashLayout, context);
+                    Assertions.assertThrows(IllegalStateException.class, fragment::toThrift, context);
+                } else {
+                    Assertions.assertEquals(StorageHashLayout.State.UNKNOWN,
+                            fragment.validateStorageHashLayout().getState(), context);
+                }
             }
         }
     }
