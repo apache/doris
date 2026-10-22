@@ -1966,6 +1966,23 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
 
     auto old_tablet_stats_pb = get_tablet_stats(tablet_id);
     auto new_tablet_stats_pb = get_tablet_stats(new_tablet_id);
+    const std::string new_load_stats_key =
+            versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+    auto count_new_load_stats_versions = [&]() {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+        EXPECT_EQ(txn->get(encode_versioned_key(new_load_stats_key, Versionstamp::min()),
+                           encode_versioned_key(new_load_stats_key, Versionstamp::max()), &it),
+                  TxnErrorCode::TXN_OK);
+        size_t count = 0;
+        while (it->has_next()) {
+            it->next();
+            ++count;
+        }
+        return count;
+    };
+    const size_t new_load_stats_versions = count_new_load_stats_versions();
 
     int64_t alter_version = output_rowsets.back().end_version();
     {
@@ -2028,26 +2045,19 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
                           req.job().schema_change().segment_size_output_rowsets());
         EXPECT_EQ(new_stats.cumulative_point(),
                   req.job().schema_change().output_cumulative_point());
-        EXPECT_EQ(new_stats.last_active_cluster_id(), "cluster_a");
-        EXPECT_EQ(new_stats.last_active_time_ms(), last_active_time_ms);
-        EXPECT_EQ(new_stats.last_active_epoch(), last_active_epoch);
-        EXPECT_EQ(new_stats.last_active_cluster_status(), ClusterStatus::SUSPENDED);
-        EXPECT_EQ(new_stats.last_active_cluster_status_mtime_ms(), last_active_status_mtime_ms);
+        // The new tablet inherits the old owner through the response and the aggregate key.
+        EXPECT_EQ(res.stats().last_active_cluster_id(), "cluster_a");
+        EXPECT_EQ(res.stats().last_active_time_ms(), last_active_time_ms);
+        EXPECT_EQ(res.stats().last_active_epoch(), last_active_epoch);
+        EXPECT_EQ(res.stats().last_active_cluster_status(), ClusterStatus::SUSPENDED);
+        EXPECT_EQ(res.stats().last_active_cluster_status_mtime_ms(), last_active_status_mtime_ms);
+
+        // Schema change must not write a new load stats version: it would shadow the counters a
+        // pending lazy commit writes later at its older reserved versionstamp.
+        EXPECT_EQ(count_new_load_stats_versions(), new_load_stats_versions);
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        TabletStatsPB versioned_load_stats;
-        Versionstamp versionstamp;
-        auto load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
-        ASSERT_EQ(versioned::document_get(txn.get(), load_stats_key, &versioned_load_stats,
-                                          &versionstamp),
-                  TxnErrorCode::TXN_OK);
-        EXPECT_EQ(versioned_load_stats.last_active_cluster_id(), "cluster_a");
-        EXPECT_EQ(versioned_load_stats.last_active_time_ms(), last_active_time_ms);
-        EXPECT_EQ(versioned_load_stats.last_active_epoch(), last_active_epoch);
-        EXPECT_EQ(versioned_load_stats.last_active_cluster_status(), ClusterStatus::SUSPENDED);
-        EXPECT_EQ(versioned_load_stats.last_active_cluster_status_mtime_ms(),
-                  last_active_status_mtime_ms);
 
         TabletStatsPB versioned_compact_stats;
         ASSERT_EQ(versioned::document_get(

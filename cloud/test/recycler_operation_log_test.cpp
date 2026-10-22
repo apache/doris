@@ -199,7 +199,7 @@ TEST(RecycleOperationLogTest, RecycleOneOperationLog) {
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
 
-TEST(RecycleOperationLogTest, RecycleLegacySchemaChangeLogKeepsTabletLoadStats) {
+TEST(RecycleOperationLogTest, RecycleSchemaChangeLogKeepsTabletLoadStats) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -2417,7 +2417,6 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
                   TxnErrorCode::TXN_OK);
         ASSERT_TRUE(operation_log.has_schema_change());
         const auto& schema_change_log = operation_log.schema_change();
-        ASSERT_TRUE(schema_change_log.update_tablet_load_stats());
         ASSERT_GT(schema_change_log.recycle_rowsets_size(), 0);
         for (const auto& recycle_rs : schema_change_log.recycle_rowsets()) {
             ASSERT_EQ(recycle_rs.rowset_meta().segments_key_bounds_size(), 0);
