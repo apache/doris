@@ -17,10 +17,28 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.Env;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class GracefulBackendRestartTest {
+    @Test
+    public void testCheckpointReplayDoesNotInvalidateServingConnections() {
+        Backend backend = new Backend(1, "be.test", 9050);
+        backend.setLastStartTime(100);
+        backend.setAlive(true);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+            env.when(Env::isCheckpointThread).thenReturn(true);
+            backend.handleHbResponse(heartbeat(200), true);
+            env.verify(Env::getCurrentEnv, Mockito.never());
+            Assertions.assertEquals(200, backend.getLastStartTime());
+            Assertions.assertTrue(backend.isAlive());
+        }
+    }
+
     @Test
     public void testHeartbeatReplayInvalidatesBeforePublishingNewEpoch() {
         TestBackend backend = new TestBackend();

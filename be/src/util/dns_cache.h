@@ -82,8 +82,10 @@ private:
     // current failure bookkeeping read under the same lock; out_ip (if non-null)
     // receives the resolved IP so callers can use it without a second cache lookup
     // (avoids operator[] mutation under shared_lock).
+    // Normal get() calls may reuse a result published while waiting for the hostname
+    // lock. Background refresh and reserved negative-cache retries always resolve.
     Status _update(const std::string& hostname, FailureState* out_state = nullptr,
-                   std::string* out_ip = nullptr);
+                   std::string* out_ip = nullptr, bool reuse_cached = false);
 
     // erase a hostname from cache unconditionally (with unique_lock)
     void _erase(const std::string& hostname);

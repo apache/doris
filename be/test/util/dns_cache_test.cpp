@@ -24,6 +24,7 @@
 #include <atomic>
 #include <future>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
@@ -819,6 +820,53 @@ TEST_F(DNSCacheTest, refresh_stops_early_when_stopping) {
     EXPECT_EQ(calls_before, resolver_calls)
             << "a refresh cycle must not start resolving once the stop flag is set";
     EXPECT_EQ(1u, cache.size_for_test()) << "bailing out must leave the cache untouched";
+}
+
+TEST_F(DNSCacheTest, concurrent_cold_misses_reuse_completed_lookup) {
+    config::dns_cache_negative_ttl_seconds = 3600;
+    for (bool should_fail : {false, true}) {
+        SCOPED_TRACE(should_fail ? "negative cache" : "positive cache");
+        std::atomic<int> resolver_calls {0};
+        DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+            ++resolver_calls;
+            *error = should_fail ? EAI_AGAIN : 0;
+            ip = should_fail ? "" : "10.0.0.1";
+            return should_fail ? Status::InternalError<false>("resolver timed out") : Status::OK();
+        });
+        auto hostname_lock = std::make_shared<std::mutex>();
+        cache._refresh_locks.emplace("cold.test", hostname_lock);
+        std::unique_lock blocked(*hostname_lock);
+        constexpr int callers = 3;
+        std::vector<std::thread> workers;
+        for (int i = 0; i < callers; ++i) {
+            workers.emplace_back([&] {
+                std::string ip;
+                auto status = cache.get("cold.test", &ip);
+                EXPECT_EQ(status.ok(), !should_fail);
+                if (!should_fail) {
+                    EXPECT_EQ(ip, "10.0.0.1");
+                }
+            });
+        }
+        // Each _update retains one lock reference after passing get()'s cache checks.
+        // Hold DNS until every cold miss is queued, without timing resolver sleeps.
+        bool all_queued = false;
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (hostname_lock.use_count() == callers + 2) {
+                all_queued = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        blocked.unlock();
+        for (auto& worker : workers) {
+            worker.join();
+        }
+        EXPECT_TRUE(all_queued);
+        EXPECT_EQ(resolver_calls.load(), 1);
+        EXPECT_EQ(cache.negative_cache_size_for_test(), should_fail ? 1u : 0u);
+    }
 }
 
 TEST_F(DNSCacheTest, invalidation_resolves_replaced_pod_and_clears_negative_cache) {
