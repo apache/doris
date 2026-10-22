@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm.agg;
 
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -59,7 +60,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
 
         IvmAggTargetSpec spec = new IvmAggSumProcessor().buildTargetSpec(
                 0, new Sum(value), new Alias(new Sum(value), "sum_v"),
-                pool, hiddenOutputs);
+                pool, hiddenOutputs, IvmUtil.DEFAULT_MINMAX_TOP_K);
 
         Assertions.assertTrue(hiddenOutputs.isEmpty(), "visible COUNT(x) should be reused, no new hidden column");
         // The hidden COUNT state now points at the visible cnt_v slot.
@@ -79,7 +80,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
 
         IvmAggTargetSpec spec = new IvmAggAvgProcessor().buildTargetSpec(
                 0, new Avg(value), new Alias(new Avg(value), "avg_v"),
-                pool, hiddenOutputs);
+                pool, hiddenOutputs, IvmUtil.DEFAULT_MINMAX_TOP_K);
 
         Assertions.assertTrue(hiddenOutputs.isEmpty(), "AVG should reuse visible SUM and COUNT columns");
         IvmAggTarget target = spec.toPlaceholderTarget();
@@ -95,7 +96,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
 
         IvmAggTargetSpec spec = new IvmAggAvgProcessor().buildTargetSpec(
                 0, new Avg(value), new Alias(new Avg(value), "avg_v"),
-                pool, hiddenOutputs);
+                pool, hiddenOutputs, IvmUtil.DEFAULT_MINMAX_TOP_K);
 
         Assertions.assertEquals(2, hiddenOutputs.size(), "AVG alone needs hidden SUM and COUNT");
         Assertions.assertTrue(hiddenOutputs.get(0).getName().startsWith("__DORIS_IVM_AGG_0_"));
@@ -112,7 +113,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
 
         IvmAggTargetSpec sumSpec = new IvmAggSumProcessor().buildTargetSpec(
                 0, new Sum(value), new Alias(new Sum(value), "sum_v"),
-                pool, hiddenOutputs);
+                pool, hiddenOutputs, IvmUtil.DEFAULT_MINMAX_TOP_K);
         String hiddenCountName = sumSpec.toPlaceholderTarget()
                 .getHiddenStateSlot(IvmAggStateKey.COUNT).getName();
         Assertions.assertEquals(1, hiddenOutputs.size());
@@ -120,7 +121,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
         // AVG reuses the SUM's hidden COUNT; only a hidden SUM is created.
         IvmAggTargetSpec avgSpec = new IvmAggAvgProcessor().buildTargetSpec(
                 1, new Avg(value), new Alias(new Avg(value), "avg_v"),
-                pool, hiddenOutputs);
+                pool, hiddenOutputs, IvmUtil.DEFAULT_MINMAX_TOP_K);
         IvmAggTarget avgTarget = avgSpec.toPlaceholderTarget();
         Assertions.assertEquals(hiddenCountName,
                 avgTarget.getHiddenStateSlot(IvmAggStateKey.COUNT).getName());
@@ -172,6 +173,7 @@ class IvmAggColumnSharingTest extends IvmAggProcessorTestBase {
         hidden.put(key, slot);
         return new IvmAggTarget(target.getOrdinal(), target.getFunctionKind(),
                 target.getVisibleSlot(), hidden, target.getValueStateSlot(),
-                target.visibleColumnNameIsGenerated(), target.getExprArgs());
+                target.visibleColumnNameIsGenerated(), target.getExprArgs(),
+                target.getMinMaxTopK());
     }
 }
