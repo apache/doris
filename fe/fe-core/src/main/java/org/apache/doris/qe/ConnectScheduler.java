@@ -125,8 +125,13 @@ public class ConnectScheduler {
         return connectPoolMgr.getConnectionMap();
     }
 
-    public void closeIdleMysqlConnections() {
+    public void closeIdleMysqlConnections(long deadline) {
         for (ConnectContext context : getConnectionMap().values()) {
+            // A close listener can block on transaction rollback. Do not start another
+            // teardown once that wait consumed the shutdown budget or was interrupted.
+            if (System.nanoTime() >= deadline || Thread.currentThread().isInterrupted()) {
+                break;
+            }
             try {
                 context.closeIdleMysqlConnection();
             } catch (Exception e) {

@@ -331,6 +331,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
+            // No ticket was issued. For example, SHOW before another statement can cache
+            // a local result before finishStatement rejects it; nobody can retrieve it.
+            connectContext.getFlightSqlChannel().reset();
             connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);

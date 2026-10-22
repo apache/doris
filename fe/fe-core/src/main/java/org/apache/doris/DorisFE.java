@@ -39,6 +39,7 @@ import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
@@ -75,6 +76,8 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -747,23 +750,7 @@ public class DorisFE {
         try {
             long deadline = System.nanoTime()
                     + TimeUnit.SECONDS.toNanos(Math.max(0, Config.grace_shutdown_wait_seconds));
-            while (true) {
-                ExecuteEnv.getInstance().getScheduler().closeIdleMysqlConnections();
-                int activeRequests = QueryAdmissionController.INSTANCE.getActiveRequests();
-                List<Coordinator> coordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-                boolean pendingFlightResults = ExecuteEnv.getInstance().getScheduler().hasPendingFlightResults();
-                if (activeRequests == 0 && coordinators.isEmpty() && !pendingFlightResults) {
-                    break;
-                }
-                if (System.nanoTime() >= deadline) {
-                    LOG.warn("graceful shutdown wait expired: {} requests, {} coordinators, pendingFlightResults={}",
-                            activeRequests, coordinators.size(), pendingFlightResults);
-                    break;
-                }
-                LOG.info("graceful shutdown: waiting for {} requests and {} coordinators, pendingFlightResults={}",
-                        activeRequests, coordinators.size(), pendingFlightResults);
-                TimeUnit.SECONDS.sleep(1);
-            }
+            waitForGracefulShutdown(ExecuteEnv.getInstance().getScheduler(), deadline);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOG.warn("graceful shutdown wait interrupted", e);
@@ -771,5 +758,47 @@ public class DorisFE {
             LOG.error("graceful shutdown failed while draining requests", t);
         }
         LOG.info("graceful shutdown finished");
+    }
+
+    static void waitForGracefulShutdown(ConnectScheduler scheduler, long deadline) throws InterruptedException {
+        // XNIO invokes close listeners synchronously, including transaction rollback RPCs.
+        // Keep those waits on a daemon worker so even an idle session cannot stall the deadline.
+        ExecutorService idleCloser = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "graceful-idle-mysql-closer", false);
+        try {
+            Future<?> idleCleanup = null;
+            while (true) {
+                if (idleCleanup == null) {
+                    idleCleanup = idleCloser.submit(() -> scheduler.closeIdleMysqlConnections(deadline));
+                }
+                int activeRequests = QueryAdmissionController.INSTANCE.getActiveRequests();
+                List<Coordinator> coordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+                boolean pendingFlightResults = scheduler.hasPendingFlightResults();
+                boolean pendingIdleCleanup = !idleCleanup.isDone();
+                // A session's transaction may still be rolling back after its last request ended.
+                if (activeRequests == 0 && coordinators.isEmpty() && !pendingFlightResults && !pendingIdleCleanup) {
+                    break;
+                }
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    LOG.warn("graceful shutdown wait expired: {} requests, {} coordinators, "
+                                    + "pendingFlightResults={}, pendingIdleCleanup={}",
+                            activeRequests, coordinators.size(), pendingFlightResults, pendingIdleCleanup);
+                    break;
+                }
+                LOG.info("graceful shutdown: waiting for {} requests and {} coordinators, "
+                                + "pendingFlightResults={}, pendingIdleCleanup={}",
+                        activeRequests, coordinators.size(), pendingFlightResults, pendingIdleCleanup);
+                // A completed scan may have skipped a busy session that becomes idle on the next pass.
+                if (!pendingIdleCleanup) {
+                    idleCleanup = null;
+                }
+                TimeUnit.NANOSECONDS.sleep(Math.min(TimeUnit.SECONDS.toNanos(1), remaining));
+            }
+        } finally {
+            // Do not join the worker beyond the shared deadline. Interruptible rollback waits
+            // can stop now; an uninterruptible close must not keep the JVM alive.
+            idleCloser.shutdownNow();
+        }
     }
 }

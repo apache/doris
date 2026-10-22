@@ -314,6 +314,44 @@ public class DorisFlightSqlProducerTest {
         }
     }
 
+    @Test
+    public void testRejectedNonfinalLocalResultDoesNotHoldShutdownOpen() throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        FlightSqlChannel channel = ctx.getFlightSqlChannel();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        FlightSessionsManager sessionsManager = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessionsManager.getConnectContext("token")).thenReturn(ctx);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+        String query = "SHOW VARIABLES; SELECT 1";
+        try (DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsManager);
+                MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (mock, construction) -> {
+                            Mockito.doAnswer(invocation -> {
+                                ctx.getState().setOk();
+                                adapter.beforeStatement(ctx);
+                                channel.addOKResult("unpublished", "SHOW VARIABLES");
+                                Assertions.assertTrue(channel.hasPendingResults());
+                                Assertions.assertFalse(adapter.finishStatement(ctx,
+                                        Mockito.mock(StmtExecutor.class), 0, 2));
+                                return null;
+                            }).when(mock).handleQuery(query);
+                        })) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery(query).build();
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callContext,
+                            FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(1, mocked.constructed().size());
+            Mockito.verify(mocked.constructed().get(0)).handleQuery(query);
+            Assertions.assertEquals(0, channel.resultNum());
+            Assertions.assertFalse(adapter.hasPendingResults());
+            Assertions.assertEquals(0, channel.getAllocatedMemory());
+        } finally {
+            ctx.releaseProtocolSession();
+        }
+    }
+
     /** What a session action answered: the values it sent, whether it completed, what it failed with. */
     private static class Answer<T> implements StreamListener<T> {
         final List<T> values = new ArrayList<>();
