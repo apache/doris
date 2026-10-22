@@ -1574,13 +1574,20 @@ validate_kerberos_container() {
     fi
 }
 
-# Aux jar for the Paimon fixture in the kerberized metastore: the Paimon storage
-# handler the metastore loads to derive the fixture table's schema. Same source
-# and same skip-if-present caching the Hive3 stack uses in prepare-hive-data.sh.
+# The Paimon storage handler reads both the HDFS and OSS fixtures while Hive
+# registers their schemas. Give the kerberized metastore the same OSS filesystem
+# dependencies as the ordinary Hive3 metastore.
 download_kerberos_paimon_jars() {
     local auxlib_dir="$1"
     local url_prefix="https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3"
     local jars=(
+        jdom-1.1.jar
+        aliyun-java-sdk-core-3.4.0.jar
+        aliyun-java-sdk-ecs-4.2.0.jar
+        aliyun-java-sdk-ram-3.0.0.jar
+        aliyun-java-sdk-sts-3.0.0.jar
+        jindo-core-6.3.4.jar
+        jindo-sdk-6.3.4.jar
         paimon-hive-connector-3.1-1.3-SNAPSHOT.jar
     )
     local jar
@@ -1603,13 +1610,25 @@ download_kerberos_paimon_jars() {
 # below.
 resolve_kerberos_paimon_env() {
     local hive3_settings="${ROOT}/docker-compose/hive/hive-3x_settings.env"
+    local -a paimon_settings=()
 
     enablePaimonHms="false"
     if [[ -f "${hive3_settings}" ]]; then
-        read -r enablePaimonHms < <(
+        mapfile -t paimon_settings < <(
             . "${hive3_settings}" >/dev/null 2>&1
-            printf '%s\n' "${enablePaimonHms:-false}"
+            printf '%s\n' "${enablePaimonHms:-false}" "${OSSAk:-}" "${OSSSk:-}" "${OSSEndpoint:-}"
         )
+        enablePaimonHms="${paimon_settings[0]}"
+    fi
+    if [[ "${enablePaimonHms}" == "true" ]]; then
+        OSSAk="${paimon_settings[1]:-}"
+        OSSSk="${paimon_settings[2]:-}"
+        OSSEndpoint="${paimon_settings[3]:-}"
+        if [[ -z "${OSSAk}" || -z "${OSSSk}" || -z "${OSSEndpoint}" ]]; then
+            echo "ERROR: Kerberos Paimon OSS fixture requires Hive3 OSS settings" >&2
+            return 1
+        fi
+        export OSSAk OSSSk OSSEndpoint
     fi
     export enablePaimonHms
 }
@@ -1637,6 +1656,10 @@ start_kerberos() {
     fi
     for i in {1..2}; do
         . "${KERBEROS_DIR}/kerberos${i}_settings.env"
+        if [[ "${i}" -eq 2 ]]; then
+            # Only kerberos1 hosts the OSS Paimon fixture.
+            unset OSSAk OSSSk OSSEndpoint
+        fi
         envsubst <"${KERBEROS_DIR}/hadoop-hive.env.tpl" >"${KERBEROS_DIR}/hadoop-hive-${i}.env"
         for config in kdc.conf krb5.conf core-site.xml hdfs-site.xml hive-site.xml; do
             envsubst <"${KERBEROS_DIR}/conf/${config}.tpl" >"${KERBEROS_DIR}/conf/kerberos${i}/${config}"
