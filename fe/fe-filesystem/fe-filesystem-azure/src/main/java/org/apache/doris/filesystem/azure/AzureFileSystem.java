@@ -40,6 +40,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -395,13 +396,18 @@ public class AzureFileSystem extends ObjFileSystem {
         AzureUri parsed = AzureUri.parse(uri);
         String container = parsed.container();
         String keyPattern = parsed.key();
-        // base = uri with the key portion stripped, preserving the original scheme/host syntax.
-        String base = uri.substring(0, uri.length() - keyPattern.length());
+        // The parsed key is decoded, so its length cannot locate the key in the original URI.
+        int keySeparator = uri.indexOf('/', uri.indexOf("://") + 3);
+        if (parsed.scheme().equals("https") || parsed.scheme().equals("http")) {
+            keySeparator = uri.indexOf('/', keySeparator + 1);
+        }
+        String base = keySeparator < 0 ? uri + "/" : uri.substring(0, keySeparator + 1);
 
         String expandedKeyPattern = ObjectStorageGlob.expandNumericRanges(keyPattern);
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
         String listKeyPrefix = longestNonGlobPrefix(expandedKeyPattern);
-        List<String> listKeyPrefixes = ObjectStorageGlob.expandedGlobListPrefixes(expandedKeyPattern);
+        List<String> listKeyPrefixes = ObjectStorageGlob.expandedGlobListPrefixes(
+                expandedKeyPattern, Comparator.naturalOrder());
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
@@ -411,7 +417,7 @@ public class AzureFileSystem extends ObjFileSystem {
 
         for (String currentListKeyPrefix : listKeyPrefixes) {
             String continuationToken = null;
-            String listPrefixUri = base + currentListKeyPrefix;
+            String listPrefixUri = base + AzureUri.encodeKey(currentListKeyPrefix);
             do {
                 RemoteObjects page = objStorage.listObjects(listPrefixUri, continuationToken);
                 for (RemoteObject obj : page.getObjectList()) {
@@ -420,7 +426,7 @@ public class AzureFileSystem extends ObjFileSystem {
                         continue;
                     }
                     if (startAfter != null && !startAfter.isEmpty()
-                            && ObjectStorageGlob.compareUtf8Binary(key, startAfter) <= 0) {
+                            && key.compareTo(startAfter) <= 0) {
                         continue;
                     }
                     if (reachLimit) {

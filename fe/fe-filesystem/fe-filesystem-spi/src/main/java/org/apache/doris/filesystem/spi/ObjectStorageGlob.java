@@ -65,8 +65,18 @@ public final class ObjectStorageGlob {
      * falls back to the conservative longest static prefix.
      */
     public static List<String> expandedGlobListPrefixes(String globPattern) {
+        return expandedGlobListPrefixes(globPattern, UTF8_BINARY_ORDER);
+    }
+
+    /** Returns safe list prefixes sorted in the provider's key order. */
+    public static List<String> expandedGlobListPrefixes(String globPattern, Comparator<String> keyOrder) {
         List<String> prefixes = expandGlobListPrefixes(globPattern, true);
-        return prefixes == null ? List.of(longestNonGlobPrefix(globPattern)) : prefixes;
+        if (prefixes == null) {
+            return List.of(longestNonGlobPrefix(globPattern));
+        }
+        List<String> sorted = new ArrayList<>(prefixes);
+        sorted.sort(keyOrder);
+        return sorted;
     }
 
     private static List<String> expandGlobListPrefixes(String globPattern, boolean allowPartialPrefix) {
@@ -149,20 +159,15 @@ public final class ObjectStorageGlob {
         if (first == '!' || first == '^') {
             return null;
         }
-        if (containsSurrogate(globPattern, i, closeIndex)) {
+        // Escaped characters can be range endpoints in the full matcher. Keep a conservative
+        // prefix rather than interpreting those endpoints differently during expansion.
+        if (containsSurrogate(globPattern, i, closeIndex)
+                || globPattern.substring(i, closeIndex).indexOf('\\') >= 0) {
             return null;
         }
         List<String> values = new ArrayList<>();
         while (i < closeIndex) {
             char current = globPattern.charAt(i);
-            if (current == '\\') {
-                if (i + 1 >= closeIndex) {
-                    return null;
-                }
-                values.add(String.valueOf(globPattern.charAt(i + 1)));
-                i += 2;
-                continue;
-            }
             if (i + 2 < closeIndex && globPattern.charAt(i + 1) == '-') {
                 char rangeEnd = globPattern.charAt(i + 2);
                 int step = current <= rangeEnd ? 1 : -1;
@@ -317,7 +322,7 @@ public final class ObjectStorageGlob {
     }
 
     /**
-     * Compares object keys by unsigned UTF-8 byte order, matching object-store listing order.
+     * Compares object keys by unsigned UTF-8 byte order, matching S3 listing order.
      */
     public static int compareUtf8Binary(String left, String right) {
         byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
@@ -442,11 +447,9 @@ public final class ObjectStorageGlob {
         if (!zeroPad) {
             return Long.toString(value);
         }
-        if (value == Long.MIN_VALUE) {
-            return Long.toString(value);
-        }
         String sign = value < 0 ? "-" : "";
-        String digits = Long.toString(value < 0 ? -value : value);
+        String text = Long.toString(value);
+        String digits = value < 0 ? text.substring(1) : text;
         StringBuilder padded = new StringBuilder(sign);
         for (int i = digits.length(); i < width; i++) {
             padded.append('0');

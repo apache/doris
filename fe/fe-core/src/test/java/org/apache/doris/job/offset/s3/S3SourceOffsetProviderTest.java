@@ -19,6 +19,7 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
@@ -220,5 +221,38 @@ public class S3SourceOffsetProviderTest {
         provider.maxEndFile = emojiKey;
 
         Assertions.assertTrue(provider.hasMoreDataToConsume());
+    }
+
+    @Test
+    void hasMoreDataToConsumeUsesAzureStringOrder() throws Exception {
+        String emojiKey = "data/" + Character.toString(0x1F600) + "/file.csv";
+        String fullwidthKey = "data/" + Character.toString(0xFF21) + "/file.csv";
+        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
+        Mockito.when(adapter.getType()).thenReturn(StorageTypeId.AZURE);
+        Mockito.when(adapter.validateAndGetUri(Mockito.anyMap())).thenReturn("s3://bucket/data/*/file.csv");
+        Mockito.when(adapter.validateAndNormalizeUri(Mockito.anyString())).thenReturn("s3://bucket/data/*/file.csv");
+        FileSystem fs = Mockito.mock(FileSystem.class);
+        Mockito.when(fs.globListWithLimit(Mockito.any(Location.class), Mockito.eq(emojiKey),
+                Mockito.anyLong(), Mockito.anyLong())).thenReturn(page(fullwidthKey, fullwidthKey));
+
+        try (MockedStatic<StorageAdapter> adapters = Mockito.mockStatic(StorageAdapter.class);
+                MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            adapters.when(() -> StorageAdapter.of(Mockito.anyMap())).thenReturn(adapter);
+            factory.when(() -> FileSystemFactory.getFileSystem(adapter)).thenReturn(fs);
+            for (boolean metadataProbe : List.of(true, false)) {
+                S3Offset offset = new S3Offset();
+                offset.setEndFile(emojiKey);
+                S3SourceOffsetProvider provider = new S3SourceOffsetProvider();
+                provider.currentOffset = offset;
+                if (metadataProbe) {
+                    provider.fetchRemoteMeta(TVF_PROPS);
+                } else {
+                    provider.getNextOffset(ONCE_PROPS, TVF_PROPS);
+                }
+                Assertions.assertTrue(provider.hasMoreDataToConsume());
+                offset.setEndFile(fullwidthKey);
+                Assertions.assertFalse(provider.hasMoreDataToConsume());
+            }
+        }
     }
 }

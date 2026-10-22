@@ -36,6 +36,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Unit tests for {@link AzureFileSystem} using a mock {@link AzureObjStorage}.
@@ -238,36 +239,114 @@ class AzureFileSystemTest {
     }
 
     @Test
-    void globListWithLimit_startAfterUsesUtf8BinaryOrderAcrossExpandedPrefixes()
-            throws IOException {
-        String privateUse = Character.toString(0xE000);
+    void globListWithLimit_resumesInStringOrderWithinOnePrefix() throws IOException {
+        String emojiKey = "data/" + Character.toString(0x1F600) + ".csv";
+        String fullwidthKey = "data/" + Character.toString(0xFF21) + ".csv";
+        Assertions.assertTrue(emojiKey.compareTo(fullwidthKey) < 0);
+        Assertions.assertTrue(ObjectStorageGlob.compareUtf8Binary(emojiKey, fullwidthKey) > 0);
+        Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.isNull()))
+                .thenReturn(new RemoteObjects(List.of(new RemoteObject(emojiKey, "", null, 10L, 0L)),
+                        true, "next-page"));
+        Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.eq("next-page")))
+                .thenReturn(new RemoteObjects(List.of(new RemoteObject(fullwidthKey, "", null, 10L, 0L)),
+                        false, null));
+        Location glob = Location.of("wasbs://c@a.host/data/*.csv");
+
+        GlobListing first = fs.globListWithLimit(glob, null, 0L, 1L);
+        Assertions.assertEquals(List.of("wasbs://c@a.host/" + emojiKey),
+                first.getFiles().stream().map(file -> file.location().uri()).toList());
+        Assertions.assertEquals(fullwidthKey, first.getMaxFile());
+        GlobListing second = fs.globListWithLimit(glob, emojiKey, 0L, 1L);
+        Assertions.assertEquals(List.of("wasbs://c@a.host/" + fullwidthKey),
+                second.getFiles().stream().map(file -> file.location().uri()).toList());
+        Assertions.assertEquals(fullwidthKey, second.getMaxFile());
+    }
+
+    @Test
+    void globListWithLimit_resumesInStringOrderAcrossExpandedPrefixes() throws IOException {
+        String fullwidth = Character.toString(0xFF21);
         String emoji = Character.toString(0x1F600);
-        String privateUseKey = "data/" + privateUse + "/file.csv";
+        String fullwidthKey = "data/" + fullwidth + "/file.csv";
         String emojiKey = "data/" + emoji + "/file.csv";
-        Assertions.assertTrue(emojiKey.compareTo(privateUseKey) < 0);
-        Assertions.assertTrue(ObjectStorageGlob.compareUtf8Binary(emojiKey, privateUseKey) > 0);
+        mockListingWithUriParsing(List.of(fullwidthKey, emojiKey));
+        Location glob = Location.of("wasbs://c@a.host/data/{" + fullwidth + "," + emoji + "}/file.csv");
 
-        Mockito.when(mockStorage.listObjects(
-                        ArgumentMatchers.eq("wasbs://c@a.host/" + privateUseKey),
-                        ArgumentMatchers.any()))
-                .thenReturn(new RemoteObjects(
-                        List.of(new RemoteObject(privateUseKey, "file.csv", null, 10L, 0L)),
-                        false, null));
-        Mockito.when(mockStorage.listObjects(
-                        ArgumentMatchers.eq("wasbs://c@a.host/" + emojiKey),
-                        ArgumentMatchers.any()))
-                .thenReturn(new RemoteObjects(
-                        List.of(new RemoteObject(emojiKey, "file.csv", null, 20L, 0L)),
-                        false, null));
+        GlobListing first = fs.globListWithLimit(glob, null, 0L, 1L);
+        Assertions.assertEquals(List.of("wasbs://c@a.host/" + emojiKey),
+                first.getFiles().stream().map(file -> file.location().uri()).toList());
+        Assertions.assertEquals(fullwidthKey, first.getMaxFile());
+        GlobListing second = fs.globListWithLimit(glob, emojiKey, 0L, 1L);
+        Assertions.assertEquals(List.of("wasbs://c@a.host/" + fullwidthKey),
+                second.getFiles().stream().map(file -> file.location().uri()).toList());
+        Assertions.assertEquals(fullwidthKey, second.getMaxFile());
+    }
 
-        GlobListing listing = fs.globListWithLimit(
-                Location.of("wasbs://c@a.host/data/{" + privateUse + "," + emoji + "}/file.csv"),
-                privateUseKey, 0L, 0L);
+    @Test
+    void globListWithLimit_encodesGeneratedReservedCharacters() throws IOException {
+        for (String glob : List.of("data/[$-&]/*/file.csv", "data/[)-,]/*/file.csv", "data/[\"-$]/*/file.csv")) {
+            List<String> keys = List.of("data/%/sub/file.csv", "data/+/sub/file.csv", "data/#/sub/file.csv",
+                    "data/$/sub/file.csv", "data/&/sub/file.csv");
+            mockListingWithUriParsing(keys);
+            List<String> expected = keys.stream()
+                    .filter(key -> Pattern.matches(ObjectStorageGlob.globToRegex(glob), key))
+                    .sorted().map(key -> "wasbs://c@a.host/" + key).toList();
 
-        Assertions.assertEquals(1, listing.getFiles().size());
-        Assertions.assertEquals("wasbs://c@a.host/" + emojiKey,
-                listing.getFiles().get(0).location().uri());
-        Assertions.assertEquals(emojiKey, listing.getMaxFile());
+            GlobListing listing = fs.globListWithLimit(Location.of("wasbs://c@a.host/" + glob), null, 0L, 0L);
+            Assertions.assertEquals(expected,
+                    listing.getFiles().stream().map(file -> file.location().uri()).toList(), glob);
+        }
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/data/%25/"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/data/%2B/"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/data/%23/"), ArgumentMatchers.any());
+    }
+
+    @Test
+    void globListWithLimit_preservesBaseForEncodedInputKeys() throws IOException {
+        for (String base : List.of("wasbs://c@a.host/", "https://a.blob.core.windows.net/c/",
+                "s3://c/")) {
+            mockListingWithUriParsing(List.of("data/a+b/1/file.csv"));
+            GlobListing listing = fs.globListWithLimit(
+                    Location.of(base + "data/a%2Bb/[12]/*"), null, 0L, 0L);
+            Assertions.assertEquals(List.of(base + "data/a+b/1/file.csv"),
+                    listing.getFiles().stream().map(file -> file.location().uri()).toList());
+            Mockito.verify(mockStorage).listObjects(
+                    ArgumentMatchers.eq(base + "data/a%2Bb/1/"), ArgumentMatchers.any());
+        }
+    }
+
+    @Test
+    void globListWithLimit_fallsBackForEscapedRangeEndpoints() throws IOException {
+        mockListingWithUriParsing(List.of("data/b/sub/file.csv", "data/m/sub/file.csv"));
+        for (String characterClass : List.of("[\\a-z]", "[a-\\c]")) {
+            String glob = "data/" + characterClass + "/*/file.csv";
+            GlobListing listing = fs.globListWithLimit(Location.of("wasbs://c@a.host/" + glob), null, 0L, 0L);
+            Assertions.assertEquals("wasbs://c@a.host/data/b/sub/file.csv",
+                    listing.getFiles().get(0).location().uri(), glob);
+            Assertions.assertEquals(characterClass.contains("z") ? 2 : 1, listing.getFiles().size());
+        }
+    }
+
+    @Test
+    void globListWithLimit_preservesPaddedMinimumLong() throws IOException {
+        String padded = "data_-09223372036854775808.csv";
+        mockListingWithUriParsing(List.of(padded, "data_-9223372036854775808.csv"));
+        GlobListing listing = fs.globListWithLimit(Location.of(
+                "wasbs://c@a.host/data_{-09223372036854775808..-09223372036854775807,x}.csv"), null, 0L, 0L);
+        Assertions.assertEquals(List.of("wasbs://c@a.host/" + padded),
+                listing.getFiles().stream().map(file -> file.location().uri()).toList());
+    }
+
+    private void mockListingWithUriParsing(List<String> keys) throws IOException {
+        Mockito.doAnswer(invocation -> {
+            // Exercise the same second URI parse as AzureObjStorage.listObjects.
+            String prefix = AzureUri.parse(invocation.getArgument(0)).key();
+            List<RemoteObject> objects = keys.stream().filter(key -> key.startsWith(prefix)).sorted()
+                    .map(key -> new RemoteObject(key, "", null, 10L, 0L)).toList();
+            return new RemoteObjects(objects, false, null);
+        }).when(mockStorage).listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.any());
     }
 
     @Test
@@ -277,7 +356,7 @@ class AzureFileSystemTest {
                 .thenReturn(empty);
         Mockito.when(mockStorage.listObjects(
                         ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
-                                + "date=2025-03-01/mp_id=8/0/0/436/"),
+                                + "date%3D2025-03-01/mp_id%3D8/0/0/436/"),
                         ArgumentMatchers.any()))
                 .thenReturn(new RemoteObjects(
                         List.of(new RemoteObject(
@@ -286,7 +365,7 @@ class AzureFileSystemTest {
                         false, null));
         Mockito.when(mockStorage.listObjects(
                         ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
-                                + "date=2025-10-01/mp_id=8/0/0/436/"),
+                                + "date%3D2025-10-01/mp_id%3D8/0/0/436/"),
                         ArgumentMatchers.any()))
                 .thenReturn(new RemoteObjects(
                         List.of(new RemoteObject(
@@ -300,15 +379,15 @@ class AzureFileSystemTest {
         Assertions.assertEquals(2, listing.getFiles().size());
         Assertions.assertEquals("asin_trend/sale/month/date=2025-", listing.getPrefix());
         Mockito.verify(mockStorage, Mockito.never()).listObjects(
-                ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/date=2025-"),
+                ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/date%3D2025-"),
                 ArgumentMatchers.any());
         Mockito.verify(mockStorage).listObjects(
                 ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
-                        + "date=2025-03-01/mp_id=8/0/0/436/"),
+                        + "date%3D2025-03-01/mp_id%3D8/0/0/436/"),
                 ArgumentMatchers.any());
         Mockito.verify(mockStorage).listObjects(
                 ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
-                        + "date=2025-12-01/mp_id=8/0/0/436/"),
+                        + "date%3D2025-12-01/mp_id%3D8/0/0/436/"),
                 ArgumentMatchers.any());
     }
 
@@ -318,7 +397,7 @@ class AzureFileSystemTest {
         Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
                 .thenReturn(empty);
         Mockito.when(mockStorage.listObjects(
-                        ArgumentMatchers.eq("wasbs://c@a.host/date=2025-01-01/"),
+                        ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-01-01/"),
                         ArgumentMatchers.any()))
                 .thenReturn(new RemoteObjects(
                         List.of(new RemoteObject("date=2025-01-01/file.parquet",
@@ -332,18 +411,18 @@ class AzureFileSystemTest {
         Assertions.assertEquals("wasbs://c@a.host/date=2025-01-01/file.parquet",
                 listing.getFiles().get(0).location().uri());
         Mockito.verify(mockStorage).listObjects(
-                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-01-01/"), ArgumentMatchers.any());
+                ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-01-01/"), ArgumentMatchers.any());
         Mockito.verify(mockStorage).listObjects(
-                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-03-01/"), ArgumentMatchers.any());
+                ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-03-01/"), ArgumentMatchers.any());
         Mockito.verify(mockStorage, Mockito.never()).listObjects(
-                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-1-01/"), ArgumentMatchers.any());
+                ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-1-01/"), ArgumentMatchers.any());
     }
 
     @Test
     void globListWithLimit_preservesOversizedNumericRangeAfterPrefixFallback()
             throws IOException {
         Mockito.when(mockStorage.listObjects(
-                        ArgumentMatchers.eq("wasbs://c@a.host/date="),
+                        ArgumentMatchers.eq("wasbs://c@a.host/date%3D"),
                         ArgumentMatchers.any()))
                 .thenReturn(new RemoteObjects(
                         List.of(
@@ -369,7 +448,7 @@ class AzureFileSystemTest {
         Assertions.assertEquals("wasbs://c@a.host/date=10000000/file.parquet",
                 listing.getFiles().get(1).location().uri());
         Mockito.verify(mockStorage).listObjects(
-                ArgumentMatchers.eq("wasbs://c@a.host/date="), ArgumentMatchers.any());
+                ArgumentMatchers.eq("wasbs://c@a.host/date%3D"), ArgumentMatchers.any());
     }
 
     @Test
@@ -400,7 +479,7 @@ class AzureFileSystemTest {
     @Test
     void globListWithLimit_findsNextMatchAcrossExpandedPrefixesAfterLimit() throws IOException {
         Mockito.when(mockStorage.listObjects(
-                        ArgumentMatchers.eq("wasbs://c@a.host/date=2025-01/file"),
+                        ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-01/file"),
                         ArgumentMatchers.any()))
                 .thenReturn(new RemoteObjects(
                         List.of(
@@ -410,7 +489,7 @@ class AzureFileSystemTest {
                                         "file-b.csv", null, 20L, 0L)),
                         false, null));
         Mockito.when(mockStorage.listObjects(
-                        ArgumentMatchers.eq("wasbs://c@a.host/date=2025-02/file"),
+                        ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-02/file"),
                         ArgumentMatchers.any()))
                 .thenReturn(new RemoteObjects(
                         List.of(new RemoteObject("date=2025-02/file-c.csv",
@@ -423,7 +502,7 @@ class AzureFileSystemTest {
         Assertions.assertEquals(2, listing.getFiles().size());
         Assertions.assertEquals("date=2025-02/file-c.csv", listing.getMaxFile());
         Mockito.verify(mockStorage).listObjects(
-                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-02/file"), ArgumentMatchers.any());
+                ArgumentMatchers.eq("wasbs://c@a.host/date%3D2025-02/file"), ArgumentMatchers.any());
     }
 
     // ---------------------------------------------------------------------

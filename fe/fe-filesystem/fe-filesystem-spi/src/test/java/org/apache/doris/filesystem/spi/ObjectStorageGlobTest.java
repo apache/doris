@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.spi;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -29,6 +30,49 @@ class ObjectStorageGlobTest {
     void expandNumericRanges_preservesZeroPadding() {
         Assertions.assertEquals("date=2025-{01,02,03}-01/",
                 ObjectStorageGlob.expandNumericRanges("date=2025-{01..03}-01/"));
+    }
+
+    @Test
+    void expandNumericRanges_preservesPaddedMinimumLong() {
+        for (String range : List.of("-09223372036854775808..-09223372036854775807",
+                "-09223372036854775807..-09223372036854775808")) {
+            String glob = "data_{" + range + ",x}.csv";
+            String expanded = ObjectStorageGlob.expandNumericRanges(glob);
+            Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex(expanded));
+            Pattern fallback = Pattern.compile(ObjectStorageGlob.globToRegex(glob));
+            for (String key : List.of("data_-09223372036854775808.csv", "data_-09223372036854775807.csv",
+                    "data_x.csv")) {
+                Assertions.assertTrue(matcher.matcher(key).matches(), key);
+                Assertions.assertTrue(fallback.matcher(key).matches(), key);
+                Assertions.assertTrue(ObjectStorageGlob.expandedGlobListPrefixes(expanded).contains(key), key);
+            }
+            Assertions.assertFalse(matcher.matcher("data_-9223372036854775808.csv").matches());
+            Assertions.assertFalse(matcher.matcher("data_-09223372036854775806.csv").matches());
+        }
+    }
+
+    @Test
+    void expandedGlobListPrefixes_fallsBackForEscapedCharacterClassRanges() {
+        for (String characterClass : List.of("[\\a-z]", "[a-\\c]", "[\\a-\\c]")) {
+            String glob = "data/" + characterClass + "/*/file.csv";
+            Assertions.assertEquals(List.of("data/"), ObjectStorageGlob.expandedGlobListPrefixes(glob));
+            Assertions.assertTrue(Pattern.matches(ObjectStorageGlob.globToRegex(glob), "data/b/sub/file.csv"));
+            Assertions.assertEquals(List.of("data/"),
+                    ObjectStorageGlob.expandedGlobListPrefixes("data/{fixed," + characterClass + "}/*"));
+        }
+    }
+
+    @Test
+    void expandedGlobListPrefixes_usesProviderOrder() {
+        String fullwidth = Character.toString(0xFF21);
+        String emoji = Character.toString(0x1F600);
+        String glob = "data/{" + fullwidth + "," + emoji + "}/file.csv";
+        Assertions.assertEquals(List.of("data/" + fullwidth + "/file.csv", "data/" + emoji + "/file.csv"),
+                ObjectStorageGlob.expandedGlobListPrefixes(glob));
+        Assertions.assertEquals(List.of("data/" + emoji + "/file.csv", "data/" + fullwidth + "/file.csv"),
+                ObjectStorageGlob.expandedGlobListPrefixes(glob, Comparator.naturalOrder()));
+        Assertions.assertEquals(List.of(""),
+                ObjectStorageGlob.expandedGlobListPrefixes("*", Comparator.naturalOrder()));
     }
 
     @Test
