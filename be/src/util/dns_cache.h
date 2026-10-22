@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
@@ -152,6 +153,9 @@ private:
     std::unordered_map<std::string, std::string> cache;
     // Cached hostnames that must be resolved again before their next use.
     std::unordered_set<std::string> _refresh_pending;
+    // Serialize lookups for one hostname without holding the cache mutex over DNS I/O.
+    // Entries exist only while a lookup is running or waiting.
+    std::unordered_map<std::string, std::shared_ptr<std::mutex>> _refresh_locks;
     // hostname -> consecutive resolution failure bookkeeping
     std::unordered_map<std::string, FailureState> failure_count;
     // hostname -> eviction timestamp; effective deadline is computed as
