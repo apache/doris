@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
 import org.apache.doris.nereids.types.ArrayType;
@@ -50,7 +51,7 @@ import java.util.List;
  * effective upper bound (for MIN; the lower bound for MAX) of the resulting state.
  */
 public abstract class TopKMergeFunction extends ScalarFunction
-        implements CustomSignature, AlwaysNotNullable {
+        implements CustomSignature, ComputePrecision, AlwaysNotNullable {
 
     protected TopKMergeFunction(String name, List<Expression> children) {
         super(name, children);
@@ -87,6 +88,18 @@ public abstract class TopKMergeFunction extends ScalarFunction
         }
     }
 
+    /**
+     * The decimal precision pass extracts decimal arguments by walking the signature and would
+     * either skip the ARRAY&lt;STRUCT&lt;...&gt;&gt; lists (struct extraction is unimplemented) or take
+     * the argument type of a NULL bound (DECIMAL(1,0)), then rewrite every nested decimal argument
+     * to that type. The lists and bounds already carry the exact same value type, so keep the
+     * signature untouched.
+     */
+    @Override
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
+    }
+
     @Override
     public FunctionSignature customSignature() {
         DataType valueType = inferValueType();
@@ -103,11 +116,12 @@ public abstract class TopKMergeFunction extends ScalarFunction
     }
 
     /**
-     * The value type is read from the first argument that carries it: the per-value type of S/I/D
-     * (argument positions 1, 3, 5) or, when all lists are untyped NULL literals, the bound type
-     * (positions 2, 4, 6).
+     * The value type must be identical across every typed list (S/I/D) and bound (b/b_i/b_d); NULL
+     * literals carry no type and are skipped. Coercing a list to a narrower type would merge
+     * distinct values (e.g. a DOUBLE 1.1/1.9 list cast to INT), so mixed types are rejected.
      */
     private DataType inferValueType() {
+        DataType valueType = null;
         for (int index : new int[] {0, 2, 4}) {
             DataType type = getArgumentType(index);
             if (!(type instanceof ArrayType)) {
@@ -121,15 +135,28 @@ public abstract class TopKMergeFunction extends ScalarFunction
             if (fields.size() != 2) {
                 continue;
             }
-            return TopKCountFunction.normalizeValueType(fields.get(0).getDataType());
+            valueType = mergeValueType(valueType,
+                    TopKCountFunction.normalizeValueType(fields.get(0).getDataType()));
         }
         for (int index : new int[] {1, 3, 5}) {
             DataType type = getArgumentType(index);
             if (!type.isNullType()) {
-                return TopKCountFunction.normalizeValueType(type);
+                valueType = mergeValueType(valueType, TopKCountFunction.normalizeValueType(type));
             }
         }
-        return null;
+        return valueType;
+    }
+
+    private DataType mergeValueType(DataType current, DataType next) {
+        if (current == null) {
+            return next;
+        }
+        if (!current.equals(next)) {
+            throw new AnalysisException(getName()
+                    + " requires every list and bound to have the same value type, but got "
+                    + current.toSql() + " and " + next.toSql());
+        }
+        return current;
     }
 
     /** The merge result is the aggregate state type: {@code STRUCT<values, bound>}. */

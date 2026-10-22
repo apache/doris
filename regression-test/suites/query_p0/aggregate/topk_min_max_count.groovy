@@ -429,4 +429,52 @@ suite("topk_min_max_count") {
                    0, 0, 65537)"""
         exception "topk_merge_max requires 1 <= k <= 65536"
     }
+
+    // Untyped NULL bounds must not narrow the nested decimal type: 1.23 has to survive.
+    order_qt_merge_decimal_null_bounds """
+        SELECT topk_merge_min(
+            CAST(array(named_struct('value', CAST(1.23 AS DECIMAL(4, 2)), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:DECIMAL(4,2), count:BIGINT>>),
+            CAST(NULL AS DECIMAL(4, 2)),
+            CAST(array() AS ARRAY<STRUCT<value:DECIMAL(4,2), count:BIGINT>>),
+            CAST(NULL AS DECIMAL(4, 2)),
+            CAST(array() AS ARRAY<STRUCT<value:DECIMAL(4,2), count:BIGINT>>),
+            CAST(NULL AS DECIMAL(4, 2)),
+            CAST(1 AS BIGINT), CAST(0 AS BIGINT), CAST(2 AS BIGINT))
+    """
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array(named_struct('value', CAST(1.1 AS DOUBLE), 'count', CAST(1 AS BIGINT)))
+                        AS ARRAY<STRUCT<value:DOUBLE, count:BIGINT>>),
+                   CAST(NULL AS DOUBLE),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   0, 2, 2)"""
+        exception "requires every list and bound to have the same value type"
+    }
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array(named_struct('value', CAST(NULL AS INT), 'count', CAST(1 AS BIGINT)))
+                        AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   1, 0, 1)"""
+        exception "must not contain NULL entries, values or counts"
+    }
+
+    // An evaluated-but-NULL count fails the query even though it is not a literal FE can fold.
+    test {
+        sql """SELECT grp, topk_min_count(v, bitmap_min(bitmap_from_string('')))
+               FROM (SELECT CAST(1 AS INT) AS grp, CAST(1 AS INT) AS v
+                     UNION ALL SELECT CAST(1 AS INT), CAST(2 AS INT)) t
+               GROUP BY grp"""
+        exception "must be a non-null constant"
+    }
 }

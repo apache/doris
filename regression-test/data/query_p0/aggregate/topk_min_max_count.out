@@ -148,3 +148,6 @@ e	0	0	{"values":[{"value":0, "count":5}], "bound":null}	{"values":[{"value":0, "
 -- !merge_all_null --
 {"values":[], "bound":null}
 
+-- !merge_decimal_null_bounds --
+{"values":[{"value":1.23, "count":1}], "bound":null}
+

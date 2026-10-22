@@ -31,6 +31,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -374,6 +375,69 @@ TEST(TopKCountTest, MergeOverflowIsReported) {
 
     function->destroy(max_state);
     function->destroy(one_state);
+}
+
+TEST(TopKCountTest, NullEvaluatedCountIsRejected) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk_count(factory);
+    // A constant count expression that FE cannot fold is evaluated on BE; when it is NULL the
+    // nullable-argument adapter is bypassed so the NULL reaches this check instead of being
+    // filtered out before add() runs.
+    DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
+                                make_nullable(std::make_shared<DataTypeInt64>())};
+    Arena arena;
+
+    auto function = create_function(factory, "topk_min_count", argument_types);
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    function->create(place);
+
+    auto value_column = ColumnInt32::create();
+    value_column->insert_value(1);
+    auto count_column =
+            ColumnNullable::create(ColumnInt64::create(1, 0), ColumnUInt8::create(1, 1));
+    const IColumn* columns[2] = {value_column.get(), count_column.get()};
+    EXPECT_THROW(function->add(place, columns, 0, arena), Exception);
+
+    function->destroy(place);
+}
+
+TEST(TopKCountTest, NullValueRowsAreIgnored) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk_count(factory);
+    DataTypes argument_types = {make_nullable(std::make_shared<DataTypeInt32>()),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+
+    auto function = create_function(factory, "topk_max_count", argument_types);
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    function->create(place);
+
+    auto nested = ColumnInt32::create();
+    nested->insert_value(3);
+    nested->insert_default();
+    nested->insert_value(3);
+    nested->insert_default();
+    auto null_map = ColumnUInt8::create();
+    for (uint8_t is_null : {0, 1, 0, 1}) {
+        null_map->get_data().push_back(is_null);
+    }
+    auto value_column = ColumnNullable::create(std::move(nested), std::move(null_map));
+    auto k_column = ColumnInt64::create(value_column->size(), 2);
+    const IColumn* columns[2] = {value_column.get(), k_column.get()};
+    for (size_t row = 0; row != value_column->size(); ++row) {
+        function->add(place, columns, row, arena);
+    }
+
+    auto result_column = function->get_return_type()->create_column();
+    function->insert_result_into(place, *result_column);
+    TopKResult result = read_result(*result_column);
+    EXPECT_EQ(result.values, (std::vector<int32_t> {3}));
+    EXPECT_EQ(result.counts, (std::vector<int64_t> {2}));
+    EXPECT_TRUE(result.bound_is_null);
+
+    function->destroy(place);
 }
 
 } // namespace doris

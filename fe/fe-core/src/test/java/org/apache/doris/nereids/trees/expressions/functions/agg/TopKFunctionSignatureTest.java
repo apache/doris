@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -124,5 +126,38 @@ class TopKFunctionSignatureTest {
             Assertions.assertTrue(resultType.getField("bound").isNullable());
             Assertions.assertFalse(function.nullable());
         }
+    }
+
+    @Test
+    void testMergeKeepsDecimalPrecisionWithNullBounds() {
+        // Untyped NULL bounds must not contribute a DECIMAL(1,0) that narrows the nested lists.
+        DecimalV3Type valueType = DecimalV3Type.createDecimalV3Type(4, 2);
+        ArrayType listType = ArrayType.of(TopKCountFunction.pairType(valueType));
+        Expression list = SlotReference.of("list", listType);
+        Expression n = new BigIntLiteral(1);
+        TopKMergeMin function = new TopKMergeMin(list, NullLiteral.INSTANCE, list,
+                NullLiteral.INSTANCE, list, NullLiteral.INSTANCE, n, n, n);
+
+        FunctionSignature signature = function.getSignature();
+        Assertions.assertEquals(listType, signature.getArgType(0));
+        Assertions.assertEquals(valueType, signature.getArgType(1));
+        StructType resultType = (StructType) signature.returnType;
+        Assertions.assertEquals(valueType, resultType.getField("bound").getDataType());
+        StructType pairType = (StructType) ((ArrayType) resultType.getField("values").getDataType())
+                .getItemType();
+        Assertions.assertEquals(valueType, pairType.getField("value").getDataType());
+    }
+
+    @Test
+    void testMergeRejectsMixedValueTypes() {
+        // Coercing the DOUBLE list to INT would merge 1.1 and 1.9 into one entry.
+        DataType intList = ArrayType.of(TopKCountFunction.pairType(IntegerType.INSTANCE));
+        DataType doubleList = ArrayType.of(TopKCountFunction.pairType(DoubleType.INSTANCE));
+        Expression n = new BigIntLiteral(1);
+        TopKMergeMin function = new TopKMergeMin(
+                SlotReference.of("s", intList), NullLiteral.INSTANCE,
+                SlotReference.of("i", doubleList), NullLiteral.INSTANCE,
+                SlotReference.of("d", intList), NullLiteral.INSTANCE, n, n, n);
+        Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
     }
 }
