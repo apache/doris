@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFil
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
@@ -215,9 +216,10 @@ public class FileTypeExpressionTest {
         Assertions.assertEquals(BigIntType.INSTANCE,
                 TypeCoercionUtils.processBoundFunction(new ElementAt(file, new StringLiteral("SIZE"))).getDataType());
         Assertions.assertTrue(new ElementAt(file, new StringLiteral("uri")).nullable());
-        Assertions.assertEquals(VarBinaryType.INSTANCE,
-                TypeCoercionUtils.processBoundFunction(new ElementAt(file, new StringLiteral("INLINE"))).getDataType());
-        Assertions.assertTrue(new ElementAt(file, new StringLiteral("inline")).nullable());
+        for (String selector : Arrays.asList("inline", "INLINE")) {
+            assertAnalysisError("use FL_GET_BINARY",
+                    () -> TypeCoercionUtils.processBoundFunction(new ElementAt(file, new StringLiteral(selector))));
+        }
         for (Expression selector : Arrays.asList(new StringLiteral("path"),
                 new IntegerLiteral(1), new SlotReference("s", StringType.INSTANCE))) {
             assertAnalysisError(selector instanceof StringLiteral
@@ -397,9 +399,9 @@ public class FileTypeExpressionTest {
                 + "'content_type', null, 'checksum', null, 'inline', X'00FF80') as file)";
         for (String expression : Arrays.asList("coalesce(cast(null as file), " + inline + ")",
                 "if(true, " + inline + ", null)", "ifnull(null, " + inline + ")",
-                "element_at(element_at(array(" + inline + ", null), 1), 'inline')",
-                "element_at(element_at(named_struct('asset', " + inline + "), 'asset'), 'inline')",
-                "element_at(element_at(map('asset', " + inline + "), 'asset'), 'inline')")) {
+                "fl_get_binary(element_at(array(" + inline + ", null), 1))",
+                "fl_get_binary(element_at(named_struct('asset', " + inline + "), 'asset'))",
+                "fl_get_binary(element_at(map('asset', " + inline + "), 'asset'))")) {
             Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select " + expression), expression);
         }
@@ -450,6 +452,9 @@ public class FileTypeExpressionTest {
     public void testElementAtExplodeAndReverseCastFields() {
         Expression file = new SlotReference("f", FileType.INSTANCE);
         for (StructField field : FileType.INSTANCE.getFields()) {
+            if (field.getName().equals("inline")) {
+                continue;
+            }
             Expression accessed = ExpressionAnalyzer.analyzeFunction(null, null,
                     new ElementAt(file, new StringLiteral(field.getName().toUpperCase(Locale.ROOT))));
             Assertions.assertTrue(accessed instanceof ElementAt);
@@ -458,10 +463,9 @@ public class FileTypeExpressionTest {
             Assertions.assertEquals(field.getDataType(), accessed.getDataType());
             Assertions.assertTrue(accessed.nullable());
         }
-        ElementAt inline = new ElementAt(new SlotReference("required", FileType.INSTANCE, false),
-                new StringLiteral("inline"));
-        Assertions.assertEquals(VarBinaryType.INSTANCE, inline.getDataType());
-        Assertions.assertTrue(inline.nullable());
+        FlGetBinary binary = new FlGetBinary(new SlotReference("required", FileType.INSTANCE, false));
+        Assertions.assertEquals(VarBinaryType.INSTANCE, binary.getDataType());
+        Assertions.assertTrue(binary.nullable());
         for (BoundFunction explode : Arrays.asList(new ExplodeFile(file), new ExplodeFileOuter(file))) {
             Assertions.assertEquals(FileType.INSTANCE.publicStructType(),
                     TypeCoercionUtils.processBoundFunction(explode).getDataType());
@@ -591,8 +595,8 @@ public class FileTypeExpressionTest {
     public void testSqlValueTransportAndExplodeAliases() {
         for (String sql : Arrays.asList(
                 "select element_at(cast(null as file), 'uri')",
-                "select element_at(cast(null as file), 'inline')",
-                "select element_at(cast(null as file), 'INLINE')",
+                "select fl_get_binary(cast(null as file))",
+                "select fl_get_binary(null)",
                 "select element_at(cast(null as file), 'SIZE')",
                 "select cast(null as file) union all select cast(named_struct('uri', 'urn:x', 'offset', cast(0 "
                         + "as bigint), 'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
@@ -623,7 +627,7 @@ public class FileTypeExpressionTest {
     @Test
     public void testInlineAndExplodeSqlOutputSchema() {
         Plan getters = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
-                "select element_at(f, 'inline'), element_at(f,'INLINE') "
+                "select fl_get_binary(f), FL_GET_BINARY(f) "
                         + "from (select cast(null as file) f) t").getPlan();
         Assertions.assertEquals(2, getters.getOutput().size());
         getters.getOutput().forEach(output -> {
