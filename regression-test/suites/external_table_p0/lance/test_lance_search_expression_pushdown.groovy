@@ -23,6 +23,7 @@ suite("test_lance_search_expression_pushdown", "p0,external") {
     def catalog = "test_lance_search_expression_pushdown"
     def endpoint = context.config.otherConfigs.get("externalEnvIp")
     def port = context.config.otherConfigs.get("iceberg_minio_port")
+    def previousFeDebug = sql("SHOW VARIABLES LIKE 'fe_debug'")[0][1]
     sql "DROP CATALOG IF EXISTS ${catalog}"
     try {
         sql """CREATE CATALOG ${catalog} PROPERTIES (
@@ -30,6 +31,8 @@ suite("test_lance_search_expression_pushdown", "p0,external") {
             "s3.endpoint"="http://${endpoint}:${port}", "s3.access_key"="admin",
             "s3.secret_key"="password", "s3.region"="us-east-1", "use_path_style"="true")"""
         sql "SET enable_file_scanner_v2 = true"
+        // Validate that vector rewrites preserve the original functions' NOT NULL contract.
+        sql "SET fe_debug = true"
         def vector = "[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]"
         def table = "${catalog}.doris.vs_ivf_flat_f32"
         def autoVector = """SELECT row_id, l2_distance_approximate(embedding, ${vector}) AS distance
@@ -67,6 +70,7 @@ suite("test_lance_search_expression_pushdown", "p0,external") {
         for (int i = 0; i < dotActual.size(); ++i) {
             assertTrue(Math.abs((dotExpected[i][1] as double) - (dotActual[i][1] as double)) < 0.001)
         }
+        sql "SET fe_debug = ${previousFeDebug}"
         def textTable = "${catalog}.doris.full_text_search"
         for (entry in [["MATCH_ANY", "match", "or"], ["MATCH_ALL", "match", "and"],
                 ["MATCH_PHRASE", "phrase", null]]) {
@@ -108,6 +112,7 @@ suite("test_lance_search_expression_pushdown", "p0,external") {
             exception "WHERE conditions must be fully pushable before Top-N"
         }
     } finally {
+        sql "SET fe_debug = ${previousFeDebug}"
         sql "DROP CATALOG IF EXISTS ${catalog}"
     }
 }

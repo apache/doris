@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.table.LanceSearch;
@@ -262,6 +263,11 @@ public class PushDownSearchTopNIntoLanceScan extends OneRewriteRuleFactory {
         Expression value = score ? result : l2
                 ? new Cast(new Sqrt(new Cast(result, DoubleType.INSTANCE)), FloatType.INSTANCE)
                 : new Subtract(new FloatLiteral(1.0f), result);
+        if (!score) {
+            // Preserve the approximate function's NOT NULL contract for existing Top-N and ancestor slots.
+            // The generic TVF result and sqrt are nullable; NonNullable also rejects unexpected runtime NULLs.
+            value = new NonNullable(value);
+        }
         Map<Expression, Expression> replacements = new HashMap<>();
         replacements.put(expression, value);
         List<NamedExpression> projects = ExpressionUtils.replaceNamedExpressions(project.getProjects(), replacements);

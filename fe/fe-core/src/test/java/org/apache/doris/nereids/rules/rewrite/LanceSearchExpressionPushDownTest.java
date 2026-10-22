@@ -27,6 +27,7 @@ import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -120,6 +122,7 @@ class LanceSearchExpressionPushDownTest {
         List<Column> columns = ImmutableList.of(new Column("id", Type.BIGINT),
                 new Column("body", Type.STRING), new Column("embedding",
                         org.apache.doris.catalog.ArrayType.create(Type.FLOAT, true)));
+        columns.forEach(column -> column.setIsAllowNull(true));
         Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(columns);
         List<String> qualifier = ImmutableList.of("catalog", "db", "items");
         id = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table, columns.get(0), qualifier);
@@ -292,6 +295,40 @@ class LanceSearchExpressionPushDownTest {
                 5, 0, new LogicalProject<>(ImmutableList.of(id, result), scan));
         Plan plan = PlanChecker.from(context, topN).rewrite().getPlan();
         search(plan);
+    }
+
+    @Test
+    void l2FullRewritePreservesNonNullResultsWithDebugValidation() {
+        assertNonNullVectorFullRewrite(new L2DistanceApproximate(embedding, vector()), true);
+    }
+
+    @Test
+    void innerProductFullRewritePreservesNonNullResultsWithDebugValidation() {
+        assertNonNullVectorFullRewrite(new InnerProductApproximate(embedding, vector()), false);
+    }
+
+    private void assertNonNullVectorFullRewrite(Expression expression, boolean ascending) {
+        for (boolean debug : new boolean[] {true, false}) {
+            context.getSessionVariable().feDebug = debug;
+            Alias result = new Alias(expression, "distance");
+            Assertions.assertFalse(result.nullable());
+            LogicalTopN<?> topN = new LogicalTopN<>(
+                    ImmutableList.of(new OrderKey(result.toSlot(), ascending, false)), 5, 0,
+                    new LogicalProject<>(ImmutableList.of(id, result), scan));
+            Alias outer = new Alias(new Cast(result.toSlot(), DoubleType.INSTANCE), "distance_as_double");
+            Plan plan = PlanChecker.from(context,
+                    new LogicalProject<>(ImmutableList.of(id, result.toSlot(), outer), topN)).rewrite().getPlan();
+            LogicalTVFRelation relation = search(plan);
+            Assertions.assertTrue(relation.getOutput().stream()
+                    .filter(slot -> slot.getName().equals("_distance")).findFirst().get().nullable());
+            Assertions.assertEquals(result.getExprId(), plan.getOutput().get(1).getExprId());
+            Assertions.assertFalse(plan.getOutput().get(1).nullable(), plan.treeString());
+            Assertions.assertFalse(plan.getOutput().get(2).nullable(), plan.treeString());
+            List<Plan> topNs = plan.collectToList(LogicalTopN.class::isInstance);
+            Assertions.assertEquals(1, topNs.size(), plan.treeString());
+            LogicalTopN<?> rewrittenTopN = (LogicalTopN<?>) topNs.get(0);
+            Assertions.assertFalse(rewrittenTopN.getOrderKeys().get(0).getExpr().nullable(), plan.treeString());
+        }
     }
 
     @Test
