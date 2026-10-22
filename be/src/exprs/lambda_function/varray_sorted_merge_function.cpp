@@ -290,7 +290,10 @@ public:
                     ++left;
                     ++right;
                 } else {
-                    const int cmp = data[0]->compare_at(left, right, *data[1], 1);
+                    // Match the ordering of array_sort/array_reverse_sort: nan_direction_hint -1
+                    // makes NULL and NaN the least values, so an ascending merge lists NULLs
+                    // first and a descending one lists them last.
+                    const int cmp = data[0]->compare_at(left, right, *data[1], -1);
                     if (ascending ? cmp <= 0 : cmp >= 0) {
                         append_element(*data[0], left++);
                     } else {
