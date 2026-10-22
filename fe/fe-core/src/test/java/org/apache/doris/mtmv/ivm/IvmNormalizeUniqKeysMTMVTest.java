@@ -1122,6 +1122,60 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
+    void testMinMaxCapacityAutoSelectsExtremeModeForAppendOnlyPlan() {
+        // The fixture table is DUP with a changelog and the plan has no join: the extreme alone is
+        // enough, so normalize resolves 0 instead of the default capacity.
+        LogicalAggregate<Plan> agg = minAgg(scan);
+        IvmAggTarget target = normalizeMinAgg(agg, newJobContextForRoot(agg, true));
+        Assertions.assertEquals(0, target.getMinMaxTopK());
+    }
+
+    @Test
+    void testMinMaxCapacityUsesExplicitProperty() {
+        IvmRewriteContext rewriteContext = IvmRewriteContext.create("test_mtmv");
+        rewriteContext.setMinMaxTopK(5L);
+        LogicalAggregate<Plan> agg = minAgg(scan);
+        JobContext jobContext = newJobContextForRoot(agg, true, Collections.emptySet(),
+                Optional.of(rewriteContext));
+        IvmAggTarget target = normalizeMinAgg(agg, jobContext);
+        Assertions.assertEquals(5, target.getMinMaxTopK());
+        Assertions.assertEquals(Long.valueOf(5L), rewriteContext.getResolvedMinMaxTopK());
+    }
+
+    @Test
+    void testMinMaxCapacityUsesDefaultForNonAppendOnlyPlan() {
+        // A merge-on-write base table emits retractions in its changelog, so deleting the current
+        // extreme must stay derivable: the default capacity is used.
+        OlapTable mowTable = PlanConstructor.newOlapTable(60, "minmax_mow", 0, KeysType.UNIQUE_KEYS);
+        TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
+        tableProperty.setEnableUniqueKeyMergeOnWrite(true);
+        mowTable.setTableProperty(tableProperty);
+        enableChangelog(mowTable);
+        LogicalOlapScan mowScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
+
+        LogicalAggregate<Plan> agg = minAgg(mowScan);
+        IvmAggTarget target = normalizeMinAgg(agg, newJobContextForRoot(agg, true));
+        Assertions.assertEquals(IvmUtil.DEFAULT_MINMAX_TOP_K, target.getMinMaxTopK());
+    }
+
+    private LogicalAggregate<Plan> minAgg(LogicalOlapScan source) {
+        Slot idSlot = source.getOutput().get(0);
+        Slot nameSlot = source.getOutput().get(1);
+        return new LogicalAggregate<>(ImmutableList.of(idSlot),
+                ImmutableList.of(idSlot, new Alias(new Min(nameSlot), "mn")), true,
+                java.util.Optional.empty(), source);
+    }
+
+    private IvmAggTarget normalizeMinAgg(LogicalAggregate<Plan> agg, JobContext jobContext) {
+        new IvmNormalizeUniqKeysMTMV().normalize(agg, jobContext);
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
+        Assertions.assertNotNull(aggMeta);
+        Assertions.assertEquals(1, aggMeta.getAggTargets().size());
+        return aggMeta.getAggTargets().get(0);
+    }
+
+    @Test
     void testBitmapAggProducesBitmapHiddenColumns() {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);

@@ -24,13 +24,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -38,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -69,6 +72,27 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
+        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        mtmv.getIvmInfo().advanceSequencePrefix();
+        mtmv.getIvmInfo().advanceSequencePrefix();
+        Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult,
+                IvmRewriteContext.incremental(mtmv), bundle.connectContext);
+        Assertions.assertNotNull(rewritten);
+        InsertIntoTableCommand command = new IvmIncrRefreshManager()
+                .buildInsertCommand((LogicalPlan) rewritten, mtmv);
+        UnboundTableSink<?> sink = getSink(command);
+        return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
+    }
+
+    /**
+     * Same as {@link #rewriteAgg}, but pins the MIN/MAX capacity on the statement's rewrite context
+     * so the test does not depend on the fixture scan's key model.
+     */
+    private AggRewriteResult rewriteAggWithTopK(LogicalAggregate<? extends Plan> agg, long topK) {
+        ConnectContext connectContext = newConnectContext();
+        connectContext.getStatementContext().getIvmRewriteContext().get().setMinMaxTopK(topK);
+        PlanBundle bundle = normalizeAggPlan(agg, connectContext);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         mtmv.getIvmInfo().advanceSequencePrefix();
         mtmv.getIvmInfo().advanceSequencePrefix();
@@ -616,11 +640,11 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     // ---- B3: Assert_true predicate semantics ----
 
     @Test
-    void testAssertTrueGuardPredicateIsCompoundOrExpression() {
-        AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
+    void testTopKGuardNegatesExhaustedCondition() {
+        AggRewriteResult result = rewriteAggWithTopK(buildMinAgg(buildScan()), 8);
 
-        // Find the boundary guard AssertTrue — the one whose condition is an Or expression.
-        // (assertNonNegative also uses AssertTrue but with GreaterThanEqual; skip those)
+        // The top-K boundary guard is assert_true(NOT(size(values) == 0 AND n' > 0)).
+        // assertNonNegative also uses AssertTrue but with GreaterThanEqual; skip those.
         List<AssertTrue> allAssertTrue = new ArrayList<>();
         for (NamedExpression expr : getApplyProject(result).getProjects()) {
             collectAssertTrue(expr, allAssertTrue);
@@ -629,23 +653,56 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         AssertTrue boundaryGuard = null;
         for (AssertTrue at : allAssertTrue) {
-            if (at.child(0) instanceof Or) {
+            if (at.child(0) instanceof Not) {
                 boundaryGuard = at;
                 break;
             }
         }
         Assertions.assertNotNull(boundaryGuard,
-                "Should find a boundary guard AssertTrue with Or condition. Found "
+                "Should find a boundary guard AssertTrue negating the exhausted condition. Found "
                 + allAssertTrue.size() + " AssertTrue(s) with conditions: "
                 + allAssertTrue.stream().map(at -> at.child(0).getClass().getSimpleName())
                         .collect(Collectors.joining(", "))
                 + ". Projects: " + getApplyProject(result).getProjects().stream()
                         .map(e -> e.getName()).collect(Collectors.joining(", ")));
 
-        // Guard should be: OR(IS_NULL(deltaDel), OR(IS_NULL(old), deltaDel > old))
         Expression guardCondition = boundaryGuard.child(0);
-        Assertions.assertInstanceOf(Or.class, guardCondition,
-                "Guard predicate should be a compound Or expression");
+        Assertions.assertInstanceOf(Not.class, guardCondition,
+                "Guard predicate should negate the exhausted condition");
+        Expression exhausted = ((Not) guardCondition).child();
+        Assertions.assertInstanceOf(And.class, exhausted,
+                "Exhausted should require both an empty values list and surviving rows");
+        Expression emptyValues = exhausted.child(0);
+        Assertions.assertInstanceOf(EqualTo.class, emptyValues,
+                "Exhausted must compare the list size with zero");
+        Assertions.assertInstanceOf(Cardinality.class, emptyValues.child(0),
+                "The list size comes from cardinality(values)");
+        Assertions.assertInstanceOf(GreaterThan.class, exhausted.child(1),
+                "Exhausted must also require n' > 0");
+        assertGuardMessage(boundaryGuard);
+    }
+
+    @Test
+    void testExtremeOnlyGuardRejectsRetractions() {
+        AggRewriteResult result = rewriteAggWithTopK(buildMinAgg(buildScan()), 0);
+
+        // K = 0 relies on the append-only premise: a non-NULL delete-side bound means a value was
+        // retracted, which the extreme-only merge cannot handle.
+        List<AssertTrue> allAssertTrue = new ArrayList<>();
+        for (NamedExpression expr : getApplyProject(result).getProjects()) {
+            collectAssertTrue(expr, allAssertTrue);
+        }
+        AssertTrue boundaryGuard = allAssertTrue.stream()
+                .filter(at -> at.child(0) instanceof IsNull)
+                .findFirst()
+                .orElse(null);
+        Assertions.assertNotNull(boundaryGuard,
+                "Extreme-only guard should be assert_true(IS NULL(delete-side bound))");
+        Assertions.assertInstanceOf(IsNull.class, boundaryGuard.child(0));
+        assertGuardMessage(boundaryGuard);
+    }
+
+    private void assertGuardMessage(AssertTrue boundaryGuard) {
         // The second child of AssertTrue should be the error message (StringLiteral)
         Assertions.assertInstanceOf(
                 StringLiteral.class,
