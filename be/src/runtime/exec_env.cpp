@@ -196,8 +196,7 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
 
 void ExecEnv::wait_for_shutdown_heartbeat() {
     int32_t elapsed = 0;
-    while (!k_shutdown_heartbeat_sent.load(std::memory_order_acquire) &&
-           elapsed < config::grace_shutdown_heartbeat_wait_seconds) {
+    while (!k_shutdown_heartbeat_sent && elapsed < config::grace_shutdown_heartbeat_wait_seconds) {
         sleep(1);
         ++elapsed;
     }

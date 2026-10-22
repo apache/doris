@@ -108,7 +108,7 @@ namespace doris {
 
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
-        k_doris_exit.store(true, std::memory_order_relaxed);
+        k_doris_exit = true;
     }
     // SIGQUIT deliberately does nothing here; see init_signals().
 }

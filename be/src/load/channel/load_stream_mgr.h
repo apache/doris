@@ -56,7 +56,7 @@ public:
 
     // Shutdown polling must not take _lock: an abnormal stream close can hold it
     // while destruction waits for unfinished file writes.
-    size_t get_load_stream_num() const { return _num_load_streams.load(std::memory_order_relaxed); }
+    size_t get_load_stream_num() const { return _num_load_streams.load(); }
 
     FifoThreadPool* heavy_work_pool() { return _heavy_work_pool; }
 
