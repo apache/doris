@@ -35,6 +35,10 @@ Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* re
                                                  brpc::Controller* cntl);
 bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point enqueue_ts,
                                         PFetchPeerDataResponse* response);
+void test_submit_sync_tablet_meta(CloudStorageEngine& engine, FifoThreadPool& work_pool,
+                                  const PSyncTabletMetaRequest* request,
+                                  PSyncTabletMetaResponse* response,
+                                  google::protobuf::Closure* done);
 #endif
 
 class CloudInternalServiceImpl final : public PInternalService {
@@ -46,6 +50,10 @@ public:
     void alter_vault_sync(google::protobuf::RpcController* controller,
                           const doris::PAlterVaultSyncRequest* request,
                           PAlterVaultSyncResponse* response,
+                          google::protobuf::Closure* done) override;
+
+    void sync_tablet_meta(google::protobuf::RpcController* controller,
+                          const PSyncTabletMetaRequest* request, PSyncTabletMetaResponse* response,
                           google::protobuf::Closure* done) override;
 
     // Get messages (filename, offset, size) about the tablet data in cache
