@@ -5109,13 +5109,7 @@ public final class SPMPlanTreeSupport {
      */
     private static Set<String> havingConsumedOutputAliases(Plan plan,
             List<NamedExpression> items) {
-        Set<String> labels = new HashSet<>();
-        for (NamedExpression item : items) {
-            String label = outputLabelOf(item);
-            if (label != null && !label.isEmpty()) {
-                labels.add(label.toLowerCase(Locale.ROOT));
-            }
-        }
+        Set<String> labels = outputLabelSet(items);
         Set<String> referenced = new HashSet<>();
         if (plan == null || labels.isEmpty()) {
             return referenced;
@@ -5129,6 +5123,174 @@ public final class SPMPlanTreeSupport {
         });
         referenced.retainAll(labels);
         return referenced;
+    }
+
+    /**
+     * The lower-cased output labels of one block's output list (see
+     * havingConsumedOutputAliases).
+     *
+     * @param items the output list
+     * @return the label set
+     */
+    private static Set<String> outputLabelSet(List<NamedExpression> items) {
+        Set<String> labels = new HashSet<>();
+        for (NamedExpression item : items) {
+            String label = outputLabelOf(item);
+            if (label != null && !label.isEmpty()) {
+                labels.add(label.toLowerCase(Locale.ROOT));
+            }
+        }
+        return labels;
+    }
+
+    /**
+     * The output labels the caller-visible TOP-LEVEL ORDER BY CONSUMES (see
+     * rejectManualPlanDivergence).
+     *
+     * ORDER BY resolves an output label before the base columns for exactly the reason HAVING
+     * does (see havingConsumedOutputAliases), and the sort contract cannot see the difference:
+     * both texts spell `ORDER BY abs(x)`, so the comparison accepts `SELECT k AS x` against
+     * `SELECT k AS y` while the bind sorts the ALIASED value and the plan falls through to the
+     * base column t.x - the replayed rows come back in the other order, with no error (round-80
+     * #2).
+     *
+     * The check compares what each key RESOLVES to, not just which labels it consumes: an item
+     * that names its own expression (`SELECT k`) sorts the same column whether the key reaches it
+     * through the output name or through the base column, so `SELECT k FROM t ORDER BY k` stays
+     * compatible with `SELECT k AS kk FROM t ORDER BY k` (SPMRound45SafetyTest).
+     *
+     * @param bindPlan  the bind tree
+     * @param bindItems its output list
+     * @param planPlan  the plan tree
+     * @param planItems its output list
+     * @return whether every top-level sort key resolves to the same expression on both sides
+     */
+    private static boolean sameResolvedSortKeys(Plan bindPlan, List<NamedExpression> bindItems,
+            Plan planPlan, List<NamedExpression> planItems) {
+        List<OrderKey> bindKeys = rootSortKeys(bindPlan);
+        List<OrderKey> planKeys = rootSortKeys(planPlan);
+        if (bindKeys == null || planKeys == null || bindKeys.size() != planKeys.size()) {
+            // a missing / differently sized sort is the ORDER BY contract check's business
+            return true;
+        }
+        Map<String, Expression> bindLabels = outputLabelExpressions(bindItems);
+        Map<String, Expression> planLabels = outputLabelExpressions(planItems);
+        for (int i = 0; i < bindKeys.size(); i++) {
+            if (!sameResolvedKey(bindKeys.get(i).getExpr(), bindLabels,
+                    planKeys.get(i).getExpr(), planLabels, 0)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * One output list's label-to-EXPRESSION mapping (see sameResolvedSortKeys): an ALIAS's name
+     * resolves to its body, the label-only forms keep their child as well.
+     *
+     * @param items the output list
+     * @return the lower-cased label map (the FIRST occurrence of a duplicate wins)
+     */
+    private static Map<String, Expression> outputLabelExpressions(List<NamedExpression> items) {
+        Map<String, Expression> labels = new HashMap<>();
+        for (NamedExpression item : items) {
+            String label = outputLabelOf(item);
+            if (label == null || label.isEmpty()) {
+                continue;
+            }
+            Expression expression = item;
+            if (item instanceof Alias) {
+                expression = ((Alias) item).child();
+            } else if (item instanceof UnboundAlias) {
+                expression = ((UnboundAlias) item).child();
+            }
+            labels.putIfAbsent(label.toLowerCase(Locale.ROOT), expression);
+        }
+        return labels;
+    }
+
+    /**
+     * Whether two top-level sort keys RESOLVE to the same expression (see sameResolvedSortKeys).
+     *
+     * A bare slot that names an output label resolves to that item's expression (an output name
+     * binds before the base columns); any other bare slot resolves to the base column of the same
+     * name. Everything else is compared structurally - the same node with the same function name
+     * and recursively the same children - so two keys that only LOOK alike (the same text over
+     * different aliases) are told apart.
+     *
+     * @param bindKey    the bind-side key expression
+     * @param bindLabels the bind side's label map
+     * @param planKey    the plan-side key expression
+     * @param planLabels the plan side's label map
+     * @param depth      the label-resolution depth (a self-referential alias stops the walk)
+     * @return whether both keys yield the same value
+     */
+    private static boolean sameResolvedKey(Expression bindKey, Map<String, Expression> bindLabels,
+            Expression planKey, Map<String, Expression> planLabels, int depth) {
+        if (depth > 8) {
+            return false;
+        }
+        Expression resolvedBind = resolveOutputLabel(bindKey, bindLabels);
+        if (resolvedBind != null) {
+            return sameResolvedKey(resolvedBind, Map.of(), planKey, planLabels, depth + 1);
+        }
+        Expression resolvedPlan = resolveOutputLabel(planKey, planLabels);
+        if (resolvedPlan != null) {
+            return sameResolvedKey(bindKey, bindLabels, resolvedPlan, Map.of(), depth + 1);
+        }
+        List<Expression> bindChildren = bindKey.children();
+        List<Expression> planChildren = planKey.children();
+        if (bindChildren.isEmpty() || planChildren.isEmpty()) {
+            // a leaf (a base column, a literal): its own spelling decides
+            return boundaryPreservingText(bindKey).equals(boundaryPreservingText(planKey));
+        }
+        if (bindChildren.size() != planChildren.size()
+                || !planKey.getClass().equals(bindKey.getClass())
+                || !nodeIdentity(bindKey).equals(nodeIdentity(planKey))) {
+            return false;
+        }
+        for (int i = 0; i < bindChildren.size(); i++) {
+            if (!sameResolvedKey(bindChildren.get(i), bindLabels,
+                    planChildren.get(i), planLabels, depth)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The expression an output LABEL resolves to (see sameResolvedKey), or null when the
+     * expression is not a bare slot naming one of the block's labels.
+     *
+     * @param expression the key expression (or a subexpression)
+     * @param labels     the label map of that side
+     * @return the resolved expression, or null
+     */
+    private static Expression resolveOutputLabel(Expression expression,
+            Map<String, Expression> labels) {
+        if (labels.isEmpty() || !(expression instanceof UnboundSlot)) {
+            return null;
+        }
+        java.util.List<String> parts = ((UnboundSlot) expression).getNameParts();
+        if (parts == null || parts.size() != 1) {
+            return null; // a qualified reference addresses a relation, never an output alias
+        }
+        return labels.get(parts.get(0).toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * The identity of one non-leaf node for the resolved-key comparison (see sameResolvedKey): a
+     * FUNCTION contributes its name, everything else its node class.
+     *
+     * @param expression the node
+     * @return the identity text
+     */
+    private static String nodeIdentity(Expression expression) {
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.functions.Function) {
+            return ((org.apache.doris.nereids.trees.expressions.functions.Function) expression)
+                    .getName().toLowerCase(Locale.ROOT);
+        }
+        return expression.getClass().getName();
     }
 
     /**
@@ -5186,7 +5348,9 @@ public final class SPMPlanTreeSupport {
      *       (bind SELECT k AS x FROM t HAVING x > 0 vs a plan with k AS y): HAVING binds
      *       the block's output names before the base columns, so the renamed plan filters
      *       t.x while the bind filtered k, and the label restoration cannot repair the
-     *       predicate - both sides must consume the SAME aliases.
+     *       predicate - both sides must consume the SAME aliases. The ORDER BY consumer is
+     *       checked the same way: `ORDER BY abs(x)` sorts the aliased value in the bind and
+     *       the base column in a plan that renamed the item, while both sort TEXTS agree.
      * After those set-wise contracts the two trees are compared NODE BY NODE and input by
      * input (see rejectRelationalTopologyDivergence): a predicate that MOVED to another
      * input, an operator that was added / dropped (DISTINCT, a window, a join type) and a
@@ -5291,6 +5455,20 @@ public final class SPMPlanTreeSupport {
                             + planOrder + "), so a matching caller would receive its rows in"
                             + " another order. Write the plan with the SAME ordering: "
                             + bindSql);
+        }
+        // An output label consumed by the ORDER BY is just as semantic as one consumed by HAVING
+        // (round-80 #2): both spell the same sort text, but the bind resolves `x` to the ALIASED
+        // value while a plan that renames the item to `y` falls through to the base column t.x -
+        // the sort contract sees identical text and the replayed rows come back in the other
+        // order. Compare what the keys actually RESOLVE to (see sameResolvedSortKeys) so a label
+        // that only re-spells its own column stays accepted.
+        if (!sameResolvedSortKeys(bindPlan, bindItems, planPlan, planItems)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their ORDER BY keys resolve"
+                            + " to different expressions (bind " + rootOrderContract(bindPlan)
+                            + ", plan " + rootOrderContract(planPlan) + "). An ORDER BY name"
+                            + " binds the block's OUTPUT column first, so renaming that item"
+                            + " silently sorts by another column: " + bindSql);
         }
         // The set-wise checks above cannot see an operator that CHANGED the rows, a
         // predicate that MOVED to another input, or an operator that was dropped: the
@@ -6201,21 +6379,30 @@ public final class SPMPlanTreeSupport {
      * caller-visible contract.
      */
     static List<String> rootOrderContract(Plan plan) {
+        List<OrderKey> keys = rootSortKeys(plan);
+        return keys == null ? List.of() : sortContractOf(keys);
+    }
+
+    /**
+     * The order keys of the caller-visible TOP-LEVEL sort of one tree (see rootOrderContract), or
+     * null when the tree exposes none.
+     *
+     * @param plan the tree to inspect
+     * @return the sort's keys, or null
+     */
+    private static List<OrderKey> rootSortKeys(Plan plan) {
         Plan node = plan;
         while (node != null && !(node instanceof LogicalSort) && !(node instanceof LogicalTopN)
                 && !(node instanceof LogicalProject) && node.children().size() == 1) {
             node = node.child(0);
         }
-        List<OrderKey> keys = null;
         if (node instanceof LogicalSort) {
-            keys = ((LogicalSort<?>) node).getOrderKeys();
-        } else if (node instanceof LogicalTopN) {
-            keys = ((LogicalTopN<?>) node).getOrderKeys();
+            return ((LogicalSort<?>) node).getOrderKeys();
         }
-        if (keys == null) {
-            return List.of();
+        if (node instanceof LogicalTopN) {
+            return ((LogicalTopN<?>) node).getOrderKeys();
         }
-        return sortContractOf(keys);
+        return null;
     }
 
     /**
@@ -7785,7 +7972,36 @@ public final class SPMPlanTreeSupport {
                     + "|" + describeAliasBodyEntries(ctx, udf, expandingAliasBody);
         }
         return "other:" + builder.functionClass().getName() + "|" + signature
-                + "|" + planBehaviorOf(builder.functionClass());
+                + "|" + planBehaviorOf(builder.functionClass())
+                + "|m=" + instanceNullableModeOf(builder);
+    }
+
+    /**
+     * The INSTANCE-level nullability of one catalog UDF candidate (see describeUdfCandidate).
+     *
+     * An ordinary (Java / Python) UDF declares its nullability per FUNCTION, not by node class:
+     * {@code Function.NullableMode} is chosen when the function is created and decides what the
+     * optimizer may do with it - ALWAYS_NULLABLE keeps an outer join alive, ALWAYS_NOT_NULLABLE
+     * lets a null-rejecting filter through, DEPEND_ON_ARGUMENT folds only for NULL arguments (see
+     * {@code Udf#nullable}). Re-creating the alias's jar / the function with the SAME name and
+     * argument types but another nullability therefore changed the frozen plan's meaning while
+     * the fingerprint stayed identical, so the replay kept optimizing for the old behavior
+     * (round-80 #5). The class flags of planBehaviorOf cannot see it: every instance shares one
+     * Nereids node class ({@code JavaUdf}, {@code PythonUdaf}, ...).
+     *
+     * @param builder the candidate builder
+     * @return the instance nullability ('-' when the builder carries no UDF instance)
+     */
+    private static String instanceNullableModeOf(
+            org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder) {
+        if (!(builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                .UdfBuilder)) {
+            return "-";
+        }
+        org.apache.doris.nereids.trees.expressions.functions.Udf udf =
+                ((org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder) builder)
+                        .getUdf();
+        return udf == null || udf.getNullableMode() == null ? "-" : udf.getNullableMode().name();
     }
 
     /**

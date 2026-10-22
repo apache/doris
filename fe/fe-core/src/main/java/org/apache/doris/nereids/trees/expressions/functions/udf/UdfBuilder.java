@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.udf;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
@@ -33,5 +34,20 @@ public abstract class UdfBuilder extends FunctionBuilder {
 
     public boolean hasVarArguments() {
         return getSignatures().get(0).hasVarArgs;
+    }
+
+    /**
+     * The catalog UDF instance this builder produces, or null when the builder does not carry one.
+     *
+     * The INSTANCE is the only place a Java / Python UDF's nullability lives (a
+     * {@code Function.NullableMode} chosen at CREATE FUNCTION time), and SPM's dependency
+     * fingerprint has to include it: re-creating the very same function with another nullability
+     * changes what the optimizer may do with it while the class name and the signature stay
+     * identical.
+     *
+     * @return the UDF instance, or null when this builder holds none
+     */
+    public Udf getUdf() {
+        return null;
     }
 }
