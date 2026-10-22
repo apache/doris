@@ -19,70 +19,44 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <vector>
-
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
-#include "exec/common/groupjoin_utils.h"
 #include "exprs/vexpr_fwd.h"
 
 namespace doris {
-
-class Arena;
-class AggFnEvaluator;
-class GroupJoinProbeLocalState;
-struct GroupJoinSharedState;
+struct DataDistribution;
 namespace groupjoin {
+Status validate_group_join_node(const TPlanNode& node);
+Status do_evaluate(Block& block, VExprContextSPtrs& exprs, std::vector<ColumnPtr>& columns);
+Status extract_key_columns(size_t rows, const std::vector<ColumnPtr>& columns,
+                           ColumnRawPtrs& raw_keys, ColumnUInt8::MutablePtr& null_map);
+Status evaluate_column(Block& block, const VExprContextSPtr& expr, ColumnPtr& result);
+DataDistribution distribution(TJoinDistributionType::type type, const std::vector<TExpr>& exprs);
 
-Status validate_group_join_node(const TPlanNode& tnode);
-
-Status do_evaluate(const Block& block, VExprContextSPtrs& exprs,
-                   std::vector<ColumnPtr>& key_columns_holder);
-
-// Hash map batch APIs take ColumnRawPtrs as key input. This helper converts evaluated
-// key expression columns to raw column pointers and builds the combined null map.
-// GroupJoin currently supports only normal equal join keys. Therefore nullable keys are
-// split into nested columns and the combined null map is used to skip rows with NULL keys:
-// for a normal inner equal join, any row containing a NULL join key can never match.
-// Null-safe equal needs a different path that keeps nullable keys encoded in the hash key.
-Status extract_key_columns(size_t rows, const std::vector<ColumnPtr>& key_columns_holder,
-                           ColumnRawPtrs& key_not_nullable_columns,
-                           ColumnUInt8::MutablePtr& null_map_column);
-
-Status register_agg_state_layout(GroupJoinSharedState* shared_state,
-                                 const std::vector<TGroupJoinAggSide::type>& aggregate_sides,
-                                 const Sizes& sizes_of_aggregate_states,
-                                 const Sizes& aligns_of_aggregate_states,
-                                 const std::vector<int>& aggregate_indices,
-                                 const std::vector<AggFnEvaluator*>& aggregate_evaluators);
-
-void init_data_container(GroupJoinSharedState* shared_state);
-
-Status add_build_counts_by_key(GroupJoinSharedState* shared_state, Arena& arena,
-                               ColumnRawPtrs& key_not_nullable_columns, uint32_t num_rows,
-                               const uint8_t* null_map, const std::vector<int>& aggregate_indices,
-                               AggregateDataPtr* places);
-
-Status update_probe_counts(GroupJoinSharedState* shared_state,
-                           ColumnRawPtrs& key_not_nullable_columns, uint32_t num_rows,
-                           const uint8_t* null_map, const std::vector<int>& aggregate_indices,
-                           AggregateDataPtr* places, int64_t& matched_rows,
-                           uint32_t& matched_probe_rows);
-
-void build_repeat_vectors(const std::vector<GroupJoinEntry*>& entries, uint32_t num_rows,
-                          bool needs_build_counts, bool needs_probe_counts,
-                          std::vector<uint64_t>& build_counts, std::vector<uint64_t>& probe_counts);
-
-void create_all_agg_states(GroupJoinSharedState* shared_state, AggregateDataPtr data);
-
-void destroy_all_agg_states(GroupJoinSharedState* shared_state, AggregateDataPtr data);
-
-Status drain_groupjoin_result(GroupJoinSharedState* shared_state, size_t batch_size,
-                              GroupJoinProbeLocalState& local_state, MutableColumns& key_columns,
-                              MutableColumns& value_columns, bool& output_eos);
-
-void destroy_agg_states(GroupJoinSharedState* shared_state);
-
+// Before matching, bucket_nums contains candidate chain heads. For matched probe rows,
+// replace them with the first equal build row, which identifies the aggregate group.
+// A resumed row already has its representative; build_row continues the remaining chain.
+template <typename Method>
+size_t match_batch(Method& method, uint32_t probe_rows, uint32_t& probe_row, uint32_t& build_row,
+                   uint32_t* probe_indices, uint32_t* build_indices) {
+    uint32_t previous_probe = build_row != 0 ? probe_row : probe_rows;
+    bool probe_visited = false;
+    const auto [next_probe, next_build, matches] =
+            method.hash_table->template find_batch<TJoinOp::INNER_JOIN>(
+                    method.keys, method.bucket_nums.data(), static_cast<int>(probe_row), build_row,
+                    static_cast<int>(probe_rows), probe_indices, probe_visited, build_indices,
+                    nullptr, false, false, false);
+    for (uint32_t i = 0; i < matches; ++i) {
+        const auto probe = probe_indices[i];
+        if (probe != previous_probe) {
+            method.bucket_nums[probe] = build_indices[i];
+            previous_probe = probe;
+        }
+    }
+    probe_row = next_probe;
+    build_row = next_build;
+    return matches;
+}
 } // namespace groupjoin
 } // namespace doris

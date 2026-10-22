@@ -18,15 +18,13 @@
 suite("test_group_join_float_special") {
     sql "SET enable_sql_cache=false"
     sql "SET query_cache_force_refresh=true"
-    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
-    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
-    // randomized, so pin it to keep the fused plan deterministic.
+    // Keep unrelated fusion gates fixed so the fallback below tests the floating-key gate.
     sql "SET enable_spill=false"
     sql "SET enable_bucket_shuffle_join=false"
     sql "SET experimental_use_serial_exchange=false"
     sql "SET runtime_filter_mode='OFF'"
     sql "SET experimental_enable_group_join_fusion=true"
-    // Isolate key normalization in GroupJoin from upstream exchange hashing.
+    // Floating keys retain ordinary Join + Agg until exchange hashing is normalized as well.
     sql "SET parallel_pipeline_task_num=1"
     for (type in ["FLOAT", "DOUBLE"]) {
         sql "DROP TABLE IF EXISTS gj_float_special_left"
@@ -45,7 +43,7 @@ suite("test_group_join_float_special") {
             ON l.k=r.k GROUP BY l.k ORDER BY l.k"""
         explain {
             sql query
-            contains "VGROUP JOIN"
+            notContains "VGROUP JOIN"
         }
         qt_signed_zero query
         qt_no_agg """SELECT l.k FROM gj_float_special_left l

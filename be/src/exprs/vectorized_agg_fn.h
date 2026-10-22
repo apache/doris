@@ -72,6 +72,12 @@ public:
     void create(AggregateDataPtr place);
     void destroy(AggregateDataPtr place);
 
+    void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                           const IColumn** columns, const uint32_t* rows, Arena& arena) {
+        _function->check_input_columns_type(columns);
+        _function->add_batch_indexed(batch_size, places, place_offset, columns, rows, arena);
+    }
+
     // agg_function
     Status execute_single_add(Block* block, AggregateDataPtr place, Arena& arena);
 
@@ -103,10 +109,6 @@ public:
 
     void insert_result_info_range(ConstAggregateDataPtr place, IColumn* column, size_t start,
                                   size_t end);
-
-    void insert_result_info_repeat_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
-                                       const std::vector<uint64_t>& repeats, IColumn* column,
-                                       const size_t num_rows, Arena& arena);
 
     void reset(AggregateDataPtr place);
 

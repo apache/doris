@@ -16,22 +16,20 @@
 // under the License.
 
 // Regression for GroupJoin fusion + an intermediate computing Project between the
-// aggregate and the join (Scheme A: the Project must be a pure passthrough).
+// aggregate and the join.
 //
 // With eager aggregation (eager_aggregation_mode=1) on a group-by-key shuffle join, both
 // join children are pre-aggregated streams, and a Project between the top-level aggregate
 // and the join re-multiplies the per-side counts/sums (count#11 = cntL*cntR,
 // sum#12 = sR*cntL, sum#13 = sL*cntR) to restore the join multiplicity. The fused GroupJoin
-// operator keeps per-key ROW counts per side; it has no per-join-row expression stage, so it
-// can never evaluate that Project. Previously the eligibility gate only tested whether the
+// must preserve these computed expressions. Previously the eligibility gate only tested whether the
 // aggregate's input slots existed on the join children — under eager-agg the Project outputs
 // reuse the pre-aggregate columns' ExprIds, so the gate passed and fusion silently dropped the
 // Project, returning COUNT 2 / SUM 30 instead of COUNT 4 / SUM 60.
 //
-// Fix: the intermediate Project between the aggregate and the join is only fusable when every
-// one of its outputs is a bare slot already produced by a join child (pure passthrough /
-// column pruning). Any computing Project makes the shape fall back to the ordinary
-// HashJoinNode + AggregationNode path, which evaluates the Project and keeps its semantics.
+// Join-based GroupJoin can inline deterministic Project expressions into aggregate arguments.
+// Eager aggregation may still fall back because of aggregate-phase or grouping-key restrictions;
+// either execution path must preserve the weighted expressions and match the reference.
 suite("test_group_join_fusion_intermediate_project") {
     sql "DROP TABLE IF EXISTS gj_weight_left"
     sql "DROP TABLE IF EXISTS gj_weight_right"
@@ -89,24 +87,16 @@ suite("test_group_join_fusion_intermediate_project") {
     setupEager()
     def reference = sql query
 
-    // 1. agg_phase=1 + eager aggregation: the intermediate Project computes the weights, so
-    //    the plan must NOT fuse, and the result must match the reference exactly.
+    // 1. agg_phase=1 + eager aggregation: preserve the intermediate Project's weights.
     sql "SET experimental_enable_group_join_fusion = true"
-    def plan = sql "EXPLAIN " + query
-    assertFalse(plan.toString().contains("VGROUP JOIN"),
-            "computing intermediate Project must not be fused, plan: " + plan)
     def fusedPhase1 = sql query
     assertEquals(reference, fusedPhase1)
 
-    // 2. Default agg_phase (0, Nereids auto) + eager aggregation also produces the shape and
-    //    must fall back with correct results.
+    // 2. Default agg_phase (0, Nereids auto) + eager aggregation must also keep correct results.
     sql "SET agg_phase = 0"
     sql "SET experimental_enable_group_join_fusion = false"
     def referenceDefaultPhase = sql query
     sql "SET experimental_enable_group_join_fusion = true"
-    plan = sql "EXPLAIN " + query
-    assertFalse(plan.toString().contains("VGROUP JOIN"),
-            "computing intermediate Project (default agg_phase) must not be fused, plan: " + plan)
     def fusedDefaultPhase = sql query
     assertEquals(referenceDefaultPhase, fusedDefaultPhase)
 
@@ -142,7 +132,7 @@ suite("test_group_join_fusion_intermediate_project") {
     sql "SET agg_phase = 0"
     def plainRef = sql query
     sql "SET experimental_enable_group_join_fusion = true"
-    plan = sql "EXPLAIN " + query
+    def plan = sql "EXPLAIN " + query
     assertTrue(plan.toString().contains("VGROUP JOIN"),
             "plain (non-eager) shape should still fuse, plan: " + plan)
     def fusedPlain = sql query

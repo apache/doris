@@ -93,6 +93,8 @@ class PackedStringJoinContext : public PrimaryTypeHashTableContext<Key> {
 public:
     explicit PackedStringJoinContext(size_t max_length) : _max_length(max_length) {}
 
+    size_t max_length() const { return _max_length; }
+
     size_t serialized_keys_size(bool is_build) const override {
         return (is_build ? _build_keys.size() : _probe_keys.size()) * sizeof(Key);
     }
@@ -204,6 +206,34 @@ struct JoinDataVariants {
         }
     }
 };
+
+// A probe owns its key buffers while borrowing the immutable build table and its key storage.
+inline std::unique_ptr<JoinDataVariants> make_join_probe_context(const JoinDataVariants& build) {
+    auto probe = std::make_unique<JoinDataVariants>();
+    std::visit(
+            [&](const auto& method) {
+                using Method = std::decay_t<decltype(method)>;
+                if constexpr (std::is_same_v<Method, std::monostate>) {
+                    throw Exception(ErrorCode::INTERNAL_ERROR, "Uninitialized Join hash table");
+                } else {
+                    if constexpr (requires {
+                                      method._min_key;
+                                      method._max_key;
+                                  }) {
+                        probe->method_variant.emplace<Method>(method._max_key, method._min_key);
+                    } else if constexpr (requires { method.key_sizes; }) {
+                        probe->method_variant.emplace<Method>(method.key_sizes);
+                    } else if constexpr (requires { method.max_length(); }) {
+                        probe->method_variant.emplace<Method>(method.max_length());
+                    } else {
+                        probe->method_variant.emplace<Method>();
+                    }
+                    std::get<Method>(probe->method_variant).hash_table = method.hash_table;
+                }
+            },
+            build.method_variant);
+    return probe;
+}
 
 template <typename Method>
 void primary_to_direct_mapping(Method* context, const ColumnRawPtrs& key_columns,

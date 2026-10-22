@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -34,13 +36,13 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
-import org.apache.doris.statistics.model.ColumnStatistic;
-import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -76,34 +78,37 @@ public final class GroupJoinFusionUtils {
      * the caller decides whether to reorder the join's conjuncts to the returned order
      * (AlignGroupJoinConjunctOrder) or to require it already (the translator).
      * <p>
-     * Returns null when the shape is not eligible (not an INNER/CROSS hash join, mark join,
-     * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, no aggregate
-     * functions, aggregates reading both sides, aggregates with an internal ORDER BY, an aggregate
+     * Returns null when the shape is not eligible (not an INNER hash join, mark join,
+     * broadcast join, residual/filter conjuncts, floating or complex join keys,
+     * null-safe equal conjuncts, no aggregate
+     * functions, aggregates with an internal ORDER BY, an aggregate
      * that is not the final one-phase node (GLOBAL + INPUT_TO_RESULT, per function and node), an
-     * intermediate Project that computes columns, or intermediate project slots) or when the
+     * unsupported intermediate Project, volatile expressions, or intermediate project slots) or when the
      * group-by keys cannot be mapped one-to-one onto the conjuncts. Session-level gates
      * (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
      *
      * @param project the Project between the aggregate and the join, or null when the aggregate
-     *        directly consumes the join. Only a pure passthrough project (each output is a bare
-     *        slot already produced by one of the join children) is fusable: the fused operator
-     *        evaluates aggregates over the join children rows, so any computation between the
-     *        aggregate and the join (weighted re-multiplication of pre-aggregated sides, hoisted
-     *        casts, CSE columns, ...) must stay on the ordinary HashJoinNode + AggregationNode
-     *        path which evaluates the Project.
+     *        directly consumes the join. GroupJoin can inline deterministic computed
+     *        aggregate arguments and evaluate cross-side expressions on matched row pairs.
      */
     public static List<Expression> alignedConjunctsForGroupJoin(
             Aggregate<?> aggregate, PhysicalProject<?> project, PhysicalHashJoin<?, ?> join) {
-        if (join.getJoinType() != JoinType.INNER_JOIN && !join.getJoinType().isCrossJoin()) {
+        if (join.getJoinType() != JoinType.INNER_JOIN) {
             return null;
+        }
+        if (project != null) {
+            aggregate = inlineJoinBasedProject(aggregate, project);
+            if (aggregate == null) {
+                return null;
+            }
         }
         if (join.isMarkJoin()) {
             return null;
         }
-        // The fused GroupJoin operator matches rows purely by the equi-join key: it keeps
-        // per-key row counts and per-side aggregation states and has no per-pair filtering
-        // stage, so a residual non-equi ON conjunct cannot be evaluated by it.
-        if (join.isBroadCastJoin() || !join.getOtherJoinConjuncts().isEmpty()) {
+        // The fused GroupJoin operator matches rows purely by the equi-join key and has no
+        // per-pair filtering stage, so a residual non-equi ON conjunct cannot be evaluated.
+        if (join.isBroadCastJoin() || !join.getOtherJoinConjuncts().isEmpty()
+                || !join.getFilterConjuncts().isEmpty()) {
             return null;
         }
         List<Expression> groupByExprs = aggregate.getGroupByExpressions();
@@ -142,44 +147,27 @@ public final class GroupJoinFusionUtils {
             return null;
         }
         for (AggregateExpression aggExpr : aggregateExpressions) {
+            // Foreign UDAFs rely on batched JNI/RPC updates; indexed scalar adds lose that contract.
+            if (aggExpr.getFunction() instanceof Udf) {
+                return null;
+            }
             AggregateParam perFunctionParam = aggExpr.getAggregateParam();
             if (!perFunctionParam.equals(nodeParam)) {
                 return null;
             }
         }
         // The fused operator evaluates aggregates over the probe/build rows of the join
-        // children, so every group-by key and aggregate argument must be a column one of the
-        // join children directly produces (an intermediate Project between the aggregate and
-        // the join would translate to slots that do not exist on either child).
+        // children, so all input slots must be produced by those children after Project inlining.
         Set<Slot> leftOutput = join.left().getOutputSet();
         Set<Slot> rightOutput = join.right().getOutputSet();
         Set<Slot> joinChildrenOutputs = Sets.newHashSet();
         joinChildrenOutputs.addAll(leftOutput);
         joinChildrenOutputs.addAll(rightOutput);
-        // Pure-passthrough gate for the intermediate Project (Scheme A): the Project between
-        // the aggregate and the join may only forward columns the join children already
-        // produce. A Project computing anything (eager pre-aggregation weights such as
-        // cntL*cntR, hoisted type-coercion casts, CSE columns) cannot be skipped by the fused
-        // operator, so such shapes fall back to the ordinary path. Note slot ExprIds are
-        // reused by the eager-agg rewrite (the same id denotes the raw child column below the
-        // project and the weighted value above it), so an existence test on ids alone would
-        // let the weighted shape through; checking that every project output IS a bare slot of
-        // a join child is the structural test that catches it.
-        if (project != null) {
-            for (NamedExpression projectOutput : project.getProjects()) {
-                if (!(projectOutput instanceof SlotReference)
-                        || (!leftOutput.contains(projectOutput) && !rightOutput.contains(projectOutput))) {
-                    return null;
-                }
-            }
-        }
         if (!joinChildrenOutputs.containsAll(aggregate.getInputSlots())) {
             return null;
         }
         // Order-sensitive aggregates (internal ORDER BY, e.g. GROUP_CONCAT(... ORDER BY ...))
-        // are not fusable. The fused operator keeps only a per-key local aggregate state on one
-        // side plus the other side's per-key row count, so it cannot reconstruct the interleaved
-        // join row order such aggregates need; and TGroupJoinAggFunction carries no per-function
+        // are not fusable. TGroupJoinAggFunction carries no per-function
         // sort info (unlike AggregationNode's agg_sort_infos), so the translated expression's
         // ORDER BY column would be treated as an ordinary aggregate argument by the BE
         // group-join operators (they always pass an empty TSortInfo) and abort with
@@ -189,21 +177,8 @@ public final class GroupJoinFusionUtils {
             if (!outputExpr.collect(OrderExpression.class::isInstance).isEmpty()) {
                 return null;
             }
-        }
-        // Aggregate functions must not reference columns from both join sides: the per-side
-        // aggregation state is maintained by the corresponding probe/build operator.
-        for (AggregateExpression aggExpr : aggregateExpressions) {
-            Set<Slot> inputSlots = aggExpr.getInputSlots();
-            boolean hasLeft = false;
-            boolean hasRight = false;
-            for (Slot slot : inputSlots) {
-                if (leftOutput.contains(slot)) {
-                    hasLeft = true;
-                } else if (rightOutput.contains(slot)) {
-                    hasRight = true;
-                }
-            }
-            if (hasLeft && hasRight) {
+            if (outputExpr.containsNondeterministic()
+                    || outputExpr.containsType(NoneMovableFunction.class)) {
                 return null;
             }
         }
@@ -228,6 +203,13 @@ public final class GroupJoinFusionUtils {
                 return null;
             }
             EqualPredicate eq = (EqualPredicate) conjunct;
+            // Normalization inside GroupJoin is too late to fix partitioning of signed zero
+            // or nested floating-point values. Keep these keys on the regular Join + Agg path.
+            if (eq.left().getDataType().isFloatLikeType() || eq.left().getDataType().isComplexType()
+                    || eq.right().getDataType().isFloatLikeType()
+                    || eq.right().getDataType().isComplexType()) {
+                return null;
+            }
             Set<Slot> leftSide = eq.left().getInputSlots();
             Set<Slot> rightSide = eq.right().getInputSlots();
             if (!((leftOutput.containsAll(leftSide) && rightOutput.containsAll(rightSide))
@@ -260,57 +242,31 @@ public final class GroupJoinFusionUtils {
             conjunctUsed[matched] = true;
             alignedConjuncts.add(equalConjuncts.get(matched));
         }
-        if (!doesNotWasteBuildAggregation(
-                aggregate, join, alignedConjuncts, aggregateExpressions)) {
-            return null;
-        }
         return alignedConjuncts;
     }
 
-    private static boolean doesNotWasteBuildAggregation(
-            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join, List<Expression> alignedConjuncts,
-            List<AggregateExpression> aggregateExpressions) {
-        Set<Slot> buildOutput = join.right().getOutputSet();
-        boolean hasBuildSideAggregate = aggregateExpressions.stream()
-                .anyMatch(agg -> agg.getInputSlots().stream().anyMatch(buildOutput::contains));
-        if (!hasBuildSideAggregate) {
-            return true;
-        }
-
-        Statistics aggregateStats = aggregate.getStats();
-        Statistics joinStats = join.getStats();
-        Statistics buildStats = join.right().getStats();
-        if (aggregateStats == null || joinStats == null || buildStats == null) {
-            return true;
-        }
-
-        List<Expression> buildKeys = new ArrayList<>(alignedConjuncts.size());
-        for (Expression conjunct : alignedConjuncts) {
-            EqualPredicate equal = (EqualPredicate) conjunct;
-            Expression buildKey = buildOutput.containsAll(equal.left().getInputSlots())
-                    ? equal.left() : equal.right();
-            ColumnStatistic buildKeyStats = buildStats.findColumnStatistics(buildKey);
-            if (buildKeyStats == null || buildKeyStats.isUnKnown()) {
-                return true;
+    /** Resolve aggregate arguments to child expressions without changing output ExprIds. */
+    public static Aggregate<?> inlineJoinBasedProject(Aggregate<?> aggregate, PhysicalProject<?> project) {
+        Map<Expression, Expression> replacements = new HashMap<>();
+        for (NamedExpression output : project.getProjects()) {
+            Expression input = output instanceof Alias ? ((Alias) output).child() : output;
+            // Moving error checks or volatile expressions changes the evaluation domain.
+            if (input.containsNondeterministic() || input.containsType(NoneMovableFunction.class)) {
+                return null;
             }
-            buildKeys.add(buildKey);
+            replacements.put(output.toSlot(), input);
         }
-
-        double buildRowCount = buildStats.getRowCount();
-        double joinRowCount = joinStats.getRowCount();
-        double groupRowCount = aggregateStats.getRowCount();
-        double buildKeyNdv = StatsCalculator.estimateGroupByRowCount(buildKeys, buildStats);
-        return doesNotWasteBuildAggregation(
-                buildRowCount, joinRowCount, groupRowCount, buildKeyNdv);
-    }
-
-    static boolean doesNotWasteBuildAggregation(double buildRowCount, double joinRowCount,
-            double groupRowCount, double buildKeyNdv) {
-        // The current BE Group Join creates aggregate states for every build key and updates them
-        // with every build row before probing. Avoid fusion when the regular plan would aggregate
-        // fewer joined rows, or when some build-key states cannot contribute to the final groups.
-        // Strict comparisons preserve equal-cardinality cases.
-        return joinRowCount >= buildRowCount && groupRowCount >= buildKeyNdv;
+        // Group keys must still be raw equi-join slots. Computed grouping remains unfused.
+        for (Expression key : aggregate.getGroupByExpressions()) {
+            Expression input = replacements.get(key);
+            if (input != null && !input.equals(key)) {
+                return null;
+            }
+        }
+        List<NamedExpression> outputs = aggregate.getOutputExpressions().stream()
+                .map(output -> (NamedExpression) ExpressionUtils.replace(output, replacements))
+                .collect(Collectors.toList());
+        return aggregate.withAggOutput(outputs);
     }
 
     /** Whether two conjunct lists contain the same conjunct instances in the same order. */
