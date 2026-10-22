@@ -755,16 +755,23 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,
             final StreamListener<CloseSessionResult> listener) {
+        // Teardown must cancel active commands without taking their command lock,
+        // but remains pending shutdown work until its reply has been delivered.
+        QueryAdmissionController.INSTANCE.acquireContinuation();
         try {
-            flightSessionsManager.closeConnectContext(context.peerIdentity());
-        } catch (final Throwable e) {
-            LOG.warn("closeSession failed", e);
-            listener.onError(
-                    CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
-            return;
+            try {
+                flightSessionsManager.closeConnectContext(context.peerIdentity());
+            } catch (final Throwable e) {
+                LOG.warn("closeSession failed", e);
+                listener.onError(
+                        CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+                return;
+            }
+            listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
+            listener.onCompleted();
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
         }
-        listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
-        listener.onCompleted();
     }
 
     @FunctionalInterface

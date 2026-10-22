@@ -132,10 +132,20 @@ public class ConnectScheduler {
             if (System.nanoTime() >= deadline || Thread.currentThread().isInterrupted()) {
                 break;
             }
+            ConnectContext previous = ConnectContext.get();
             try {
+                // Follower rollback builds MasterOpExecutor from ConnectContext.get().
+                // The daemon worker must bind this session, just like the MySQL request worker.
+                context.setThreadLocalInfo();
                 context.closeIdleMysqlConnection();
             } catch (Exception e) {
                 LOG.warn("failed to close idle MySQL connection {}", context.getConnectionId(), e);
+            } finally {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
             }
         }
     }

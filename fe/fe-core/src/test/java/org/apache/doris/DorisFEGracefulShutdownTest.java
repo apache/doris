@@ -20,6 +20,7 @@ package org.apache.doris;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.util.concurrent.Uninterruptibles;
@@ -32,6 +33,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class DorisFEGracefulShutdownTest {
@@ -79,6 +82,36 @@ public class DorisFEGracefulShutdownTest {
                 () -> DorisFE.waitForGracefulShutdown(scheduler(context),
                         System.nanoTime() + TimeUnit.SECONDS.toNanos(10)));
         Assertions.assertTrue(context.closed);
+        Assertions.assertSame(context, context.closingContext, "rollback must use the session's thread context");
+    }
+
+    @Test
+    public void testRescanAfterLastRequestFinishes() throws InterruptedException {
+        TestContext context = new TestContext();
+        ConnectScheduler scheduler = scheduler(context);
+        context.startMysqlCommand();
+        AtomicInteger scans = new AtomicInteger();
+        AtomicBoolean requestFinished = new AtomicBoolean();
+        QueryAdmissionController.INSTANCE.acquireContinuation();
+        Mockito.doAnswer(invocation -> {
+            invocation.callRealMethod();
+            if (scans.incrementAndGet() == 1) {
+                // The scan skipped a busy session, but the request ends before the next count sample.
+                context.finishMysqlCommand();
+                QueryAdmissionController.INSTANCE.release();
+                requestFinished.set(true);
+            }
+            return null;
+        }).when(scheduler).closeIdleMysqlConnections(Mockito.anyLong());
+        try {
+            DorisFE.waitForGracefulShutdown(scheduler, System.nanoTime() + TimeUnit.SECONDS.toNanos(5));
+            Assertions.assertTrue(context.closed, "the now-idle transaction needs another cleanup pass");
+            Assertions.assertTrue(scans.get() >= 2);
+        } finally {
+            if (!requestFinished.get()) {
+                QueryAdmissionController.INSTANCE.release();
+            }
+        }
     }
 
     @Test
@@ -102,9 +135,11 @@ public class DorisFEGracefulShutdownTest {
 
     private static class TestContext extends ConnectContext {
         private volatile boolean closed;
+        private volatile ConnectContext closingContext;
 
         @Override
         protected void closeChannel() {
+            closingContext = ConnectContext.get();
             closed = true;
             // Model XNIO's synchronous close listener, which unregisters the session and aborts its txn.
             closeTxn();

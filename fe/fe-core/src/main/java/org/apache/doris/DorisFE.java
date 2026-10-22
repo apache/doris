@@ -767,16 +767,20 @@ public class DorisFE {
                 1, 1, "graceful-idle-mysql-closer", false);
         try {
             Future<?> idleCleanup = null;
+            boolean cleanupStartedIdle = false;
             while (true) {
                 if (idleCleanup == null) {
+                    cleanupStartedIdle = QueryAdmissionController.INSTANCE.getActiveRequests() == 0;
                     idleCleanup = idleCloser.submit(() -> scheduler.closeIdleMysqlConnections(deadline));
                 }
                 int activeRequests = QueryAdmissionController.INSTANCE.getActiveRequests();
                 List<Coordinator> coordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
                 boolean pendingFlightResults = scheduler.hasPendingFlightResults();
                 boolean pendingIdleCleanup = !idleCleanup.isDone();
-                // A session's transaction may still be rolling back after its last request ended.
-                if (activeRequests == 0 && coordinators.isEmpty() && !pendingFlightResults && !pendingIdleCleanup) {
+                // A scan that skipped an admitted INSERT must not declare its newly idle
+                // transaction drained. Require a complete scan after request quiescence.
+                if (activeRequests == 0 && coordinators.isEmpty() && !pendingFlightResults
+                        && !pendingIdleCleanup && cleanupStartedIdle) {
                     break;
                 }
                 long remaining = deadline - System.nanoTime();
