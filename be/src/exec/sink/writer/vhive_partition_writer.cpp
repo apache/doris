@@ -24,6 +24,7 @@
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vhive_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
@@ -69,34 +70,15 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
+    auto create_file = [&]() {
+        return _fs->create_file(file_description.path, &_file_writer, &file_writer_options);
+    };
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        TParquetCompressionType::type parquet_compression_type;
-        switch (_hive_compress_type) {
-        case TFileCompressType::PLAIN: {
-            parquet_compression_type = TParquetCompressionType::UNCOMPRESSED;
-            break;
-        }
-        case TFileCompressType::SNAPPYBLOCK: {
-            parquet_compression_type = TParquetCompressionType::SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            parquet_compression_type = TParquetCompressionType::ZSTD;
-            break;
-        }
-        case TFileCompressType::LZ4BLOCK: {
-            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
-            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
-            break;
-        }
-        default: {
-            return Status::InternalError("Unsupported hive compress type {} with parquet",
-                                         to_string(_hive_compress_type));
-        }
-        }
+        TParquetCompressionType::type parquet_compression_type =
+                DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_hive_compress_type));
+        RETURN_IF_ERROR(create_file());
         // TODO: INT96 is kept for Hive 2/3 compatibility. Add an explicit option before
         // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
@@ -113,12 +95,14 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(create_file());
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _hive_compress_type);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_CSV_PLAIN: {
+        RETURN_IF_ERROR(create_file());
         // TODO(syt): support hive csv table, only hive text file is supportted now
         _file_format_transformer = std::make_unique<VCSVTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, false, "csv", "",
