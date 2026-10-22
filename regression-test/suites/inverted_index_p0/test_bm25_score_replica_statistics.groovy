@@ -102,7 +102,9 @@ suite("test_bm25_score_replica_statistics", "p0") {
 
     assertScoresLikeFreshTable("use_fix_replica = -1", "before compaction")
 
-    if (replicaNum == 3) {
+    // Cloud mode keeps one shared copy of each tablet, so there are no replicas to compact apart,
+    // and its compaction is driven differently.
+    if (!isCloudMode() && replicaNum == 3) {
         // Compact the replicas on one backend only, so the replicas hold different rows.
         def backendIdToIp = [:]
         def backendIdToHttpPort = [:]
@@ -132,9 +134,11 @@ suite("test_bm25_score_replica_statistics", "p0") {
         }
     }
 
-    trigger_and_wait_compaction(tableName, "full")
-    for (int replica = 0; replica < replicaNum; replica++) {
-        assertScoresLikeFreshTable("use_fix_replica = ${replica}", "all replicas compacted")
+    if (!isCloudMode()) {
+        trigger_and_wait_compaction(tableName, "full")
+        for (int replica = 0; replica < replicaNum; replica++) {
+            assertScoresLikeFreshTable("use_fix_replica = ${replica}", "all replicas compacted")
+        }
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
