@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -88,6 +90,20 @@ public class InferPredicateByReplaceTest {
 
         Assertions.assertEquals(inputs, InferPredicateByReplace.infer(inputs));
         Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
+    }
+
+    @Test
+    public void testDoNotInferMatchOrSearchInsideOr() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        for (Expression predicate : ImmutableList.of(
+                new Or(new MatchAny(a, new StringLiteral("apple")), new MatchAny(a, new StringLiteral("pear"))),
+                new Or(new Search(new StringLiteral("a:apple")), new EqualTo(a, new StringLiteral("pear"))))) {
+            Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(new EqualTo(a, b), predicate));
+
+            Assertions.assertEquals(inputs, InferPredicateByReplace.infer(inputs));
+            Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
+        }
     }
 
     @Test
