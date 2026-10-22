@@ -329,7 +329,7 @@ struct RegexpCountImpl {
     static int _execute_inner_loop(FunctionContext* context, const StringColumnView& str_col,
                                    const StringColumnView& pattern_col, const size_t index_now) {
         auto* re = reinterpret_cast<re2::RE2*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
         if (re == nullptr) {
             std::string error_str;
@@ -385,7 +385,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
@@ -481,7 +481,7 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
@@ -553,7 +553,8 @@ public:
                             // it for later blocks with a different pattern value.
                             if (context->is_col_constant(1) && !context->is_col_constant(3) &&
                                 input_rows_count > 0 &&
-                                context->get_function_state(FunctionContext::THREAD_LOCAL) ==
+                                context->get_function_state(
+                                        FunctionContext::FunctionStateScope::THREAD_LOCAL) ==
                                         nullptr) {
                                 Status st = compile_constant_pattern(
                                         context, argument_columns[1]->get_data_at(0),
@@ -597,7 +598,7 @@ private:
             return Status::InvalidArgument(error_str);
         }
         std::shared_ptr<re2::RE2> re(scoped_re.release());
-        context->set_function_state(FunctionContext::THREAD_LOCAL, re);
+        context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL, re);
         return Status::OK();
     }
 };
@@ -658,7 +659,7 @@ struct RegexpReplaceImpl {
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, const size_t index_now) {
         auto* re = reinterpret_cast<re2::RE2*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
         if (re == nullptr) {
             std::string error_str;
@@ -777,7 +778,7 @@ private:
                                     ColumnString::Offsets& result_offset, NullMap& null_map,
                                     const size_t index_now) {
         auto* engine = reinterpret_cast<RegexpExtractEngine*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         std::unique_ptr<RegexpExtractEngine> scoped_engine;
 
         if (engine == nullptr) {
@@ -963,7 +964,7 @@ private:
                                               const ColumnString* pattern_col, Handler& handler,
                                               const size_t index_now) {
         auto* engine = reinterpret_cast<RegexpExtractEngine*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         std::unique_ptr<RegexpExtractEngine> scoped_engine;
 
         if (engine == nullptr) {
@@ -1014,7 +1015,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             if (context->is_col_constant(Impl::PATTERN_ARG_IDX)) {
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col =

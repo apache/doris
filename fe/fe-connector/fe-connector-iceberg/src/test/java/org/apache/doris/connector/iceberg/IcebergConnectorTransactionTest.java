@@ -51,10 +51,13 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.types.Types;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
@@ -128,7 +131,17 @@ public class IcebergConnectorTransactionTest {
         return new IcebergConnectorTransaction(42L, ops, ctx);
     }
 
-    private static final ConnectorSession SESSION = new FakeWriteSession("UTC");
+    // The overwrite tests below predate the static default (iceberg_partition_overwrite_mode defaults to
+    // 'static'), so the shared session carries an explicit 'dynamic' and keeps exercising the dynamic path;
+    // overwriteDefaultsToWholeTable pins the deployed default instead.
+    private static final ConnectorSession SESSION = sessionWithOverwriteMode("dynamic");
+    private static final ConnectorSession DEFAULT_SESSION = new FakeWriteSession("UTC");
+    private static final ConnectorSession STATIC_SESSION = sessionWithOverwriteMode("static");
+
+    private static ConnectorSession sessionWithOverwriteMode(String mode) {
+        return new FakeWriteSession("UTC",
+                Collections.singletonMap("iceberg_partition_overwrite_mode", mode));
+    }
 
     private static IcebergWriteContext insertCtx() {
         return new IcebergWriteContext(WriteOperation.INSERT, false, Collections.emptyMap(), Optional.empty());
@@ -670,6 +683,68 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteDefaultsToWholeTable() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // No session property at all: the deployed default (static) is a whole-table overwrite, so the
+        // untouched 'us' partition is cleared together with everything else.
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(DEFAULT_SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(1, files.size(), files.toString());
+        Assertions.assertTrue(files.get(0).path().toString().contains("region=eu"),
+                files.get(0).path().toString());
+    }
+
+    @Test
+    public void overwriteStaticClearsTheWholeTable() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // An explicit 'static' is the same whole-table overwrite as the default (Spark's static mode).
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(STATIC_SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        Assertions.assertEquals(1, currentDataFiles(catalog.loadTable(id)).size());
+    }
+
+    @Test
+    public void overwriteDynamicKeepsOtherPartitions() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us")).commit();
+
+        // iceberg_partition_overwrite_mode=dynamic: only the written partition is replaced, so the 'us' seed
+        // survives (Hive-compatible, Spark's partitionOverwriteMode=dynamic).
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", overwriteCtx());
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/region=eu/f1.parquet", 1L, 1024L, Collections.singletonList("eu"))));
+        txn.commit();
+
+        Assertions.assertEquals(2, currentDataFiles(catalog.loadTable(id)).size());
+    }
+
+    @Test
     public void overwriteDynamicRejectsConcurrentDataInReplacedPartition() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -887,6 +962,41 @@ public class IcebergConnectorTransactionTest {
         Snapshot snap = reloadCurrentSnapshot(catalog, id);
         Assertions.assertEquals("overwrite", snap.operation());
         Assertions.assertEquals("1", snap.summary().get("added-data-files"));
+    }
+
+    @Test
+    public void overwriteStaticPartitionFiltersOnTheSourceColumnOfARenamedIdentityField() {
+        // ADD PARTITION KEY id AS id_identity: the write planner hands the commit the partition FIELD key
+        // ("id_identity"), and the row filter must still be built on the SOURCE column ("id") — the column the
+        // identity value is derived from, and what Spark's static-partition overwrite filters on. The retained
+        // partition proves the filter did not widen (a field-name expression would fail to bind instead).
+        // MUTATION: evaluating the filter on the field name -> iceberg binder rejects "id_identity" -> red.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("id", "id_identity").build();
+        Table table = catalog.createTable(id, schema, spec, props("write.format.default", "parquet"));
+        table.newAppend().appendFile(partitionedDataFile(spec,
+                "s3://b/db1/t1/id_identity=1/seed.parquet", 1L, "id_identity=1")).commit();
+
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)),
+                new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(table, Collections.singletonMap("id_identity", "2")));
+        txn.addCommitData(commitBytes(dataFileItem(
+                "s3://b/db1/t1/id_identity=2/f1.parquet", 1L, 1024L, Collections.singletonList("2"))));
+        txn.commit();
+
+        List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(2, remaining.size(), remaining.toString());
+        Assertions.assertTrue(remaining.stream().anyMatch(
+                        f -> f.path().toString().contains("id_identity=1")),
+                "the untouched partition must survive: " + remaining);
+        Assertions.assertTrue(remaining.stream().anyMatch(
+                        f -> f.path().toString().contains("id_identity=2")),
+                "the overwritten partition must be added: " + remaining);
     }
 
     @Test
@@ -1167,12 +1277,39 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
-    public void rollbackAndCloseAreNoOps() {
+    public void rollbackWithoutBeginAndCloseAreNoOps() {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertDoesNotThrow(() -> {
             txn.rollback();
             txn.close();
         });
+    }
+
+    @Test
+    public void rollbackDeletesReportedFilesAndClearsCommitData() throws IOException {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
+        String path = "s3://b/db1/t1/uncommitted.parquet";
+        OutputFile output = table.io().newOutputFile(path);
+        try (PositionOutputStream stream = output.create()) {
+            stream.write(1);
+        }
+        Assertions.assertTrue(table.io().newInputFile(path).exists());
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", insertCtx());
+        txn.addCommitData(commitBytes(dataFileItem(path, 1L, 1L)));
+
+        txn.rollback();
+
+        Assertions.assertThrows(NotFoundException.class,
+                () -> table.io().newInputFile(path).exists(),
+                "rollback must delete data files reported by completed BE fragments");
+        Assertions.assertTrue(txn.getCommitDataList().isEmpty(),
+                "rollback must not leave fragments that a later lifecycle call could commit");
+        txn.close();
     }
 
     @Test
@@ -2264,9 +2401,15 @@ public class IcebergConnectorTransactionTest {
     /** Minimal {@link ConnectorSession} exposing a time zone (for partition-timestamp parsing); no Mockito. */
     private static final class FakeWriteSession implements ConnectorSession {
         private final String timeZone;
+        private final Map<String, String> properties;
 
         FakeWriteSession(String timeZone) {
+            this(timeZone, Collections.emptyMap());
+        }
+
+        FakeWriteSession(String timeZone, Map<String, String> properties) {
             this.timeZone = timeZone;
+            this.properties = properties == null ? Collections.emptyMap() : properties;
         }
 
         @Override
@@ -2291,7 +2434,8 @@ public class IcebergConnectorTransactionTest {
 
         @Override
         public <T> T getProperty(String name, Class<T> type) {
-            return null;
+            String value = properties.get(name);
+            return value == null ? null : type.cast(value);
         }
 
         @Override

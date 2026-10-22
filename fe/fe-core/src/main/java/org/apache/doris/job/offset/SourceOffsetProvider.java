@@ -150,6 +150,11 @@ public interface SourceOffsetProvider {
         return null;
     }
 
+    /** Merge serialized state without initializing the provider; full replacement by default. */
+    default String mergePersistInfo(String previousPersistInfo, String incomingPersistInfo) {
+        return incomingPersistInfo;
+    }
+
     /**
      * Restore offset from an image or job update journal, including for PAUSED jobs.
      */

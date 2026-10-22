@@ -29,8 +29,10 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exec/partitioner/external/paimon_fixed_bucket_partition_function.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -40,11 +42,13 @@ namespace doris {
 
 class ExternalTableSinkHashPartitionerTest : public testing::Test {
 protected:
+    virtual PrimitiveType key_type() const { return TYPE_INT; }
+
     void SetUp() override {
         TDescriptorTableBuilder table_builder;
         TTupleDescriptorBuilder tuple_builder;
         tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                       .type(TYPE_INT)
+                                       .type(key_type())
                                        .nullable(false)
                                        .column_name("key")
                                        .column_pos(1)
@@ -65,7 +69,7 @@ protected:
         TExprNode node;
         node.__set_node_type(TExprNodeType::SLOT_REF);
         node.__set_num_children(0);
-        node.__set_type(create_type_desc(TYPE_INT));
+        node.__set_type(create_type_desc(key_type()));
         node.__set_is_nullable(false);
 
         TSlotRef slot_ref;
@@ -234,6 +238,70 @@ TEST_F(ExternalTableSinkHashPartitionerTest, IcebergUnsupportedTransformFailsClo
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Unsupported Iceberg partition transform"),
               std::string::npos);
+}
+
+class ExternalTableSinkBinaryHashPartitionerTest : public ExternalTableSinkHashPartitionerTest {
+protected:
+    PrimitiveType key_type() const override { return TYPE_VARBINARY; }
+
+    Block binary_block(const std::vector<std::string>& values) const {
+        auto column = ColumnVarbinary::create();
+        for (const auto& value : values) {
+            column->insert_data(value.data(), value.size());
+        }
+        Block block;
+        block.insert(ColumnWithTypeAndName(std::move(column), std::make_shared<DataTypeVarbinary>(),
+                                           "key"));
+        return block;
+    }
+
+    std::vector<PartitionerBase::HashValType> channels(const std::string& transform,
+                                                       ShuffleHashMethod method,
+                                                       const std::vector<std::string>& values) {
+        TExternalTableSinkHashPartitionInfo info;
+        info.__set_partition_function("iceberg_transform");
+        info.__set_partition_function_options({{"transforms", transform}});
+        info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+        ExternalTableSinkHashPartitioner partitioner(64, method, info);
+        EXPECT_TRUE(partitioner.init({slot_ref()}).ok());
+        EXPECT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
+        EXPECT_TRUE(partitioner.open(&_state).ok());
+        Block input = binary_block(values);
+        Status status = partitioner.do_partitioning(&_state, &input);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        std::vector<PartitionerBase::HashValType> result(partitioner.get_channel_ids().begin(),
+                                                         partitioner.get_channel_ids().end());
+        EXPECT_TRUE(partitioner.close(&_state).ok());
+        return result;
+    }
+};
+
+TEST_F(ExternalTableSinkBinaryHashPartitionerTest, IcebergTransformHashesBinaryPartitionValues) {
+    // identity(binary_key) and truncate(1, binary_key) route each row by a VARBINARY partition
+    // value, which the exchange hashes by its bytes. A backend without VARBINARY shuffle hashes
+    // failed the write with "update_crcs_with_value is not supported for ColumnVarbinary".
+    const std::string long_value(20, '\x7f');
+    for (ShuffleHashMethod method : {ShuffleHashMethod::CRC32, ShuffleHashMethod::CRC32C}) {
+        SCOPED_TRACE(method == ShuffleHashMethod::CRC32 ? "CRC32" : "CRC32C");
+        // identity: equal bytes share a channel, including the empty value and a value past the
+        // inline size.
+        auto identity = channels("identity", method,
+                                 {std::string("\x00\xff", 2), "", long_value,
+                                  std::string("\x00\xff", 2), "", long_value});
+        ASSERT_EQ(6, identity.size());
+        EXPECT_EQ(identity[0], identity[3]);
+        EXPECT_EQ(identity[1], identity[4]);
+        EXPECT_EQ(identity[2], identity[5]);
+
+        // truncate[1]: X'00FF' and X'0001' share the partition X'00', 'a' and 'ab' the
+        // partition 'a'.
+        auto truncated =
+                channels("truncate[1]", method,
+                         {std::string("\x00\xff", 2), std::string("\x00\x01", 2), "a", "ab"});
+        ASSERT_EQ(4, truncated.size());
+        EXPECT_EQ(truncated[0], truncated[1]);
+        EXPECT_EQ(truncated[2], truncated[3]);
+    }
 }
 
 TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsMissingMetadata) {

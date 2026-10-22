@@ -64,7 +64,7 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         std::shared_ptr<State> state = std::make_shared<State>();
         context->set_function_state(scope, state);
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             if (context->get_num_args() == 1) {
                 // This is a call to RandSeed, initialize the seed. The seed is a constant, but a
                 // constant expression such as an arithmetic one is not evaluated in open. Then the
@@ -107,7 +107,7 @@ private:
         auto& res_data = res_column->get_data();
 
         auto* state = reinterpret_cast<State*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         DCHECK(state != nullptr);
         if (input_rows_count == 0) {
             block.replace_by_position(result, std::move(res_column));
@@ -142,7 +142,7 @@ private:
         auto& res_data = res_column->get_data();
 
         auto* state = reinterpret_cast<State*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         DCHECK(state != nullptr);
         if (state->seed_in_execute && input_rows_count > 0) {
             state->generator.seed(get_seed(*block.get_by_position(arguments[0]).column));

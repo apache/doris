@@ -23,8 +23,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -62,6 +62,8 @@ public abstract class JdbcClient {
     private String catalogName;
     protected String dbType;
     protected String jdbcUser;
+    private String jdbcPassword;
+    private String diagnosticJdbcUrl;
     protected ClassLoader classLoader = null;
     protected HikariDataSource dataSource = null;
     protected boolean isOnlySpecifiedDatabase;
@@ -103,6 +105,8 @@ public abstract class JdbcClient {
         setJdbcDriverSystemProperties();
         this.catalogName = jdbcClientConfig.getCatalog();
         this.jdbcUser = jdbcClientConfig.getUser();
+        this.jdbcPassword = jdbcClientConfig.getPassword();
+        this.diagnosticJdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.isOnlySpecifiedDatabase = Boolean.parseBoolean(jdbcClientConfig.getOnlySpecifiedDatabase());
         this.includeDatabaseMap =
                 Optional.ofNullable(jdbcClientConfig.getIncludeDatabaseMap()).orElse(Collections.emptyMap());
@@ -153,7 +157,7 @@ public abstract class JdbcClient {
                     URL url = new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()));
                     classLoaderMap.remove(url);
                     // Prompt user to verify driver validity and retry
-                    throw new JdbcClientException(
+                    throw jdbcException(
                         String.format("Failed to load driver class `%s`. "
                                         + "Please check that the driver JAR is valid and retry.",
                                       config.getDriverClass()), e);
@@ -161,7 +165,7 @@ public abstract class JdbcClient {
                     // ignore invalid URL when cleaning cache
                 }
             }
-            throw new JdbcClientException(e.getMessage(), e);
+            throw jdbcException(e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -187,7 +191,8 @@ public abstract class JdbcClient {
         try {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
-            throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
+            throw new JdbcClientException(e,
+                    JdbcExceptionUtils.format("Failed to parse db type from jdbcUrl", e, jdbcUrl), jdbcUrl);
         }
     }
 
@@ -204,9 +209,8 @@ public abstract class JdbcClient {
             conn = dataSource.getConnection();
         } catch (Exception e) {
             String errorMessage = String.format(
-                    "Catalog `%s` can not connect to jdbc due to error: %s",
-                    this.getCatalogName(), JdbcClientException.getAllExceptionMessages(e));
-            throw new JdbcClientException(errorMessage, e);
+                    "Catalog `%s` can not connect to jdbc due to error", this.getCatalogName());
+            throw jdbcException(errorMessage, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -225,7 +229,7 @@ public abstract class JdbcClient {
                         ((Connection) resource).close();
                     }
                 } catch (SQLException e) {
-                    LOG.warn("Failed to close resource: {}", e.getMessage(), e);
+                    LOG.warn("Failed to close resource: {}", jdbcDiagnosticMessage(e));
                 }
             }
         }
@@ -247,7 +251,7 @@ public abstract class JdbcClient {
                 LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to execute stmt. error: " + e.getMessage(), e);
+            throw jdbcException("Failed to execute stmt", e);
         } finally {
             close(stmt, conn);
         }
@@ -278,7 +282,7 @@ public abstract class JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to get columns from query: %s", e, query);
+            throw jdbcException("Failed to get columns from query: %s", e, query);
         } finally {
             close(pstmt, conn);
         }
@@ -322,7 +326,7 @@ public abstract class JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
+            throw jdbcException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }
@@ -353,7 +357,7 @@ public abstract class JdbcClient {
                     remoteTablesNames.add(rs.getString("TABLE_NAME"));
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException("failed to get all tables for remote database: `%s`", e, remoteDbName);
+                throw jdbcException("failed to get all tables for remote database: `%s`", e, remoteDbName);
             }
         });
         return remoteTablesNames;
@@ -375,7 +379,7 @@ public abstract class JdbcClient {
                     isExist[0] = true;
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException("failed to judge if table exist for table %s in db %s",
+                throw jdbcException("failed to judge if table exist for table %s in db %s",
                         e, remoteTableName, remoteDbName);
             }
         });
@@ -398,8 +402,8 @@ public abstract class JdbcClient {
                 tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -434,8 +438,8 @@ public abstract class JdbcClient {
                 primaryKeys.add(fieldName);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc primary key info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -475,7 +479,7 @@ public abstract class JdbcClient {
                 resultSetConsumer.accept(customRs);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             close(customRs, stmt, standardRs, conn);
         }
@@ -562,7 +566,7 @@ public abstract class JdbcClient {
                         "Failed to test connection in FE: query executed but returned no results.");
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+            throw jdbcException("Failed to test connection in FE", e);
         } finally {
             close(rs, stmt, conn);
         }
@@ -578,9 +582,20 @@ public abstract class JdbcClient {
             conn = getConnection();
             return conn.getMetaData().getDriverVersion();
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to get jdbc driver version", e);
+            throw jdbcException("Failed to get jdbc driver version", e);
         } finally {
             close(conn);
         }
     }
+
+    protected JdbcClientException jdbcException(String context, Throwable cause, Object... args) {
+        return new JdbcClientException(cause, JdbcExceptionUtils.format(
+                JdbcClientException.formatMessage(context, args), cause, jdbcPassword, diagnosticJdbcUrl),
+                jdbcPassword, diagnosticJdbcUrl);
+    }
+
+    protected String jdbcDiagnosticMessage(Throwable cause) {
+        return JdbcExceptionUtils.format("", cause, jdbcPassword, diagnosticJdbcUrl);
+    }
+
 }

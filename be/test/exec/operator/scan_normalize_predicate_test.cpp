@@ -515,7 +515,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
 
         auto* state = reinterpret_cast<InState*>(
                 ctx->fn_context(fn_in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = false;
 
@@ -573,7 +573,7 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
 
         auto* state = reinterpret_cast<InState*>(
                 ctx->fn_context(fn_in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = true;
         state->hybrid_set->insert(nullptr, 0);
@@ -1253,8 +1253,9 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                             EXPECT_TRUE(arg.is_empty_value_range());
                         } else {
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::SQLFilterOp::FILTER_LESS);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1309,8 +1310,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1370,8 +1373,9 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(), doris::SQLFilterOp::FILTER_LARGER);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1426,8 +1430,10 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1739,8 +1745,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                             EXPECT_TRUE(arg.is_empty_value_range());
                         } else {
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::SQLFilterOp::FILTER_LESS);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1795,8 +1802,10 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_low_value_minimum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
                         }
@@ -1856,8 +1865,9 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(), doris::SQLFilterOp::FILTER_LARGER);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }
@@ -1912,8 +1922,10 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                         } else {
                             EXPECT_FALSE(arg.is_fixed_value_range());
                             EXPECT_TRUE(arg.is_scope_value_range());
-                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
-                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_low_op(),
+                                      doris::SQLFilterOp::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(),
+                                      doris::SQLFilterOp::FILTER_LESS_OR_EQUAL);
                             EXPECT_TRUE(arg.is_high_value_maximum());
                             EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
                         }

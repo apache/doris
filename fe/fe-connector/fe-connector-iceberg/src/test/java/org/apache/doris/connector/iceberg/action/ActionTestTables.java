@@ -69,6 +69,10 @@ final class ActionTestTables {
         return createTable(catalog, table, Collections.emptyMap());
     }
 
+    static Table createTable(InMemoryCatalog catalog, String table, PartitionSpec spec) {
+        return catalog.createTable(id(table), SCHEMA, spec, Collections.emptyMap());
+    }
+
     /** Appends one data file as a new snapshot and returns the new current snapshot id. */
     static long appendSnapshot(InMemoryCatalog catalog, String table, String fileName, long records) {
         Table t = catalog.loadTable(id(table));

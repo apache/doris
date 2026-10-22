@@ -74,6 +74,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -111,12 +112,19 @@ public class Profile {
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile;
     // executionProfiles will be stored to storage as text, when getting profile content, we will read
-    // from storage directly.
-    List<ExecutionProfile> executionProfiles = Lists.newArrayList();
+    // from storage directly. Retries can append executions while an already published profile is read,
+    // so readers iterate a stable snapshot of this infrequently modified list.
+    List<ExecutionProfile> executionProfiles = new CopyOnWriteArrayList<>();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
+    private volatile String storageProfileCompletionState;
+    private volatile boolean executionProfilesReleased;
+    // Serializes the storage and display updates of the completion state. Not the Profile monitor:
+    // ProfileManager renders under its read lock, while updateSummary() holds the monitor and then
+    // takes the manager's write lock.
+    private final Object completionStateLock = new Object();
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
@@ -394,6 +402,7 @@ public class Profile {
         RuntimeProfile rootProfile = new RuntimeProfile(getId());
         rootProfile.addChild(summaryProfile.getSummary(), true);
         rootProfile.addChild(summaryProfile.getExecutionSummary(), true);
+        rootProfile.addChild(getAIFunctionSummary(), true);
         for (ExecutionProfile executionProfile : executionProfiles) {
             rootProfile.addChild(executionProfile.getRoot(), true);
         }
@@ -481,6 +490,16 @@ public class Profile {
         return new RecentRunsPlanStatistics(newRecentRunsStatistics);
     }
 
+    private RuntimeProfile getAIFunctionSummary() {
+        RuntimeProfile summary = new RuntimeProfile("AIFunctionSummary");
+        // Loads and query retries can contain multiple executions; each contributes once to the totals.
+        for (ExecutionProfile executionProfile : executionProfiles) {
+            executionProfile.addAIFunctionSummaryCounters(summary);
+        }
+        // RuntimeProfile always contains TotalTime, even when no AI counters were reported.
+        return summary.getCounterMap().size() == 1 ? null : summary;
+    }
+
     // Return if profile has been stored to storage
     public void getExecutionProfileContent(SafeStringBuilder builder) {
         if (builder == null) {
@@ -489,6 +508,11 @@ public class Profile {
 
         if (profileHasBeenStored()) {
             return;
+        }
+
+        RuntimeProfile aiSummary = getAIFunctionSummary();
+        if (aiSummary != null) {
+            aiSummary.prettyPrint(builder, "");
         }
 
         // For broker load, if it has more than one execution profile, we will not generate merged profile.
@@ -565,6 +589,9 @@ public class Profile {
     }
 
     public void releaseMemory() {
+        // The manager also releases reports after a failed spill. An empty list then means
+        // lost reports, not successful collection; retain that distinction across retries.
+        executionProfilesReleased = true;
         this.executionProfiles.clear();
         this.changedSessionVarCache = "";
         this.physicalPlan = null;
@@ -627,13 +654,23 @@ public class Profile {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
+    // Query completion precedes asynchronous BE reports; persisted profiles must retain
+    // their terminal state even after the in-memory reports have been released.
     public String getProfileCompletionState() {
+        String storageState = storageProfileCompletionState;
+        if (storageState != null) {
+            return storageState;
+        }
         if (profileHasBeenStored()) {
             String storedState = summaryProfile.getSummary().getInfoString(SummaryProfile.PROFILE_COMPLETION_STATE);
             if (!Strings.isNullOrEmpty(storedState)) {
                 return storedState;
             }
             return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
+        }
+
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
         }
 
         if (!isQueryFinished) {
@@ -650,6 +687,9 @@ public class Profile {
     }
 
     private String getProfileCompletionStateForStorage() {
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
         if (!isQueryFinished) {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
@@ -664,11 +704,18 @@ public class Profile {
     }
 
     private void updateProfileCompletionStateForStorage() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionStateForStorage());
+        synchronized (completionStateLock) {
+            // Freeze the terminal state before serialization. Concurrent rendering must not
+            // replace INCOMPLETE with COLLECTING while the storage path is still unpublished.
+            storageProfileCompletionState = getProfileCompletionStateForStorage();
+            summaryProfile.setProfileCompletionState(storageProfileCompletionState);
+        }
     }
 
     private void updateProfileCompletionStateForDisplay() {
-        summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        synchronized (completionStateLock) {
+            summaryProfile.setProfileCompletionState(getProfileCompletionState());
+        }
     }
 
     // Profile IO threads races with Coordinator threads.
@@ -741,6 +788,7 @@ public class Profile {
             this.profileStoragePath = profileFilePath;
 
         } catch (Exception e) {
+            storageProfileCompletionState = null;
             LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -104,8 +106,32 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             order by id
         """
 
+        // variant_smoke is append-only. This table has duplicate primary-key writes, so the scan
+        // must preserve Paimon's deduplicate semantics while materializing Variant values.
+        order_qt_primary_key_full_variant """
+            select id, payload
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_deduplicate """
+            select id,
+                   cast(payload['name'] as string),
+                   cast(payload['version'] as int),
+                   cast(payload['active'] as boolean)
+            from variant_primary_key_smoke
+            order by id
+        """
+
+        order_qt_primary_key_subpath_predicate """
+            select id, cast(payload['name'] as string)
+            from variant_primary_key_smoke
+            where cast(payload['version'] as int) = 2
+            order by id
+        """
+
         // Exercise Paimon's metadata-marked read type against a physically shredded file. The
-        // variant_smoke cases above read unshredded files.
+        // unshredded and primary-key cases above cover Paimon's raw-value and merge fallbacks.
         order_qt_jni_shredded_projection """
             select id,
                    cast(payload['name'] as string),
@@ -238,11 +264,60 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             select id,
                    cast(payload['name'] as string),
                    cast(payload['age'] as int),
-                   cast(payload['extra'] as string)
+                   cast(payload['extra'] as string),
+                   cast(payload['profile']['address']['city'] as string),
+                   cast(payload['profile']['address']['zip'] as int)
             from variant_shredded
             where cast(payload['age'] as int) >= 20
             order by id
         """
+
+        order_qt_native_shredded_deep_object_projection """
+            select id,
+                   cast(payload['profile']['address']['zip'] as int),
+                   cast(payload['profile']['address']['rank'] as int)
+            from variant_shredded
+            order by id
+        """
+
+        sql """set enable_profile = true"""
+        sql """set profile_level = 2"""
+        String deepProjectionToken =
+                "paimon_variant_deep_object_projection_" + UUID.randomUUID().toString()
+        List<List<Object>> deepProjectionRows = sql """
+            select '${deepProjectionToken}', id,
+                   cast(payload['profile']['address']['zip'] as int),
+                   cast(payload['profile']['address']['rank'] as int)
+            from variant_shredded
+            order by id
+        """
+        assertEquals(2, deepProjectionRows.size())
+        String deepProjectionProfile = new ProfileAction(context).getProfileBySql(
+                deepProjectionToken,
+                ["VariantLeafProjectionRowGroupColumns", "VariantFullProjectionRowGroupColumns"],
+                30000L, 500L)
+        def counterSum = { String profile, String counterName ->
+            def values = profile =~
+                    /(?m)^\s*(?:-\s*)?${counterName}:\s+([^\n]+)/
+            long total = 0L
+            while (values.find()) {
+                def exactValue = values.group(1).toString() =~ /\(([0-9,]+)\)/
+                def displayedValue = values.group(1).toString() =~ /([0-9,]+)/
+                if (exactValue.find()) {
+                    total += Long.parseLong(exactValue.group(1).replace(",", ""))
+                } else if (displayedValue.find()) {
+                    total += Long.parseLong(displayedValue.group(1).replace(",", ""))
+                }
+            }
+            return total
+        }
+        assertTrue(counterSum(deepProjectionProfile,
+                        "VariantLeafProjectionRowGroupColumns") > 0,
+                "Paimon Native did not project the deeply shredded Variant object leaves")
+        assertEquals(0L, counterSum(deepProjectionProfile,
+                        "VariantFullProjectionRowGroupColumns"),
+                "Paimon Native unexpectedly fell back to full Variant row-group projection")
+        sql """set enable_profile = false"""
 
         order_qt_native_mixed_us_partitions """
             select id,

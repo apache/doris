@@ -26,15 +26,21 @@ class EvolutionCast final : public Cast {
     ENABLE_FACTORY_CREATOR(EvolutionCast);
 
 public:
-    explicit EvolutionCast(const DataTypePtr& type) : Cast(type) {}
+    explicit EvolutionCast(const DataTypePtr& type, bool truncate_datetimev2_precision = false)
+            : Cast(type), _truncate_datetimev2_precision(truncate_datetimev2_precision) {}
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     std::string debug_string() const override;
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = EvolutionCast::create_shared(_data_type);
+        *cloned_expr = EvolutionCast::create_shared(_data_type, _truncate_datetimev2_precision);
         return Status::OK();
     }
+
+private:
+    bool _truncate_datetimev2_precision = false;
 };
 
 } // namespace doris::format

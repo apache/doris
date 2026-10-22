@@ -54,12 +54,13 @@ static void BM_ArrayRange(benchmark::State& state) {
             "array_range", block.get_columns_with_type_and_name(), result_type);
     auto context =
             FunctionContext::create_context(nullptr, result_type, {int_type, int_type, int_type});
-    auto status = function->open(context.get(), FunctionContext::FRAGMENT_LOCAL);
+    auto status =
+            function->open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     if (!status.ok()) {
         state.SkipWithError(status.to_string().c_str());
         return;
     }
-    status = function->open(context.get(), FunctionContext::THREAD_LOCAL);
+    status = function->open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
     if (!status.ok()) {
         state.SkipWithError(status.to_string().c_str());
         return;
@@ -74,11 +75,11 @@ static void BM_ArrayRange(benchmark::State& state) {
         benchmark::DoNotOptimize(block.get_by_position(3).column);
         benchmark::ClobberMemory();
     }
-    status = function->close(context.get(), FunctionContext::THREAD_LOCAL);
+    status = function->close(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
     if (!status.ok()) {
         state.SkipWithError(status.to_string().c_str());
     }
-    status = function->close(context.get(), FunctionContext::FRAGMENT_LOCAL);
+    status = function->close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     if (!status.ok()) {
         state.SkipWithError(status.to_string().c_str());
     }

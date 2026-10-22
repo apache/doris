@@ -56,17 +56,20 @@ pch_reuse(Storage)
 # - the three heaviest template-instantiation TUs (predicate creators) which
 #   would dominate any batch they join
 set(STORAGE_UNITY_SKIP
+    # Keep storage batches stable: null_predicate's using directive makes
+    # later CLucene sse_util references ambiguous.
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/index_disk_usage.cpp
     # Keep the spill helpers independent: the PRX encoder requests ZSTD's static
     # workspace API, and inserting these files into the existing unity batches
     # exposes an unrelated LIMIT_REACH enum collision in olap_scan_common.cpp.
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/snii/writer/bounded_run_merge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/snii/writer/encoded_spill_run.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/snii/writer/posting_byte_buffer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/snii/writer/posting_external_sort.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/snii/writer/posting_prx_encoder.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/inverted_index_compound_reader.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/inverted_index_fs_directory.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/tokenizer/basic/basic_tokenizer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/snii/writer/bounded_run_merge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/snii/writer/encoded_spill_run.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/snii/writer/posting_byte_buffer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/snii/writer/posting_external_sort.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/snii/writer/posting_prx_encoder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/index_compound_reader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/index_fs_directory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/analysis/tokenizer/basic/basic_tokenizer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/zone_map/zone_map_index.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/iterator/vcollect_iterator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tablet/tablet.cpp

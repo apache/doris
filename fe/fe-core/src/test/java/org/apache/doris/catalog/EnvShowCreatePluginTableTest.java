@@ -53,6 +53,10 @@ public class EnvShowCreatePluginTableTest {
         Mockito.doReturn("t").when(table).getName();
         Mockito.doReturn("").when(table).getComment();
         Mockito.doReturn(COLUMNS).when(table).getBaseSchema(false);
+        // SHOW CREATE TABLE reads the DISPLAY schema (see TableIf.getBaseSchemaForDisplay). Stub it with the
+        // same columns: this test pins the Env render arm, and resolving the display view for real would need
+        // a connector-backed schema cache (the real accessor is unit-tested in PluginDrivenExternalTableTest).
+        Mockito.doReturn(COLUMNS).when(table).getBaseSchemaForDisplay(false);
         // The engine name a connector declares (here: an iceberg catalog's). Stubbed because this test is about
         // the Env render arm, not about where the name comes from — that is pinned by
         // PluginDrivenExternalTableEngineTest.

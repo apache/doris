@@ -25,7 +25,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
-#include "exprs/function/function_search.h"
+#include "exprs/function/search/function_search.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
@@ -33,6 +33,8 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/schema.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_column_reader.h"
 
 namespace doris {
 using namespace segment_v2;
@@ -57,6 +59,61 @@ void add_search_binding_diagnostic(const IndexExecContext* index_context,
     if (index_query_context != nullptr && index_query_context->stats != nullptr) {
         index_query_context->stats->inverted_index_stats.add_binding_diagnostic(diagnostic);
     }
+}
+
+// A missing iterator is not evidence of a missing value: doc/sparse paths and
+// old rowsets may contain values without an executable SEARCH index.
+Status verify_missing_variant_path(const TSearchFieldBinding& binding, int column_index,
+                                   IndexExecContext* index_context) {
+    auto* segment = index_context->segment();
+    if (segment == nullptr || !binding.__isset.parent_field_name ||
+        !binding.__isset.subcolumn_path) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SEARCH cannot establish missing path '{}'", binding.field_name);
+    }
+    const auto& read_schema = index_context->read_schema();
+    DORIS_CHECK_GE(column_index, 0);
+    DORIS_CHECK_LT(static_cast<size_t>(column_index), read_schema->num_read_columns());
+    const auto& column = *read_schema->column(column_index);
+    const auto& opts = index_context->column_iter_opts();
+    DORIS_CHECK(opts.stats != nullptr);
+    StorageReadOptions read_options(*opts.stats);
+    read_options.io_ctx = opts.io_ctx;
+    std::shared_ptr<VariantColumnReader> reader;
+    Status st = segment->get_variant_root_reader(column, read_options, &reader);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // After DROP v(uid=1), ADD v(uid=2), an old segment cannot contain this scan's root.
+        // Resolve by the current uid so historical values of the same name cannot match.
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
+    DORIS_CHECK(reader != nullptr);
+    RETURN_IF_ERROR(reader->load_external_meta_once(opts.stats, &opts.io_ctx));
+    const PathInData path(binding.subcolumn_path);
+    const auto* stats = reader->get_stats();
+    // Doc statistics enumerate stored paths without the sparse statistics limit. For example,
+    // a segment containing only `string4` can prove `string5` absent even in doc mode.
+    // An opaque root/ancestor value may contain the requested path, so it remains unavailable.
+    bool in_doc = stats->existed_in_doc_value_column("") ||
+                  stats->has_prefix_path_in_doc_value_column(path.get_path() + ".");
+    std::string ancestor = path.get_path();
+    while (!in_doc) {
+        in_doc = stats->existed_in_doc_value_column(ancestor);
+        const auto dot = ancestor.rfind('.');
+        if (dot == std::string::npos) {
+            break;
+        }
+        ancestor.resize(dot);
+    }
+    // Truncated sparse statistics cannot prove absence, nor can an existing unindexed path.
+    if (reader->get_subcolumn_meta_by_path(path) != nullptr ||
+        reader->has_prefix_path(path, opts.stats, &opts.io_ctx) ||
+        reader->exist_in_sparse_column(path) || reader->is_exceeded_sparse_column_limit() ||
+        in_doc || stats->has_nested_group) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SEARCH index unavailable for Variant field '{}'", binding.field_name);
+    }
+    return Status::OK();
 }
 
 void bind_nested_column(const VSearchExpr& expr, const VSlotRef& slot_ref,
@@ -119,6 +176,11 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
                                 "reason=slot_iterator_missing",
                                 field_name, column_index));
         }
+        if (!is_variant_subcolumn) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "SEARCH index unavailable for field '{}'", field_name);
+        }
+        RETURN_IF_ERROR(verify_missing_variant_path(*binding, column_index, index_context));
         return Status::OK();
     }
 
@@ -140,6 +202,16 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
                             field_name, column_index, storage_name_type->first));
     }
     return Status::OK();
+}
+
+const VSlotRef& variant_root_slot(const VExpr& expr) {
+    const VExpr* root = &expr;
+    while (root->fn().name.function_name == "element_at") {
+        DORIS_CHECK(!root->children().empty());
+        root = root->children().front().get();
+    }
+    DORIS_CHECK(root->is_slot_ref());
+    return *assert_cast<const VSlotRef*>(root);
 }
 
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
@@ -176,15 +248,10 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                 field_bindings[child_index].is_variant_subcolumn) {
                 // With an unmaterialized path, the ElementAt chain still reads a current root
                 // slot. Use it only to identify the NESTED owner, not as the leaf's index iterator.
+                const auto& root_slot = variant_root_slot(*child);
                 if (search_param.root.clause_type == "NESTED") {
-                    const VExpr* root_expr = child.get();
-                    while (root_expr->fn().name.function_name == "element_at") {
-                        DORIS_CHECK(!root_expr->children().empty());
-                        root_expr = root_expr->children().front().get();
-                    }
-                    DORIS_CHECK(root_expr->is_slot_ref());
-                    bind_nested_column(expr, *assert_cast<const VSlotRef*>(root_expr),
-                                       &field_bindings[child_index], *index_context, bundle);
+                    bind_nested_column(expr, root_slot, &field_bindings[child_index],
+                                       *index_context, bundle);
                 }
                 // Variant subcolumn not materialized - skip, will create empty BitSetQuery in function_search
                 add_search_binding_diagnostic(
@@ -199,6 +266,8 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                                     field_bindings[child_index].__isset.subcolumn_path
                                             ? field_bindings[child_index].subcolumn_path
                                             : ""));
+                RETURN_IF_ERROR(verify_missing_variant_path(
+                        field_bindings[child_index], root_slot.column_id(), index_context.get()));
                 ++child_index;
                 continue;
             }
@@ -280,21 +349,6 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     }
 
     VLOG_DEBUG << "VSearchExpr: bundle.iterators.size()=" << bundle.iterators.size();
-
-    const bool is_nested_query = _search_param.root.clause_type == "NESTED";
-    if (bundle.iterators.empty() && !is_nested_query) {
-        LOG(WARNING) << "VSearchExpr: No indexed columns available for evaluation, DSL: "
-                     << _original_dsl;
-        add_search_binding_diagnostic(
-                index_context.get(),
-                fmt::format("[VariantSearchBinding] phase=evaluate_search result=no_iterator "
-                            "dsl={} reason=no_indexed_columns",
-                            _original_dsl));
-        auto empty_bitmap = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
-                                                      std::make_shared<roaring::Roaring>());
-        index_context->set_index_result_for_expr(this, std::move(empty_bitmap));
-        return Status::OK();
-    }
 
     auto index_query_context = index_context->get_index_query_context();
 

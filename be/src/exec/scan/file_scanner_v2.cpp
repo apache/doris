@@ -400,7 +400,8 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
                              const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(std::move(split_source)),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _parquet_profile_cache(local_state->_parquet_profile_cache.get()) {
     (void)colname_to_slot_id;
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
@@ -660,6 +661,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .io_ctx = _io_ctx,
             .runtime_state = _state,
             .scanner_profile = _local_state != nullptr ? _local_state->scanner_profile() : _profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .file_slot_descs = &_file_slot_descs,
             .push_down_agg_type = _local_state != nullptr ? _local_state->get_push_down_agg_type()
                                                           : TPushAggOp::type::NONE,
@@ -896,7 +898,7 @@ Status FileScannerV2::_parse_partition_value(const SlotDescriptor* slot_desc,
         *field = Field::create_field<TYPE_NULL>(Null());
         return Status::OK();
     }
-    const auto data_type = remove_nullable(slot_desc->get_data_type_ptr());
+    const auto data_type = remove_nullable(slot_desc->type());
     auto column = data_type->create_column();
     auto serde = data_type->get_serde();
     DataTypeSerDe::FormatOptions options;
@@ -1009,7 +1011,7 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
     // TODO(gabriel): why always BY_NAME here?
     column.identifier = Field::create_field<TYPE_STRING>(slot_desc->col_name());
     column.name = slot_desc->col_name();
-    column.type = slot_desc->get_data_type_ptr();
+    column.type = slot_desc->type();
     return column;
 }
 

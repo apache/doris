@@ -58,6 +58,7 @@ import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.UniqueIdUtils;
@@ -150,6 +151,7 @@ import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TSerializer;
@@ -161,6 +163,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
@@ -206,6 +209,21 @@ public class StmtExecutor {
     // retain their existing cancellation contracts.
     private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     private volatile Coordinator externalDmlAuditCoordinator = null;
+    // The coordinator may be cleared after a post-dispatch exception or closed before audit.
+    // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
+    // stale BEs even when audit and query retry run on different threads.
+    private volatile AuditBackendSnapshot dispatchedAuditBackends;
+
+    private static final class AuditBackendSnapshot {
+        private final TUniqueId queryId;
+        private final Set<Long> backendIds;
+
+        private AuditBackendSnapshot(TUniqueId queryId, Set<Long> backendIds) {
+            this.queryId = queryId;
+            this.backendIds = backendIds;
+        }
+    }
+
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
     // is skipped. From that moment the executor is a closed object (see FlightProtocolAdapter): it
@@ -567,6 +585,29 @@ public class StmtExecutor {
                 ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
     }
 
+    public Set<Long> getAuditStatisticsBackendIds() {
+        if (masterOpExecutor != null) {
+            return masterOpExecutor.getAuditStatisticsBackendIds();
+        }
+        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        AuditBackendSnapshot snapshot = dispatchedAuditBackends;
+        if (snapshot != null && Objects.equals(snapshot.queryId, context.queryId())) {
+            backendIds.addAll(snapshot.backendIds);
+        }
+        if (coord != null) {
+            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        }
+        return backendIds;
+    }
+
+    private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
+        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIdsForAudit();
+        if (!backendIds.isEmpty()) {
+            dispatchedAuditBackends = new AuditBackendSnapshot(context.queryId().deepCopy(),
+                    Set.copyOf(backendIds));
+        }
+    }
+
     public ShowResultSet getProxyShowResultSet() {
         return proxyShowResultSet;
     }
@@ -788,7 +829,8 @@ public class StmtExecutor {
                             context.getQueryIdentifier(), e);
                     throw new UserException(e.getMessage());
                 }
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Analyze failed. {}",
+                        context.getQueryIdentifier(), e);
                 // Planning wraps the window rejection in NereidsException/AnalysisException.
                 // NereidsException(Exception) keeps its wrapped exception outside Throwable.cause.
                 Throwable cause = e instanceof NereidsException
@@ -801,7 +843,8 @@ public class StmtExecutor {
                 }
                 return;
             } catch (Exception e) {
-                LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Nereids execute failed. {}",
+                        context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 throw e;
             }
@@ -978,7 +1021,8 @@ public class StmtExecutor {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
+                    ExceptionDiagnosticUtils.log(LOG, Level.DEBUG, "Command({}) process failed.",
+                            getStmtForLogging(originStmt.originStmt), e);
                 }
                 context.setState(e.getQueryState());
                 throw new NereidsException("Command(" + getStmtForLogging(originStmt.originStmt)
@@ -987,7 +1031,8 @@ public class StmtExecutor {
             } catch (UserException e) {
                 // Return message to info client what happened.
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
+                    ExceptionDiagnosticUtils.log(LOG, Level.DEBUG, "Command({}) process failed.",
+                            getStmtForLogging(originStmt.originStmt), e);
                 }
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getDetailMessage())) {
                     // For errors in SystemInfoService.NEED_REPLAN_ERRORS,
@@ -1000,7 +1045,8 @@ public class StmtExecutor {
                         new AnalysisException(e.getMessage(), e));
             } catch (Exception | Error e) {
                 // Maybe our bug
-                LOG.info("Command({}) process failed.", getStmtForLogging(originStmt.originStmt), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.INFO, "Command({}) process failed.",
+                        getStmtForLogging(originStmt.originStmt), e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + getStmtForLogging(originStmt.originStmt)
                         + ") process failed.",
@@ -1052,7 +1098,8 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
+                ExceptionDiagnosticUtils.log(LOG, Level.WARN, "Nereids plan query failed:\n{}",
+                        getStmtForLogging(originStmt.originStmt), e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
@@ -1941,6 +1988,9 @@ public class StmtExecutor {
             setCoord(null);
             throw e;
         } finally {
+            if (coordBase instanceof Coordinator) {
+                rememberDispatchedAuditBackends((Coordinator) coordBase);
+            }
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
             // (next query / connection teardown), so the BE can still fetch splits during DoGet.
             // See #62259.
@@ -2162,7 +2212,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
+        // Proxy parsing creates a new context. Use the context marked as the prepare stage
+        // by PrepareCommand, rather than the one allocated before parsing in the constructor.
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(context.getStatementContext());
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
         return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }

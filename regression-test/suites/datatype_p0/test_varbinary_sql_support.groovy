@@ -60,6 +60,15 @@ suite("test_varbinary_sql_support") {
     order_qt_nested_bytes """SELECT id, from_binary(a[1]), from_binary(m['key']), from_binary(s.b)
                              FROM binary_sql_nested"""
 
+    // A shuffle join on ARRAY<VARBINARY> keys hashes the elements' bytes in the exchange, and must match the same
+    // rows as a broadcast join, which hashes no key in an exchange: ids 5 and 8 hold the same payload. Several
+    // instances keep the exchange hashing; with one destination it sends every row there without hashing.
+    sql "set parallel_pipeline_task_num = 4"
+    for (String distribution : ["broadcast", "shuffle"]) {
+        "order_qt_array_key_join_${distribution}" """SELECT l.id, r.id FROM binary_sql_nested l
+                JOIN [${distribution}] binary_sql_nested r ON l.a = r.a"""
+    }
+
     // Compare every long value while keeping generated output compact across source batches.
     sql """INSERT INTO binary_sql_input SELECT number + 100,
            concat(repeat('FF', 700), '00AB') FROM numbers('number'='2048')"""

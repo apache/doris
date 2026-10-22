@@ -747,7 +747,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setComment(table.getComment());
+                            // TABLE_COMMENT is a required Thrift field, so it must always be
+                            // set — but for some external tables (e.g. Iceberg since #64263)
+                            // getComment() loads the full table metadata from the remote
+                            // catalog. Only pay that lookup when the scan actually projects
+                            // TABLE_COMMENT, same as the other pruned status columns.
+                            status.setComment(needTableStatusColumn(requiredColumns, "TABLE_COMMENT")
+                                    ? table.getComment()
+                                    : "");
                             if (needTableStatusColumn(requiredColumns, "ENGINE")) {
                                 status.setEngine(table.getEngine());
                             }
@@ -995,7 +1002,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // values such as AGG and DUP that no MySQL client knows what to do with.
                         Map<String, String> columnKeys = params.isMysqlCompatibleIndexMetadata()
                                 ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
-                        List<Column> baseSchema = table.getBaseSchemaOrEmpty();
+                        List<Column> baseSchema = table.getBaseSchemaForDisplayOrEmpty();
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
@@ -4794,10 +4801,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        olapTable.readLock();
+        try {
+            int partitionNum = olapTable.getPartitionNum();
+            int newPartitionNum = 0;
+            for (String partitionName : addPartitionClauseMap.keySet()) {
+                if (!olapTable.checkPartitionNameExist(partitionName)) {
+                    newPartitionNum++;
+                }
+            }
+            long expectedPartitionNum = (long) partitionNum + newPartitionNum;
+            int autoPartitionLimit = Config.max_auto_partition_num;
+            if (expectedPartitionNum > autoPartitionLimit) {
+                String errorMessage = String.format(
+                        "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                        expectedPartitionNum, autoPartitionLimit);
+                LOG.warn(errorMessage);
+                errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+                result.setStatus(errorStatus);
+                LOG.warn("send create partition error status: {}", result);
+                return result;
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
         for (AddPartitionOp addPartitionOp : addPartitionClauseMap.values()) {
             try {
-                // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true, null);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionOp, false, 0, true, null, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
@@ -4822,9 +4853,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         olapTable.readLock();
         try {
-            // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with
-            // existing partitions, which would lead to false positive. so we should check the partition number AFTER
-            // adding new partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+            // Retain the actual-count check for concurrent changes and configuration updates during creation.
             int partitionNum = olapTable.getPartitionNum();
             int autoPartitionLimit = Config.max_auto_partition_num;
             if (partitionNum > autoPartitionLimit) {
@@ -4910,9 +4939,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             }
                             bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
-                    } else if (tabletSnapshot.isRowBinlog()) {
-                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
-                                tabletSnapshot.rowBinlogBaseTablet, tablet);
+                    } else if (tabletSnapshot.isChangelog()) {
+                        bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -5244,9 +5273,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             bePathsMap = cloudTablet
                                     .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
-                    } else if (tabletSnapshot.isRowBinlog()) {
-                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
-                                tabletSnapshot.rowBinlogBaseTablet, tablet);
+                    } else if (tabletSnapshot.isChangelog()) {
+                        bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -5346,21 +5375,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private static final class TabletLocationSnapshot {
         private final Tablet tablet;
-        private final Tablet rowBinlogBaseTablet;
+        private final Tablet changelogBaseTablet;
 
-        private TabletLocationSnapshot(Tablet tablet, Tablet rowBinlogBaseTablet) {
+        private TabletLocationSnapshot(Tablet tablet, Tablet changelogBaseTablet) {
             this.tablet = tablet;
-            this.rowBinlogBaseTablet = rowBinlogBaseTablet;
+            this.changelogBaseTablet = changelogBaseTablet;
         }
 
-        private boolean isRowBinlog() {
-            return rowBinlogBaseTablet != null;
+        private boolean isChangelog() {
+            return changelogBaseTablet != null;
         }
 
         private TTabletLocation createLocation(List<Long> nodeIds) {
             TTabletLocation location = new TTabletLocation(tablet.getId(), nodeIds);
-            if (isRowBinlog()) {
-                location.setBaseTabletId(rowBinlogBaseTablet.getId());
+            if (isChangelog()) {
+                location.setBaseTabletId(changelogBaseTablet.getId());
             }
             return location;
         }
@@ -5421,12 +5450,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TabletLocationSnapshot> partitionTabletSnapshot = new ArrayList<>();
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
             List<Tablet> indexTablets = new ArrayList<>(index.getTablets());
-            if (index.isRowBinlog()) {
+            if (index.isChangelog()) {
                 for (Tablet tablet : indexTablets) {
-                    long baseTabletId = tablet.getRowBinlogBaseTabletId();
+                    long baseTabletId = tablet.getChangelogBaseTabletId();
                     Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
                     Preconditions.checkNotNull(baseTablet,
-                            "row binlog tablet %s's base tablet %s can not be found in partition %s",
+                            "changelog tablet %s's base tablet %s can not be found in partition %s",
                             tablet.getId(), baseTabletId, partitionId);
                     partitionTabletSnapshot.add(new TabletLocationSnapshot(tablet, baseTablet));
                 }

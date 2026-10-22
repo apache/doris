@@ -241,7 +241,7 @@ Status JsonReader::init(RuntimeState* state) {
         field.identifier = Field::create_field<TYPE_STRING>(slot->col_name());
         field.local_id = cast_set<int32_t>(idx);
         field.name = slot->col_name();
-        field.type = json_file_type_from_slot_type(slot->get_data_type_ptr());
+        field.type = json_file_type_from_slot_type(slot->type());
         field.children = synthesize_file_children_from_type(field.type);
         _file_schema.push_back(std::move(field));
     }
@@ -799,9 +799,9 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         simdjson::ondemand::value value = field.value().value();
         const auto& requested = _requested_columns[column_index];
         auto* column_ptr = block->get_by_position(column_index).column->assert_mutable().get();
-        RETURN_IF_ERROR(_write_data_to_column<false>(
-                value, requested.slot_desc->get_data_type_ptr(), column_ptr,
-                requested.slot_desc->col_name(), requested.serde, valid));
+        RETURN_IF_ERROR(_write_data_to_column<false>(value, requested.slot_desc->type(), column_ptr,
+                                                     requested.slot_desc->col_name(),
+                                                     requested.serde, valid));
         if (!*valid) {
             return Status::OK();
         }
@@ -870,9 +870,9 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
                 return Status::OK();
             }
         } else {
-            RETURN_IF_ERROR(_write_data_to_column<true>(
-                    json_value, requested.slot_desc->get_data_type_ptr(), column_ptr,
-                    requested.slot_desc->col_name(), requested.serde, valid));
+            RETURN_IF_ERROR(_write_data_to_column<true>(json_value, requested.slot_desc->type(),
+                                                        column_ptr, requested.slot_desc->col_name(),
+                                                        requested.serde, valid));
             if (!*valid) {
                 _truncate_block_to_rows(block, cur_row_count);
                 return Status::OK();

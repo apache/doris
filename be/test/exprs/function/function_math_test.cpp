@@ -387,11 +387,11 @@ static void check_pow_square_column_shapes(const std::string& name, bool nullabl
     block.insert({nullptr, type, "result"});
     FunctionUtils fn_utils(type, {type, type}, false);
     auto* context = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     const auto status = function->execute(context, block, {0, 1}, 2, rows);
-    EXPECT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-    EXPECT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
     auto result = block.get_by_position(2).column->convert_to_full_column_if_const();
     check_pow_square_result(*result, values, nullable, const_mask & 1);
@@ -762,13 +762,13 @@ TEST(MathFunctionTest, uniform_mixed_const_probe_test) {
     };
     fn_ctx->set_constant_cols(constant_cols);
 
-    ASSERT_TRUE(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     auto exec_status = function->execute(fn_ctx, block, {0, 1, 2}, 3, 3);
 
-    static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(function->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(function->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
 

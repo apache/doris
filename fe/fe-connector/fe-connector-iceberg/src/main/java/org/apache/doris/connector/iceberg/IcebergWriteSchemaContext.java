@@ -474,6 +474,8 @@ final class IcebergWriteSchemaContext {
                             enableMappingVarbinary, enableMappingTimestampTz));
                 }
                 return "named_struct(" + String.join(", ", fields) + ")";
+            case VARIANT:
+                throw new DorisConnectorException("Iceberg VARIANT write-default must be NULL");
             default:
                 throw new DorisConnectorException("Unsupported Iceberg write-default type: " + type);
         }

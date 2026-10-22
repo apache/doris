@@ -67,7 +67,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.Mockito;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 
 import java.io.File;
 import java.io.IOException;
@@ -154,7 +154,7 @@ public abstract class DorisHttpTestCase {
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
         TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash,
-                TStorageMedium.HDD, false /* isRowBinlog */);
+                TStorageMedium.HDD, false /* isChangelog */);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);

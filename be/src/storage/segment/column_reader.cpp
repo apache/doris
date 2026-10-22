@@ -57,10 +57,11 @@
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/snii_bkd_index_reader.h"
-#include "storage/index/snii/snii_index_reader.h"
+#include "storage/index/inverted/snii/snii_bkd_index_reader.h"
+#include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -542,7 +543,7 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
+          _dict_encoding_type(DictEncodingType::UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -988,15 +989,18 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = FullTextIndexReader::create_shared(
+                        index_meta, index_file_reader, rows_of_segment,
+                        _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                index_reader =
-                        StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = StringTypeInvertedIndexReader::create_shared(
+                        index_meta, index_file_reader, rows_of_segment,
+                        _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create StringTypeInvertedIndexReader error: {}", e.what());
@@ -2833,14 +2837,16 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // because it will load the column's ordinal index and zonemap index and maybe other indices.
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
-        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
+        if (dict_encoding_type == ColumnReader::DictEncodingType::UNKNOWN_DICT_ENCODING &&
+            opts.is_predicate_column) {
             RETURN_IF_ERROR(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
-            _reader->set_dict_encoding_type(_is_all_dict_encoding
-                                                    ? ColumnReader::ALL_DICT_ENCODING
-                                                    : ColumnReader::PARTIAL_DICT_ENCODING);
+            _reader->set_dict_encoding_type(
+                    _is_all_dict_encoding ? ColumnReader::DictEncodingType::ALL_DICT_ENCODING
+                                          : ColumnReader::DictEncodingType::PARTIAL_DICT_ENCODING);
         } else {
-            _is_all_dict_encoding = dict_encoding_type == ColumnReader::ALL_DICT_ENCODING;
+            _is_all_dict_encoding =
+                    dict_encoding_type == ColumnReader::DictEncodingType::ALL_DICT_ENCODING;
         }
     }
     return Status::OK();

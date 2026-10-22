@@ -30,9 +30,8 @@ suite("test_ivm_hidden_columns") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "light_schema_change" = "true",
             "store_row_column" = "true"
         )
@@ -52,9 +51,8 @@ suite("test_ivm_hidden_columns") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "light_schema_change" = "true",
             "store_row_column" = "true"
         )
@@ -97,9 +95,8 @@ suite("test_ivm_hidden_columns") {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 
@@ -118,9 +115,8 @@ suite("test_ivm_hidden_columns") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_skip_bitmap_column" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
         AS SELECT id, value FROM ivm_hidden_skip_bitmap_base
     """

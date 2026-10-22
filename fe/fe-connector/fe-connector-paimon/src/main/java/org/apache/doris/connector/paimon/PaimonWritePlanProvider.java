@@ -60,6 +60,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /** Builds the JNI-backed Paimon sink and binds it to the active connector transaction. */
@@ -72,6 +73,8 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     static final byte INSERT_OPERATION = 0;
     static final byte UPDATE_OPERATION = 1;
     static final byte DELETE_OPERATION = 2;
+    // The session variable, read by its name: a connector cannot import the fe-core SessionVariable constant.
+    static final String ENABLE_CHAR_PADDING = "enable_paimon_write_char_padding";
 
     private final PaimonCatalogProperties catalogProperties;
     private final PaimonCatalogOps catalogOps;
@@ -152,7 +155,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         }
         PaimonConnectorTransaction transaction = currentTransaction(session);
         PaimonWriteBinding binding = PaimonWriteBinding.create(
-                tableHandle, table, buildHadoopConfig(), handle);
+                tableHandle, table, buildHadoopConfig(), handle, charPaddingEnabled(session));
         transaction.bind(binding);
 
         TPaimonTableSink sink = new TPaimonTableSink();
@@ -167,6 +170,16 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         TDataSink dataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);
         dataSink.setPaimonTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    /**
+     * Reads the enable_paimon_write_char_padding session variable (default true), which ConnectorSessionBuilder
+     * passes on with every other session variable: whether a write pads CHAR values with spaces to the column
+     * length, as Spark and Flink do when they write a Paimon table.
+     */
+    static boolean charPaddingEnabled(ConnectorSession session) {
+        Boolean enabled = session.getProperty(ENABLE_CHAR_PADDING, Boolean.class);
+        return enabled == null || enabled;
     }
 
     static void requireBeExecVersion(int version) {
@@ -335,7 +348,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
             ConnectorTableHandle connectorHandle) {
         FileStoreTable table = resolveTable((PaimonTableHandle) connectorHandle);
-        ConnectorWriteDistribution fixedBucket = fixedBucketDistribution(table);
+        ConnectorWriteDistribution fixedBucket = fixedBucketDistribution(table, charPaddingEnabled(session));
         if (fixedBucket != null) {
             return fixedBucket;
         }
@@ -353,7 +366,16 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                 ConnectorWriteDistribution.Mode.EXTERNAL_UNPARTITIONED);
     }
 
-    private ConnectorWriteDistribution fixedBucketDistribution(FileStoreTable table) {
+    /**
+     * Routes each row to the writer that owns its partition and bucket, which BE computes from the row's routing
+     * values. The writer pads the CHAR values of the fields {@link PaimonWriteBinding#charPaddedFields} names before
+     * Paimon computes the partition and the bucket of the row, while BE would hash the unpadded values, and several
+     * writers would write and compact the same bucket. Such a routing field cannot be routed natively: this returns
+     * null, and the table gets the distribution of a table whose routing fields BE cannot hash, a single writer for
+     * a primary-key table. A CHAR field that the writer leaves alone, such as the bucket key of a table that writes
+     * ORC files, is routed natively.
+     */
+    private ConnectorWriteDistribution fixedBucketDistribution(FileStoreTable table, boolean charPadding) {
         if (table.bucketMode() != BucketMode.HASH_FIXED) {
             return null;
         }
@@ -369,10 +391,11 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         }
         List<String> routeColumns = new ArrayList<>();
         Map<String, Integer> routeIndexes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Predicate<String> charPaddedFields = PaimonWriteBinding.charPaddedFields(schema, charPadding);
         List<Integer> partitionIndexes = appendRouteFields(
-                schema.partitionKeys(), fields, routeColumns, routeIndexes);
+                schema.partitionKeys(), fields, routeColumns, routeIndexes, charPaddedFields);
         List<Integer> bucketIndexes = appendRouteFields(
-                schema.bucketKeys(), fields, routeColumns, routeIndexes);
+                schema.bucketKeys(), fields, routeColumns, routeIndexes, charPaddedFields);
         if (partitionIndexes == null || bucketIndexes == null || bucketIndexes.isEmpty()) {
             return null;
         }
@@ -390,12 +413,12 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
 
     private List<Integer> appendRouteFields(List<String> fieldNames,
             Map<String, DataField> fields, List<String> routeColumns,
-            Map<String, Integer> routeIndexes) {
+            Map<String, Integer> routeIndexes, Predicate<String> charPaddedFields) {
         List<Integer> indexes = new ArrayList<>();
         for (String fieldName : fieldNames) {
             DataField field = fields.get(fieldName);
             if (field == null || field.defaultValue() != null
-                    || !supportsNativeRouting(field.type().getTypeRoot())) {
+                    || !supportsNativeRouting(field.type().getTypeRoot(), charPaddedFields.test(field.name()))) {
                 return null;
             }
             Integer index = routeIndexes.get(fieldName);
@@ -409,8 +432,10 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         return indexes;
     }
 
-    private boolean supportsNativeRouting(DataTypeRoot type) {
+    private boolean supportsNativeRouting(DataTypeRoot type, boolean charPadded) {
         switch (type) {
+            case CHAR:
+                return !charPadded;
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:
@@ -418,7 +443,6 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
             case BIGINT:
             case FLOAT:
             case DOUBLE:
-            case CHAR:
             case VARCHAR:
             case BINARY:
             case VARBINARY:

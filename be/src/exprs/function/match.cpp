@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -29,7 +30,8 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/query/logical/match_lowering.h"
 #include "util/debug_points.h"
 #include "util/hyperscan_util.h"
 
@@ -42,10 +44,10 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
         return nullptr;
     }
     const auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     if (analyzer_ctx == nullptr) {
         analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     }
     return analyzer_ctx;
 }
@@ -658,7 +660,12 @@ Status FunctionMatchPhrase::execute_match(
         const ColumnUInt8::Container* array_element_null_map) const {
     RETURN_IF_ERROR(check(context, name));
 
-    auto query_tokens = analyse_query_str_token(analyzer_ctx, match_query_str, column_name);
+    // Keyword indexes read a trailing " ~N" as the phrase slop and match the rest as one term.
+    std::string_view query = match_query_str;
+    if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
+        index_query::logical::take_slop(&query);
+    }
+    auto query_tokens = analyse_query_str_token(analyzer_ctx, std::string(query), column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
