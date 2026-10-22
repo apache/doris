@@ -84,6 +84,34 @@ public class DNSCacheTest {
         netUtilsMockedStatic.verify(() -> NetUtils.getIpByHost(hostname, 0), Mockito.times(1));
     }
 
+    @Test
+    public void testInvalidationKeepsCachedIpOnResolverException() throws UnknownHostException {
+        String hostname = "backend.example.com";
+        netUtilsMockedStatic.when(() -> NetUtils.getIpByHost(hostname, 0))
+                .thenReturn("10.0.0.1")
+                .thenThrow(new UnknownHostException("temporary resolver outage"))
+                .thenReturn("10.0.0.2");
+        Assertions.assertEquals("10.0.0.1", dnsCache.get(hostname));
+        dnsCache.invalidate(hostname);
+        Assertions.assertEquals("10.0.0.1", dnsCache.get(hostname));
+        Assertions.assertEquals("10.0.0.1", dnsCache.get(hostname));
+        dnsCache.invalidate(hostname);
+        Assertions.assertEquals("10.0.0.2", dnsCache.get(hostname));
+        netUtilsMockedStatic.verify(() -> NetUtils.getIpByHost(hostname, 0), Mockito.times(3));
+    }
+
+    @Test
+    public void testInvalidationKeepsCachedIpOnEmptyDnsResult() throws UnknownHostException {
+        String hostname = "backend.example.com";
+        netUtilsMockedStatic.when(() -> NetUtils.getIpByHost(hostname, 0))
+                .thenReturn("10.0.0.1", "", "10.0.0.2");
+        Assertions.assertEquals("10.0.0.1", dnsCache.get(hostname));
+        dnsCache.invalidate(hostname);
+        Assertions.assertEquals("10.0.0.1", dnsCache.get(hostname));
+        dnsCache.invalidate(hostname);
+        Assertions.assertEquals("10.0.0.2", dnsCache.get(hostname));
+    }
+
     /**
      * Test that when DNS resolution fails, get() returns an empty string.
      */
