@@ -50,6 +50,17 @@ public:
 
     void collect(segment_v2::rowid_t row_id, float score);
 
+    void merge_scores(const ScoreMap& scores, const roaring::Roaring& matched_rows);
+
+    // Moves a Boolean branch's scores to its parent without copying the per-row map.
+    ScoreMap release_scores() {
+        ScoreMap released = std::move(_bm25_scores);
+        // A moved-from flat_hash_map is valid but unspecified, not guaranteed empty, so make the
+        // "leaves this instance empty" half of the contract true rather than merely likely.
+        _bm25_scores.clear();
+        return released;
+    }
+
     void get_bm25_scores(roaring::Roaring* row_bitmap, IColumn::MutablePtr& scores,
                          std::unique_ptr<std::vector<uint64_t>>& row_ids,
                          const ScoreRangeFilterPtr& filter = nullptr) const;
