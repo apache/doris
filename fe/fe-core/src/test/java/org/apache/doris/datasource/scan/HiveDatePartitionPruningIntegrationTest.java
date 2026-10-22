@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.scan;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.hive.HiveCatalogProperties;
@@ -51,14 +52,17 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -85,7 +89,30 @@ public class HiveDatePartitionPruningIntegrationTest {
         assertDateSelection(Type.DATE, new DateLiteral(2024, 1, 1), true);
     }
 
-    @SuppressWarnings("unchecked")
+    @Test
+    public void testExcessTimestampPrecisionPreservesSynchronousScanAllForEquality() {
+        assertTimestampSelection(false);
+    }
+
+    @Test
+    public void testExcessTimestampPrecisionPreservesSynchronousScanAllForIn() {
+        assertTimestampSelection(true);
+    }
+
+    private static void assertTimestampSelection(boolean inPredicate) {
+        List<String> names = List.of("d=2024-01-01 10:00:00.1234561", "d=2024-01-01 10:00:00.12345601",
+                "d=2024-01-01 10:00:00.123456001", "d=2024-01-01 10:00:00.1234569",
+                "d=2024-01-01 10:00:00.12345699", "d=2024-01-01 10:00:00.123456999",
+                "d=2024-01-01 10:00:00.999999999", "d=2024-01-01 23:59:59.999999999",
+                "d=2024-01-01 10:00:00.123456", "d=2024-01-01 10:00:00.123457",
+                "d=2024-01-01 10:00:01", "d=2024-01-02 00:00:00", "d=2024-01-03 00:00:00");
+        for (String text : List.of("2024-01-01 10:00:00.123456", "2024-01-01 10:00:00.123457",
+                "2024-01-01 10:00:01", "2024-01-02 00:00:00")) {
+            assertSelection(ScalarType.createDatetimeV2Type(6), new DateTimeV2Literal(DateTimeV2Type.of(6), text),
+                    names, true, inPredicate);
+        }
+    }
+
     private static void assertDateSelection(Type type, Expression literal, boolean unrepresentableDate) {
         List<String> names = new ArrayList<>(List.of("d=20240101", "d=24-01-01", "d=2024-01-01",
                 "d=20240102", "d=24-01-02"));
@@ -94,8 +121,16 @@ public class HiveDatePartitionPruningIntegrationTest {
             // preserve this candidate and let the typed view become unavailable, rather than publish a subset.
             names.add("d=240101");
         }
+        assertSelection(type, literal, names, unrepresentableDate, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertSelection(Type type, Expression literal, List<String> names,
+            boolean unrepresentable, boolean inPredicate) {
         HmsClient client = Mockito.mock(HmsClient.class);
-        Mockito.when(client.listPartitionNames("db", "t", -1)).thenReturn(names);
+        // Logical fallback uses -1; synchronous physical planning uses a bounded positive limit.
+        Mockito.when(client.listPartitionNames(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyInt()))
+                .thenReturn(names);
         Mockito.when(client.getExistingPartitionsWithStats(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyList()))
                 .thenCallRealMethod();
         Mockito.when(client.getExistingPartitions(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyList()))
@@ -118,7 +153,8 @@ public class HiveDatePartitionPruningIntegrationTest {
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
                 .serializationLib("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
-                .partitionKeyNames(List.of("d")).partitionKeyTypes(Collections.singletonMap("d", "DATEV2"))
+                .partitionKeyNames(List.of("d"))
+                .partitionKeyTypes(Collections.singletonMap("d", type.getPrimitiveType().name()))
                 .build();
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
@@ -154,6 +190,7 @@ public class HiveDatePartitionPruningIntegrationTest {
                 return true;
             }
         };
+        ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
         StatementContext statement = new StatementContext(context, null);
         context.setStatementContext(statement);
@@ -163,14 +200,35 @@ public class HiveDatePartitionPruningIntegrationTest {
             LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table, List.of("hive", "db"),
                     Collections.emptyList(), Optional.empty(), Optional.empty(), Optional.empty(),
                     Optional.of(List.of(slot)));
-            LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(Set.of(new EqualTo(slot, literal)), scan);
+            Expression predicate = inPredicate ? new InPredicate(slot, List.of(literal)) : new EqualTo(slot, literal);
+            LogicalFilter<LogicalFileScan> filter = new LogicalFilter<>(Set.of(predicate), scan);
             CascadesContext cascades = CascadesContext.initContext(statement, filter, PhysicalProperties.ANY);
             SelectedPartitions selected = Deencapsulation.invoke(new PruneFileScanPartition(),
                     "pruneExternalPartitions", table, filter, scan, cascades);
-            if (unrepresentableDate) {
+            HiveFileListingCache files = Mockito.mock(HiveFileListingCache.class);
+            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyString(),
+                    Mockito.anyList(), Mockito.nullable(FileSystem.class))).thenAnswer(invocation ->
+                            List.of(new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L)));
+            HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext,
+                    new HiveReadTransactionManager(), files);
+            if (unrepresentable) {
                 Assertions.assertTrue(selected.isNotPruned());
                 Assertions.assertFalse(PluginDrivenScanNode.shouldUseBatchMode(selected, true, true, 1));
                 Assertions.assertFalse(PluginDrivenScanNode.reusedConnectorFilterResult(selected).isPresent());
+                Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(selected));
+                Assertions.assertEquals(Set.of(predicate), filter.getConjuncts());
+                // No filtered handle/name set may leak into synchronous physical planning. The real
+                // provider must plan every fake partition file, including rounding and carry candidates.
+                ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                        .requiredPartitions(PluginDrivenScanNode.resolveRequiredPartitions(selected)).build();
+                Assertions.assertTrue(request.getRequiredPartitions().isEmpty());
+                List<ConnectorScanRange> ranges = provider.planScan(session, request);
+                Assertions.assertEquals(names.size(), ranges.size());
+                Set<String> plannedNames = new HashSet<>();
+                for (ConnectorScanRange range : ranges) {
+                    plannedNames.add(range.getPath().get().replace("/data.parquet", ""));
+                }
+                Assertions.assertEquals(Set.copyOf(names), plannedNames);
                 return;
             }
             Set<String> expected = Set.of("d=20240101", "d=24-01-01", "d=2024-01-01");
@@ -180,12 +238,6 @@ public class HiveDatePartitionPruningIntegrationTest {
             HiveTableHandle filtered = (HiveTableHandle) selected.getConnectorFilterResult().get().getHandle();
             Assertions.assertEquals(expected, filtered.getPrunedPartitionsByName().keySet());
             Assertions.assertTrue(PluginDrivenScanNode.shouldUseBatchMode(selected, true, true, 1));
-            HiveFileListingCache files = Mockito.mock(HiveFileListingCache.class);
-            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyString(),
-                    Mockito.anyList(), Mockito.nullable(FileSystem.class))).thenAnswer(invocation ->
-                            List.of(new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L)));
-            HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext,
-                    new HiveReadTransactionManager(), files);
             ConnectorScanRequest request = ConnectorScanRequest.builder(filtered, Collections.emptyList())
                     .requiredPartitions(PluginDrivenScanNode.resolveRequiredPartitions(selected)).build();
             Set<String> plannedNames = new HashSet<>();
@@ -199,8 +251,14 @@ public class HiveDatePartitionPruningIntegrationTest {
             Mockito.verify(client, Mockito.times(1))
                     .getExistingPartitions(Mockito.eq("db"), Mockito.eq("t"), Mockito.anyList());
         } finally {
-            statement.close();
-            ConnectContext.remove();
+            try {
+                statement.close();
+            } finally {
+                ConnectContext.remove();
+                if (previous != null) {
+                    previous.setThreadLocalInfo();
+                }
+            }
         }
     }
 }

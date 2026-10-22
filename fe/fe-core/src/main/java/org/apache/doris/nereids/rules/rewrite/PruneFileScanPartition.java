@@ -170,7 +170,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     || scan.getScanParams().isPresent() ? Optional.empty()
                     : ctx.getStatementContext().getExternalTablePreloadInfo(externalTable.getId());
             boolean preloadedFilter = preload.isPresent()
-                    && preload.get().hasFilteredScanView(scan.getRelationId());
+                    && preload.get().hasFilteredScanView(scan.getPreloadRelationId());
             if (!preloadedFilter && scan.getTableSnapshot().isEmpty() && scan.getScanParams().isEmpty()
                     && !preload.map(ExternalTablePreloadInfo::hasScanPartitionView).orElse(false)
                     && ctx.getStatementContext().hasAnyPlanReadLockTable()
@@ -182,8 +182,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             }
             Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> connectorPartitions;
             if (preloadedFilter) {
-                connectorPartitions = preload.get().getFilteredScanView(scan.getRelationId());
-                connectorPredicate = preload.get().getCoveredScanPredicate(scan.getRelationId());
+                connectorPartitions = preload.get().getFilteredScanView(scan.getPreloadRelationId());
+                connectorPredicate = preload.get().getCoveredScanPredicate(scan.getPreloadRelationId());
             } else if (preload.isPresent() && preload.get().hasScanPartitionView()
                     && ctx.getStatementContext().hasAnyPlanReadLockTable()) {
                 // A pushed/inferred filter may first appear after collect. Prune the already-warmed full

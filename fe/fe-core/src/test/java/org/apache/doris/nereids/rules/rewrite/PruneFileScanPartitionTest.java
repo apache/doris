@@ -143,6 +143,15 @@ public class PruneFileScanPartitionTest {
 
     @Test
     public void testPreloadedRelationFiltersAreAppliedOnceAndReusedByLogicalPruning() throws AnalysisException {
+        assertPreloadedRelationFilters(false);
+    }
+
+    @Test
+    public void testCopiedAliasesKeepDistinctPreloadedFiltersAndStrongerResiduals() throws AnalysisException {
+        assertPreloadedRelationFilters(true);
+    }
+
+    private static void assertPreloadedRelationFilters(boolean copyRelations) throws AnalysisException {
         try (PruningFixture fixture = new PruningFixture()) {
             RelationId firstRelation = fixture.statement.getNextRelationId();
             RelationId secondRelation = fixture.statement.getNextRelationId();
@@ -187,12 +196,18 @@ public class PruneFileScanPartitionTest {
             // Rewrite adds p=2 after preloading p IN (1, 2). Prune further locally, but carry only the
             // predicate actually accepted by the connector, not the stronger current predicate.
             Expression addedPredicate = new EqualTo(fixture.partitionSlot, new IntegerLiteral(2));
+            LogicalFileScan firstScan = fixture.scan(firstRelation);
+            LogicalFileScan secondScan = fixture.scan(secondRelation);
+            if (copyRelations) {
+                firstScan = firstScan.withRelationId(fixture.statement.getNextRelationId());
+                secondScan = secondScan.withRelationId(fixture.statement.getNextRelationId());
+            }
             LogicalFilter<LogicalFileScan> strongerFilter = new LogicalFilter<>(
                     Set.of(firstPredicate, addedPredicate), new And(firstPredicate, addedPredicate),
-                    fixture.scan(firstRelation));
+                    firstScan);
             SelectedPartitions first = fixture.prune(strongerFilter);
             SelectedPartitions second = fixture.prune(new LogicalFilter<>(
-                    Set.of(secondPredicate), fixture.scan(secondRelation)));
+                    Set.of(secondPredicate), secondScan));
 
             Assertions.assertEquals(Set.of("p=2"), first.selectedPartitions.keySet());
             Assertions.assertSame(fixture.fullView.get("p=2"), first.selectedPartitions.get("p=2"));

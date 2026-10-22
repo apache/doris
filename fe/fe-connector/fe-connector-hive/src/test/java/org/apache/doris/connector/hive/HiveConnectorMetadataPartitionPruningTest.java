@@ -239,6 +239,31 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testLocalFallbackRetainsExcessTimestampPrecisionForEqualityAndIn() {
+        // DATETIMEV2(6) decoding can round these down/up, including second and day carries. This
+        // prefilter must not compare their nanoseconds with a microsecond literal and drop matching rows.
+        List<String> unknown = Arrays.asList("ts=2024-01-01 10:00:00.1234561",
+                "ts=2024-01-01 10:00:00.12345601", "ts=2024-01-01 10:00:00.123456001",
+                "ts=2024-01-01 10:00:00.1234569", "ts=2024-01-01 10:00:00.12345699",
+                "ts=2024-01-01 10:00:00.123456999", "ts=2024-01-01 10:00:00.999999999",
+                "ts=2024-01-01 23:59:59.999999999");
+        List<String> parts = new ArrayList<>(unknown);
+        parts.addAll(Arrays.asList("ts=2024-01-01 10:00:00.123456", "ts=2024-01-01 10:00:00.123457",
+                "ts=2024-01-01 10:00:01", "ts=2024-01-02 00:00:00", "ts=2024-01-03 00:00:00"));
+        for (String literal : Arrays.asList("2024-01-01 10:00:00.123456", "2024-01-01 10:00:00.123457",
+                "2024-01-01 10:00:01", "2024-01-02 00:00:00")) {
+            List<String> expected = new ArrayList<>(unknown);
+            expected.add("ts=" + literal);
+            for (ConnectorExpression predicate : Arrays.asList(eq("ts", literal), in("ts", literal))) {
+                HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                        new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+                Assertions.assertEquals(expected,
+                        prunedLocations(applyFilter(metadata, typedHandle("ts", "DATETIMEV2"), predicate)));
+            }
+        }
+    }
+
+    @Test
     public void testLocalFallbackPreservesTwoDigitTimestampYears() {
         List<String> parts = Arrays.asList("ts=24-01-01 10:00:00", "ts=2024-01-01 10:00:00",
                 "ts=0024-01-01 10:00:00", "ts=2024-01-02 10:00:00", "ts=2-01-01 10:00:00");

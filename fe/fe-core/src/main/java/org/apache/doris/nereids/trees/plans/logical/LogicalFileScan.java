@@ -65,6 +65,9 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     protected final Optional<TableSnapshot> tableSnapshot;
     protected final Optional<TableScanParams> scanParams;
     protected final Optional<List<Slot>> cachedOutputs;
+    // Collection preloads this reference before locking. CTE copies have fresh relation/ExprIds but
+    // must still consume the same prepared view, without repeating connector IO under internal locks.
+    private final RelationId preloadRelationId;
 
     /**
      * Constructor for LogicalFileScan.
@@ -93,8 +96,19 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             String tableAlias, Optional<List<Slot>> cachedSlots) {
+        this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, logicalProperties, tableAlias, cachedSlots, id);
+    }
+
+    private LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            SelectedPartitions selectedPartitions, Collection<Slot> operativeSlots,
+            List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            String tableAlias, Optional<List<Slot>> cachedSlots, RelationId preloadRelationId) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, operativeSlots, virtualColumns,
                 groupExpression, logicalProperties, tableAlias);
+        this.preloadRelationId = preloadRelationId;
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
@@ -110,6 +124,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
+    }
+
+    public RelationId getPreloadRelationId() {
+        return preloadRelationId;
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -155,7 +173,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs));
+                cachedOutputs, preloadRelationId));
     }
 
     @Override
@@ -164,7 +182,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs));
+                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs, preloadRelationId));
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
@@ -172,7 +190,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs));
+                cachedOutputs, preloadRelationId));
     }
 
     @Override
@@ -180,7 +198,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs));
+                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs, preloadRelationId));
     }
 
     public LogicalFileScan withTableAlias(String tableAlias) {
@@ -188,7 +206,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs));
+                cachedOutputs, preloadRelationId));
     }
 
     @Override
@@ -495,14 +513,16 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs));
+                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
+                cachedOutputs, preloadRelationId));
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs)));
+                scanParams, groupExpression, Optional.empty(), tableAlias,
+                Optional.of(cachedOutputs), preloadRelationId));
     }
 
     @Override

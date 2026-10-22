@@ -2969,7 +2969,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     /**
      * Parses the rendered text of a DATETIME/TIMESTAMP partition value ({@code yyyy-MM-dd HH:mm:ss[.fraction]}).
      * A zero fractional suffix is the same instant as no fraction at all, which {@link #hiveDateTimeString}
-     * relies on when it renders a literal without one.
+     * relies on when it renders a literal without one. Fractions beyond DATETIMEV2(6) precision are
+     * unknown here: the engine can round them, so exact nanosecond comparison could drop matching rows.
      */
     private static LocalDateTime parseTimestampValue(String value) {
         if (value == null) {
@@ -2977,6 +2978,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         Matcher matcher = HMS_TIMESTAMP_TEXT.matcher(value.trim());
         if (!matcher.matches()) {
+            return null;
+        }
+        if (matcher.group(7) != null && matcher.group(7).length() > 6) {
             return null;
         }
         try {
