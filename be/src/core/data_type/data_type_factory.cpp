@@ -249,7 +249,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
                                                          pcolumn.variant_enable_doc_mode());
         } else {
             nested = std::make_shared<DataTypeVariant>(pcolumn.variant_max_subcolumns_count(),
-                                                       pcolumn.variant_enable_doc_mode());
+                                                       pcolumn.variant_enable_doc_mode(),
+                                                       pcolumn.has_variant_enable_doc_mode());
         }
         break;
     case PGenericType::JSONB:
