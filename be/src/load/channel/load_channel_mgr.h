@@ -68,6 +68,8 @@ public:
 
     void stop();
 
+    size_t num_active_channels();
+
     std::vector<std::string> get_all_load_channel_ids() {
         std::vector<std::string> result;
         std::lock_guard<std::mutex> lock(_lock);

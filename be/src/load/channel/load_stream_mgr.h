@@ -53,8 +53,10 @@ public:
         return result;
     }
 
-    // only used by ut
-    size_t get_load_stream_num() { return _load_streams_map.size(); }
+    size_t get_load_stream_num() {
+        std::lock_guard<std::mutex> lock(_lock);
+        return _load_streams_map.size();
+    }
 
     FifoThreadPool* heavy_work_pool() { return _heavy_work_pool; }
 
