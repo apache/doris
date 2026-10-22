@@ -30,6 +30,7 @@
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
 #include "exec/operator/sort_source_operator.h"
+#include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -92,8 +93,8 @@ private:
 class ScopedSpillFileManager {
 public:
     Status init() {
-        auto spill_data_dir =
-                std::make_unique<SpillDataDir>("./ut_dir/analytic_spill_test", 4 * 1024 * 1024);
+        auto spill_data_dir = std::make_unique<LocalSpillDataDir>("./ut_dir/analytic_spill_test",
+                                                                  4 * 1024 * 1024);
         RETURN_IF_ERROR(
                 io::global_local_filesystem()->create_directory(spill_data_dir->path(), false));
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
