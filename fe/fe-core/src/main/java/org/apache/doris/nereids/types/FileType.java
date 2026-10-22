@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /** The logical FILE leaf; its fixed physical children do not add SQL nesting depth. */
 public final class FileType extends DataType implements ComplexDataType, NestedColumnPrunable {
@@ -54,5 +56,10 @@ public final class FileType extends DataType implements ComplexDataType, NestedC
     @Override
     public int width() {
         return Type.FILE.getSlotSize();
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

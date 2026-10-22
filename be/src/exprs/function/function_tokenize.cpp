@@ -17,6 +17,15 @@
 
 #include "exprs/function/function_tokenize.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
+#include <CLucene.h>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
 #include <glog/logging.h>
 #include <rapidjson/prettywriter.h>
 

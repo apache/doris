@@ -80,10 +80,10 @@ protected:
                        ColumnPtr& output) {
         FunctionContext context;
         context.set_enable_strict_mode(strict);
-        Block block {input, {nullptr, target, "output"}};
+        ColumnWithTypeAndName result {nullptr, target, "output"};
         auto wrapper = get_cast_wrapper(&context, input.type, target);
-        RETURN_IF_ERROR(wrapper(&context, block, {0}, 1, input.column->size(), nullptr));
-        output = block.get_by_position(1).column;
+        RETURN_IF_ERROR(wrapper(&context, input, result, input.column->size(), nullptr));
+        output = result.column;
         return Status::OK();
     }
 
@@ -109,9 +109,13 @@ protected:
         context->_fn_contexts.push_back(
                 FunctionContext::create_context(nullptr, target, {input.type, target}));
         context->fn_context(0)->set_enable_strict_mode(strict);
-        expression._function = SimpleFunctionFactory::instance().get_function(
-                "CAST", {input, {nullptr, target, "target"}}, target);
-        EXPECT_NE(expression._function, nullptr);
+        const auto* function_context = context->fn_context(0);
+        const CastOptions options {
+                .strict_mode = function_context->enable_strict_mode(),
+                .check_overflow_for_decimal = function_context->check_overflow_for_decimal(),
+                .string_as_jsonb_string = function_context->string_as_jsonb_string(),
+                .jsonb_string_as_string = function_context->jsonb_string_as_string()};
+        expression._cast_executor = CastWrapper::bind_cast_executor(options, input.type, target);
         Block block {input};
         auto status = expression.execute_column(context.get(), &block, nullptr,
                                                 input.column->size(), output);
