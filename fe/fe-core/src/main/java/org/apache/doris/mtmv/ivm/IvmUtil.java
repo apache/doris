@@ -241,6 +241,15 @@ public class IvmUtil {
     }
 
     /**
+     * Default MIN/MAX top-K capacity when the MV does not configure {@code ivm_minmax_top_k}.
+     *
+     * <p>8 absorbs the common case (a batch retracting a handful of the smallest values) while
+     * keeping the state column and the delta outputs small; users raise it per MV when their
+     * delete pattern exhausts the range more often.
+     */
+    public static final long DEFAULT_MINMAX_TOP_K = 8;
+
+    /**
      * Creates a hidden ColumnDefinition for the IVM row-id column. */
     public static ColumnDefinition newIvmRowIdColumnDefinition(DataType type, boolean isNullable) {
         ColumnDefinition columnDefinition = new ColumnDefinition(
