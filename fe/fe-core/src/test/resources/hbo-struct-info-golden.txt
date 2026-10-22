@@ -39,7 +39,7 @@
 #   [TEXT <kind>/<name>]  a pure function case: `in =` is the argument, `out =` / `err =`
 #                         the result (an exception is recorded as its class and message)
 #
-# plan cases: 82, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
+# plan cases: 84, text cases: 51 (the PLAN cases are sorted by name, the TEXT cases by kind and then by name)
 
 [PLAN a_column_whose_name_carries_a_dot]
 desc = a filter on the column `a.b` of the table t
@@ -790,6 +790,32 @@ NO_LITERAL.shape = L{5,0}S{null.null.t1#ti:0}
 NO_LITERAL.fingerprint = d7dddbf0ad1d67594188b233bc53016ad83c920b84ec99e8f43cb67ba45089a6
 scans = 1
 scan[0] = table=null.null.t1 shapeIdentity=null.null.t1#ti:0 render=null.null.t1#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN outer_join_definition_above]
+desc = the same value computed above the outer join: it is not null extended
+valid = true
+skipReason =
+WITH_LITERAL.canonical = A{gb:Coalesce(col(db.u.name),lit(0:INT))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
+WITH_LITERAL.shape = A{gb:Coalesce(col(db.u.name),lit(0:INT))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
+WITH_LITERAL.fingerprint = 8fbc1738907358969916f2bafb330c35630d178c465a139acb58689bb5572648
+NO_LITERAL.canonical = A{gb:Coalesce(col(db.u.name),lit(0:INT))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
+NO_LITERAL.shape = A{gb:Coalesce(col(db.u.name),lit(0:INT))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
+NO_LITERAL.fingerprint = 8fbc1738907358969916f2bafb330c35630d178c465a139acb58689bb5572648
+scans = 2
+scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0 render=null.null.t#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1 render=null.null.u#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+[PLAN outer_join_definition_below]
+desc = a group by over a value computed on the nullable side of an outer join
+valid = true
+skipReason =
+WITH_LITERAL.canonical = A{gb:NullExtended<0>(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
+WITH_LITERAL.shape = A{gb:NullExtended<0>(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
+WITH_LITERAL.fingerprint = 231524af1c2132d197cbe6d8c953de3c0ea191ffb92abe1ba62192ce3199b823
+NO_LITERAL.canonical = A{gb:NullExtended<0>(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0,v1,r0};S{null.null.u#ti:1,v1,r0}))
+NO_LITERAL.shape = A{gb:NullExtended<0>(Coalesce(col(db.u.name),lit(0:INT)))}(J{LEFT_OUTER_JOIN,c:[EqualTo(col(db.t.id),col(db.u.id))]}(S{null.null.t#ti:0};S{null.null.u#ti:1}))
+NO_LITERAL.fingerprint = 231524af1c2132d197cbe6d8c953de3c0ea191ffb92abe1ba62192ce3199b823
+scans = 2
+scan[0] = table=null.null.t shapeIdentity=null.null.t#ti:0 render=null.null.t#ti:0,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
+scan[1] = table=null.null.u shapeIdentity=null.null.u#ti:1 render=null.null.u#ti:1,v1,r0 visibleVersion=1 scanRows=0 rowsKind=MEASURED selectedPartitions=0 totalPartitions=0 partitionIdentity= tabletIdentity= indexIdentity=
 [PLAN project_above_scan]
 desc = project over a scan (transparent)
 valid = true
