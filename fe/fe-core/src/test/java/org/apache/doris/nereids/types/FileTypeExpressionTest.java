@@ -279,7 +279,7 @@ public class FileTypeExpressionTest {
                             + "content_type:STRING,offset:BIGINT>")) {
                 DataType value = type(source);
                 Assertions.assertTrue(CheckCast.check(value, FileType.INSTANCE, strict), source);
-                Assertions.assertTrue(CheckCast.check(FileType.INSTANCE, value, strict), source);
+                Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, value, strict), source);
                 Assertions.assertTrue(TypeCoercionUtils.implicitCast(value, FileType.INSTANCE).isPresent());
                 Assertions.assertTrue(TypeCoercionUtils.implicitCast(FileType.INSTANCE, value).isPresent());
             }
@@ -294,6 +294,13 @@ public class FileTypeExpressionTest {
             }
             Assertions.assertTrue(CheckCast.check(type("ARRAY<STRUCT<" + fields + ">>"),
                     type("ARRAY<FILE>"), strict));
+            for (String wrapper : Arrays.asList("%s", "ARRAY<%s>", "MAP<STRING,%s>", "STRUCT<f:%s>",
+                    "ARRAY<STRUCT<f:%s>>")) {
+                DataType source = type(String.format(wrapper, "STRUCT<" + fields + ">"));
+                DataType target = type(String.format(wrapper, "FILE"));
+                Assertions.assertTrue(CheckCast.check(source, target, strict), wrapper);
+                Assertions.assertFalse(CheckCast.check(target, source, strict), wrapper);
+            }
             Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, type("ARRAY<STRUCT<" + fields + ">>"), strict));
             Assertions.assertFalse(CheckCast.check(StringType.INSTANCE, type("ARRAY<FILE>"), strict));
         }
@@ -329,6 +336,8 @@ public class FileTypeExpressionTest {
                 }
                 Assertions.assertFalse(CheckCast.check(nested, VariantType.INSTANCE, strict),
                         container + " -> VARIANT");
+                Assertions.assertFalse(CheckCast.check(nested, StringType.INSTANCE, strict),
+                        container + " -> STRING");
                 Assertions.assertTrue(CheckCast.check(NullType.INSTANCE, nested, strict), "NULL -> " + container);
                 Assertions.assertTrue(CheckCast.check(nested, nested, strict), container);
             }
@@ -449,7 +458,7 @@ public class FileTypeExpressionTest {
     }
 
     @Test
-    public void testElementAtExplodeAndReverseCastFields() {
+    public void testElementAtAndExplodeFields() {
         Expression file = new SlotReference("f", FileType.INSTANCE);
         for (StructField field : FileType.INSTANCE.getFields()) {
             if (field.getName().equals("inline")) {
@@ -470,7 +479,7 @@ public class FileTypeExpressionTest {
             Assertions.assertEquals(FileType.INSTANCE.publicStructType(),
                     TypeCoercionUtils.processBoundFunction(explode).getDataType());
         }
-        Cast struct = new Cast(file, FileType.INSTANCE.publicStructType(), true);
+        SlotReference struct = new SlotReference("s", FileType.INSTANCE.publicStructType());
         Expression accessed = TypeCoercionUtils.processBoundFunction(new ElementAt(struct, new StringLiteral("INLINE")));
         Assertions.assertTrue(accessed instanceof ElementAt);
         Assertions.assertSame(struct, accessed.child(0));

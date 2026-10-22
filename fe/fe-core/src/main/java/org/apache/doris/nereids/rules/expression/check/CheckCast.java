@@ -403,7 +403,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return checkFileCast(originalType, targetType);
         }
         if ((originalType.isJsonType() || targetType.isJsonType() || originalType.isStringLikeType()
-                || originalType.isVariantType() || targetType.isVariantType())
+                || targetType.isStringLikeType() || originalType.isVariantType() || targetType.isVariantType())
                 && (originalType.typeContainsFile() || targetType.typeContainsFile())) {
             return false;
         }
@@ -504,11 +504,10 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (source.isNullType() || source.equals(target)) {
             return true;
         }
-        DataType publicType = source.isFileType() ? target : source;
-        if (!(publicType instanceof StructType)) {
+        if (!target.isFileType() || !(source instanceof StructType)) {
             return false;
         }
-        List<StructField> fields = ((StructType) publicType).getFields();
+        List<StructField> fields = ((StructType) source).getFields();
         StructType canonical = FileType.INSTANCE.publicStructType();
         if (fields.size() != canonical.getFields().size()) {
             return false;
@@ -518,10 +517,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             StructField expected = canonical.getField(field.getName());
             DataType fieldType = field.getDataType();
             if (expected == null || !names.add(field.getName())
-                    || (source.isFileType() && !field.isNullable())
                     || !(fieldType.equals(expected.getDataType())
                             || (fieldType.isStringLikeType() && expected.getDataType().isStringLikeType())
-                            || (!source.isFileType() && fieldType.isNullType()))) {
+                            || fieldType.isNullType())) {
                 return false;
             }
         }
