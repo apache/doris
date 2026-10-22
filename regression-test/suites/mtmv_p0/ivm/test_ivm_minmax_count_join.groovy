@@ -63,7 +63,7 @@ suite("test_ivm_minmax_count_join") {
         CREATE MATERIALIZED VIEW ivm_mm_join_mv
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
+        PROPERTIES ("replication_num" = "1", "ivm_minmax_top_k" = "1")
         AS SELECT MIN(l.v) AS min_v
         FROM ivm_mm_join_l l
         INNER JOIN ivm_mm_join_r r ON l.k = r.k
