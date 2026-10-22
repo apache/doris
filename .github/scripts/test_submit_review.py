@@ -380,7 +380,7 @@ class FinalReviewTest(unittest.TestCase):
         self.api.assert_not_called()
         self.assertEqual("success", self.submit(submission)["state"])
         self.assertEqual(original, submission)
-        self.assertEqual(body, self.posts[0]["comments"][0]["body"])
+        self.assertEqual(body, self.comments[0]["body"])
         self.assertEqual("success", self.verify()["state"])
 
     def test_minor_or_empty_review_passes_without_requesting_changes(self):
