@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 
@@ -54,6 +55,22 @@ public:
         std::shared_ptr<const segment_v2::ZoneMap> zone_map;
         // Parquet min/max does not expose whether a floating chunk also contains NaNs.
         bool floating_nan_count_unknown = false;
+
+        // Every caller that fills this from Parquet statistics must go through here. Setting
+        // data_type without the flag silently re-enables pruning that Parquet bounds cannot
+        // support, so the two fields are assigned together on purpose.
+        void set_data_type_from_parquet(const DataTypePtr& type) {
+            data_type = type;
+            // SlotDescriptor's test-only default constructor leaves the type null, and the callers
+            // used to just copy it through.
+            floating_nan_count_unknown = false;
+            if (type == nullptr) {
+                return;
+            }
+            const auto primitive_type = remove_nullable(type)->get_primitive_type();
+            floating_nan_count_unknown =
+                    primitive_type == TYPE_FLOAT || primitive_type == TYPE_DOUBLE;
+        }
     };
 
     std::shared_ptr<const segment_v2::ZoneMap> zone_map(int slot_index) const;

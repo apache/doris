@@ -22,6 +22,8 @@ import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.VectorColumn;
 import org.apache.doris.jni.spi.vec.VectorTable;
 import org.apache.doris.jni.toolkit.jdbc.JdbcDriverUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcExceptionUtils;
+import org.apache.doris.jni.toolkit.jdbc.JdbcIOException;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -73,6 +75,7 @@ import java.util.Map;
 public class JdbcJniWriter extends JniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcJniWriter.class);
 
+    private final JdbcTypeHandler typeHandler;
     private final String jdbcUrl;
     private final String jdbcUser;
     private final String jdbcPassword;
@@ -99,6 +102,7 @@ public class JdbcJniWriter extends JniWriter {
 
     public JdbcJniWriter(int batchSize, Map<String, String> params) {
         super(batchSize, params);
+        this.typeHandler = JdbcTypeHandlerFactory.create(params.getOrDefault("table_type", ""));
         this.jdbcUrl = params.getOrDefault("jdbc_url", "");
         this.jdbcUser = params.getOrDefault("jdbc_user", "");
         this.jdbcPassword = params.getOrDefault("jdbc_password", "");
@@ -125,6 +129,7 @@ public class JdbcJniWriter extends JniWriter {
             initializeClassLoaderAndDataSource();
 
             conn = hikariDataSource.getConnection();
+            typeHandler.initializeWriteConnection(conn);
 
             if (useTransaction) {
                 conn.setAutoCommit(false);
@@ -133,7 +138,7 @@ public class JdbcJniWriter extends JniWriter {
             LOG.debug("JdbcJniWriter: Preparing insert statement: " + insertSql);
             preparedStatement = conn.prepareStatement(insertSql);
         } catch (Exception e) {
-            throw new IOException("JdbcJniWriter open failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter open failed", e, jdbcPassword, jdbcUrl);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -158,7 +163,7 @@ public class JdbcJniWriter extends JniWriter {
             insertTime += System.nanoTime() - startInsert;
             writtenRows += numRows;
         } catch (SQLException e) {
-            throw new IOException("JdbcJniWriter write failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter write failed", e, jdbcPassword, jdbcUrl);
         }
     }
 
@@ -184,10 +189,11 @@ public class JdbcJniWriter extends JniWriter {
                     conn.rollback();
                 }
             } catch (SQLException rollbackEx) {
-                LOG.warn("JdbcJniWriter rollback on close failure also failed: "
-                        + rollbackEx.getMessage(), rollbackEx);
+                String diagnostic = JdbcExceptionUtils.format("JdbcJniWriter rollback on close failure also failed",
+                        rollbackEx, jdbcPassword, jdbcUrl);
+                LOG.warn("{}", diagnostic);
             }
-            throw new IOException("JdbcJniWriter close failed: " + e.getMessage(), e);
+            throw new JdbcIOException("JdbcJniWriter close failed", e, jdbcPassword, jdbcUrl);
         } finally {
             preparedStatement = null;
             conn = null;
@@ -260,8 +266,7 @@ public class JdbcJniWriter extends JniWriter {
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setObject(
-                        parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));
+                typeHandler.setTimestampTz(preparedStatement, parameterIndex, column.getTimeStampTz(rowIdx));
                 break;
             case CHAR:
             case VARCHAR:
@@ -269,7 +274,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
                 break;
             case UUID:
-                preparedStatement.setObject(parameterIndex, column.getUuid(rowIdx));
+                typeHandler.setUuid(preparedStatement, parameterIndex, column.getUuid(rowIdx));
                 break;
             case BINARY:
             case VARBINARY:
@@ -320,7 +325,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+                typeHandler.setTimestampTzNull(preparedStatement, parameterIndex);
                 break;
             case CHAR:
             case VARCHAR:
@@ -328,7 +333,7 @@ public class JdbcJniWriter extends JniWriter {
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
                 break;
             case UUID:
-                preparedStatement.setNull(parameterIndex, Types.OTHER);
+                typeHandler.setUuidNull(preparedStatement, parameterIndex);
                 break;
             case BINARY:
             case VARBINARY:
@@ -372,7 +377,8 @@ public class JdbcJniWriter extends JniWriter {
                     }
                     hikariDataSource = ds;
                     JdbcDataSource.getDataSource().putSource(cacheKey, hikariDataSource);
-                    LOG.info("JdbcJniWriter: Created connection pool for " + jdbcUrl);
+                    String safeJdbcUrl = JdbcExceptionUtils.redact(jdbcUrl, jdbcPassword, jdbcUrl);
+                    LOG.info("JdbcJniWriter: Created connection pool for " + safeJdbcUrl);
                 }
             }
         }

@@ -101,7 +101,8 @@ message PResetGlobalRfResult {
 message PTabletWithPartition {
     required int64 partition_id = 1;
     required int64 tablet_id = 2;
-    optional int64 binlog_tablet_id = 3;
+    // ATTN(changelog-rename): formerly "binlog_tablet_id"
+    optional int64 changelog_tablet_id = 3;
 }
 
 message PRandomBucketPartitionParam {
@@ -1106,6 +1107,8 @@ message PAlterVaultSyncResponse {
 
 message PSyncTabletMetaRequest {
     repeated int64 tablet_ids = 1;
+    // ATTN(changelog-rename): formerly "discover_row_binlog_ttl"
+    optional bool discover_changelog_ttl = 2 [default = false];
 }
 
 message PSyncTabletMetaResponse {

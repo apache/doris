@@ -241,32 +241,6 @@ ALL_FUNCTION_TIME_DIFF(FunctionDatetimeMilliSecondsDiff, MilliSecondsDiffImpl)
 ALL_FUNCTION_TIME_DIFF(FunctionDatetimeMicroSecondsDiff, MicroSecondsDiffImpl)
 using FunctionTimeStampNsNanoSecondsDiff = FunctionTimeDiff<NanoSecondsDiffImpl>;
 
-#define MIXED_FUNCTION_TIME_DIFF(NAME, IMPL)                                                       \
-    using NAME##TimeStampNsDateTimeV2 =                                                            \
-            FunctionTimeDiff<MixedDateTimeFunctionImpl<TYPE_TIMESTAMP_NS, TYPE_DATETIMEV2, IMPL>>; \
-    using NAME##DateTimeV2TimeStampNs =                                                            \
-            FunctionTimeDiff<MixedDateTimeFunctionImpl<TYPE_DATETIMEV2, TYPE_TIMESTAMP_NS, IMPL>>;
-
-MIXED_FUNCTION_TIME_DIFF(FunctionDateDiff, DateDiffImpl)
-using FunctionTimeDiffTimeStampNsDateTimeV2 =
-        FunctionTimeDiff<MixedTimeDiffImpl<TYPE_TIMESTAMP_NS, TYPE_DATETIMEV2>>;
-using FunctionTimeDiffDateTimeV2TimeStampNs =
-        FunctionTimeDiff<MixedTimeDiffImpl<TYPE_DATETIMEV2, TYPE_TIMESTAMP_NS>>;
-MIXED_FUNCTION_TIME_DIFF(FunctionYearsDiff, YearsDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionQuartersDiff, QuartersDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionMonthsDiff, MonthsDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionWeeksDiff, WeeksDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionHoursDiff, HoursDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionMinutesDiff, MintuesDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionSecondsDiff, SecondsDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionDaysDiff, DaysDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionMilliSecondsDiff, MilliSecondsDiffImpl)
-MIXED_FUNCTION_TIME_DIFF(FunctionMicroSecondsDiff, MicroSecondsDiffImpl)
-using FunctionNanoSecondsDiffTimeStampNsDateTimeV2 =
-        FunctionTimeDiff<MixedNanoSecondsDiffImpl<TYPE_TIMESTAMP_NS, TYPE_DATETIMEV2>>;
-using FunctionNanoSecondsDiffDateTimeV2TimeStampNs =
-        FunctionTimeDiff<MixedNanoSecondsDiffImpl<TYPE_DATETIMEV2, TYPE_TIMESTAMP_NS>>;
-
 using FunctionDatetimeToYearWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeToWeekTwoArgs =
@@ -435,23 +409,6 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeMilliSecondsDiff)
     REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeMicroSecondsDiff)
     factory.register_function<FunctionTimeStampNsNanoSecondsDiff>();
-#define REGISTER_MIXED_FUNCTION_TIME_DIFF(NAME)               \
-    factory.register_function<NAME##TimeStampNsDateTimeV2>(); \
-    factory.register_function<NAME##DateTimeV2TimeStampNs>();
-
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionDateDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionTimeDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionYearsDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionQuartersDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionMonthsDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionWeeksDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionHoursDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionMinutesDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionSecondsDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionDaysDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionMilliSecondsDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionMicroSecondsDiff)
-    REGISTER_MIXED_FUNCTION_TIME_DIFF(FunctionNanoSecondsDiff)
 
     factory.register_function<FunctionToYearWeekTwoArgs>();
     factory.register_function<FunctionToWeekTwoArgs>();

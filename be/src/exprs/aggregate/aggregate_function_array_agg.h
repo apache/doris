@@ -353,12 +353,20 @@ public:
         this->data(place).insert_result_into(to);
     }
 
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
+
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(places[i] + offset).deserialize_and_merge(*column, i);
         }
+    }
+
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        this->data(place).deserialize_and_merge(column, row);
     }
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,

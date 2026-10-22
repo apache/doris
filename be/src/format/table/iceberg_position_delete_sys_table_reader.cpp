@@ -190,7 +190,7 @@ Status IcebergPositionDeleteSysTableReader::_do_init_reader(ReaderInitContext* /
 Status IcebergPositionDeleteSysTableReader::_get_columns_impl(
         std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto* slot : _file_slot_descs) {
-        name_to_type->emplace(slot->col_name(), slot->get_data_type_ptr());
+        name_to_type->emplace(slot->col_name(), slot->type());
     }
     return Status::OK();
 }
@@ -539,8 +539,8 @@ Status IcebergPositionDeleteSysTableReader::_append_partition_column(MutableColu
     }
 
     if (!_partition_value) {
-        auto partition_value = slot.get_data_type_ptr()->create_column();
-        auto serde = slot.get_data_type_ptr()->get_serde();
+        auto partition_value = slot.type()->create_column();
+        auto serde = slot.type()->get_serde();
         StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
                                  _iceberg_file_desc->partition_data_json.size());
         DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
@@ -572,7 +572,7 @@ void IcebergPositionDeleteSysTableReader::_init_read_columns(bool read_row) {
     if (read_row) {
         for (const auto* slot : _file_slot_descs) {
             if (slot->col_name() == kRowColumn) {
-                _read_columns.push_back({kRowColumn, slot->get_data_type_ptr()});
+                _read_columns.push_back({kRowColumn, slot->type()});
                 break;
             }
         }

@@ -47,12 +47,13 @@ public class DropTableStreamTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
+        Config.enable_feature_changelog = true;
 
         createDatabase("test_stream");
         String createTableStr1 = "create table if not exists test_stream.tbl1\n" + "(k1 int, k2 int)\n" + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true'); ";
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true'); ";
         createTable(createTableStr1);
 
         String createStreamStr1 =  "create stream test_stream.s1 on table test_stream.tbl1\n"
@@ -75,8 +76,8 @@ public class DropTableStreamTest extends TestWithFeService {
     private void createBaseTableAndStream(String tableName, String streamName) throws Exception {
         createTable("create table test_stream." + tableName + " (k1 int, k2 int) "
                 + "unique key(k1) distributed by hash(k1) buckets 1 "
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
         createTable("create stream test_stream." + streamName + " on table test_stream." + tableName
                 + " properties('show_initial_rows' = 'true')");
     }
@@ -165,8 +166,8 @@ public class DropTableStreamTest extends TestWithFeService {
 
         createTable("create table test_stream.tbl_force (k1 int, k2 int) "
                 + "unique key(k1) distributed by hash(k1) buckets 1 "
-                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
-                + "'binlog.need_historical_value' = 'true')");
+                + "properties('replication_num' = '1', 'changelog.enable' = 'true', "
+                + "'changelog.need_historical_value' = 'true')");
 
         Assertions.assertNotEquals(oldBaseTableId, db.getTableOrMetaException("tbl_force").getId());
         Assertions.assertNull(stream.getBaseTableNullable());

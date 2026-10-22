@@ -94,7 +94,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         createDatabase(dbName);
         useDatabase(dbName);
         createTable("create table "
@@ -110,8 +110,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + " (k1 int, k2 int) UNIQUE KEY(k1) distributed by hash(k1) buckets 1"
                 + " properties(\"replication_num\" = \"1\","
                 + " \"enable_unique_key_merge_on_write\" = \"true\","
-                + " \"binlog.enable\" = \"true\", \"binlog.format\" = \"ROW\","
-                + " \"binlog.need_historical_value\" = \"true\");");
+                + " \"changelog.enable\" = \"true\","
+                + " \"changelog.need_historical_value\" = \"true\");");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         olapTable = (OlapTable) db.getTableOrAnalysisException(tableName);
 
@@ -380,10 +380,11 @@ public class CheckRowPolicyTest extends TestWithFeService {
         useUser(userName);
         connectContext.getState().setIsQuery(true);
 
-        Plan rewrittenPlan = PlanChecker.from(connectContext)
-                .analyze("select k1, k2 from " + tableNameMow + " for version as of 1001")
-                .rewrite()
-                .getPlan();
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .parse("select k1, k2 from " + tableNameMow + " for version as of 1001");
+        // PlanChecker runs the analyzer directly, so supply the planner's statement reference.
+        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(() -> 2000L);
+        Plan rewrittenPlan = checker.analyze().rewrite().getPlan();
         Set<LogicalUnion> unions = rewrittenPlan.collect(node -> node instanceof LogicalUnion);
         Assertions.assertEquals(1, unions.size());
 
@@ -422,7 +423,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
         }
         Assertions.assertTrue(reconstructionFilterSlots.contains(Column.DELETE_SIGN));
         Assertions.assertTrue(reconstructionFilterSlots.contains(Column.COMMIT_TSO_COL));
-        Assertions.assertTrue(reconstructionFilterSlots.contains(Column.BINLOG_OPERATION_COL));
+        Assertions.assertTrue(reconstructionFilterSlots.contains(Column.CHANGELOG_OP_COL));
     }
 
     private static class RenamedOlapTableWrapper extends OlapTableWrapper {

@@ -22,6 +22,7 @@ import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
@@ -81,6 +82,8 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     String lastDroppedDb;
     boolean lastDropCascade;
     boolean lastDropDbIgnoreIfNotExists;
+    Identifier lastAlteredTableId;
+    List<SchemaChange> lastSchemaChanges;
 
     // ---- B3 DDL throw flags (mirror the read-path throwDatabaseNotExist/throwTableNotExist) ----
     boolean throwTableAlreadyExist;
@@ -92,6 +95,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     // ---- T20 E5 MVCC seam: configurable lookup results (no real Snapshot/SnapshotManager) ----
     OptionalLong latestSnapshotId = OptionalLong.empty();
     BooleanSupplier latestSnapshotAuthentication;
+    BooleanSupplier snapshotReadAuthentication;
     OptionalLong snapshotIdAtOrBefore = OptionalLong.empty();
     boolean snapshotExists;
     /** The table the metadata layer passed to the most recent MVCC seam call. */
@@ -243,7 +247,21 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     }
 
     @Override
+    public void alterTable(Identifier identifier, List<SchemaChange> changes) {
+        log.add("alterTable:" + identifier.getFullName());
+        lastAlteredTableId = identifier;
+        lastSchemaChanges = changes;
+    }
+
+    private void checkSnapshotAuthentication() {
+        if (snapshotReadAuthentication != null && !snapshotReadAuthentication.getAsBoolean()) {
+            throw new IllegalStateException("Snapshot I/O ran outside authentication");
+        }
+    }
+
+    @Override
     public OptionalLong latestSnapshotId(Table table) {
+        checkSnapshotAuthentication();
         if (latestSnapshotAuthentication != null && !latestSnapshotAuthentication.getAsBoolean()) {
             throw new IllegalStateException("latestSnapshotId called outside authentication");
         }
@@ -254,6 +272,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public OptionalLong snapshotIdAtOrBefore(Table table, long timestampMillis) {
+        checkSnapshotAuthentication();
         log.add("snapshotIdAtOrBefore:" + timestampMillis);
         lastMvccTable = table;
         snapshotIdAtOrBeforeArg = timestampMillis;
@@ -262,6 +281,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public boolean snapshotExists(Table table, long snapshotId) {
+        checkSnapshotAuthentication();
         log.add("snapshotExists:" + snapshotId);
         lastMvccTable = table;
         return snapshotExists;
@@ -269,6 +289,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public OptionalLong snapshotSchemaId(Table table, long snapshotId) {
+        checkSnapshotAuthentication();
         log.add("snapshotSchemaId:" + snapshotId);
         lastMvccTable = table;
         lastSnapshotSchemaIdArg = snapshotId;
@@ -277,6 +298,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public java.util.Optional<PaimonCatalogOps.TagSnapshot> getSnapshotByTag(Table table, String tagName) {
+        checkSnapshotAuthentication();
         log.add("getSnapshotByTag:" + tagName);
         lastMvccTable = table;
         lastTagNameArg = tagName;
@@ -300,6 +322,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public boolean branchExists(Table table, String branchName) {
+        checkSnapshotAuthentication();
         log.add("branchExists:" + branchName);
         // Capture which table validation ran against (must be the BASE table, mirroring legacy
         // resolvePaimonBranch which validates the branch on the base table's branchManager).

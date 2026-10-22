@@ -44,8 +44,7 @@ suite("test_olap_table_stream_snapshot_count", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
+            "changelog.enable" = "true",
             "disable_auto_compaction" = "true"
         )
     """

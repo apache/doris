@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -261,22 +262,6 @@ public class VariantType extends PrimitiveType {
         return predefinedFields;
     }
 
-    /**
-     * Find the first matching VariantField for the given field name.
-     * The matching is done in definition order, so the first matching pattern wins.
-     *
-     * @param fieldName the field name to match
-     * @return Optional containing the matching VariantField, or empty if no match
-     */
-    public Optional<VariantField> findMatchingField(String fieldName) {
-        for (VariantField field : predefinedFields) {
-            if (field.matches(fieldName)) {
-                return Optional.of(field);
-            }
-        }
-        return Optional.empty();
-    }
-
     public int getVariantMaxSubcolumnsCount() {
         return variantMaxSubcolumnsCount;
     }
@@ -328,7 +313,28 @@ public class VariantType extends PrimitiveType {
                 || dataType.isDecimalV2Type()
                 || dataType.isDateLikeType()
                 || dataType.isStringLikeType()
-                || dataType.isIPType();
+                || dataType.isIPType()
+                || dataType.isUuidType();
     }
 
+    /** Whether the type or any nested complex type contains Variant. */
+    public static boolean containsVariant(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return true;
+        } else if (dataType instanceof ArrayType) {
+            return containsVariant(((ArrayType) dataType).getItemType());
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (dataType instanceof StructType) {
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getDataType()));
+        }
+        return false;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
+    }
 }

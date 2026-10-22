@@ -93,24 +93,11 @@ public class FlussPartitionColumnTypesTest {
                 "a fluss type root has no verdict here; decide whether a partition of it can be read");
     }
 
-    /**
-     * The one verdict the catalog's own settings can flip. Fluss names a BINARY partition with the hex
-     * text of its bytes: readable while the column is a Doris string, unreadable the moment
-     * {@code enable.mapping.varbinary} turns it into a VARBINARY, which no hex text is a literal of.
-     */
     @Test
-    public void binaryPartitionsAreReadableOnlyWhileTheColumnIsText() {
+    public void binaryPartitionsRemainReadableWithEveryLegacyMappingOption() {
         for (DataType type : Arrays.asList(DataTypes.BINARY(2), DataTypes.BYTES())) {
-            Assertions.assertNull(
-                    FlussPartitionColumnTypes.rejection(type, FlussTypeMapping.Options.DEFAULT),
-                    type + " is readable while it maps to a string");
-            String rejection = FlussPartitionColumnTypes.rejection(type, VARBINARY);
-            Assertions.assertNotNull(rejection, type + " under varbinary mapping");
-            // The property that caused it is named, because turning it off is the fix and nothing else
-            // about the table changed.
-            Assertions.assertTrue(
-                    rejection.contains(FlussCatalogProperties.ENABLE_MAPPING_VARBINARY),
-                    "the rejection should name the property that caused it: " + rejection);
+            Assertions.assertNull(FlussPartitionColumnTypes.rejection(type, FlussTypeMapping.Options.DEFAULT));
+            Assertions.assertNull(FlussPartitionColumnTypes.rejection(type, VARBINARY));
         }
     }
 

@@ -211,6 +211,18 @@ uint64_t UnifiedSparseColumnWriter::estimate_buffer_size() const {
     return size;
 }
 
+uint64_t UnifiedSparseColumnWriter::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    uint64_t size = 0;
+    if (_single_writer) {
+        size += std::invoke(getter, _single_writer.get());
+    }
+    for (const auto& w : _bucket_writers) {
+        size += std::invoke(getter, w.get());
+    }
+    return size;
+}
+
 Status UnifiedSparseColumnWriter::finish() {
     if (_single_writer) {
         RETURN_IF_ERROR(_single_writer->finish());
@@ -346,6 +358,17 @@ uint64_t VariantDocWriter::estimate_buffer_size() const {
     }
     for (const auto& writer : _doc_value_column_writers) {
         size += writer->estimate_buffer_size();
+    }
+    return size;
+}
+
+uint64_t VariantDocWriter::get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const {
+    uint64_t size = 0;
+    for (const auto& writer : _subcolumn_writers) {
+        size += std::invoke(getter, writer.get());
+    }
+    for (const auto& writer : _doc_value_column_writers) {
+        size += std::invoke(getter, writer.get());
     }
     return size;
 }
@@ -520,6 +543,16 @@ uint64_t VariantColumnWriterImpl::estimate_buffer_size() {
     return _v2_writer ? _v2_writer->estimate_buffer_size() : 0;
 }
 
+uint64_t VariantColumnWriterImpl::get_total_data_pages_bytes(
+        ColumnWriter::DataBytesGetter getter) const {
+    return _v2_writer->get_total_data_pages_bytes(getter);
+}
+
+#ifdef BE_TEST
+static size_t g_chunk_bytes_for_test = 0;
+static size_t g_chunk_values_for_test = 0;
+#endif
+
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
                                                TabletColumnPtr column)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
@@ -559,7 +592,6 @@ Status VariantSubcolumnWriter::_ensure_input_format(const VariantColumnData& col
 
 Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_t num_rows,
                                           std::span<const uint8_t> outer_nulls) {
-    DORIS_CHECK(_v2_builder != nullptr);
     DORIS_CHECK(column.column_data != nullptr);
     const auto* source = check_and_get_column<ColumnVariantV2>(*column.column_data);
     DORIS_CHECK(source != nullptr);
@@ -568,7 +600,23 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
                                        column.row_pos, column.row_pos + num_rows, source->size());
     }
     DORIS_CHECK(outer_nulls.empty() || outer_nulls.size() == num_rows);
+    if (_v2_builder == nullptr) {
+        RETURN_IF_ERROR(_initialize_v2_builder());
+        if (_running_type != nullptr) {
+            // Continue from the type inferred by the sealed chunks. Appending a value that the
+            // previous chunks' type cannot hold (for example a bool after integers) then takes
+            // the builder's own JSONB fallback inside this chunk instead of being merged away.
+            RETURN_IF_ERROR(_v2_builder->convert_to(_running_type));
+        }
+        _chunk_row_begin = _num_rows;
+        _chunk_rows = 0;
+    }
 
+    VariantPathBuilder::InferredPromotion on_promotion;
+    // Until a chunk is sealed, the active builder already holds every value to be checked.
+    if (!_chunks.empty()) {
+        on_promotion = [this](DataTypePtr* type) { return _promote_chunks(type); };
+    }
     const auto append_encoded = [&](const ColumnVariantV2::ReadView& view, size_t begin) -> Status {
         DORIS_CHECK(!view.is_typed());
         for (size_t offset = 0; offset < num_rows; ++offset) {
@@ -578,7 +626,8 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
             const size_t input_row = begin + offset;
             const VariantRef value = view.value_at(input_row);
             if (!value.is_null()) {
-                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset));
+                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset - _chunk_row_begin,
+                                                    on_promotion));
             }
         }
         return Status::OK();
@@ -586,15 +635,69 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
 
     const auto view = source->read_view();
     if (!view.is_typed()) {
-        return append_encoded(view, column.row_pos);
+        RETURN_IF_ERROR(append_encoded(view, column.row_pos));
+    } else {
+        auto encoded_batch = ColumnVariantV2::create();
+        RETURN_IF_CATCH_EXCEPTION({
+            encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+            encoded_batch->ensure_encoded();
+        });
+        RETURN_IF_ERROR(append_encoded(encoded_batch->read_view(), 0));
     }
+    _chunk_rows = _num_rows + num_rows - _chunk_row_begin;
+    const size_t chunk_bytes =
+#ifdef BE_TEST
+            g_chunk_bytes_for_test != 0 ? g_chunk_bytes_for_test : kChunkBytes;
+#else
+            kChunkBytes;
+#endif
+    const size_t chunk_values =
+#ifdef BE_TEST
+            g_chunk_values_for_test != 0 ? g_chunk_values_for_test : kChunkValues;
+#else
+            kChunkValues;
+#endif
+    if (_v2_builder->byte_size() >= chunk_bytes || _v2_builder->non_null_rows() >= chunk_values) {
+        RETURN_IF_ERROR(_seal_chunk());
+    }
+    return Status::OK();
+}
 
-    auto encoded_batch = ColumnVariantV2::create();
-    RETURN_IF_CATCH_EXCEPTION({
-        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
-        encoded_batch->ensure_encoded();
-    });
-    return append_encoded(encoded_batch->read_view(), 0);
+Status VariantSubcolumnWriter::_promote_chunks(DataTypePtr* inferred_type) {
+    // Decide against every retained value before changing any chunk. A small scale-1 Decimal may
+    // fit scale 38 while a later large Decimal does not; committing the first cast would change
+    // its JSONB representation before discovering that the whole path needs fallback.
+    for (const auto& chunk : _chunks) {
+        if (chunk.builder->non_null_rows() == 0) {
+            continue;
+        }
+        bool needs_jsonb = false;
+        RETURN_IF_ERROR(chunk.builder->check_inferred_promotion(*inferred_type, &needs_jsonb));
+        if (needs_jsonb) {
+            *inferred_type = std::make_shared<DataTypeJsonb>();
+            break;
+        }
+    }
+    for (auto& chunk : _chunks) {
+        if (chunk.builder->non_null_rows() != 0) {
+            RETURN_IF_ERROR(
+                    chunk.builder->convert_to(*inferred_type, false /* filter_cast_nulls */));
+        }
+    }
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::_seal_chunk() {
+    if (_v2_builder == nullptr) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_v2_builder->complete_rows(_chunk_rows));
+    _running_type = _v2_builder->type();
+    _chunks.push_back(ValueChunk {
+            .builder = std::move(_v2_builder), .row_begin = _chunk_row_begin, .rows = _chunk_rows});
+    _v2_builder.reset();
+    _chunk_rows = 0;
+    return Status::OK();
 }
 
 Status VariantSubcolumnWriter::_append(const uint8_t* null_map, const uint8_t** ptr,
@@ -620,11 +723,37 @@ Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows)
     return _append(nullptr, ptr, num_rows);
 }
 
+#ifdef BE_TEST
+void VariantSubcolumnWriter::set_chunk_bytes_for_test(size_t bytes) {
+    g_chunk_bytes_for_test = bytes;
+}
+
+void VariantSubcolumnWriter::set_chunk_values_for_test(size_t values) {
+    g_chunk_values_for_test = values;
+}
+
+size_t VariantSubcolumnWriter::num_chunks_for_test() const {
+    return _chunks.size() + (_v2_builder != nullptr ? 1 : 0);
+}
+
+size_t VariantSubcolumnWriter::max_chunk_bytes_for_test() const {
+    size_t max = _v2_builder != nullptr ? _v2_builder->byte_size() : 0;
+    for (const auto& chunk : _chunks) {
+        max = std::max(max, chunk.builder->byte_size());
+    }
+    return max;
+}
+#endif
+
 uint64_t VariantSubcolumnWriter::estimate_buffer_size() {
     if (is_finalized()) {
         return _writer ? _writer->estimate_buffer_size() : 0;
     }
-    return _v2_builder ? _v2_builder->byte_size() : 0;
+    size_t bytes = _v2_builder ? _v2_builder->byte_size() : 0;
+    for (const auto& chunk : _chunks) {
+        bytes += chunk.builder->byte_size();
+    }
+    return bytes;
 }
 
 bool VariantSubcolumnWriter::is_finalized() const {
@@ -637,51 +766,63 @@ Status VariantSubcolumnWriter::finalize() {
     }
     if (_input_format == VariantWriterInputFormat::UNSET) {
         RETURN_IF_ERROR(_initialize_v2_builder());
+        _chunk_row_begin = 0;
+        _chunk_rows = 0;
         _input_format = VariantWriterInputFormat::V2;
     }
+    RETURN_IF_ERROR(_seal_chunk());
+
     const auto& parent_column =
             _opts.rowset_ctx->tablet_schema->column_by_uid(get_column()->parent_unique_id());
     DORIS_CHECK(!parent_column.variant_enable_nested_group());
 
-    DataTypePtr flush_type;
-    ColumnPtr flush_values;
-    DorisVector<uint32_t> flush_rowids;
-    int64_t non_null_value_size = 0;
-    DORIS_CHECK(_v2_builder != nullptr);
-    RETURN_IF_ERROR(_v2_builder->complete_rows(_num_rows));
     DataTypePtr storage_type;
     TabletSchema::SubColumnInfo subcolumn_info;
+    const PathInData relative_path = get_column()->path_info_ptr()->copy_pop_front();
     if (variant_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
-                                               parent_column.unique_id(),
-                                               _v2_builder->path().get_path(), &subcolumn_info)) {
+                                               parent_column.unique_id(), relative_path.get_path(),
+                                               &subcolumn_info)) {
         storage_type = DataTypeFactory::instance().create_data_type(subcolumn_info.column);
     }
 
-    bool publish_builder = _v2_builder->non_null_rows() != 0;
-    if (publish_builder) {
-        RETURN_IF_ERROR(_v2_builder->convert_to(
-                normalize_variant_path_integer_widths(_v2_builder->type())));
-        publish_builder =
-                !variant_path_type_contains_nothing(_v2_builder->type()) ||
-                (storage_type != nullptr && !variant_path_type_contains_nothing(storage_type));
-    }
-    if (publish_builder && storage_type != nullptr) {
-        RETURN_IF_ERROR(_v2_builder->convert_to(storage_type));
+    // Merge the types inferred by independent chunks; the result is what a single builder would
+    // have inferred for the whole segment.
+    DataTypePtr merged_type;
+    bool has_values = false;
+    for (auto& chunk : _chunks) {
+        if (chunk.builder->non_null_rows() == 0) {
+            continue;
+        }
+        has_values = true;
+        RETURN_IF_ERROR(chunk.builder->convert_to(
+                normalize_variant_path_integer_widths(chunk.builder->type())));
+        merged_type = merged_type == nullptr
+                              ? chunk.builder->type()
+                              : variant_path_least_common_type(merged_type, chunk.builder->type());
     }
 
+    bool publish_builder = has_values;
+    if (publish_builder) {
+        publish_builder =
+                !variant_path_type_contains_nothing(merged_type) ||
+                (storage_type != nullptr && !variant_path_type_contains_nothing(storage_type));
+    }
+
+    DataTypePtr flush_type;
+    size_t non_null_value_size = 0;
     if (!publish_builder) {
         flush_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT,
                                                                   true /* is_nullable */);
-        MutableColumnPtr defaults = flush_type->create_column();
-        flush_values = std::move(defaults);
     } else {
-        flush_type = _v2_builder->type();
-        flush_values = _v2_builder->column();
-        const std::span<const uint32_t> rowids = _v2_builder->rowids();
-        flush_rowids.assign(rowids.begin(), rowids.end());
-        non_null_value_size = cast_set<int64_t>(flush_rowids.size());
+        flush_type = storage_type != nullptr ? storage_type : merged_type;
+        for (auto& chunk : _chunks) {
+            if (chunk.builder->non_null_rows() == 0) {
+                continue;
+            }
+            RETURN_IF_ERROR(chunk.builder->convert_to(flush_type));
+            non_null_value_size += chunk.builder->rowids().size();
+        }
     }
-    _v2_builder.reset();
 
     TabletColumn flush_column = variant_util::get_column_by_type(
             flush_type, get_column()->name(),
@@ -699,13 +840,32 @@ Status VariantSubcolumnWriter::finalize() {
             _indexes, &opts, non_null_value_size, need_record_none_null_value_size));
 
     _opts = opts;
+    // One convertor for the whole column. The ARRAY convertor carries its accumulated item offset
+    // across calls, so flushing chunk by chunk keeps the absolute array offsets correct; a fresh
+    // convertor per chunk would restart them at zero and corrupt the column.
     OlapBlockDataConvertor converter;
-    RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
-            flush_column, _writer.get(), &converter, 0, flush_type, flush_values, flush_rowids,
-            _num_rows));
+    if (!publish_builder) {
+        MutableColumnPtr defaults = flush_type->create_column();
+        RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
+                flush_column, _writer.get(), &converter, 0, flush_type, std::move(defaults), {},
+                _num_rows));
+    } else {
+        for (auto& chunk : _chunks) {
+            if (chunk.builder->non_null_rows() == 0) {
+                MutableColumnPtr empty = flush_type->create_column();
+                RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
+                        flush_column, _writer.get(), &converter, 0, flush_type, std::move(empty),
+                        {}, chunk.rows));
+                continue;
+            }
+            RETURN_IF_ERROR(variant_writer_helpers::append_sparse_converted_column(
+                    flush_column, _writer.get(), &converter, 0, flush_type, chunk.builder->column(),
+                    chunk.builder->rowids(), chunk.rows));
+        }
+    }
     _opts.meta->set_num_rows(_num_rows);
-    none_null_size = cast_set<size_t>(non_null_value_size);
-
+    none_null_size = non_null_value_size;
+    _chunks.clear();
     _is_finalized = true;
     return Status::OK();
 }

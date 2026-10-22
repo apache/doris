@@ -18,7 +18,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 suite("load_p2", "variant_type,p2"){
-    boolean use_stream_load = false
+    def env = System.getenv()
+    boolean use_stream_load = env
+            .getOrDefault("VARIANT_P2_USE_STREAM_LOAD", "false").toBoolean()
+    def resumeFiles = env.getOrDefault("VARIANT_P2_RESUME_FILES", "")
+            .split(",").findAll { !it.isEmpty() }
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -30,6 +34,8 @@ suite("load_p2", "variant_type,p2"){
             set 'max_filter_ratio', '0.1'
             file file_name // import json file
             time 10000 // limit inflight 10s
+            timeout 60000
+            retryIfHttpError true
 
             // if declared a check callback, the default check condition will ignore.
             // So you must check all condition
@@ -124,37 +130,41 @@ suite("load_p2", "variant_type,p2"){
                 }
             }
         }
-        create_table.call(table_name)
-        List<Long> daysEveryMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        // 2015
-        def year = "2015"
-        def monthPrefix = "0"
-        def dayPrefix = "0"
-        log.info("current year: ${year}")
-        for (int i = 1; i <= 3; i++) {
-            def month = i < 10 ? monthPrefix + i.toString() : i.toString()
-            log.info("current month: ${month}")
-            for (int j = 1; j <= daysEveryMonth[i - 1]; j++) {
-                def day = j < 10 ? dayPrefix + j.toString() : j.toString()
-                log.info("current day: ${day}")
-                for (int z = 1; z < 24; z++) {
-                    def hour = z.toString()
-                    log.info("current hour: ${hour}")
-                    def fileName = year + "-" + month + "-" + day + "-" + hour + ".json"
-                    log.info("cuurent fileName: ${fileName}")
-                    if (use_stream_load) {
-                        def fileUrl = """${getS3Url() + '/regression/github_events_dataset/' + fileName}"""
-                        // Submitting tasks to the executor service
-                        futures << executorService.submit({
-                            log.info("Loading file: ${fileName}")
-                            load_json_data.call(table_name, fileUrl)
-                        } as Runnable)
-                    } else {
-                        // Submitting tasks to the executor service
-                        futures << executorService.submit({
-                            log.info("Loading file: ${fileName}")
-                            s3load_paral_wait.call(table_name, "JSON", "regression/github_events_dataset/${fileName}", 3)
-                        } as Runnable)
+        def submitFile = { fileName ->
+            if (use_stream_load) {
+                def fileUrl = """${getS3Url() + '/regression/github_events_dataset/' + fileName}"""
+                futures << executorService.submit({
+                    log.info("Loading file: ${fileName}")
+                    load_json_data.call(table_name, fileUrl)
+                } as Runnable)
+            } else {
+                futures << executorService.submit({
+                    log.info("Loading file: ${fileName}")
+                    s3load_paral_wait.call(table_name, "JSON",
+                            "regression/github_events_dataset/${fileName}", 3)
+                } as Runnable)
+            }
+        }
+        if (resumeFiles) {
+            assertTrue(use_stream_load, "Resume requires VARIANT_P2_USE_STREAM_LOAD=true")
+            resumeFiles.each { submitFile.call(it) }
+        } else {
+            create_table.call(table_name)
+            List<Long> daysEveryMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            def year = "2015"
+            def monthPrefix = "0"
+            def dayPrefix = "0"
+            log.info("current year: ${year}")
+            for (int i = 1; i <= 3; i++) {
+                def month = i < 10 ? monthPrefix + i.toString() : i.toString()
+                log.info("current month: ${month}")
+                for (int j = 1; j <= daysEveryMonth[i - 1]; j++) {
+                    def day = j < 10 ? dayPrefix + j.toString() : j.toString()
+                    log.info("current day: ${day}")
+                    for (int z = 1; z < 24; z++) {
+                        def fileName = year + "-" + month + "-" + day + "-" + z + ".json"
+                        log.info("current fileName: ${fileName}")
+                        submitFile.call(fileName)
                     }
                 }
             }

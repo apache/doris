@@ -440,7 +440,11 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
-        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
+        // The property CREATE reads to build an MV on the unique-key model; this test describes that
+        // model's hidden columns.
+        Map<String, String> mvProperties = Maps.newHashMap();
+        mvProperties.put(PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW, "true");
+        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQuery(connectContext, mvProperties,
                 mtmvPartitionDefinition, distributionDescriptor, null, Maps.newHashMap(),
                 Lists.newArrayList(), logicalPlan, Optional.of(IvmRewriteContext.create("test_mtmv")));
         List<String> columnNames = queryInfo.getColumnDefinitions().stream()
@@ -507,51 +511,67 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
-    public void testEnsureMTMVQueryUsableWithRowBinlogHiddenColumns() throws Exception {
-        // A table created with row binlog carries hidden columns its query never produces:
+    public void testEnsureMTMVQueryUsableWithChangelogHiddenColumns() throws Exception {
+        // A table created with changelog carries hidden columns its query never produces:
         // __DORIS_COMMIT_TSO_COL__ for merge-on-write unique keys, plus __DORIS_ROW_LSN_COL__ for
         // duplicate keys. InternalCatalog#createOlapTable adds them while the table is built, so an
-        // MV that enables row binlog itself ends up with them in its physical schema.
+        // MV that enables changelog itself ends up with them in its physical schema.
         // ensureMTMVQueryUsable re-derives the schema from the query and compares the two
         // (checkColumnIfChange), so the analyzed column list has to carry them too -- otherwise
         // every refresh of such an MV fails with a spurious "column length not equals".
-        createTable("CREATE TABLE IF NOT EXISTS row_binlog_schema_base (\n"
+        createTableWithChangelog("CREATE TABLE IF NOT EXISTS changelog_schema_base (\n"
                 + "    k1 int,\n"
                 + "    v1 int\n"
                 + ")\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')\n");
 
-        createMvByNereids("create materialized view row_binlog_schema_ivm "
-                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW') \n"
-                + "        as select k1, v1 from test.row_binlog_schema_base;");
-        createMvByNereids("create materialized view row_binlog_schema_dup "
-                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
-                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW') \n"
-                + "        as select k1, v1 from test.row_binlog_schema_base;");
-        createMvByNereids("create materialized view row_binlog_schema_plain "
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        try {
+            Config.enable_feature_changelog = true;
+            createMvByNereids("create materialized view changelog_schema_ivm "
+                    + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1', 'changelog.enable' = 'true') \n"
+                    + "        as select k1, v1 from test.changelog_schema_base;");
+            createMvByNereids("create materialized view changelog_schema_dup "
+                    + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true') \n"
+                    + "        as select k1, v1 from test.changelog_schema_base;");
+            // The same incremental MV without the property, over the same append-only base table: the detail
+            // model, which is a DUP table, so it carries the row lsns its own changelog writes as well.
+            createMvByNereids("create materialized view changelog_schema_detail "
+                    + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true') \n"
+                    + "        as select k1, v1 from test.changelog_schema_base;");
+        } finally {
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
+        }
+        createMvByNereids("create materialized view changelog_schema_plain "
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
-                + "        as select k1, v1 from test.row_binlog_schema_base;");
+                + "        as select k1, v1 from test.changelog_schema_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
-        MTMV ivmMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_ivm");
-        MTMV dupMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_dup");
-        MTMV plainMv = (MTMV) db.getTableOrAnalysisException("row_binlog_schema_plain");
+        MTMV ivmMv = (MTMV) db.getTableOrAnalysisException("changelog_schema_ivm");
+        MTMV dupMv = (MTMV) db.getTableOrAnalysisException("changelog_schema_dup");
+        MTMV detailMv = (MTMV) db.getTableOrAnalysisException("changelog_schema_detail");
+        MTMV plainMv = (MTMV) db.getTableOrAnalysisException("changelog_schema_plain");
 
-        Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL), rowBinlogHiddenColumns(ivmMv));
+        Assertions.assertTrue(ivmMv.isIvmUniqueKeysTable());
+        Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL), changelogHiddenColumns(ivmMv));
         Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL, Column.ROW_LSN_COL),
-                rowBinlogHiddenColumns(dupMv));
-        Assertions.assertTrue(rowBinlogHiddenColumns(plainMv).isEmpty());
+                changelogHiddenColumns(dupMv));
+        Assertions.assertTrue(detailMv.isIvmAppendOnlyDupTable());
+        Assertions.assertEquals(Lists.newArrayList(Column.COMMIT_TSO_COL, Column.ROW_LSN_COL),
+                changelogHiddenColumns(detailMv));
+        Assertions.assertTrue(changelogHiddenColumns(plainMv).isEmpty());
 
-        for (MTMV mtmv : Lists.newArrayList(ivmMv, dupMv, plainMv)) {
+        for (MTMV mtmv : Lists.newArrayList(ivmMv, dupMv, detailMv, plainMv)) {
             ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv,
                     MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
             Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx),
@@ -559,7 +579,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         }
     }
 
-    private static List<String> rowBinlogHiddenColumns(MTMV mtmv) {
+    private static List<String> changelogHiddenColumns(MTMV mtmv) {
         List<String> hidden = Lists.newArrayList();
         for (Column column : mtmv.getBaseSchema(true)) {
             if (column.getName().equalsIgnoreCase(Column.COMMIT_TSO_COL)
@@ -688,7 +708,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         createMvByNereids("create materialized view mv_ivm_unique_key "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -720,7 +740,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "KEY(id)\n"
                 + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -742,7 +762,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DUPLICATE KEY(id)\n"
                 + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
@@ -802,7 +822,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         createMvByNereids("create materialized view mv_ivm_rowid_check "
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        PROPERTIES ('ivm_force_mow' = 'true', 'replication_num' = '1') \n"
                 + "        as select * from test.T4;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");

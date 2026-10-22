@@ -67,7 +67,7 @@ import org.apache.iceberg.util.Tasks;
  * DataFile)} or {@link #forEntry(ManifestEntry)} to get the delete files to apply to a given data
  * file.
  * 
- * Copied from https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/DeleteFileIndex.java
+ * Copied from https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/core/src/main/java/org/apache/iceberg/DeleteFileIndex.java
  * Change DeleteFileIndex and some methods to public.
  *
  * <p>P6.2-T08 (catalog-spi): VENDORED into the iceberg connector module (mirrors the identical fe-core copy)
@@ -88,6 +88,7 @@ public class DeleteFileIndex {
   private final PartitionMap<PositionDeletes> posDeletesByPartition;
   private final Map<String, PositionDeletes> posDeletesByPath;
   private final Map<String, DeleteFile> dvByPath;
+  private final LoadingCache<Integer, Comparator<StructLike>> partitionComparatorsBySpecId;
   private final boolean hasEqDeletes;
   private final boolean hasPosDeletes;
   private final boolean isEmpty;
@@ -97,12 +98,18 @@ public class DeleteFileIndex {
       PartitionMap<EqualityDeletes> eqDeletesByPartition,
       PartitionMap<PositionDeletes> posDeletesByPartition,
       Map<String, PositionDeletes> posDeletesByPath,
-      Map<String, DeleteFile> dvByPath) {
+      Map<String, DeleteFile> dvByPath,
+      Map<Integer, PartitionSpec> specsById) {
     this.globalDeletes = globalDeletes;
     this.eqDeletesByPartition = eqDeletesByPartition;
     this.posDeletesByPartition = posDeletesByPartition;
     this.posDeletesByPath = posDeletesByPath;
     this.dvByPath = dvByPath;
+    this.partitionComparatorsBySpecId =
+        specsById == null
+            ? null
+            : Caffeine.newBuilder()
+                .build(specId -> Comparators.forType(specsById.get(specId).partitionType()));
     this.hasEqDeletes = globalDeletes != null || eqDeletesByPartition != null;
     this.hasPosDeletes =
         posDeletesByPartition != null || posDeletesByPath != null || dvByPath != null;
@@ -209,7 +216,15 @@ public class DeleteFileIndex {
     }
 
     PositionDeletes deletes = posDeletesByPath.get(dataFile.location());
-    return deletes == null ? EMPTY_DELETES : deletes.filter(seq);
+    if (deletes == null) {
+      return EMPTY_DELETES;
+    }
+
+    DeleteFile[] matchingDeletes = deletes.filter(seq);
+    for (DeleteFile deleteFile : matchingDeletes) {
+      validatePartitionMatch(deleteFile, dataFile);
+    }
+    return matchingDeletes;
   }
 
   private DeleteFile findDV(long seq, DataFile dataFile) {
@@ -224,8 +239,32 @@ public class DeleteFileIndex {
           "DV data sequence number (%s) must be greater than or equal to data file sequence number (%s)",
           dv.dataSequenceNumber(),
           seq);
+      validatePartitionMatch(dv, dataFile);
     }
     return dv;
+  }
+
+  private void validatePartitionMatch(DeleteFile deleteFile, DataFile dataFile) {
+    ValidationException.check(
+        deleteFile.specId() == dataFile.specId(),
+        "Mismatched partition specs (%s, %s) for delete file %s and data file %s:"
+            + " metadata is corrupted",
+        deleteFile.specId(),
+        dataFile.specId(),
+        deleteFile.location(),
+        dataFile.location());
+    if (partitionComparatorsBySpecId != null) {
+      Comparator<StructLike> partitionComparator =
+          partitionComparatorsBySpecId.get(deleteFile.specId());
+      ValidationException.check(
+          partitionComparator.compare(deleteFile.partition(), dataFile.partition()) == 0,
+          "Mismatched partition tuples (%s, %s) for delete file %s and data file %s:"
+              + " metadata is corrupted",
+          deleteFile.partition(),
+          dataFile.partition(),
+          deleteFile.location(),
+          dataFile.location());
+    }
   }
 
   @SuppressWarnings("checkstyle:CyclomaticComplexity")
@@ -540,7 +579,8 @@ public class DeleteFileIndex {
           eqDeletesByPartition.isEmpty() ? null : eqDeletesByPartition,
           posDeletesByPartition.isEmpty() ? null : posDeletesByPartition,
           posDeletesByPath.isEmpty() ? null : posDeletesByPath,
-          dvByPath.isEmpty() ? null : dvByPath);
+          dvByPath.isEmpty() ? null : dvByPath,
+          specsById.isEmpty() ? null : specsById);
     }
 
     private void add(Map<String, DeleteFile> dvByPath, DeleteFile dv) {

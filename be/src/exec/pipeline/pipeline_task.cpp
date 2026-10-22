@@ -569,8 +569,7 @@ Status PipelineTask::execute(bool* done) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
-                _block->clear_column_data(
-                        _root->operator_row_desc_after_projection().num_materialized_slots());
+                _block->clear_column_data(_root->operator_row_desc_after_projection().num_slots());
             }
         }};
         // `_wake_up_early` must be after `_is_blocked()`
@@ -871,6 +870,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         _spilling = true;
         return false;
     }
+    // The query made progress: a later reservation that fails for process memory starts a new
+    // bounded wait instead of continuing the one that this reservation may have been retried
+    // from.
+    _state->get_query_ctx()->resource_ctx()->task_controller()->end_process_memory_wait();
     return true;
 }
 
@@ -880,11 +883,27 @@ void PipelineTask::stop_if_finished() {
         return;
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    if (auto sink = _sink) {
-        if (sink->is_finished(_state)) {
-            set_wake_up_early();
-            unblock_all_dependencies();
+    DataSinkOperatorPtr sink;
+    {
+        // This runs on FragmentMgr's cancel thread while a scheduler worker may be in finalize(),
+        // which resets _sink under the same lock. Copy the shared_ptr under the lock so the two
+        // threads never access it concurrently. The lock is released before
+        // unblock_all_dependencies() because that function acquires it again.
+        std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
+        DBUG_EXECUTE_IF("PipelineTask::stop_if_finished.holding_lifecycle_lock", {
+            if (dp->callback.has_value()) {
+                DBUG_RUN_CALLBACK();
+            }
+        });
+        if (is_finalized()) {
+            return;
         }
+        sink = _sink;
+    }
+    DCHECK(sink);
+    if (sink->is_finished(_state)) {
+        set_wake_up_early();
+        unblock_all_dependencies();
     }
 }
 

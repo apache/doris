@@ -28,9 +28,11 @@ import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -46,11 +48,14 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.PartitionPathUtils;
@@ -62,10 +67,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorMetadata} implementation for Paimon.
@@ -84,7 +91,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private final PaimonTypeMapping.Options typeMappingOptions;
     private final ConnectorContext context;
     // The connector's own injected catalog property map. Retained to resolve the catalog flavor
-    // for the HMS-only-props gate in createDatabase. This is the same data as
+    // for the catalog-flavor property gate in createDatabase. This is the same data as
     // session.getCatalogProperties() (the FE injects both from one source), but using the
     // directly-injected map avoids depending on the session being populated and is simpler.
     private final PaimonCatalogProperties catalogProperties;
@@ -165,6 +172,37 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         this.schemaAtMemo = schemaAtMemo;
         this.latestSnapshotCache = latestSnapshotCache;
         this.partitionViewCache = partitionViewCache;
+    }
+
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        return new PaimonConnectorTransaction(session.allocateTransactionId(), context);
+    }
+
+    @Override
+    public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Set<String> partitionNames = new HashSet<>();
+        for (String name : paimonHandle.getPartitionKeys()) {
+            partitionNames.add(name.toLowerCase(java.util.Locale.ROOT));
+        }
+        for (String name : staticPartitionColumnNames) {
+            if (!partitionNames.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                throw new DorisConnectorException("Column '" + name
+                        + "' is not a partition column of Paimon table");
+            }
+        }
+    }
+
+    @Override
+    public void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        if (!partitionNames.isEmpty()) {
+            throw new DorisConnectorException("Paimon tables do not support PARTITION name lists; "
+                    + "use PARTITION (key = value) for static partitions or omit PARTITION "
+                    + "for dynamic partition overwrite");
+        }
     }
 
     @Override
@@ -273,7 +311,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // are not DataTable). Sharing buildTableSchema with the at-snapshot path keeps the two from drifting.
         if (!paimonHandle.isSystemTable()) {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest =
-                    readSchemaAuthenticated(() -> catalogOps.latestSchema(table));
+                    readMetadataAuthenticated(() -> catalogOps.latestSchema(table));
             if (latest.isPresent()) {
                 PaimonCatalogOps.PaimonSchemaSnapshot schema = latest.get();
                 return buildTableSchema(
@@ -596,7 +634,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // on a miss; when caching is disabled (ttl-second<=0, the no-cache catalog) it runs every call.
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long id = latestSnapshotCache.getOrLoad(identifier,
-                () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
+                () -> readMetadataAuthenticated(
+                        () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L)));
         StatementPin pin = statementPin(paimonHandle, resolveTable(paimonHandle), id);
         Map<String, String> coordinates = new HashMap<>(pin.coordinates);
         if (!coordinates.isEmpty()) {
@@ -606,19 +645,19 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 .retainSchema(pin.schemaId() >= 0).properties(coordinates).build());
     }
 
-    private <T> T readSchemaAuthenticated(Supplier<T> read) {
-        // Cached tables do not cache schema files: exact/latest schema reads still need plugin UGI and TCCL.
+    private <T> T readMetadataAuthenticated(Supplier<T> read) {
+        // Table resolution can return before lazy schema/snapshot I/O; authenticate the actual read as well.
         try {
             return context.executeAuthenticated(read::get);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to read Paimon schema", e);
+            throw new RuntimeException("Failed to read Paimon metadata", e);
         }
     }
 
     private StatementPin statementPin(PaimonTableHandle handle, Table table, long snapshotId) {
-        return statementPins.computeIfAbsent(handle, ignored -> readSchemaAuthenticated(() -> {
+        return statementPins.computeIfAbsent(handle, ignored -> readMetadataAuthenticated(() -> {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> schema = catalogOps.latestSchema(table);
             long schemaId = schema.map(PaimonCatalogOps.PaimonSchemaSnapshot::schemaId).orElse(-1L);
             Map<String, String> coordinates = PaimonSchemaPin.capture(table, schemaId, snapshotId);
@@ -631,9 +670,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private PaimonCatalogOps.PaimonSchemaSnapshot schemaForPin(PaimonTableHandle handle, Table table, long schemaId) {
         if (!PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
             return schemaAtMemo.getOrLoad(handle, schemaId,
-                    () -> readSchemaAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
+                    () -> readMetadataAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
         }
-        return readSchemaAuthenticated(() -> {
+        return readMetadataAuthenticated(() -> {
             PaimonSchemaPin.validate(table, handle.getScanOptions());
             // INSERT replanning can replace this scope while retaining the source pin. Rehydrate
             // the exact schema in the new scope without using the catalog's historical memo.
@@ -714,6 +753,11 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         if (paimonHandle.isSystemTable()) {
             return Optional.empty();
         }
+        return readMetadataAuthenticated(() -> resolveTimeTravelAuthenticated(session, paimonHandle, spec));
+    }
+
+    private Optional<ConnectorMvccSnapshot> resolveTimeTravelAuthenticated(
+            ConnectorSession session, PaimonTableHandle paimonHandle, ConnectorTimeTravelSpec spec) {
         Table table = resolveTable(paimonHandle);
         switch (spec.getKind()) {
             case SNAPSHOT_ID: {
@@ -1119,12 +1163,15 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     void rejectReservedMetadataColumns(ConnectorCreateTableRequest request) {
         for (ConnectorColumn column : request.getColumns()) {
-            String name = column.getName();
-            if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
-                    || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name)) {
-                throw new DorisConnectorException(
-                        "Cannot create Paimon table with reserved metadata column: " + name);
-            }
+            rejectReservedMetadataColumnName(column.getName(), "create");
+        }
+    }
+
+    private static void rejectReservedMetadataColumnName(String name, String operation) {
+        if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
+                || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+            throw new DorisConnectorException("Cannot " + operation
+                    + " Paimon table with reserved metadata column: " + name);
         }
     }
 
@@ -1153,6 +1200,252 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         LOG.info("dropped Paimon table {}", id);
     }
 
+    /**
+     * Sets table options for {@code ALTER TABLE ... SET (...)}. Every entry becomes a
+     * {@link SchemaChange#setOption} in ONE {@code alterTable} call: paimon validates the whole list against
+     * the new schema before committing it, so a rejected entry keeps the valid ones from being written too,
+     * and the table gets one new schema version rather than one per option.
+     *
+     * <p>{@code path} is rejected before the remote alter: paimon would commit it as an ordinary option, but
+     * changing it does not relocate the table. Paimon leaves that check to the engine
+     * ({@link SchemaManager#checkAlterTablePath}).
+     */
+    @Override
+    public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+            Map<String, String> properties) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        try {
+            properties.keySet().forEach(SchemaManager::checkAlterTablePath);
+        } catch (UnsupportedOperationException e) {
+            throw new DorisConnectorException("Failed to set properties for Paimon table "
+                    + Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName())
+                    + ": " + e.getMessage(), e);
+        }
+        List<SchemaChange> changes = new ArrayList<>(properties.size());
+        properties.forEach((key, value) -> changes.add(SchemaChange.setOption(key, value)));
+        alterTable(paimonHandle, changes, "set properties");
+    }
+
+    // ==================== DDL: Column evolution ====================
+
+    @Override
+    public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        rejectReservedMetadataColumnName(column.getName(), "alter");
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        List<DataField> fields = loadRemoteFields(paimonHandle);
+        Map<String, DataField> fieldsByName = indexFieldsByName(fields);
+        rejectDuplicateColumn(fieldsByName.keySet(), column.getName());
+        validateEvolvedColumn(column);
+
+        SchemaChange.Move move = null;
+        if (position != null) {
+            move = position.isFirst()
+                    ? SchemaChange.Move.first(column.getName())
+                    : SchemaChange.Move.after(column.getName(),
+                            resolveRemoteField(fieldsByName, position.getAfterColumn()).name());
+        }
+        List<SchemaChange> changes = new ArrayList<>();
+        appendAddColumnChanges(changes, column, move);
+        alterTable(paimonHandle, changes, "add column " + column.getName());
+    }
+
+    @Override
+    public void addColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumn> columns) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Set<String> columnNames = new HashSet<>(indexFieldsByName(loadRemoteFields(paimonHandle)).keySet());
+        List<SchemaChange> changes = new ArrayList<>();
+        for (ConnectorColumn column : columns) {
+            rejectReservedMetadataColumnName(column.getName(), "alter");
+            rejectDuplicateColumn(columnNames, column.getName());
+            columnNames.add(column.getName().toLowerCase(java.util.Locale.ROOT));
+            validateEvolvedColumn(column);
+            appendAddColumnChanges(changes, column, null);
+        }
+        alterTable(paimonHandle, changes, "add columns");
+    }
+
+    @Override
+    public void dropColumn(ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        DataField field = resolveRemoteField(indexFieldsByName(loadRemoteFields(paimonHandle)), columnName);
+        alterTable(paimonHandle, Collections.singletonList(SchemaChange.dropColumn(field.name())),
+                "drop column " + field.name());
+    }
+
+    @Override
+    public void renameColumn(ConnectorSession session, ConnectorTableHandle handle,
+            String oldName, String newName) {
+        rejectReservedMetadataColumnName(newName, "alter");
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Map<String, DataField> fieldsByName = indexFieldsByName(loadRemoteFields(paimonHandle));
+        DataField oldField = resolveRemoteField(fieldsByName, oldName);
+        DataField conflicting = fieldsByName.get(newName.toLowerCase(java.util.Locale.ROOT));
+        if (conflicting != null && conflicting != oldField) {
+            throw new DorisConnectorException(
+                    "Column " + newName + " conflicts with an existing Paimon column (case-insensitive)");
+        }
+        if (oldField.name().equals(newName)) {
+            return;
+        }
+        alterTable(paimonHandle,
+                Collections.singletonList(SchemaChange.renameColumn(oldField.name(), newName)),
+                "rename column " + oldField.name() + " to " + newName);
+    }
+
+    @Override
+    public void modifyColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        validateEvolvedColumn(column);
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Map<String, DataField> fieldsByName = indexFieldsByName(loadRemoteFields(paimonHandle));
+        DataField current = resolveRemoteField(fieldsByName, column.getName());
+        DataType requested = requestedColumnType(column, current);
+        List<SchemaChange> changes = new ArrayList<>();
+
+        DataType requestedWithCurrentNullability = requested.copy(current.type().isNullable());
+        if (!current.type().equalsIgnoreFieldId(requestedWithCurrentNullability)) {
+            changes.add(SchemaChange.updateColumnType(current.name(), requestedWithCurrentNullability, true));
+        }
+        if (current.type().isNullable() != requested.isNullable()) {
+            changes.add(SchemaChange.updateColumnNullability(current.name(), requested.isNullable()));
+        }
+        if (!Objects.equals(current.description(), column.getComment())) {
+            changes.add(SchemaChange.updateColumnComment(current.name(), column.getComment()));
+        }
+        if (!Objects.equals(current.defaultValue(), column.getDefaultValue())) {
+            changes.add(SchemaChange.updateColumnDefaultValue(
+                    new String[] {current.name()}, column.getDefaultValue()));
+        }
+        if (position != null) {
+            SchemaChange.Move move = position.isFirst()
+                    ? SchemaChange.Move.first(current.name())
+                    : SchemaChange.Move.after(current.name(),
+                            resolveRemoteField(fieldsByName, position.getAfterColumn()).name());
+            changes.add(SchemaChange.updateColumnPosition(move));
+        }
+        alterTable(paimonHandle, changes, "modify column " + current.name());
+    }
+
+    @Override
+    public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> newOrder) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        List<DataField> fields = loadRemoteFields(paimonHandle);
+        Map<String, DataField> fieldsByName = indexFieldsByName(fields);
+        if (newOrder.size() != fields.size()) {
+            throw new DorisConnectorException("Reorder columns must contain every Paimon column exactly once");
+        }
+
+        List<String> remoteOrder = new ArrayList<>(newOrder.size());
+        Set<String> seen = new HashSet<>();
+        for (String columnName : newOrder) {
+            DataField field = resolveRemoteField(fieldsByName, columnName);
+            if (!seen.add(field.name().toLowerCase(java.util.Locale.ROOT))) {
+                throw new DorisConnectorException("Duplicate column in reorder columns: " + columnName);
+            }
+            remoteOrder.add(field.name());
+        }
+        List<String> currentOrder = fields.stream().map(DataField::name).collect(Collectors.toList());
+        if (currentOrder.equals(remoteOrder)) {
+            return;
+        }
+
+        List<SchemaChange> changes = new ArrayList<>();
+        changes.add(SchemaChange.updateColumnPosition(SchemaChange.Move.first(remoteOrder.get(0))));
+        for (int i = 1; i < remoteOrder.size(); i++) {
+            changes.add(SchemaChange.updateColumnPosition(
+                    SchemaChange.Move.after(remoteOrder.get(i), remoteOrder.get(i - 1))));
+        }
+        alterTable(paimonHandle, changes, "reorder columns");
+    }
+
+    private List<DataField> loadRemoteFields(PaimonTableHandle handle) {
+        try {
+            return context.executeAuthenticated(() -> {
+                Table table = PaimonTableResolver.resolve(catalogOps, handle);
+                return catalogOps.latestSchema(table)
+                        .map(PaimonCatalogOps.PaimonSchemaSnapshot::fields)
+                        .orElseGet(() -> table.rowType().getFields());
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to load schema for Paimon table " + handle, e);
+        }
+    }
+
+    private static Map<String, DataField> indexFieldsByName(List<DataField> fields) {
+        Map<String, DataField> fieldsByName = new HashMap<>();
+        for (DataField field : fields) {
+            DataField previous = fieldsByName.put(field.name().toLowerCase(java.util.Locale.ROOT), field);
+            if (previous != null) {
+                throw new DorisConnectorException("Paimon table contains columns which differ only by case: "
+                        + previous.name() + " and " + field.name());
+            }
+        }
+        return fieldsByName;
+    }
+
+    private static DataField resolveRemoteField(Map<String, DataField> fieldsByName, String columnName) {
+        DataField field = fieldsByName.get(columnName.toLowerCase(java.util.Locale.ROOT));
+        if (field == null) {
+            throw new DorisConnectorException("Column " + columnName + " does not exist in Paimon table");
+        }
+        return field;
+    }
+
+    private static void rejectDuplicateColumn(Set<String> lowerCaseNames, String columnName) {
+        if (lowerCaseNames.contains(columnName.toLowerCase(java.util.Locale.ROOT))) {
+            throw new DorisConnectorException(
+                    "Column " + columnName + " conflicts with an existing Paimon column (case-insensitive)");
+        }
+    }
+
+    private static void validateEvolvedColumn(ConnectorColumn column) {
+        if (column.isAggregated()) {
+            throw new DorisConnectorException(
+                    "Paimon column does not support aggregation method: " + column.getName());
+        }
+        if (column.isAutoInc()) {
+            throw new DorisConnectorException(
+                    "Paimon column does not support AUTO_INCREMENT: " + column.getName());
+        }
+    }
+
+    private static void appendAddColumnChanges(List<SchemaChange> changes, ConnectorColumn column,
+            SchemaChange.Move move) {
+        changes.add(SchemaChange.addColumn(column.getName(),
+                PaimonTypeMapping.toPaimonType(column.getType()).copy(column.isNullable()),
+                column.getComment(), move));
+        if (column.getDefaultValue() != null) {
+            changes.add(SchemaChange.updateColumnDefaultValue(
+                    new String[] {column.getName()}, column.getDefaultValue()));
+        }
+    }
+
+    private DataType requestedColumnType(ConnectorColumn column, DataField current) {
+        ConnectorType currentConnectorType = PaimonTypeMapping.toConnectorType(current.type(), typeMappingOptions);
+        return currentConnectorType.equals(column.getType())
+                ? current.type().copy(column.isNullable())
+                : PaimonTypeMapping.toPaimonType(column.getType()).copy(column.isNullable());
+    }
+
+    private void alterTable(PaimonTableHandle handle, List<SchemaChange> changes, String operation) {
+        if (changes.isEmpty()) {
+            return;
+        }
+        Identifier identifier = Identifier.create(handle.getDatabaseName(), handle.getTableName());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.alterTable(identifier, changes);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to " + operation + " for Paimon table "
+                    + identifier + ": " + e.getMessage(), e);
+        }
+    }
+
     // ==================== DDL: Create/Drop Database ====================
 
     /**
@@ -1165,18 +1458,22 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * {@code MaxComputeConnectorMetadata.createDatabase}). If the db somehow exists, paimon throws
      * {@code DatabaseAlreadyExistException}, wrapped here as {@link DorisConnectorException}.
      *
-     * <p>The HMS-only-props gate is a pure local arg check (no remote call), so it runs BEFORE the
-     * authenticator — mirroring legacy {@code PaimonMetadataOps.performCreateDb}, which rejected
-     * non-empty properties for every catalog type except HMS. The remote create then runs inside
+     * <p>The catalog-flavor property gate is a pure local arg check (no remote call), so it runs BEFORE the
+     * authenticator — mirroring legacy {@code PaimonMetadataOps.performCreateDb}. HMS, JDBC, REST and DLF
+     * accept database properties; only HMS and DLF accept {@code location}. The remote create then runs inside
      * {@link ConnectorContext#executeAuthenticated} (D7=B legacy parity).
      */
     @Override
     public void createDatabase(ConnectorSession session, String dbName,
             Map<String, String> properties) {
         String flavor = catalogProperties.getFlavor();
-        if (!properties.isEmpty() && !PaimonCatalogProperties.HMS.equals(flavor)) {
+        if (!properties.isEmpty() && !supportsDatabaseProperties(flavor)) {
             throw new DorisConnectorException(
                     "Not supported: create database with properties for paimon catalog type: " + flavor);
+        }
+        if (properties.containsKey("location") && !supportsDatabaseLocation(flavor)) {
+            throw new DorisConnectorException("Not supported: database property 'location' for paimon catalog type: "
+                    + flavor + " because it does not determine the default table location");
         }
         try {
             context.executeAuthenticated(() -> {
@@ -1188,6 +1485,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     "Failed to create Paimon database " + dbName + ": " + e.getMessage(), e);
         }
         LOG.info("created Paimon database {}", dbName);
+    }
+
+    private static boolean supportsDatabaseProperties(String flavor) {
+        return PaimonCatalogProperties.HMS.equals(flavor)
+                || PaimonCatalogProperties.JDBC.equals(flavor)
+                || PaimonCatalogProperties.REST.equals(flavor)
+                || PaimonCatalogProperties.DLF.equals(flavor);
+    }
+
+    private static boolean supportsDatabaseLocation(String flavor) {
+        return PaimonCatalogProperties.HMS.equals(flavor)
+                || PaimonCatalogProperties.DLF.equals(flavor);
     }
 
     /**
@@ -1256,7 +1565,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // rowType(). System tables keep their synthetic rowType() (no schema-version history).
         if (!paimonHandle.isSystemTable()) {
             Optional<PaimonCatalogOps.PaimonSchemaSnapshot> latest =
-                    readSchemaAuthenticated(() -> catalogOps.latestSchema(table));
+                    readMetadataAuthenticated(() -> catalogOps.latestSchema(table));
             if (latest.isPresent()) {
                 return buildColumnHandles(latest.get().fields(), true);
             }
@@ -1437,7 +1746,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     private ConnectorTableKey partitionViewCacheKey(PaimonTableHandle paimonHandle) {
         Identifier identifier = Identifier.create(paimonHandle.getDatabaseName(), paimonHandle.getTableName());
         long snapshotId = latestSnapshotCache.getOrLoad(identifier,
-                () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
+                () -> readMetadataAuthenticated(
+                        () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L)));
         return new ConnectorTableKey(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName(), snapshotId, -1L);
     }
@@ -1575,7 +1885,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             String partitionPath = PartitionPathUtils.generatePartitionPath(renderedSpec);
             String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
             if (!seenPartitionNames.add(partitionName)) {
-                throw new IllegalStateException("Duplicate Paimon partition name: " + partitionName);
+                // Paimon may render distinct typed values, notably NULL and an empty string, to the
+                // same physical partition name. The path-oriented Catalog Partition API has already
+                // lost that typed identity, so returning either entry would make Doris prune rows
+                // incorrectly. Match the branch-4.1 behavior and disable Doris-side partition
+                // pruning for the table; Paimon's scan planning remains authoritative.
+                LOG.warn("Ambiguous Paimon partition name {}; disable Doris partition pruning",
+                        partitionName);
+                return Collections.emptyList();
             }
             // partitionValues = renderedSpec (rendered/normalized), keyed by the remote column name:
             // downstream indexes by raw remote keys but reads the Hive-canonical rendered value (see the
@@ -1681,7 +1998,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         }
         Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
         if (PaimonScanParams.preservesBoundSchema(scanOptions)) {
-            return readSchemaAuthenticated(() -> PaimonReaderOptions.runtimeSafeSystemTable(
+            return readMetadataAuthenticated(() -> PaimonReaderOptions.runtimeSafeSystemTable(
                     handle.getSysTableName(), systemTable, dataTable, scanOptions));
         }
         return PaimonReaderOptions.runtimeSafeSystemTable(
@@ -1732,7 +2049,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     connectorType,
                     comment,
                     nullable,
-                    null,
+                    field.defaultValue(),
                     true);
             // Legacy DESC parity (PaimonExternalTable.initSchema:356 / PaimonSysExternalTable:270): a
             // TIMESTAMP_WITH_LOCAL_TIME_ZONE column carries the WITH_TIMEZONE "Extra" marker via

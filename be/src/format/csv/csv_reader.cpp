@@ -283,7 +283,7 @@ Status CsvReader::init_reader(bool is_load) {
 
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        auto data_type_ptr = _file_slot_descs[i]->type();
         if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
             _use_nullable_string_opt[i] = 1;
         }
@@ -366,7 +366,7 @@ Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
 
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        auto data_type_ptr = _file_slot_descs[i]->type();
         if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
             _use_nullable_string_opt[i] = 1;
         }

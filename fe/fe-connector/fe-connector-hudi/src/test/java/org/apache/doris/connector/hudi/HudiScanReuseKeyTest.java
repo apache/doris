@@ -33,9 +33,11 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -50,12 +52,42 @@ class HudiScanReuseKeyTest {
     }
 
     private static HudiTableHandle handle() {
-        return new HudiTableHandle.Builder("db", "t", "/warehouse/t", "COPY_ON_WRITE")
+        return handleAt("db", "t", "/warehouse/t");
+    }
+
+    private static HudiTableHandle handleAt(String dbName, String tableName, String basePath) {
+        return new HudiTableHandle.Builder(dbName, tableName, basePath, "COPY_ON_WRITE")
                 .inputFormat("org.apache.hudi.hadoop.HoodieParquetInputFormat")
                 .partitionKeyNames(Arrays.asList("year", "month"))
                 .prunedPartitionPaths(Arrays.asList("year=2025/month=01", "year=2025/month=02"))
                 .queryInstant("20250429000000000")
                 .build();
+    }
+
+    @Test
+    void everyRangeInputSeparatesTheKey() {
+        // The memo caches the final range list, so every handle fact the ranges come from must separate the key:
+        // the input format and serde choose the reader the ranges are planned for, the partition key order maps
+        // the partition values, the generation names the timeline they were planned from, and db / table / base
+        // path name the data. MUTATION: dropping any of these from HudiScanReuseKey -> red.
+        Map<String, HudiScanPlanProvider.HudiScanReuseKey> variants = new LinkedHashMap<>();
+        variants.put("input format", key(handle().toBuilder()
+                .inputFormat("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat")
+                .build()));
+        variants.put("serde", key(handle().toBuilder()
+                .serdeLib("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe")
+                .build()));
+        variants.put("partition key order", key(handle().toBuilder()
+                .partitionKeyNames(Arrays.asList("month", "year"))
+                .build()));
+        variants.put("generation", HudiScanPlanProvider.hudiScanReuseKey(handle(), "later-generation"));
+        variants.put("base path", key(handleAt("db", "t", "/warehouse/t_rewritten")));
+        variants.put("database", key(handleAt("db2", "t", "/warehouse/t")));
+        variants.put("table", key(handleAt("db", "t2", "/warehouse/t")));
+
+        HudiScanPlanProvider.HudiScanReuseKey base = key(handle());
+        variants.forEach((fact, variant) -> Assertions.assertNotEquals(base, variant,
+                "a different " + fact + " must not reuse the cached ranges"));
     }
 
     private static HudiScanPlanProvider.HudiScanReuseKey key(HudiTableHandle handle) {
@@ -168,6 +200,27 @@ class HudiScanReuseKeyTest {
 
         Assertions.assertSame(first, second, "an identical scan must reuse the statement's planned range list");
         Assertions.assertEquals(1, provider.planCalls, "the underlying Hudi planner must run once");
+    }
+
+    @Test
+    void statementReuseLastsOnlyWhilePlanning() {
+        // Identical scans share their ranges only within one plan, so the memo is kept for planning only: once the
+        // engine ends planning no range is held, and a later plan of the statement plans the scan again.
+        // MUTATION: keeping the memo for the whole statement (computeIfAbsent) -> red.
+        RecordingScanProvider provider = new RecordingScanProvider();
+        MemoScope scope = new MemoScope();
+        ConnectorSession session = new MemoSession(scope);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle().toBuilder().prunedPartitionPaths(null).build(),
+                Collections.<ConnectorColumnHandle>emptyList()).build();
+        List<ConnectorScanRange> planned = provider.planScan(session, request);
+
+        scope.endPlanning();
+
+        Assertions.assertFalse(scope.contains(HudiScanPlanProvider.SCAN_REUSE_NAMESPACE + ":7:same-statement"),
+                "the planned ranges must not outlive planning");
+        Assertions.assertNotSame(planned, provider.planScan(session, request));
+        Assertions.assertEquals(2, provider.planCalls, "a scan planned after planning ended plans again");
     }
 
     @Test
@@ -317,11 +370,29 @@ class HudiScanReuseKeyTest {
 
     private static final class MemoScope implements ConnectorStatementScope {
         private final ConcurrentHashMap<String, Object> cache = new ConcurrentHashMap<>();
+        private final Set<String> planningKeys = ConcurrentHashMap.newKeySet();
 
         @Override
         @SuppressWarnings("unchecked")
         public <T> T computeIfAbsent(String key, Supplier<T> loader) {
             return (T) cache.computeIfAbsent(key, ignored -> loader.get());
+        }
+
+        @Override
+        public <T> T computeIfAbsentForPlanning(String key, Supplier<T> loader) {
+            T value = computeIfAbsent(key, loader);
+            planningKeys.add(key);
+            return value;
+        }
+
+        @Override
+        public void endPlanning() {
+            planningKeys.forEach(cache::remove);
+            planningKeys.clear();
+        }
+
+        boolean contains(String key) {
+            return cache.containsKey(key);
         }
     }
 

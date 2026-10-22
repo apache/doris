@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -64,6 +65,7 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
                 .toRule(ExpressionRuleType.CASE_WHEN_TO_COMPOUND_PREDICATE));
         rulesBuilder.add(matchesType(If.class)
                 .when(this::checkBooleanType)
+                .when(this::canRewriteIf)
                 .then(this::rewriteIf)
                 .toRule(ExpressionRuleType.IF_TO_COMPOUND_PREDICATE));
         rulesBuilder.addAll(IF_REWRITE_IN_COND.buildRules());
@@ -71,12 +73,11 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
     }
 
     private boolean checkBooleanType(Expression expression) {
-        return expression.getDataType().isBooleanType()
-                && !requiresShortCircuitEvaluation(expression);
+        return expression.getDataType().isBooleanType();
     }
 
-    private static boolean requiresShortCircuitEvaluation(Expression expression) {
-        return expression.anyMatch(node -> node instanceof RequiresShortCircuitEvaluation);
+    private boolean canRewriteIf(If ifExpr) {
+        return !(ifExpr instanceof RequiresShortCircuitEvaluation);
     }
 
     private Expression rewriteCaseWhen(CaseWhen caseWhen) {
@@ -132,15 +133,16 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
         @Override
         protected boolean needRewrite(Expression expression, boolean isInsideCondition) {
             return expression.containsType(If.class)
-                    && expression.containsType(BooleanLiteral.class, NullLiteral.class)
-                    && !requiresShortCircuitEvaluation(expression);
+                    && expression.containsType(BooleanLiteral.class, NullLiteral.class);
+        }
+
+        @Override
+        public Expression visitShortCircuitIf(ShortCircuitIf ifExpr, Boolean isInsideCondition) {
+            return ifExpr;
         }
 
         @Override
         public Expression visitIf(If ifExpr, Boolean isInsideCondition) {
-            if (ifExpr instanceof RequiresShortCircuitEvaluation) {
-                return ifExpr;
-            }
             If newIf = (If) super.visitIf(ifExpr, isInsideCondition);
             if (isInsideCondition) {
                 Expression newCondition = newIf.getCondition();

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/common/inverted_index_query_type.h"
 
 #include <gtest/gtest.h>
 

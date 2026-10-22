@@ -157,16 +157,11 @@ struct VariantShredder::Impl {
         PathState& path_state = paths[path_index];
         const size_t row_marker = row + 1;
         if (path_state.last_row_marker == row_marker) {
-            if (!options.check_duplicate_json_path) {
-                return Status::InvalidArgument("may contains duplicated entry : {}",
-                                               path_state.path.get_path());
-            }
-            return Status::OK();
+            return Status::InvalidArgument("may contains duplicated entry : {}",
+                                           path_state.path.get_path());
         }
         path_state.last_row_marker = row_marker;
-        if (value.is_null()) {
-            return Status::OK();
-        }
+        DCHECK(!value.is_null());
         return get_or_create_builder(path_index)->append(value, row);
     }
 
@@ -209,9 +204,9 @@ struct VariantShredder::Impl {
 
     Status visit(VariantRef value, MetadataPathCache& metadata_cache, PathIndex path_index,
                  size_t row) {
+        // A null member occupies no path, so {"a":{"b":null},"a.b":3} does not collide.
         if (value.is_null()) {
-            return options.check_duplicate_json_path ? append_leaf(value, path_index, row)
-                                                     : Status::OK();
+            return Status::OK();
         }
         if (value.basic_type() != VariantBasicType::OBJECT) {
             return append_leaf(value, path_index, row);
