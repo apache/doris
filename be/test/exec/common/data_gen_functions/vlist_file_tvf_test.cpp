@@ -484,7 +484,7 @@ TEST_F(ListFileTVFTest, EmptyListingReturnsEmptyFileColumn) {
     EXPECT_EQ(block.rows(), 0);
     ASSERT_EQ(block.columns(), 2);
     EXPECT_EQ(block.get_by_position(0).type->get_name(), "String");
-    EXPECT_EQ(block.get_by_position(1).type->get_name(), "File");
+    EXPECT_EQ(block.get_by_position(1).type->get_name(), "Nullable(File)");
     EXPECT_TRUE(eos);
 }
 
@@ -530,7 +530,8 @@ TEST_F(ListFileTVFTest, RawPathsRoundTripThroughToFileAndS3Head) {
     auto context =
             FunctionContext::create_context(&state, std::make_shared<DataTypeFile>(), {text, text});
     context->set_constant_cols({std::make_shared<ColumnPtrWrapper>(resource), nullptr});
-    ASSERT_TRUE(to_file.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            to_file.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     size_t head_index = 0;
     EXPECT_CALL(*s3, HeadObject(testing::_))
             .Times(keys.size())
@@ -552,7 +553,8 @@ TEST_F(ListFileTVFTest, RawPathsRoundTripThroughToFileAndS3Head) {
     }
     EXPECT_EQ(row(listed, 7)[3].get<TYPE_STRING>(), "image/jpeg");
     EXPECT_EQ(row(listed, 8)[3].get<TYPE_STRING>(), "image/png");
-    ASSERT_TRUE(to_file.close(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            to_file.close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     state._query_ctx = nullptr;
 }
 
