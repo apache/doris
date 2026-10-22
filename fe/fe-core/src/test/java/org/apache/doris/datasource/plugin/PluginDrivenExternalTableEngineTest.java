@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
@@ -206,13 +207,12 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
-    public void testInitSchemaReturnsEmptyWhenTableHandleMissing() {
+    public void testInitSchemaFailsWhenTableHandleMissing() {
         Connector connector = createMockConnector(false, false);
         PluginDrivenExternalTable table = createTableWithCatalogType("jdbc", connector);
 
-        // Return an empty schema result when the connector cannot resolve the table handle.
-        Assertions.assertFalse(table.initSchema().isPresent(),
-                "Missing connector table handles should produce an empty schema result");
+        CacheException failure = Assertions.assertThrows(CacheException.class, table::initSchema);
+        Assertions.assertTrue(failure.getMessage().contains("test_db.test_table does not exist"));
     }
 
     @Test

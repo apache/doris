@@ -40,9 +40,9 @@ nested_tbl2
 nested_tbl3
 
 -- !sql15 --
+ns1.ns2
 
 -- !sql17 --
-ns1.ns2
 
 -- !sql18 --
 

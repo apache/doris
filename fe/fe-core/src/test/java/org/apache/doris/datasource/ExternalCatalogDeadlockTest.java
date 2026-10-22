@@ -74,6 +74,7 @@ public class ExternalCatalogDeadlockTest {
         Assertions.assertTrue(refreshReady.await(DEADLOCK_DETECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
         assertNoDeadlock(queryThread, refreshThread, backgroundFailure);
+        catalog.onClose();
     }
 
     private static void assertNoDeadlock(Thread queryThread, Thread refreshThread,
@@ -125,6 +126,7 @@ public class ExternalCatalogDeadlockTest {
 
         DeadlockCatalog() {
             super(1L, "deadlock-catalog", Type.TEST, "");
+            catalogProperty = new CatalogProperty(null, java.util.Collections.emptyMap());
             initialized = true;
         }
 

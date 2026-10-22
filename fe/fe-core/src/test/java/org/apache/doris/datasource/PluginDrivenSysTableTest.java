@@ -256,7 +256,7 @@ public class PluginDrivenSysTableTest {
     }
 
     @Test
-    public void testSysTableEmptyWhenBaseHandleMissing() {
+    public void testSysTableFailsWhenBaseHandleMissing() {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
@@ -272,8 +272,8 @@ public class PluginDrivenSysTableTest {
             }
         };
 
-        Assertions.assertFalse(sysTable.initSchema().isPresent(),
-                "no base handle -> no sys handle -> empty schema (no spurious getSysTableHandle)");
+        CacheException failure = Assertions.assertThrows(CacheException.class, sysTable::initSchema);
+        Assertions.assertTrue(failure.getMessage().contains("REMOTE_DB.REMOTE_TBL$snapshots does not exist"));
         Mockito.verify(metadata, Mockito.never())
                 .getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString());
     }

@@ -208,14 +208,14 @@ suite("iceberg_and_internal_nested_namespace", "p0,external") {
         sql """refresh table `ns1.ns2`.nested_tbl2xxx"""
         exception """Table nested_tbl2xxx does not exist in db ns1.ns2"""
     }
-    // drop ns1.ns2 first, we can still see it after refresh, because ns1.ns2.ns3 still exists
+    // DROP invalidates database membership immediately. The remaining child keeps its parent visible.
     sql """drop database `ns1.ns2` force"""
-    qt_sql15 """show databases like "ns1.ns2"""" // empty
+    qt_sql15 """show databases like "ns1.ns2"""" // 1
     sql """refresh catalog ${catalog_name}"""
     qtWithRefreshRetry("sql16", """show databases like "ns1.ns2"""", "ns1.ns2") // 1
-    // then we drop ns1.ns2.ns3, after refresh, ns1.ns2 also disappear
+    // Removing the last child also removes the inferred parent, without requiring a catalog refresh.
     sql """drop database `ns1.ns2.ns3` force"""
-    qt_sql17 """show databases like "ns1.ns2"""" // 1
+    qt_sql17 """show databases like "ns1.ns2"""" // empty
     qt_sql18 """show databases like "ns1.ns2.ns3"""" // empty
     sql """refresh catalog ${catalog_name}"""
     qtWithRefreshRetry("sql19", """show databases like "ns1.ns2"""", "") // empty

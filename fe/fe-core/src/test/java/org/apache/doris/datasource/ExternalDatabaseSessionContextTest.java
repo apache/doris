@@ -284,7 +284,9 @@ public class ExternalDatabaseSessionContextTest {
         }
 
         boolean hasSharedDatabaseCacheState(long dbId) {
-            return databaseNames != null || databases != null || dbIdNameIndex.getName(dbId) != null;
+            return (databaseNames != null && databaseNames.getIfPresent("") != null)
+                    || (databases != null && databases.stats().getEstimatedSize() > 0)
+                    || dbIdNameIndex.getName(dbId) != null;
         }
     }
 
