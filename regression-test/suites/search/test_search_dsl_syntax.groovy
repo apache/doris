@@ -212,12 +212,12 @@ suite("test_search_dsl_syntax", "p0") {
 
     // Performance and edge case tests
 
-    // Edge Case Test 1: Empty search string
-    try {
-        sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id FROM ${tableName} WHERE search('') ORDER BY id"
-        // Should handle empty string gracefully
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("only inverted index queries are supported") || e.getMessage().contains("Invalid"))
+    // Empty and whitespace-only DSL must fail during FE analysis.
+    ["", "   "].each { dsl ->
+        test {
+            sql "EXPLAIN SELECT id FROM ${tableName} WHERE search('${dsl}')"
+            exception "Invalid search expression: empty search DSL"
+        }
     }
 
     // Edge Case Test 2: Very long search string

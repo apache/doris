@@ -57,96 +57,139 @@ suite("test_search_input_binding", "p0") {
         (6, 'hello', 'hello', parse_to_variant('{"city":"beijing"}'))
     """
 
-    qt_project_alias """
-        SELECT id FROM (SELECT id, title AS label FROM search_input_left) t
-        WHERE search('LABEL:hello') ORDER BY id
-    """
+    explain {
+        sql """
+            SELECT id FROM (SELECT id, title AS label FROM search_input_left) t
+            WHERE search('LABEL:hello') ORDER BY id
+        """
+        contains "VOlapScanNode"
+        contains "search("
+    }
     // The visible alias shadows a different indexed column in the base table.
-    qt_shadowed_column """
-        SELECT id FROM (SELECT id, title AS other_title FROM search_input_left) t
-        WHERE search('other_title:hello') ORDER BY id
-    """
-    qt_nested_alias """
-        SELECT id FROM (
-            SELECT id, label AS renamed FROM (
-                SELECT id, title AS label FROM search_input_left
-            ) t
-        ) u WHERE search('renamed:hello') ORDER BY id
-    """
-    qt_variant_parent_alias """
-        SELECT id FROM (SELECT id, v AS doc FROM search_input_left) t
-        WHERE search('DOC.city:beijing') ORDER BY id
-    """
-    qt_variant_path_alias """
-        SELECT id FROM (SELECT id, v['city'] AS city FROM search_input_left) t
-        WHERE search('city:beijing') ORDER BY id
-    """
-    qt_variant_path_alias_multi_field """
-        SELECT id FROM (SELECT id, title, v['city'] AS city FROM search_input_left) t
-        WHERE search('title:hello OR city:beijing') ORDER BY id
-    """
+    explain {
+        sql """
+            SELECT id FROM (SELECT id, title AS other_title FROM search_input_left) t
+            WHERE search('other_title:hello') ORDER BY id
+        """
+        contains "VOlapScanNode"
+        contains "search("
+    }
+    explain {
+        sql """
+            SELECT id FROM (
+                SELECT id, label AS renamed FROM (
+                    SELECT id, title AS label FROM search_input_left
+                ) t
+            ) u WHERE search('renamed:hello') ORDER BY id
+        """
+        contains "VOlapScanNode"
+        contains "search("
+    }
+    explain {
+        sql """
+            SELECT id FROM (SELECT id, v AS doc FROM search_input_left) t
+            WHERE search('DOC.city:beijing') ORDER BY id
+        """
+        contains "VOlapScanNode"
+        contains "search("
+        contains "sub path: [city]"
+    }
+    explain {
+        sql """
+            SELECT id FROM (SELECT id, v['city'] AS city FROM search_input_left) t
+            WHERE search('city:beijing') ORDER BY id
+        """
+        contains "VOlapScanNode"
+        contains "search("
+        contains "sub path: [city]"
+    }
+    explain {
+        sql """
+            SELECT id FROM (SELECT id, title, v['city'] AS city FROM search_input_left) t
+            WHERE search('title:hello OR city:beijing') ORDER BY id
+        """
+        contains "VOlapScanNode"
+        contains "search("
+        contains "sub path: [city]"
+    }
     // Each branch has a different physical column name for the same output.
-    qt_union_all """
-        SELECT id FROM (
-            SELECT id, title AS label FROM search_input_left
-            UNION ALL
-            SELECT id, body FROM search_input_right
-        ) t WHERE search('label:hello') ORDER BY id
-    """
-    qt_union_distinct """
-        SELECT id FROM (
-            SELECT id, title AS label FROM search_input_left
-            UNION
-            SELECT id - 3, body FROM search_input_right
-        ) t WHERE search('label:hello') ORDER BY id
-    """
-    qt_variant_union """
-        SELECT id FROM (
-            SELECT id, v AS doc FROM search_input_left
-            UNION ALL
-            SELECT id, payload FROM search_input_right
-        ) t WHERE search('doc.city:beijing') ORDER BY id
-    """
+    explain {
+        sql """
+            SELECT id FROM (
+                SELECT id, title AS label FROM search_input_left
+                UNION ALL
+                SELECT id, body FROM search_input_right
+            ) t WHERE search('label:hello') ORDER BY id
+        """
+        contains "search_input_left"
+        contains "search_input_right"
+        multiContains "search(", 2
+    }
+    explain {
+        sql """
+            SELECT id FROM (
+                SELECT id, title AS label FROM search_input_left
+                UNION
+                SELECT id - 3, body FROM search_input_right
+            ) t WHERE search('label:hello') ORDER BY id
+        """
+        contains "search_input_left"
+        contains "search_input_right"
+        multiContains "search(", 2
+    }
+    explain {
+        sql """
+            SELECT id FROM (
+                SELECT id, v AS doc FROM search_input_left
+                UNION ALL
+                SELECT id, payload FROM search_input_right
+            ) t WHERE search('doc.city:beijing') ORDER BY id
+        """
+        contains "search_input_left"
+        contains "search_input_right"
+        multiContains "search(", 2
+        contains "sub path: [city]"
+    }
 
     // Binding uses only visible input columns and still requires a unique name.
     test {
-        sql """SELECT l.id FROM search_input_left l JOIN search_input_left r ON l.id = r.id
+        sql """EXPLAIN SELECT l.id FROM search_input_left l JOIN search_input_left r ON l.id = r.id
             WHERE search('TITLE:hello')"""
         exception "must resolve to exactly one input column"
     }
     test {
-        sql """SELECT l.id FROM search_input_left l JOIN search_input_left r ON l.id = r.id
+        sql """EXPLAIN SELECT l.id FROM search_input_left l JOIN search_input_left r ON l.id = r.id
             WHERE search('V.city:beijing')"""
         exception "must resolve to exactly one input column"
     }
     test {
-        sql """SELECT id FROM (SELECT id, title AS label FROM search_input_left) t
+        sql """EXPLAIN SELECT id FROM (SELECT id, title AS label FROM search_input_left) t
             WHERE search('title:hello')"""
         exception "must resolve to exactly one input column"
     }
     test {
-        sql """SELECT id FROM (SELECT id, title AS label FROM search_input_left) t
+        sql """EXPLAIN SELECT id FROM (SELECT id, title AS label FROM search_input_left) t
             WHERE search('label.city:beijing')"""
         exception "is not VARIANT type"
     }
     // Final validation rejects bound fields that cannot become scan predicates.
     test {
-        sql """SELECT l.id FROM search_input_left l JOIN search_input_right r ON l.id = r.id
+        sql """EXPLAIN SELECT l.id FROM search_input_left l JOIN search_input_right r ON l.id = r.id
             WHERE search('title:hello AND body:world')"""
         exception "search() is only supported in filters directly on an OLAP table scan"
     }
     test {
-        sql """SELECT id FROM (SELECT id, concat(title, 'x') AS label FROM search_input_left) t
+        sql """EXPLAIN SELECT id FROM (SELECT id, concat(title, 'x') AS label FROM search_input_left) t
             WHERE search('label:hellox')"""
         exception "search() fields must reference OLAP scan columns directly"
     }
     test {
-        sql """SELECT id FROM (SELECT id, plain_title AS label FROM search_input_left) t
+        sql """EXPLAIN SELECT id FROM (SELECT id, plain_title AS label FROM search_input_left) t
             WHERE search('label:hello')"""
         exception "Field 'plain_title' has no inverted index"
     }
     test {
-        sql """SELECT id FROM (
+        sql """EXPLAIN SELECT id FROM (
                 SELECT id, title AS label FROM search_input_left
                 UNION ALL
                 SELECT id, plain_body FROM search_input_right

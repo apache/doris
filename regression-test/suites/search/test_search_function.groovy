@@ -156,7 +156,7 @@ suite("test_search_function", "p0") {
     // Test 22: Search on non-indexed table — must now throw at FE planning time.
     // CheckAfterRewrite rejects a remaining SEARCH predicate whose column has no inverted index.
     test {
-        sql """SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"""
+        sql """EXPLAIN SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"""
         exception "Field 'title' has no inverted index"
     }
 }

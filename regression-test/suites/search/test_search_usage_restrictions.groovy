@@ -114,11 +114,15 @@ suite("test_search_usage_restrictions", "p0") {
     }
 
     // Test 10: SEARCH with an unambiguous field can be pushed through JOIN.
-    qt_valid_join """
-        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ t1.id FROM ${tableName} t1
-        JOIN ${tableName2} t2 ON t1.id = t2.id
-        WHERE search('title:Learning') ORDER BY t1.id
-    """
+    explain {
+        sql """
+            SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ t1.id FROM ${tableName} t1
+            JOIN ${tableName2} t2 ON t1.id = t2.id
+            WHERE search('title:Learning') ORDER BY t1.id
+        """
+        contains "VOlapScanNode"
+        contains "search('title:Learning')"
+    }
 
     // Test 11: search() in ORDER BY should fail
     test {

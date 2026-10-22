@@ -26,12 +26,14 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -127,6 +129,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().thenApply(ctx -> {
                     Plan plan = ctx.root;
                     checkExpressionInputTypes(plan);
+                    checkSearchUsage(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
@@ -168,6 +171,23 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     if (type.isInstance(e) && !(e instanceof Unnest)) {
                         throw new AnalysisException(plan.getType() + " can not contains "
                                 + type.getSimpleName() + " expression: " + ((Expression) e).toSql());
+                    }
+                }
+            });
+        }
+    }
+
+    // Check before filling missing slots or rewrites can hide an invalid SEARCH position.
+    private void checkSearchUsage(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            expression.foreach(expr -> {
+                if (expr instanceof Search || expr instanceof SearchExpression) {
+                    if (!(plan instanceof LogicalFilter)) {
+                        throw new AnalysisException(
+                                "search() is only supported in WHERE filters (filter predicates)");
+                    }
+                    if (expr instanceof Search && ((Search) expr).getDslString().trim().isEmpty()) {
+                        throw new AnalysisException("Invalid search expression: empty search DSL");
                     }
                 }
             });
