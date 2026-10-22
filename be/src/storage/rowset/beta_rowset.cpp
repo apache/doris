@@ -113,7 +113,7 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
 #ifndef BE_TEST
     // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
     // So here `ROWSET_UNLOADING` is allowed.
-    DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
+    DCHECK(_rowset_state_machine.rowset_state() != RowsetState::ROWSET_UNLOADED);
 #endif
     auto load_segment_rows = [this, enable_segment_cache, read_stats, io_ctx]() -> Status {
         // Start from scratch, a previous failed attempt may have left partial rows.
