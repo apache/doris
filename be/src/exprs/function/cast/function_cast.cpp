@@ -315,7 +315,8 @@ WrapperType prepare_impl(const CastOptions& options, const DataTypePtr& origin_f
          to_type->get_primitive_type() == TYPE_JSONB ||
          from_type->get_primitive_type() == TYPE_VARIANT ||
          to_type->get_primitive_type() == TYPE_VARIANT ||
-         is_string_type(from_type->get_primitive_type()))) {
+         is_string_type(from_type->get_primitive_type()) ||
+         is_string_type(to_type->get_primitive_type()))) {
         return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 

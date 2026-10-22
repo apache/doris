@@ -16,17 +16,14 @@
 // under the License.
 
 suite("test_file_type_optimizer") {
-    def publicStruct = "STRUCT<uri:VARCHAR(65533),offset:BIGINT,size:BIGINT," +
-            "content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>"
     def fileCtes = """
         WITH file_values AS (
             SELECT number AS id, CAST(NAMED_STRUCT('uri', CONCAT('urn:optimizer:', number),
                 'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS FILE) AS f
             FROM numbers("number"="3")
         ), file_scan AS (
-            SELECT id, f, CAST(ARRAY(CAST(f AS ${publicStruct})) AS ARRAY<FILE>) AS a,
-                   CAST(NAMED_STRUCT('f', CAST(f AS ${publicStruct})) AS STRUCT<f:FILE>) AS s,
-                   CAST(MAP('key', CAST(f AS ${publicStruct})) AS MAP<STRING,FILE>) AS m
+            SELECT id, f, ARRAY(f) AS a,
+                   NAMED_STRUCT('f', f) AS s, MAP('key', f) AS m
             FROM file_values
         )
     """

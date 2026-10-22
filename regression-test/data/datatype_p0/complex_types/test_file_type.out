@@ -23,11 +23,6 @@
 2	\N	\N	\N	\N	\N	\N	\N	\N	true	true	false
 3	urn:example:three	2	8	\N	\N	urn:example:three			false	false	true
 
--- !struct --
-1	{"uri":"S3://Bucket/a%2fb?versionId=v1", "offset":null, "size":0, "content_type":"Image/PNG", "checksum":"CRC32:00000000", "inline":0x00FF80}
-2	\N
-3	{"uri":"urn:example:three", "offset":2, "size":8, "content_type":null, "checksum":null, "inline":0x}
-
 -- !count --
 2
 
@@ -145,13 +140,8 @@ true	true
 -- !nested_try_cast --
 \N	\N	\N
 
--- !explicit_reverse --
+-- !explicit_struct_to_file --
 {"uri":"urn:cast","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}	{"uri":"urn:cast","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}	urn:cast	{"uri":"urn:cast","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}	urn:cast
-
--- !inline_struct_roundtrip --
-1	00FF80
-2	\N
-3	
 
 -- !explicit_forward --
 2	urn:struct	urn:struct
@@ -171,12 +161,6 @@ true	true
 2	[{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":""}, null]	{"asset":{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":""}}	{"asset":{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":""}}			
 3	[null, null]	{"asset":null}	{"asset":null}	\N	\N	\N
 4	[{"uri":"urn:reference","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}, null]	{"asset":{"uri":"urn:reference","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}}	{"asset":{"uri":"urn:reference","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}}	\N	\N	\N
-
--- !inline_struct --
-1	{"uri":null, "offset":null, "size":null, "content_type":null, "checksum":null, "inline":0x00FF}
-2	{"uri":null, "offset":null, "size":null, "content_type":null, "checksum":null, "inline":0x}
-3	\N
-4	{"uri":"urn:reference", "offset":null, "size":null, "content_type":null, "checksum":null, "inline":null}
 
 -- !inline_explode --
 1	\N	\N	\N	\N	\N	00FF
