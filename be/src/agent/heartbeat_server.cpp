@@ -100,7 +100,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_is_shutdown(is_shutdown);
         // Use the same snapshot as the response: shutdown can start during this heartbeat.
         if (is_shutdown) {
-            doris::k_shutdown_heartbeat_sent.store(true, std::memory_order_release);
+            doris::k_shutdown_heartbeat_sent = true;
         }
         heartbeat_result.backend_info.__set_fragment_executing_count(
                 get_fragment_executing_count());
