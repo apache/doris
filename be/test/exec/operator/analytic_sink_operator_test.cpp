@@ -101,15 +101,19 @@ public:
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
         data_map.emplace("test", std::move(spill_data_dir));
         ExecEnv::GetInstance()->_spill_file_mgr = new SpillFileManager(std::move(data_map));
+        _initialized = true;
         return ExecEnv::GetInstance()->spill_file_mgr()->init();
     }
 
     ~ScopedSpillFileManager() {
-        if (ExecEnv::GetInstance()->spill_file_mgr()) {
+        if (_initialized && ExecEnv::GetInstance()->spill_file_mgr()) {
             ExecEnv::GetInstance()->spill_file_mgr()->stop();
             SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
         }
     }
+
+private:
+    bool _initialized = false;
 };
 
 } // namespace
@@ -222,6 +226,8 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     }
 
     RuntimeProfile profile {"test"};
+    // Destroy fixture-owned batches and files before their SpillDataDir.
+    ScopedSpillFileManager spill_file_manager;
     std::unique_ptr<AnalyticSinkOperatorX> sink;
     std::unique_ptr<AnalyticSourceOperatorX> source;
 
@@ -460,6 +466,9 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumInMemory) {
 
 TEST_F(AnalyticSinkOperatorTest, SpillSchedulingBeforeFirstWrite) {
     Initialize(10);
+    // Scheduler submission can precede local-state open(), where _spill_enabled is set.
+    sink->_enable_spill_analytic = true;
+    EXPECT_TRUE(sink->is_blockable(state.get()));
     prepare_spilled_full_partition_sum();
 
     // Even an ordinary first input can cross the proactive limit or flush a peer sidecar.
@@ -470,6 +479,8 @@ TEST_F(AnalyticSinkOperatorTest, SpillSchedulingBeforeFirstWrite) {
     EXPECT_TRUE(sink->is_blockable(state.get()));
 
     sink_local_state->_spill_enabled = false;
+    EXPECT_TRUE(sink->is_blockable(state.get()));
+    sink->_enable_spill_analytic = false;
     EXPECT_FALSE(sink->is_blockable(state.get()));
 }
 
@@ -480,6 +491,7 @@ TEST_F(AnalyticSinkOperatorTest, SpillSchedulingReplayUsesOwnSharedState) {
     // The fixture puts source and sink in one RuntimeState. Disable only its sink's spill
     // flag to model replay feeding an ordinary sink; the source's shared flag stays enabled.
     sink_local_state->_spill_enabled = false;
+    sink->_enable_spill_analytic = false;
     EXPECT_FALSE(sink->is_blockable(state.get()));
     {
         LockGuard lock(source_local_state->_shared_state->buffer_mutex);
@@ -536,7 +548,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesFirstInMemoryResultColumn
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumFromDisk) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(10);
@@ -649,7 +660,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathSplitsPartitionAcrossInputBlocks) {
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathCumeDistUsesPeerGroupEnds) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(3);
@@ -853,7 +863,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathNullableSumKeepsAllNullPartitionNull) 
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathNtileUsesPartitionCardinalityInsideBatch) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(4);
@@ -889,7 +898,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathNtileUsesPartitionCardinalityInsideBat
 }
 
 void AnalyticSinkOperatorTest::check_cume_dist_peer_groups_inside_batch(bool force_spill) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(6);
@@ -959,7 +967,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathPercentRankAcrossPartitionsInBatch) {
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathRevokeMemorySpillsOpenPartition) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(5);
@@ -1048,7 +1055,6 @@ size_t replay_read_reserve(const AnalyticSpillBatch::RecordMemory& memory, size_
 } // namespace
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(8);
@@ -1092,7 +1098,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathRevokeMemoryFlushesCoalescedBlocks) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(8);
@@ -1122,8 +1127,18 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathRevokeMemoryFlushesCoalescedBlocks) {
     expect_spill_source_eos(source.get(), state.get());
 }
 
+TEST_F(AnalyticSinkOperatorTest, SpillAdmissionIncludesPerPartitionResults) {
+    Initialize(60000);
+    prepare_spilled_full_partition_sum();
+
+    Block input = ColumnHelper::create_block<DataTypeInt64>(_data_vals);
+    const size_t input_bytes = input.allocated_bytes();
+    const size_t per_row = sizeof(size_t) + sizeof(int64_t) + sizeof(int64_t);
+    EXPECT_GE(sink->get_reserve_mem_size(state.get(), false, &input),
+              2 * input_bytes + input.rows() * per_row);
+}
+
 TEST_F(AnalyticSinkOperatorTest, SpillAdmissionReservesFirstWriteAndDropsEmptyEosPeak) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
     Initialize(4096);
     state->_query_options.__set_enable_force_spill(true);
@@ -1156,7 +1171,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillAdmissionReservesFirstWriteAndDropsEmptyEo
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillAdmissionUsesActualOversizeRecord) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
     Initialize(256);
     state->_query_options.__set_enable_force_spill(true);
@@ -1188,7 +1202,6 @@ void AnalyticSinkOperatorTest::prepare_cume_dist_without_partition() {
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(8);
@@ -1233,7 +1246,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(4096);
@@ -1315,7 +1327,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathKeepsSealedBatchBelowSinkLimitInMemory) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(4096);
@@ -1363,7 +1374,6 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathKeepsSealedBatchBelowSinkLimitInMemory
 }
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathSpillsAtAnalyticSinkMemLimit) {
-    ScopedSpillFileManager spill_file_manager;
     ASSERT_TRUE(spill_file_manager.init().ok());
 
     Initialize(4096);

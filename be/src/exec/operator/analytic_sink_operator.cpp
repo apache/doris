@@ -1383,6 +1383,11 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     DCHECK_GE(_partition_by_pose.end, 0);
 }
 
+bool AnalyticSinkOperatorX::is_blockable(RuntimeState* state) const {
+    // The scheduler can classify the first task before local-state open initializes its flag.
+    return _enable_spill_analytic || DataSinkOperatorX<AnalyticSinkLocalState>::is_blockable(state);
+}
+
 size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     return get_reserve_mem_size(state, eos, nullptr);
 }
@@ -1420,14 +1425,40 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
         // An empty EOS merely publishes an in-memory batch; the previous write peak is stale.
         return 0;
     }
+    // In the worst case every input row ends a partition. Its boundary and each reduction
+    // result remain in the batch while the input Block is collected, even without a write.
+    size_t partition_result_bytes = incoming_rows * (sizeof(size_t) + sizeof(int64_t));
+    for (size_t i = 0; i < local_state._spill_strategies.size(); ++i) {
+        switch (local_state._spill_strategies[i]) {
+        case WindowSpillStrategy::PARTITION_REDUCE: {
+            const auto& type = local_state._agg_functions[i]->data_type();
+            partition_result_bytes += type->have_maximum_size_of_value()
+                                              ? incoming_rows * type->get_size_of_value_in_memory()
+                                              : incoming_bytes;
+            if (type->is_nullable()) {
+                partition_result_bytes += incoming_rows;
+            }
+            break;
+        }
+        case WindowSpillStrategy::PARTITION_CARDINALITY:
+            partition_result_bytes += incoming_rows * sizeof(int64_t);
+            break;
+        case WindowSpillStrategy::PEER_GROUP:
+            partition_result_bytes += incoming_rows * sizeof(int64_t);
+            break;
+        case WindowSpillStrategy::UNSUPPORTED:
+            DORIS_CHECK(false);
+        }
+    }
     if (data_write || first_forced_write || peer_write) {
         // The writer can hold a PBlock and serialized/compressed bytes at the same time.
         // A wide input row is not splittable, so do not cap this at spill_buffer_size_bytes.
         // Small records only need a fixed metadata allowance, not a full spill buffer.
-        return 3 * std::max({incoming_bytes, staged_bytes, size_t {64 * 1024}});
+        return 3 * std::max({incoming_bytes, staged_bytes, size_t {64 * 1024}}) +
+               partition_result_bytes;
     }
     // The spill path materializes comparison/aggregate columns even without a disk write.
-    return incoming_bytes * 2;
+    return incoming_bytes * 2 + partition_result_bytes;
 }
 
 size_t AnalyticSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
