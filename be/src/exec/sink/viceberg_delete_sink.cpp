@@ -692,10 +692,11 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
     std::string puffin_path = _generate_puffin_file_path();
     int64_t puffin_file_size = 0;
     RETURN_IF_ERROR(_write_puffin_file(puffin_path, &blobs, &puffin_file_size));
+    const auto commit_path = _commit_path_of(puffin_path);
 
     for (const auto& blob : blobs) {
         TIcebergCommitData commit_data;
-        commit_data.__set_file_path(_commit_path_of(puffin_path));
+        commit_data.__set_file_path(commit_path);
         commit_data.__set_row_count(blob.merged_count);
         commit_data.__set_affected_rows(blob.delete_count);
         commit_data.__set_file_size(puffin_file_size);
