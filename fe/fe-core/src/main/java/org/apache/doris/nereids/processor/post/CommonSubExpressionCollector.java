@@ -80,12 +80,14 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
 
     private int collectCommonExpressionByDepth(int depth, Expression expr, boolean inLambda) {
         Set<Expression> expressions = getExpressionsFromDepthMap(depth, expressionsByDepth);
-        // ArrayItemSlot and ArrayItemReference could not be common expressions
-        // TODO: could not extract common expression when expression contains same lambda expression
-        //   because ArrayItemSlot in Lambda are not same.
+        // An expression that contains a lambda argument cannot be evaluated outside that lambda:
+        // hoisting it into an earlier projection leaves the argument without its binding. The
+        // check must not depend on the inLambda flag -- a lambda nested in another expression can
+        // be visited again from a context that does not carry the flag (for example when the same
+        // subtree appears in two projections), and the extraction then breaks the lambda scope.
         if (expressions.contains(expr)
                 && !(expr instanceof WhenClause)
-                && !(inLambda && expr.containsType(ArrayItemSlot.class, ArrayItemReference.class))) {
+                && !expr.containsType(ArrayItemSlot.class, ArrayItemReference.class)) {
             Set<Expression> commonExpression = getExpressionsFromDepthMap(depth, commonExprByDepth);
             commonExpression.add(expr);
         }
