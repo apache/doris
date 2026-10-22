@@ -22,6 +22,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties.DelegatedTokenMode;
 
 import org.apache.iceberg.BaseTable;
@@ -124,6 +125,9 @@ public class IcebergColumnDropTest {
         }
         IcebergExternalMetaCache.WritableTableLease lease =
                 Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+        IcebergRuntimeContext runtime = Mockito.mock(IcebergRuntimeContext.class);
+        Mockito.when(runtime.getMetastoreProperties()).thenReturn(Mockito.mock(IcebergRestProperties.class));
+        Mockito.when(lease.getRuntimeContext()).thenReturn(runtime);
         Mockito.when(lease.getTable()).thenReturn(table);
         Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
         try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {

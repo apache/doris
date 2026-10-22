@@ -122,9 +122,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     // catalog types it is the catalog itself when it implements ViewCatalog. Empty when views are unsupported
     // or disabled.
     private final Optional<ViewCatalog> defaultViewCatalog;
-    // Non-null only when the backing catalog supports per-user dynamic session (an Iceberg REST catalog with
-    // iceberg.rest.session=user). Captured once at construction; the per-request decision is delegated to it so
-    // this class never re-checks the catalog type or reads REST properties directly.
+    // Session-aware catalog capability for ordinary metadata calls. DROP selects its session mode from the
+    // immutable properties retained with the writable table generation.
     private final IcebergUserSessionCatalog userSessionCatalog;
     private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
@@ -146,10 +145,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public IcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
-        // Session-aware behavior exists only when the backing catalog advertises the IcebergUserSessionCatalog
-        // capability (an Iceberg REST catalog with dynamic identity). Capture it once and read what we need
-        // from the capability, so no call-time path has to know about the concrete REST catalog or its
-        // properties. For any other catalog type this is null (session disabled).
+        // Capture the session catalog and delegated-token policy with this metadata-ops generation.
+        // Other catalog types have no session-aware capability.
         this.userSessionCatalog = dorisCatalog instanceof IcebergUserSessionCatalog
                 ? (IcebergUserSessionCatalog) dorisCatalog : null;
         RESTSessionCatalog restSessionCatalog =
@@ -960,7 +957,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
             dropColumnSafely(lease, dorisTable, ColumnPath.of(columnName), context);
         }
-        refreshTable(dorisTable, updateTime);
+        refreshAfterColumnDrop(dorisTable, updateTime);
     }
 
     @Override
@@ -973,7 +970,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
             dropColumnSafely(lease, dorisTable, columnPath, context);
         }
-        refreshTable(dorisTable, updateTime);
+        refreshAfterColumnDrop(dorisTable, updateTime);
     }
 
     private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease,
@@ -983,12 +980,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             // A refresh can perform authenticated catalog IO just like the eventual commit. Keep target
             // validation, refresh and commit inside the one catalog generation retained by this lease.
             lease.getAuthenticator().execute(() -> {
-                Table table = lease.getTable();
-                if (!path.isNested()) {
-                    validateRowLineageColumnMutation(table, path.getTopLevelName(), "drop");
-                }
-                dropColumnSafely(table, path, dorisTable,
-                        useSessionCatalog(context) ? context : SessionContext.empty());
+                commitColumnDrop(lease, dorisTable, path, context);
                 return null;
             });
         } catch (UserException e) {
@@ -999,8 +991,22 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void dropColumnSafely(
-            Table table, ColumnPath path, ExternalTable dorisTable, SessionContext context) throws UserException {
+    private void refreshAfterColumnDrop(ExternalTable dorisTable, long updateTime) throws UserException {
+        try {
+            refreshTable(dorisTable, updateTime);
+        } catch (RuntimeException e) {
+            throw new UserException("Iceberg column DROP committed, but Doris metadata refresh failed for "
+                    + dorisTable.getRemoteDbName() + "." + dorisTable.getRemoteName()
+                    + "; refresh the table before another operation: " + e.getMessage(), e);
+        }
+    }
+
+    private void commitColumnDrop(IcebergExternalMetaCache.WritableTableLease lease,
+            ExternalTable dorisTable, ColumnPath path, SessionContext context) throws UserException {
+        Table table = lease.getTable();
+        if (!path.isNested()) {
+            validateRowLineageColumnMutation(table, path.getTopLevelName(), "drop");
+        }
         TableOperations operations = ((HasTableOperations) table).operations();
         TableMetadata loaded = operations.current();
         if (loaded == null) {
@@ -1025,7 +1031,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         TableMetadata schemaUpdate = schemaCapture.committed();
         if (isRestTableOperations(operations)) {
             // No retained spec references the target, so a new SDK partition reference must allocate a field ID.
-            sessionCatalogAdapter.commitSchemaDrop(context,
+            // Use the mode captured with this table generation, even if ALTER has changed the live catalog.
+            IcebergRestProperties restProperties = (IcebergRestProperties)
+                    lease.getRuntimeContext().getMetastoreProperties();
+            sessionCatalogAdapter.commitSchemaDrop(
+                    restProperties.isIcebergRestUserSessionEnabled() ? context : SessionContext.empty(),
                     getTableIdentifier(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()), base, schemaUpdate);
             return;
         }

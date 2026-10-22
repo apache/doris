@@ -17,12 +17,16 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties.DelegatedTokenMode;
 
 import com.google.common.io.ByteStreams;
@@ -83,7 +87,12 @@ public class IcebergRestSchemaCommitTest {
             org.apache.iceberg.catalog.SessionCatalog.SessionContext.createEmpty();
     private IcebergMetadataOps ops;
     private TableCommit submitted;
-    private boolean userSessionEnabled = true;
+    private boolean userSessionEnabled;
+    private ExternalCatalog dorisCatalog;
+    private IcebergUserSessionCatalog capability;
+    private Runnable afterAcquire = () -> { };
+    private boolean failDorisRefresh;
+    private org.apache.iceberg.catalog.SessionCatalog.SessionContext invalidatedContext;
     private final AtomicBoolean authenticated = new AtomicBoolean();
     private final AtomicBoolean leaseClosed = new AtomicBoolean();
     private final ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
@@ -146,6 +155,7 @@ public class IcebergRestSchemaCommitTest {
         Mockito.doAnswer(invocation -> {
             Assert.assertTrue(authenticated.get());
             Assert.assertFalse(leaseClosed.get());
+            invalidatedContext = invocation.getArgument(0);
             return invocation.callRealMethod();
         }).when(rest).invalidateTable(Mockito.any(), Mockito.any());
         Map<String, String> properties = new HashMap<>();
@@ -157,9 +167,9 @@ public class IcebergRestSchemaCommitTest {
             properties.put(OAuth2Properties.TOKEN_REFRESH_ENABLED, "false");
         }
         rest.initialize("transaction-probe", properties);
-        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class,
+        dorisCatalog = Mockito.mock(ExternalCatalog.class,
                 Mockito.withSettings().extraInterfaces(IcebergUserSessionCatalog.class));
-        IcebergUserSessionCatalog capability = (IcebergUserSessionCatalog) dorisCatalog;
+        capability = (IcebergUserSessionCatalog) dorisCatalog;
         Mockito.when(capability.getRestSessionCatalog()).thenReturn(rest);
         Mockito.when(capability.getDelegatedTokenMode()).thenReturn(DelegatedTokenMode.ACCESS_TOKEN);
         Mockito.when(capability.useSessionCatalog(Mockito.any())).thenAnswer(invocation ->
@@ -190,11 +200,16 @@ public class IcebergRestSchemaCommitTest {
     }
 
     private void drop(TableOperations operations, SessionContext context, String column) throws UserException {
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
         Mockito.when(dorisTable.getRemoteName()).thenReturn(ID.name());
         IcebergExternalMetaCache.WritableTableLease lease =
                 Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+        IcebergRuntimeContext runtime = Mockito.mock(IcebergRuntimeContext.class);
+        IcebergRestProperties retainedProperties = Mockito.mock(IcebergRestProperties.class);
+        Mockito.when(retainedProperties.isIcebergRestUserSessionEnabled()).thenReturn(userSessionEnabled);
+        Mockito.when(runtime.getMetastoreProperties()).thenReturn(retainedProperties);
+        Mockito.when(lease.getRuntimeContext()).thenReturn(runtime);
         Mockito.when(lease.getTable()).thenReturn(new BaseTable(operations, ID.toString()));
         Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
         leaseClosed.set(false);
@@ -202,13 +217,38 @@ public class IcebergRestSchemaCommitTest {
             leaseClosed.set(true);
             return null;
         }).when(lease).close();
-        try (MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(dorisCatalog).when(db).getCatalog();
+        Mockito.doReturn(Optional.of(dorisTable)).when(db).getTableForReplay(Mockito.anyString());
+        Mockito.doReturn(Optional.of(db)).when(dorisCatalog).getDbForReplay(Mockito.anyString());
+        ExternalMetaCacheMgr cache = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue(leaseClosed.get());
+            Assert.assertFalse(authenticated.get());
+            if (failDorisRefresh) {
+                throw new IllegalStateException("injected Doris cache failure");
+            }
+            return null;
+        }).when(cache).invalidateTableCache(dorisTable);
+        Env environment = Mockito.mock(Env.class);
+        Mockito.when(environment.getExtMetaCacheMgr()).thenReturn(cache);
+        Mockito.when(environment.getRefreshManager()).thenReturn(new RefreshManager());
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<IcebergUtils> utils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS);
                 MockedStatic<SessionContext> sessions = Mockito.mockStatic(
                         SessionContext.class, Mockito.CALLS_REAL_METHODS)) {
+            env.when(Env::getCurrentEnv).thenReturn(environment);
             sessions.when(SessionContext::current).thenReturn(context);
-            utils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops)).thenReturn(lease);
+            utils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, ops)).thenAnswer(invocation -> {
+                afterAcquire.run();
+                return lease;
+            });
             try {
                 ops.dropColumn(dorisTable, column, 1L);
+                Mockito.verify(dorisTable).unsetObjectCreated();
+                Mockito.verify(dorisTable).setIsValidRelatedTableCached(false);
+                Mockito.verify(cache).invalidateRowCountCache(dorisTable);
+                Mockito.verify(cache).invalidateTableCache(dorisTable);
             } finally {
                 Mockito.verify(lease).close();
                 Assert.assertFalse(authenticated.get());
@@ -282,6 +322,7 @@ public class IcebergRestSchemaCommitTest {
 
     @Test
     public void testDelegatedUserOAuthAuthenticationUsesDorisConversion() throws Exception {
+        userSessionEnabled = true;
         initialize(true);
         SessionContext context = delegated();
         TableOperations operations = load(context);
@@ -307,6 +348,7 @@ public class IcebergRestSchemaCommitTest {
 
     @Test
     public void testDelegatedTransactionAlsoDoesNotInheritTableToken() throws Exception {
+        userSessionEnabled = true;
         tableToken = true;
         requireTableToken = true;
         initialize(true);
@@ -406,6 +448,46 @@ public class IcebergRestSchemaCommitTest {
         Assert.assertNotNull(backendOps().refresh().schema().findField("b"));
         Assert.assertFalse(received.requirements().stream()
                 .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
+    }
+
+    @Test
+    public void testRetainedDelegatedModeSurvivesCatalogReconfiguration() throws Exception {
+        userSessionEnabled = true;
+        initialize(true);
+        SessionContext context = delegated();
+        TableOperations operations = load(context);
+        RESTSessionCatalog replacement = Mockito.mock(RESTSessionCatalog.class);
+        afterAcquire = () -> {
+            userSessionEnabled = false;
+            Mockito.when(capability.getRestSessionCatalog()).thenReturn(replacement);
+        };
+        drop(operations, context, "b");
+        Assert.assertEquals("Bearer user-token", transactionAuth);
+        Assert.assertEquals(context.getSessionId(), invalidatedContext.sessionId());
+        Mockito.verifyNoInteractions(replacement);
+    }
+
+    @Test
+    public void testRetainedDefaultModeSurvivesCatalogReconfiguration() throws Exception {
+        initialize(true);
+        SessionContext context = delegated();
+        TableOperations operations = load(context);
+        afterAcquire = () -> userSessionEnabled = true;
+        drop(operations, context, "b");
+        Assert.assertEquals("Bearer catalog-token", transactionAuth);
+        Assert.assertEquals(defaultContext.sessionId(), invalidatedContext.sessionId());
+    }
+
+    @Test
+    public void testDorisRefreshFailureReportsAlreadyCommitted() throws Exception {
+        failDorisRefresh = true;
+        TableOperations operations = load(empty);
+        UserException error = Assert.assertThrows(UserException.class, () -> drop(operations, empty, "b"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("DROP committed"));
+        Assert.assertTrue(error.getMessage(), error.getMessage().contains("Doris metadata refresh failed"));
+        Assert.assertNull(backendOps().refresh().schema().findField("b"));
+        Assert.assertEquals(1, transactionPosts);
+        Assert.assertEquals(0, ordinaryPosts);
     }
 
     private void handle(HttpExchange exchange) throws IOException {
