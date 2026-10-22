@@ -515,17 +515,22 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
 
 void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
-        const auto ordinal =
-                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
-        DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
-        _column_states[ordinal].has_common_expr = true;
-        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
-        _is_need_expr_eval = true;
+        _mark_common_expr_column(
+                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id()),
+                runtime_generated);
         return;
     }
     if (expr->is_virtual_slot_ref()) {
-        const auto& virtual_expr =
-                assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
+        const auto* virtual_slot = assert_cast<const VirtualSlotRef*>(expr.get());
+        // The score of every row is prepared before the first batch is read, and Score() itself has
+        // no value, so an expression on the score reads the score column like a stored column.
+        if (_score_runtime != nullptr &&
+            cast_set<size_t>(virtual_slot->column_id()) == _score_runtime->get_dest_column_idx()) {
+            _mark_common_expr_column(cast_set<ColumnId>(virtual_slot->column_id()),
+                                     runtime_generated);
+            return;
+        }
+        const auto& virtual_expr = virtual_slot->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
         _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
@@ -533,6 +538,13 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runti
     for (const auto& child : expr->children()) {
         _mark_common_expr_states(child, runtime_generated);
     }
+}
+
+void SegmentIterator::_mark_common_expr_column(ColumnId ordinal, bool runtime_generated) {
+    DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
+    _column_states[ordinal].has_common_expr = true;
+    _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
+    _is_need_expr_eval = true;
 }
 
 void SegmentIterator::_initialize_predicate_results() {

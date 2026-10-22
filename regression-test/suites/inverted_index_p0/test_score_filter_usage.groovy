@@ -83,16 +83,26 @@ suite("test_score_filter_usage", "p0") {
         SELECT a.id, score() AS s FROM test_score_filter_usage_mow a
         WHERE a.c1 MATCH 'apple' ORDER BY s DESC LIMIT 10
     """
-    // The scan applies the minimum score itself, which a materialized view of the same MATCH does not.
+    // A materialized view of the same MATCH has no score, so it cannot answer a minimum score.
     async_mv_rewrite_fail(context.dbName, "SELECT id, c1 FROM test_score_filter_usage WHERE c1 MATCH 'apple'",
             "SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.6",
             "test_score_filter_usage_mv")
     order_qt_mv_minimum_score """
         SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() > 0.6
     """
+    // The minimum score is a filter of the scan, which reads the score like any other column.
     explain {
         sql "SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() >= 0.5"
         contains "SCORE SORT LIMIT: 0"
+        notContains "SCORE RANGE"
+    }
+    // A scan that keeps the best rows of each segment applies the minimum score before.
+    explain {
+        sql """
+            SELECT id FROM test_score_filter_usage WHERE c1 MATCH 'apple' AND score() >= 0.5
+            ORDER BY score() DESC LIMIT 2
+        """
+        contains "SCORE SORT LIMIT: 2"
         contains "SCORE RANGE: score() >= 0.5"
     }
 
@@ -131,8 +141,8 @@ suite("test_score_filter_usage", "p0") {
         exception "limit + offset overflows the long range"
     }
 
-    // An ordinary TopN on a key computed from score() keeps its TopN filter above the scan, which
-    // computes the score after it applies its filters. One tablet is read in many batches.
+    // An ordinary TopN on a key computed from score() pushes its TopN filter into the scan, which
+    // reads the score like any other column. One tablet is read in many batches.
     sql "DROP TABLE IF EXISTS test_score_filter_usage_topn"
     sql """
         CREATE TABLE test_score_filter_usage_topn (
@@ -165,7 +175,7 @@ suite("test_score_filter_usage", "p0") {
         FROM test_score_filter_usage WHERE c1 MATCH 'apple'
     """
 
-    // An aggregating SELECT can only use the minimum score. The scan applies it before
+    // An aggregating SELECT can only use the minimum score, which the scan evaluates before
     // COUNT_ON_INDEX counts the remaining rows.
     qt_count_score_range """
         SELECT /*+ SET_VAR(enable_count_on_index_pushdown=true) */ count(*) FROM test_score_filter_usage

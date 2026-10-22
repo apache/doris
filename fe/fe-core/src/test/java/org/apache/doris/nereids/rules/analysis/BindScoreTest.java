@@ -15,21 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.processor.post.PlanPostProcessors;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -41,10 +39,11 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-class BindScoreToOlapScanTest extends TestWithFeService {
+class BindScoreTest extends TestWithFeService {
     private boolean originalEnableFeatureChangelog;
     private boolean originalEnableTableStream;
 
@@ -101,15 +100,11 @@ class BindScoreToOlapScanTest extends TestWithFeService {
 
     @ParameterizedTest
     @MethodSource("scoringPredicates")
-    void testMinimumScoreIsPushedIntoTheScan(String format, String predicate) {
+    void testMinimumScoreIsAFilterOfTheScan(String format, String predicate) {
         for (String range : new String[] {"score() > 0.00001", "0.00001 < score()",
-                "CAST(score() AS DOUBLE) > 0.00001", "CAST(score() AS FLOAT) > 0.00001"}) {
-            assertScoreRange("SELECT id FROM score_usage_" + format + " WHERE " + predicate + " AND " + range,
-                    1, TExprOpcode.GT);
-        }
-        for (String range : new String[] {"score() >= 0.00001", "0.00001 <= score()"}) {
-            assertScoreRange("SELECT id FROM score_usage_" + format + " WHERE " + predicate + " AND " + range,
-                    1, TExprOpcode.GE);
+                "CAST(score() AS DOUBLE) > 0.00001", "CAST(score() AS FLOAT) > 0.00001",
+                "score() >= 0.00001", "0.00001 <= score()"}) {
+            assertMinimumScore("SELECT id FROM score_usage_" + format + " WHERE " + predicate + " AND " + range, 1);
         }
     }
 
@@ -117,11 +112,11 @@ class BindScoreToOlapScanTest extends TestWithFeService {
     @MethodSource("scoringPredicates")
     void testScoreInSelectListAndOrderBy(String format, String predicate) {
         String from = " FROM score_usage_" + format + " WHERE " + predicate + " AND score() > 0.00001";
-        assertScoreRange("SELECT id, score() AS s" + from, 2, TExprOpcode.GT);
-        assertScoreRange("SELECT id, score() AS first_score, score() AS second_score" + from, 3, TExprOpcode.GT);
+        assertMinimumScore("SELECT id, score() AS s" + from, 2);
+        assertMinimumScore("SELECT id, score() AS first_score, score() AS second_score" + from, 3);
         for (String suffix : new String[] {" LIMIT 10", " ORDER BY id LIMIT 1 OFFSET 1",
                 " ORDER BY s DESC, id LIMIT 1 OFFSET 1", " ORDER BY s DESC"}) {
-            assertScoreRange("SELECT id, c2, score() AS s" + from + suffix, 3, TExprOpcode.GT);
+            assertMinimumScore("SELECT id, c2, score() AS s" + from + suffix, 3);
         }
     }
 
@@ -151,11 +146,11 @@ class BindScoreToOlapScanTest extends TestWithFeService {
     @MethodSource("scoringPredicates")
     void testMinimumScoreOfAggregation(String format, String predicate) {
         String from = " FROM score_usage_" + format + " WHERE " + predicate + " AND score() > 0.00001";
-        assertScoreRange("SELECT count(*)" + from, 1, TExprOpcode.GT);
-        assertScoreRange("SELECT c2, count(*)" + from + " GROUP BY c2 HAVING count(*) > 0", 2, TExprOpcode.GT);
-        assertScoreRange("SELECT DISTINCT c2" + from, 1, TExprOpcode.GT);
+        assertMinimumScore("SELECT count(*)" + from, 1);
+        assertMinimumScore("SELECT c2, count(*)" + from + " GROUP BY c2 HAVING count(*) > 0", 2);
+        assertMinimumScore("SELECT DISTINCT c2" + from, 1);
         for (String groupBy : new String[] {"GROUPING SETS ((c2), ())", "ROLLUP(c2)", "CUBE(c2)"}) {
-            assertScoreRange("SELECT c2, count(*)" + from + " GROUP BY " + groupBy, 2, TExprOpcode.GT);
+            assertMinimumScore("SELECT c2, count(*)" + from + " GROUP BY " + groupBy, 2);
         }
     }
 
@@ -166,10 +161,13 @@ class BindScoreToOlapScanTest extends TestWithFeService {
         for (String filter : new String[] {"CAST(score() AS INT) > 0", "CAST(score() AS DECIMAL(10, 6)) > 0",
                 "score() < 1", "score() <= 1", "score() = 1", "score() * score() > 0", "score() > id",
                 "score() + 1 > 1"}) {
-            assertScoreUsageError(from + filter, BindScoreToOlapScan.RANGE_FORM_ERROR);
+            assertScoreUsageError(from + filter, BindScore.RANGE_FORM_ERROR);
         }
-        assertScoreUsageError(from + "score() > 0.1 AND score() < 0.9", BindScoreToOlapScan.ONE_RANGE_ERROR);
-        assertScoreUsageError(from + "(score() > 0 OR id = 1)", BindScoreToOlapScan.TOP_LEVEL_RANGE_ERROR);
+        assertScoreUsageError(from + "score() > 0.1 AND score() < 0.9", BindScore.ONE_RANGE_ERROR);
+        assertScoreUsageError(from + "(score() > 0 OR id = 1)", BindScore.TOP_LEVEL_RANGE_ERROR);
+        assertScoreUsageError(from + "score() > 'abc'", BindScore.NUMERIC_COMPARISON_ERROR);
+        assertScoreUsageError("SELECT id, 'abc' < score() FROM score_usage_" + format + " WHERE " + predicate,
+                BindScore.NUMERIC_COMPARISON_ERROR);
     }
 
     @ParameterizedTest
@@ -180,29 +178,7 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 "SELECT score()" + from + " GROUP BY score()", "SELECT DISTINCT score()" + from,
                 "SELECT c2, max(score())" + from + " GROUP BY c2",
                 "SELECT c2, max(score())" + from + " GROUP BY ROLLUP(c2)"}) {
-            assertScoreUsageError(query, BindScoreToOlapScan.AGGREGATE_ERROR);
-        }
-    }
-
-    @Test
-    void testTopNFilterOnScoreStaysAboveTheScan() {
-        // The scan computes the score after it applies its filters, so a TopN filter on the score would read zero.
-        double topnFilterRatio = connectContext.getSessionVariable().topnFilterRatio;
-        connectContext.getSessionVariable().topnFilterRatio = 1000000;
-        try {
-            // The MATCH projection becomes a virtual column of the scan that reads the score.
-            for (String key : new String[] {"CAST(score() AS INT)",
-                    "CAST(IF(score() > 0, 1, 0) AS STRING) MATCH_ANY '1'", "id"}) {
-                PlanChecker checker = PlanChecker.from(connectContext)
-                        .analyze("SELECT id, " + key + " AS k FROM score_usage_V2 WHERE c1 MATCH 'apple'"
-                                + " AND id % 2 = 0 ORDER BY k DESC LIMIT 1")
-                        .rewrite().implement();
-                new PlanPostProcessors(checker.getCascadesContext()).process(checker.getPhysicalPlan());
-                Assertions.assertEquals(key.equals("id"),
-                        !checker.getCascadesContext().getTopnFilterContext().getTopnFilters().isEmpty(), key);
-            }
-        } finally {
-            connectContext.getSessionVariable().topnFilterRatio = topnFilterRatio;
+            assertScoreUsageError(query, BindScore.AGGREGATE_ERROR);
         }
     }
 
@@ -219,33 +195,53 @@ class BindScoreToOlapScanTest extends TestWithFeService {
 
     @Test
     void testScoreNextToWindowFunctions() {
-        assertScoreRange("SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn"
-                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 3, TExprOpcode.GT);
-        assertScoreRange("SELECT id, row_number() OVER (ORDER BY score() DESC, id) AS rn"
-                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 2, TExprOpcode.GT);
+        assertMinimumScore("SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 3);
+        assertMinimumScore("SELECT id, row_number() OVER (ORDER BY score() DESC, id) AS rn"
+                + " FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001", 2);
     }
 
-    // Analysis puts the delete sign filter of a UNIQUE table between the table alias and the scan.
+    // The score column passes the delete sign filter that analysis puts on a UNIQUE table.
     @ParameterizedTest
     @ValueSource(strings = {"score_usage_V2", "score_usage_mow"})
     void testTableAlias(String table) {
-        assertScoreRange("SELECT a.id, score() AS s FROM " + table + " a"
-                + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001", 2, TExprOpcode.GT);
+        assertMinimumScore("SELECT a.id, score() AS s FROM " + table + " a"
+                + " WHERE a.c1 MATCH 'apple' AND score() > 0.00001", 2);
         // ORDER BY score() reads the score although the select list does not.
         LogicalOlapScan scan = rewrittenScan("SELECT a.id FROM " + table + " a WHERE a.c1 MATCH 'apple'"
                 + " ORDER BY score() DESC LIMIT 10");
         Assertions.assertEquals(10L, scan.getScoreLimit().get().longValue());
     }
 
+    // The score column is not a column of the table.
     @Test
-    void testMaterializedViewsDoNotReplaceTheScoredScan() {
-        // The scan applies the minimum score itself, which a view with the same MATCH does not.
-        for (String query : new String[] {"SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.6",
-                "SELECT id FROM score_usage_V2 WHERE c1 MATCH 'apple'"}) {
-            Plan plan = PlanChecker.from(connectContext).analyze(query).rewrite().getCascadesContext().getRewritePlan();
-            Assertions.assertEquals(query.contains("score()"),
-                    plan.accept(MaterializedViewUtils.TableQueryOperatorChecker.INSTANCE, null), query);
-        }
+    void testStarLeavesOutTheScoreColumn() {
+        String where = " WHERE c1 MATCH 'apple' AND score() > 0.00001";
+        assertMinimumScore("SELECT * FROM score_usage_V2" + where, 3);
+        assertMinimumScore("SELECT a.* FROM score_usage_V2 a" + where, 3);
+        assertMinimumScore("SELECT *, score() AS s FROM score_usage_V2" + where, 4);
+        assertMinimumScore("SELECT * EXCEPT (c2) FROM score_usage_V2" + where, 2);
+    }
+
+    @Test
+    void testScoreKeepsItsColumnName() {
+        List<Slot> output = PlanChecker.from(connectContext)
+                .analyze("SELECT id, score() FROM score_usage_V2 WHERE c1 MATCH 'apple'")
+                .getCascadesContext().getRewritePlan().getOutput();
+        Assertions.assertEquals("score()", output.get(1).getName());
+    }
+
+    @Test
+    void testEachSelectScoresItsOwnTable() {
+        String scored = "SELECT id, score() AS s FROM %s WHERE c1 MATCH '%s' ORDER BY s DESC LIMIT 2";
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT * FROM (" + String.format(scored, "score_usage_V2", "apple") + ") x UNION ALL "
+                        + "SELECT * FROM (" + String.format(scored, "score_usage_V3", "pear") + ") y")
+                .getCascadesContext().getRewritePlan();
+        Set<Slot> scoreSlots = plan.<LogicalOlapScan>collect(LogicalOlapScan.class::isInstance).stream()
+                .map(scan -> BindScore.findScoreSlot(scan).get())
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(2, scoreSlots.size());
     }
 
     @ParameterizedTest
@@ -257,7 +253,7 @@ class BindScoreToOlapScanTest extends TestWithFeService {
             "SELECT id FROM score_usage_V3 WHERE EXISTS (%s)"})
     void testNestedScoreRequiresTopN(String query) {
         String scored = "SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001";
-        assertScoreUsageError(String.format(query, scored), BindScoreToOlapScan.NESTED_SELECT_ERROR);
+        assertScoreUsageError(String.format(query, scored), BindScore.NESTED_SELECT_ERROR);
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(
                 String.format(query, scored + " ORDER BY s DESC LIMIT 2")));
     }
@@ -278,10 +274,17 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                     + " AND score() > 0.6 ORDER BY score() DESC LIMIT 1)",
             "SELECT id FROM score_usage_V3 b WHERE EXISTS (SELECT 1 FROM (SELECT c1, score() AS s"
                     + " FROM score_usage_V2 WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 1) a WHERE a.c1 = b.c1)",
-            "SELECT id, (SELECT max(a.id) FROM score_usage_V2 a WHERE a.id = b.id AND a.c1 MATCH 'apple'"
-                    + " AND score() > 0.6) FROM score_usage_V3 b"})
+            "SELECT id, (SELECT max(x.id) FROM (SELECT id, score() AS s FROM score_usage_V2"
+                    + " WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 2) x WHERE x.id = b.id) FROM score_usage_V3 b"})
     void testCorrelatedSubqueryIsRejected(String query) {
-        assertScoreUsageError(query, BindScoreToOlapScan.CORRELATED_SUBQUERY_ERROR);
+        assertScoreUsageError(query, BindScore.CORRELATED_SUBQUERY_ERROR);
+    }
+
+    // The main query of a WITH clause is the outermost SELECT, although analysis binds it on its own.
+    @Test
+    void testOutermostSelectUnderWith() {
+        assertFullScoring("WITH c AS (SELECT 1 AS one) SELECT id, score() AS s FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple'", 2);
     }
 
     @Test
@@ -308,33 +311,33 @@ class BindScoreToOlapScanTest extends TestWithFeService {
             // A table stream is read by separate scans of its table and of its changes.
             "SELECT id, score() AS s FROM score_usage_stream WHERE c1 MATCH 'apple' ORDER BY s DESC LIMIT 10"})
     void testUnsupportedSelectIsRejected(String query) {
-        assertScoreUsageError(query, BindScoreToOlapScan.UNSUPPORTED_SELECT_ERROR);
+        assertScoreUsageError(query, BindScore.UNSUPPORTED_SELECT_ERROR);
     }
 
     @Test
     void testHavingAndQualifyAreRejected() {
         assertScoreUsageError("SELECT c2, count(*) FROM score_usage_V2 WHERE c1 MATCH 'apple'"
                 + " AND score() > 0.00001 GROUP BY c2 HAVING c2 MATCH 'sweet'",
-                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+                BindScore.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT id, score() AS s, row_number() OVER (ORDER BY id) AS rn"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' QUALIFY rn = 1 AND s > 0.5",
-                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+                BindScore.HAVING_OR_QUALIFY_ERROR);
         // MATCH through an alias of the select list.
         assertScoreUsageError("SELECT id, score() AS s, c1 MATCH 'red' AS m,"
                 + " row_number() OVER (PARTITION BY c1 ORDER BY id) AS rn"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' QUALIFY m AND rn = 1",
-                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+                BindScore.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT id, score() AS s, c1 MATCH 'red' AS m"
                 + " FROM score_usage_V2 WHERE c1 MATCH 'apple' HAVING m",
-                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+                BindScore.HAVING_OR_QUALIFY_ERROR);
         assertScoreUsageError("SELECT c1 MATCH 'red' AS m, count(*) FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple' AND score() > 0.00001 GROUP BY m HAVING m",
-                BindScoreToOlapScan.HAVING_OR_QUALIFY_ERROR);
+                BindScore.HAVING_OR_QUALIFY_ERROR);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"c1 MATCH 'apple'", "search('c1:apple')"})
-    void testScoreRangeKeepsAnnTopN(String predicate) {
+    void testMinimumScoreKeepsAnnTopN(String predicate) {
         PlanChecker.from(connectContext).checkPlannerResult(
                 "SELECT id, l2_distance_approximate(embedding, [0.0, 0.0]) AS dist FROM score_usage_ann"
                         + " WHERE " + predicate + " AND score() > 0.5 ORDER BY dist LIMIT 1",
@@ -343,7 +346,7 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                     Assertions.assertNotNull(scan.olap_scan_node.ann_sort_info);
                     Assertions.assertEquals(1, scan.olap_scan_node.ann_sort_limit);
                     Assertions.assertEquals(0, scan.olap_scan_node.score_sort_limit);
-                    Assertions.assertEquals(TExprOpcode.GT, scan.olap_scan_node.score_range_info.op);
+                    assertFiltersScore(scan);
                 });
     }
 
@@ -366,16 +369,16 @@ class BindScoreToOlapScanTest extends TestWithFeService {
     }
 
     @Test
-    void testExplainShowsScoreRange() throws Exception {
+    void testExplainShowsTheMinimumScore() throws Exception {
         String explain = getSQLPlanOrErrorMsg("EXPLAIN SELECT id FROM score_usage_V2"
                 + " WHERE c1 MATCH 'apple' AND score() >= 0.5");
         Assertions.assertTrue(explain.contains("SCORE SORT LIMIT: 0"), explain);
+        Assertions.assertFalse(explain.contains("SCORE RANGE"), explain);
+        // The scan keeps the best rows of each segment only when it also applies the minimum score.
+        explain = getSQLPlanOrErrorMsg("EXPLAIN SELECT id FROM score_usage_V2"
+                + " WHERE c1 MATCH 'apple' AND score() >= 0.5 ORDER BY score() DESC LIMIT 10");
+        Assertions.assertTrue(explain.contains("SCORE SORT LIMIT: 10"), explain);
         Assertions.assertTrue(explain.contains("SCORE RANGE: score() >= 0.5"), explain);
-        // The scan applies the minimum score before COUNT_ON_INDEX counts the rows.
-        explain = getSQLPlanOrErrorMsg("EXPLAIN SELECT count(*) FROM score_usage_V2"
-                + " WHERE c1 MATCH 'apple' AND score() > 0.5");
-        Assertions.assertTrue(explain.contains("COUNT_ON_INDEX"), explain);
-        Assertions.assertTrue(explain.contains("SCORE RANGE: score() > 0.5"), explain);
     }
 
     private LogicalOlapScan rewrittenScan(String sql) {
@@ -384,13 +387,17 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 .collectFirst(plan -> plan instanceof LogicalOlapScan).get();
     }
 
-    private void assertScoreRange(String sql, int outputColumns, TExprOpcode op) {
-        PlanChecker.from(connectContext).checkPlannerResult(sql, planner -> {
-            TPlanNode scan = assertScoresEveryRow(planner, outputColumns);
-            Assertions.assertNotNull(scan.olap_scan_node.score_range_info, sql);
-            Assertions.assertEquals(op, scan.olap_scan_node.score_range_info.op);
-            Assertions.assertEquals(0.00001, scan.olap_scan_node.score_range_info.threshold, 1e-10);
-        });
+    // The minimum score is a conjunct of the scan, which evaluates it like any other.
+    private void assertMinimumScore(String sql, int outputColumns) {
+        PlanChecker.from(connectContext).checkPlannerResult(sql,
+                planner -> assertFiltersScore(assertScoresEveryRow(planner, outputColumns)));
+    }
+
+    private void assertFiltersScore(TPlanNode scan) {
+        Assertions.assertFalse(scan.olap_scan_node.isSetScoreRangeInfo());
+        int scoreSlotId = scan.olap_scan_node.score_sort_info.ordering_exprs.get(0).nodes.get(0).slot_ref.slot_id;
+        Assertions.assertTrue(scan.conjuncts.stream().anyMatch(conjunct -> conjunct.nodes.stream()
+                .anyMatch(node -> node.isSetSlotRef() && node.slot_ref.slot_id == scoreSlotId)));
     }
 
     private void assertFullScoring(String sql, int outputColumns) {

@@ -21,19 +21,33 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindScore;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Optional;
@@ -42,9 +56,10 @@ import java.util.Set;
 /**
  * Limit the scoring of a scan to the rows that a TopN on its score keeps.
  *
- * <p>BindScoreToOlapScan makes the scan score every row it returns. When a TopN orders the rows of
+ * <p>BindScore makes the scan score every row it returns. When a TopN orders the rows of
  * the scan by the score alone, the scan can keep the best rows of each segment instead, and SEARCH
- * can skip documents that cannot reach them.
+ * can skip documents that cannot reach them. The scan keeps the best rows only when no filter
+ * follows it, so it also takes over a minimum score of the filter.
  */
 public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
 
@@ -67,7 +82,7 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
     private Optional<Plan> pushDown(LogicalTopN<?> topN, Optional<LogicalProject<?>> project,
             LogicalFilter<LogicalOlapScan> filter) {
         LogicalOlapScan scan = filter.child();
-        Optional<Slot> scoreSlot = BindScoreToOlapScan.findScoreSlot(scan);
+        Optional<Slot> scoreSlot = BindScore.findScoreSlot(scan);
         if (!scoreSlot.isPresent() || !scan.getScoreLimit().equals(Optional.of(0L))
                 || topN.getOrderKeys().size() != 1) {
             return Optional.empty();
@@ -81,14 +96,21 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
             throw new AnalysisException("limit + offset overflows the long range");
         }
-        if (searchNeedsAllScores(filter.getConjuncts())) {
+        Optional<Expression> minimum = filter.getConjuncts().stream()
+                .filter(conjunct -> extractScoreRange(conjunct, scoreSlot.get()).isPresent())
+                .findFirst();
+        Set<Expression> conjuncts = filter.getConjuncts().stream()
+                .filter(conjunct -> !minimum.equals(Optional.of(conjunct)))
+                .collect(ImmutableSet.toImmutableSet());
+        if (searchNeedsAllScores(conjuncts)) {
             return Optional.empty();
         }
         LogicalOlapScan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(),
                 scan.getAnnOrderKeys(), scan.getAnnLimit(),
                 ImmutableList.of(new OrderKey(scoreSlot.get(), orderKey.isAsc(), orderKey.isNullFirst())),
-                Optional.of(topN.getLimit() + topN.getOffset()), scan.getScoreRangeInfo());
-        return Optional.of(filter.withChildren(newScan));
+                Optional.of(topN.getLimit() + topN.getOffset()),
+                minimum.flatMap(conjunct -> extractScoreRange(conjunct, scoreSlot.get())));
+        return Optional.of(conjuncts.isEmpty() ? newScan : filter.withConjunctsAndChild(conjuncts, newScan));
     }
 
     private static boolean ordersByScore(Expression orderExpr, Optional<LogicalProject<?>> project, Slot scoreSlot) {
@@ -113,5 +135,51 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
             return false;
         }
         return conjuncts.size() > 1 || !(conjuncts.iterator().next() instanceof SearchExpression);
+    }
+
+    // A minimum score: score > x or score >= x, also written x < score or x <= score.
+    private static Optional<ScoreRangeInfo> extractScoreRange(Expression predicate, Slot scoreSlot) {
+        if (!(predicate instanceof ComparisonPredicate)) {
+            return Optional.empty();
+        }
+        ComparisonPredicate comparison = (ComparisonPredicate) predicate;
+        if (isScore(comparison.left(), scoreSlot) && isNumericLiteral(comparison.right())) {
+            if (comparison instanceof GreaterThan) {
+                return Optional.of(new ScoreRangeInfo(TExprOpcode.GT, numericValue(comparison.right())));
+            } else if (comparison instanceof GreaterThanEqual) {
+                return Optional.of(new ScoreRangeInfo(TExprOpcode.GE, numericValue(comparison.right())));
+            }
+        } else if (isScore(comparison.right(), scoreSlot) && isNumericLiteral(comparison.left())) {
+            if (comparison instanceof LessThan) {
+                return Optional.of(new ScoreRangeInfo(TExprOpcode.GT, numericValue(comparison.left())));
+            } else if (comparison instanceof LessThanEqual) {
+                return Optional.of(new ScoreRangeInfo(TExprOpcode.GE, numericValue(comparison.left())));
+            }
+        }
+        return Optional.empty();
+    }
+
+    // The score column, or a FLOAT or DOUBLE cast of it, which keeps its value.
+    private static boolean isScore(Expression expression, Slot scoreSlot) {
+        if (expression instanceof Cast) {
+            return expression.getDataType().isFloatLikeType() && isScore(((Cast) expression).child(), scoreSlot);
+        }
+        return expression.equals(scoreSlot);
+    }
+
+    private static boolean isNumericLiteral(Expression expression) {
+        return expression instanceof DoubleLiteral || expression instanceof FloatLiteral
+                || expression instanceof IntegerLikeLiteral || expression instanceof DecimalV3Literal;
+    }
+
+    private static double numericValue(Expression literal) {
+        if (literal instanceof DoubleLiteral) {
+            return ((DoubleLiteral) literal).getValue();
+        } else if (literal instanceof FloatLiteral) {
+            return ((FloatLiteral) literal).getValue();
+        } else if (literal instanceof IntegerLikeLiteral) {
+            return ((IntegerLikeLiteral) literal).getLongValue();
+        }
+        return ((DecimalV3Literal) literal).getDouble();
     }
 }

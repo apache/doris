@@ -24,10 +24,12 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindScore;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.BindSkewExpr;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.CheckScoreInCorrelatedSubquery;
 import org.apache.doris.nereids.rules.analysis.CheckSearchUsage;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
@@ -123,6 +125,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzerJobs() {
         return jobs(
+            // score() belongs to the table of its SELECT, which the clauses of the parsed plan still show.
+            custom(RuleType.BIND_SCORE, BindScore::new),
             // we should eliminate hint before "Subquery unnesting".
             topDown(new AnalyzeCTE()),
             topDown(new EliminateLogicalSelectHint(),
@@ -205,6 +209,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
              * so we move MergeProjects from analyze to rewrite phase.
              */
             bottomUp(new SubqueryToApply()),
+            bottomUp(new CheckScoreInCorrelatedSubquery()),
             topDown(
                     // merge normal filter and hidden column filter
                     new MergeFilters()

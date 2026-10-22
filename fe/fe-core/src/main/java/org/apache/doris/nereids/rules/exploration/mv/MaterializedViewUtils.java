@@ -657,11 +657,6 @@ public class MaterializedViewUtils {
                     // select * from orders index query_index_test
                     return true;
                 }
-                if (!logicalOlapScan.getScoreOrderKeys().isEmpty()) {
-                    // Contains score(), whose minimum and TopN the scan applies itself
-                    // select o_orderkey from orders where o_comment match 'x' and score() > 0.5
-                    return true;
-                }
             }
             return visit(relation, context);
         }

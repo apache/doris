@@ -38,7 +38,6 @@ import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
-import org.apache.doris.nereids.rules.rewrite.BindScoreToOlapScan;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
@@ -137,7 +136,6 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
-import org.apache.doris.nereids.rules.rewrite.PushDownScoreRangeIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
@@ -427,9 +425,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     private static final List<RewriteJob> NORMALIZE_PLAN_JOBS = jobs(
             topic("Plan Normalization",
-                    // Bind score() to its scan while subqueries, views and CTEs still have their own
-                    // plan nodes.
-                    custom(RuleType.BIND_SCORE_TO_OLAP_SCAN, BindScoreToOlapScan::new),
                     custom(RuleType.FOLD_CONSTANT_FOR_SQL_CACHE, FoldConstantForSqlCache::new),
                     // move MergeProjects rule from analyze phase
                     // because SubqueryToApply and BindSink rule may create extra project node
@@ -804,8 +799,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 )),
                 topDown(DistinctAggregateRewriter.INSTANCE),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-                // The scan applies the minimum score itself, before virtual columns rewrite the filter.
-                topDown(new PushDownScoreRangeIntoOlapScan()),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topDown(new PushDownMatchProjectionAsVirtualColumn()),
