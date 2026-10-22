@@ -175,7 +175,8 @@ protected:
     std::string private_key;
     std::string token_uri;
     OAuthTokenHandler handler;
-    EvHttpServer server {"127.0.0.1", 0};
+    // The port-only constructor initializes the worker event bases before start().
+    EvHttpServer server {0};
 };
 
 TEST_F(GcpTokenProviderTest, ServiceAccountAdcExchangesAndCachesOAuthToken) {
