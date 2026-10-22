@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <random>
+#include <vector>
 
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
@@ -291,6 +292,49 @@ TEST_F(TDigestTest, Montonicity) {
         double q = digest.cdf(z);
         EXPECT_GE(q, lastQuantile);
         lastQuantile = q;
+    }
+}
+
+TEST_F(TDigestTest, DefaultConstructorDoesNotPrepareCompressionSizedBuffers) {
+    const auto allocated_bytes = [](const TDigest& digest) {
+        return (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+               digest._cumulative.capacity() * sizeof(Weight);
+    };
+
+    TDigest digest(10000);
+    // The compression thresholds keep their historical semantics.
+    EXPECT_EQ(20000, digest.maxProcessed());
+    EXPECT_EQ(80000, digest.maxUnprocessed());
+    // A fresh digest must not preallocate O(compression) buffers.
+    EXPECT_EQ(0, digest.processed().capacity());
+    EXPECT_EQ(0, digest.unprocessed().capacity());
+    EXPECT_LT(allocated_bytes(digest), 4 * 1024);
+
+    digest.add(42.0f);
+    EXPECT_EQ(1, digest.unprocessed().size());
+    EXPECT_LT(allocated_bytes(digest), 4 * 1024);
+    EXPECT_FLOAT_EQ(42.0f, digest.quantile(0.5f));
+}
+
+TEST_F(TDigestTest, SingletonGroupsKeepMemoryProportionalToData) {
+    // percentile_approx keeps one digest per group. With the old eager reserve every
+    // singleton group held 800000 bytes, so enough live groups exhausted ASAN's
+    // secondary allocator chunk limit.
+    constexpr size_t kGroups = 1000;
+    std::vector<std::unique_ptr<TDigest>> digests;
+    digests.reserve(kGroups);
+    size_t allocated_bytes = 0;
+    for (size_t i = 0; i < kGroups; ++i) {
+        auto digest = TDigest::create_unique(10000.0f);
+        digest->add(static_cast<float>(i));
+        allocated_bytes += (digest->processed().capacity() + digest->unprocessed().capacity()) *
+                                   sizeof(Centroid) +
+                           digest->_cumulative.capacity() * sizeof(Weight);
+        digests.push_back(std::move(digest));
+    }
+    EXPECT_LT(allocated_bytes, kGroups * 1024);
+    for (size_t i = 0; i < kGroups; ++i) {
+        EXPECT_FLOAT_EQ(static_cast<float>(i), digests[i]->quantile(0.5f));
     }
 }
 

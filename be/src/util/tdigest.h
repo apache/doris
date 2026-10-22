@@ -144,8 +144,13 @@ public:
             : _compression(compression),
               _max_processed(processedSize(mergedSize, compression)),
               _max_unprocessed(unprocessedSize(unmergedSize, compression)) {
-        _processed.reserve(_max_processed);
-        _unprocessed.reserve(_max_unprocessed + 1);
+        // Deliberately do not preallocate. Aggregations keep one digest per group
+        // (percentile_approx, quantile_union), so reserving 2*compression processed and
+        // 8*compression unprocessed centroids up front costs O(groups * compression) memory
+        // before any value is stored: 800KB per group at the default compression 10000, which
+        // is 480GB of virtual address space for 600K singleton groups. The buffers grow on
+        // demand instead; _max_processed and _max_unprocessed still bound them and drive
+        // exactly the same compression thresholds as before.
     }
 
     TDigest(std::vector<Centroid>&& processed, std::vector<Centroid>&& unprocessed,
@@ -573,12 +578,9 @@ private:
             return;
         }
 
-        size_t total = _unprocessed.size();
-        for (const auto& td : tdigests) {
-            total += td->_unprocessed.size();
-        }
-
-        _unprocessed.reserve(total);
+        // Insert directly instead of reserving the exact merged size: reserve() reallocates
+        // and copies the whole buffer whenever `total` exceeds the current capacity, so
+        // merging many small digests would cost O(n^2) copies. insert() grows geometrically.
         for (const auto& td : tdigests) {
             _unprocessed.insert(_unprocessed.end(), td->_unprocessed.cbegin(),
                                 td->_unprocessed.cend());
