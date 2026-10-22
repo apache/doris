@@ -24,7 +24,7 @@ suite("test_pythonudtf_auto_suspend", "nonConcurrent") {
     sql "INSERT INTO py_auto_suspend_input VALUES (1), (2), (3)"
     try {
         // Check results before/after idling; BE unit tests separately verify process termination.
-        ["0", "1", "-2", null].eachWithIndex { timeout, index ->
+        ["0", "1", "-1", null].eachWithIndex { timeout, index ->
             sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
             def property = timeout == null ? "" : ", \"auto_suspend\"=\"${timeout}\""
             sql """CREATE TABLES FUNCTION py_auto_suspend(INT) RETURNS ARRAY<INT>
@@ -48,7 +48,28 @@ def evaluate(v):
                 exception "Can not found function"
             }
         }
+        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
+        sql """CREATE TABLES FUNCTION py_auto_suspend_pid(INT) RETURNS ARRAY<BIGINT>
+            PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
+                "runtime_version"="${runtime}", "pool_size"="1", "auto_suspend"="0")
+            AS \$\$
+import os
+def evaluate(v):
+    yield (os.getpid(),)
+\$\$"""
+        def queryPid = {
+            sql("SELECT x FROM py_auto_suspend_input LATERAL VIEW py_auto_suspend_pid(v) t AS x")[0][0]
+        }
+        def firstPid = queryPid()
+        def nextPid = firstPid
+        def deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(120)
+        while (nextPid == firstPid && System.nanoTime() < deadline) {
+            Thread.sleep(2000)
+            nextPid = queryPid()
+        }
+        assertNotEquals(firstPid, nextPid)
     } finally {
         sql "DROP FUNCTION IF EXISTS py_auto_suspend(INT)"
+        sql "DROP FUNCTION IF EXISTS py_auto_suspend_pid(INT)"
     }
 }
