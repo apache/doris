@@ -949,8 +949,11 @@ int InstanceChecker::do_inverted_check() {
                 return 1;
             }
         }
-        // Get all rowset id of this tablet
-        tablet_rowsets_cache.tablet_id = tablet_id;
+        // Get all rowset id of this tablet. The cache claims the tablet only after all its rowsets
+        // are read: a cache left with a partial rowset set by a failed read would report the
+        // following objects of the tablet as leaks, e.g. a txn error on the first object of tablet
+        // 10001 must make the next object of 10001 read the meta again, not hit an empty cache.
+        tablet_rowsets_cache.tablet_id = 0;
         tablet_rowsets_cache.rowset_ids.clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -963,6 +966,7 @@ int InstanceChecker::do_inverted_check() {
         auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
         while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             TxnErrorCode err = txn->get(begin, end, &it);
+            TEST_SYNC_POINT_CALLBACK("InstanceChecker::do_inverted_check.get_rowsets_err", &err);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get rowset kv, err=" << err;
                 return -1;
@@ -986,6 +990,11 @@ int InstanceChecker::do_inverted_check() {
                 }
             }
         }
+        if (stopped()) {
+            // The loop above stops early when the checker is stopped, the rowsets are incomplete
+            return -1;
+        }
+        tablet_rowsets_cache.tablet_id = tablet_id;
 
         if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
             // Garbage data leak

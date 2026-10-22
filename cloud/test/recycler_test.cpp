@@ -5284,6 +5284,65 @@ TEST(CheckerTest, inverted_check_leak_after_live_rowset) {
     ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 1);
 }
 
+TEST(CheckerTest, inverted_check_orphans_in_both_listing_orders) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // Tablet 10001: a live rowset listed before two orphans ("zzz*" sort after the numeric test
+    // rowset ids), the orphans are checked against the cached rowsets of the tablet
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz1", 0), ""), 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz2", 0), ""), 0);
+    // Tablet 10002: an orphan listed before the live rowset ("0000" sorts first), the orphan loads
+    // the rowsets of the tablet and the live rowset is checked against the cache
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10002, 0, 20004, 1, 0);
+    ASSERT_EQ(accessor->put_file(segment_path(10002, "0000", 0), ""), 0);
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 5);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 3);
+}
+
+TEST(CheckerTest, inverted_check_rowset_meta_read_error_is_not_leak) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+    for (int v = 0; v < 2; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1, 0);
+    }
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [](auto&& args) { *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_CONFLICT; },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Failing to read the rowsets of the tablet is an error for each of its objects, never a leak
+    ASSERT_EQ(checker.do_inverted_check(), -1);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 2);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+}
+
 // TODO(Xiaocc): We need one mocked accessor which provides one async stream like list function
 // to do the following test
 TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
