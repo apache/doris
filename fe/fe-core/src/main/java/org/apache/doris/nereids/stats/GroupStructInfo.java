@@ -845,10 +845,15 @@ public class GroupStructInfo {
             Map<ExprId, Expression> childDefinitions = node.children.get(index).node.columnDefinitions;
             for (Map.Entry<ExprId, Expression> definition : childDefinitions.entrySet()) {
                 Expression expression = definition.getValue();
-                definitions.put(definition.getKey(), nullExtended
-                        && canConvertNullToNonNull(expression)
-                        ? new NullExtended(node.nullExtensionBoundaryId, expression)
-                        : expression);
+                if (nullExtended && canConvertNullToNonNull(expression)) {
+                    definitions.put(definition.getKey(), new NullExtended("", expression));
+                } else if (node.children.size() > 1 && expression instanceof NullExtended) {
+                    // the definition crossed a boundary somewhere below this child: the consumer reaches it
+                    // through this child index, which is a property of the tree
+                    definitions.put(definition.getKey(), ((NullExtended) expression).prepend(index));
+                } else {
+                    definitions.put(definition.getKey(), expression);
+                }
             }
         }
         return Collections.unmodifiableMap(definitions);
@@ -856,7 +861,7 @@ public class GroupStructInfo {
 
     /** Whether a join null-extends the columns of the given child. */
     private static boolean isNullExtendedSide(Node node, int index) {
-        if (node.kind != Kind.JOIN || node.flattenable || node.nullExtensionBoundaryId < 0) {
+        if (node.kind != Kind.JOIN || node.flattenable) {
             return false;
         }
         switch (node.joinType) {
@@ -895,12 +900,21 @@ public class GroupStructInfo {
      * value for both plans. The id names the boundary (see Node#nullExtensionBoundaryId).
      */
     private static final class NullExtended extends Expression {
-        private final int boundaryId;
+        /**
+         * The child indices from the boundary to the consumer (empty for the boundary itself). The code is
+         * a property of the assembled tree, never of the order the descriptions were built in, so a cached
+         * child description reused by a parent keeps the same text.
+         */
+        private final String path;
         private final Expression child;
 
-        private NullExtended(int boundaryId, Expression child) {
-            this.boundaryId = boundaryId;
+        private NullExtended(String path, Expression child) {
+            this.path = path;
             this.child = child;
+        }
+
+        private NullExtended prepend(int index) {
+            return new NullExtended(index + path, child);
         }
 
         @Override
@@ -911,7 +925,7 @@ public class GroupStructInfo {
         @Override
         public NullExtended withChildren(List<Expression> children) {
             return children.size() == 1 && children.get(0) == child
-                    ? this : new NullExtended(boundaryId, children.get(0));
+                    ? this : new NullExtended(path, children.get(0));
         }
 
         @Override
@@ -1309,13 +1323,6 @@ public class GroupStructInfo {
          * number of rows with the same conditions, so the flag is part of the identity.
          */
         private boolean markJoin;
-        /**
-         * The id of the null extension this node introduces (an outer join which null-extends a side), -1
-         * for every other node. The id is assigned in build order inside one description, so the consumer
-         * of a definition which crossed this node can name it; the description is memoized on the group,
-         * so the estimation path and the EXPLAIN path see the same ids.
-         */
-        private int nullExtensionBoundaryId = -1;
         /** JOIN: the type of a join which is not flattened. */
         private JoinType joinType;
         /** TOPN / LIMIT: the bound. */
@@ -1601,9 +1608,6 @@ public class GroupStructInfo {
             Node node = new Node(Kind.JOIN);
             node.joinType = join.getJoinType();
             node.markJoin = join.isMarkJoin();
-            if (join.getJoinType().isOuterJoin()) {
-                node.nullExtensionBoundaryId = ctx.nextBoundaryId++;
-            }
             node.conditions = joinConditions(join);
             node.children = children(ge, ctx, 0);
             if (node.children == null) {
@@ -2888,7 +2892,8 @@ public class GroupStructInfo {
             return className + "<distinct>";
         }
         if (expression instanceof NullExtended) {
-            return "NullExtended<" + ((NullExtended) expression).boundaryId + ">";
+            String path = ((NullExtended) expression).path;
+            return path.isEmpty() ? "NullExtended" : "NullExtended<" + path + ">";
         }
         if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
             // the session which evaluates the expression decides how an epoch value is read: the same
@@ -3144,11 +3149,6 @@ public class GroupStructInfo {
     /** The state of one build: it describes the sub tree of the group it was started at. */
     private static class Ctx {
 
-        /**
-         * The id the next null extension boundary of this description gets (see
-         * {@link Node#nullExtensionBoundaryId}).
-         */
-        private int nextBoundaryId;
         private boolean valid = true;
         /** why the description was refused: the first reason wins, it is shown by EXPLAIN */
         private String reason = "";
