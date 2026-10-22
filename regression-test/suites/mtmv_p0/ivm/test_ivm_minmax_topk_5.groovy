@@ -81,8 +81,8 @@ suite("test_ivm_minmax_topk_5") {
                 ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
             """)
             return !taskResult.isEmpty()
-                    && taskResult.Status.toString() != 'PENDING'
-                    && taskResult.Status.toString() != 'RUNNING'
+                    && taskResult[0].Status.toString() != 'PENDING'
+                    && taskResult[0].Status.toString() != 'RUNNING'
         })
         return taskResult[0]
     }
