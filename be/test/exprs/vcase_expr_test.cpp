@@ -582,12 +582,18 @@ void check_simple_case_lookup_context(const VExprSPtr& expr,
 }
 
 template <PrimitiveType pt>
-void check_simple_case_lookup(size_t branches) {
+void check_simple_case_lookup(size_t branches, bool repeated_limbs = false) {
     SCOPED_TRACE(branches);
     using Type = typename PrimitiveTypeTraits<pt>::DataType;
-    auto type = std::make_shared<Type>();
+    const auto type = [] {
+        if constexpr (is_decimal(pt)) {
+            return std::make_shared<Type>(Type::max_precision(), 0);
+        } else {
+            return std::make_shared<Type>();
+        }
+    }();
     auto result_type = std::make_shared<DataTypeInt32>();
-    const auto key = [](int value) {
+    const auto key = [repeated_limbs](int value) {
         if constexpr (pt == TYPE_STRING) {
             // Exercise empty, embedded-NUL and non-inline string keys.
             std::string text = value == 0 ? "" : std::string(40, 'x') + std::to_string(value);
@@ -595,6 +601,19 @@ void check_simple_case_lookup(size_t branches) {
                 text = std::string("a\0b", 3);
             }
             return Field::create_field<TYPE_STRING>(text);
+        } else if constexpr (pt == TYPE_DECIMAL128I || pt == TYPE_DECIMAL256) {
+            using Value = typename PrimitiveTypeTraits<pt>::CppType;
+            using Native = typename Value::NativeType;
+            Native raw(value);
+            if (repeated_limbs) {
+                // Equal limbs cancel out in the former XOR-based decimal hash.
+                raw |= Native(value) << 64;
+                if constexpr (pt == TYPE_DECIMAL256) {
+                    raw |= Native(value) << 128;
+                    raw |= Native(value) << 192;
+                }
+            }
+            return Field::create_field<pt>(Value(raw));
         } else {
             return Field::create_field<pt>(value);
         }
@@ -609,7 +628,7 @@ void check_simple_case_lookup(size_t branches) {
         nulls->insert_value(row % 7 == 0);
         if (row % 7 != 0) {
             for (size_t branch = 0; branch < branches; ++branch) {
-                if (key(branch) == input_key) {
+                if (key(branch == branches - 1 ? 1 : branch) == input_key) {
                     expected[row] = branch + 1;
                     break;
                 }
@@ -649,6 +668,15 @@ TYPED_TEST(VSimpleCaseLookupTest, NullableDuplicatesAndClonedContext) {
                                                                    : 8;
     for (size_t branches : {threshold - 1, threshold, size_t(256), size_t(257), size_t(1024)}) {
         check_simple_case_lookup<pt>(branches);
+    }
+}
+
+TYPED_TEST(VSimpleCaseLookupTest, RepeatedLimbWideDecimalKeys) {
+    constexpr auto pt = TypeParam::value;
+    if constexpr (pt == TYPE_DECIMAL128I || pt == TYPE_DECIMAL256) {
+        for (size_t branches : {256, 1024}) {
+            check_simple_case_lookup<pt>(branches, true);
+        }
     }
 }
 
