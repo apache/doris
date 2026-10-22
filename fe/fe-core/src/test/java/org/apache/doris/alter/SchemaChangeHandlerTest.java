@@ -1384,6 +1384,68 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testLightIndexChangeWithHeavyWorkRunsHeavySchemaChange() throws Exception {
+        String tableName = "sc_light_index_with_heavy_work";
+        dropTable("test." + tableName, false);
+        createTable("CREATE TABLE test." + tableName + " (\n"
+                + "k1 INT,\n"
+                + "vi INT,\n"
+                + "v1 STRING,\n"
+                + "v2 STRING,\n"
+                + "v3 STRING,\n"
+                + "INDEX idx_v1 (v1) USING INVERTED,\n"
+                + "INDEX idx_v3 (v3) USING INVERTED\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        String alterPrefix = "ALTER TABLE test." + tableName + " ";
+
+        // A type change needs a BE conversion job, so the light DROP INDEX must not publish the shadow schema.
+        assertRunsHeavySchemaChange(handler, tbl, alterPrefix + "MODIFY COLUMN vi BIGINT NULL, DROP INDEX idx_v1");
+        Assertions.assertEquals(PrimitiveType.BIGINT, tbl.getColumn("vi").getType().getPrimitiveType());
+        Assertions.assertTrue(tbl.getBaseSchema(true).stream()
+                .noneMatch(column -> column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)));
+        Assertions.assertTrue(tbl.getIndexes().stream().noneMatch(idx -> idx.getIndexName().equals("idx_v1")));
+
+        // Without new-data-only indexing, the BLOOMFILTER index has to be built for the existing data too.
+        boolean enableAddIndexForNewData = connectContext.getSessionVariable().isEnableAddIndexForNewData();
+        connectContext.getSessionVariable().setEnableAddIndexForNewData(false);
+        try {
+            assertRunsHeavySchemaChange(handler, tbl,
+                    alterPrefix + "ADD INDEX bf_v2 (v2) USING BLOOMFILTER, DROP INDEX idx_v3");
+        } finally {
+            connectContext.getSessionVariable().setEnableAddIndexForNewData(enableAddIndexForNewData);
+        }
+        Assertions.assertEquals(Lists.newArrayList("bf_v2"),
+                tbl.getIndexes().stream().map(Index::getIndexName).collect(Collectors.toList()));
+    }
+
+    // Runs the statement and checks it ran as a heavy schema change job, not as a light index change that
+    // publishes the schema at once and submits index delete jobs.
+    private void assertRunsHeavySchemaChange(SchemaChangeHandler handler, OlapTable tbl, String sql)
+            throws Exception {
+        Set<Long> alterJobIdsBefore = Sets.newHashSet(handler.getAlterJobsV2().keySet());
+        long indexChangeJobsOfTable = handler.getIndexChangeJobs().values().stream()
+                .filter(job -> job.getTableId() == tbl.getId()).count();
+
+        alterTable(sql, connectContext);
+        jobSize++;
+
+        List<AlterJobV2> newJobs = handler.getAlterJobsV2().values().stream()
+                .filter(job -> job.getTableId() == tbl.getId() && !alterJobIdsBefore.contains(job.getJobId()))
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, newJobs.size());
+        Assertions.assertEquals(indexChangeJobsOfTable, handler.getIndexChangeJobs().values().stream()
+                .filter(job -> job.getTableId() == tbl.getId()).count());
+        waitAlterJobDone(handler.getAlterJobsV2());
+    }
+
+    @Test
     public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
         createAnalyzerAliasTable("sc_ik_alias");
         alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "
