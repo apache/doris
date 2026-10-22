@@ -44,6 +44,7 @@ import org.apache.iceberg.catalog.ViewCatalog;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.View;
@@ -318,7 +319,17 @@ public interface IcebergCatalogOps {
                 LOG.warn("Iceberg catalog does not support namespaces");
                 return Collections.emptyList();
             }
-            return listNestedNamespaces(rootNamespace());
+            Namespace root = rootNamespace();
+            try {
+                return listNestedNamespaces(root);
+            } catch (NoSuchNamespaceException e) {
+                // Hadoop creates the warehouse lazily with the first namespace. Its absent implicit
+                // root is an empty catalog, unlike a missing named or REST root; I/O errors still fail.
+                if (catalog instanceof HadoopCatalog && root.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                throw e;
+            }
         }
 
         /**

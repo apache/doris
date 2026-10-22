@@ -6653,21 +6653,28 @@ public class Env {
                 ctx.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
             }
         }
-        ctx.changeDefaultCatalog(catalogName);
-        String lastDb = ctx.getLastDBOfCatalog(catalogName);
-        if (StringUtils.isNotEmpty(lastDb)) {
-            ctx.setDatabase(lastDb);
-        }
-        // A data source whose metadata model has no database layer can name the single database Doris
-        // presents for it; the connector owns that name. Asked of the provider, not the connector, because
-        // switching to a catalog must not force it to initialize. Applied after the remembered database on
-        // purpose: such a catalog has exactly one database, so there is nothing else to return to.
-        Map<String, String> catalogProps = catalogIf.getProperties();
-        String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
-        if (catalogType != null) {
-            ConnectorFactory.findProvider(catalogType, catalogProps)
-                    .flatMap(ConnectorProvider::defaultDatabaseOnUse)
-                    .ifPresent(ctx::setDatabase);
+        NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
+        try {
+            ctx.changeDefaultCatalog(catalogName);
+            String lastDb = ctx.getLastDBOfCatalog(catalogName);
+            if (StringUtils.isNotEmpty(lastDb)) {
+                ctx.setDatabase(lastDb);
+            }
+            // A data source whose metadata model has no database layer can name the single database Doris
+            // presents for it; the connector owns that name. Asked of the provider, not the connector, because
+            // switching to a catalog must not force it to initialize. Applied after the remembered database on
+            // purpose: such a catalog has exactly one database, so there is nothing else to return to.
+            Map<String, String> catalogProps = catalogIf.getProperties();
+            String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
+            if (catalogType != null) {
+                ConnectorFactory.findProvider(catalogType, catalogProps)
+                        .flatMap(ConnectorProvider::defaultDatabaseOnUse)
+                        .ifPresent(ctx::setDatabase);
+            }
+        } catch (RuntimeException | Error e) {
+            // A failed remembered/default database lookup must not leave a partially switched session.
+            ctx.restoreNameSpaceContext(previousNamespace);
+            throw e;
         }
     }
 
