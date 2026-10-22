@@ -29,7 +29,7 @@ import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.BindSkewExpr;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
-import org.apache.doris.nereids.rules.analysis.CheckScoreInCorrelatedSubquery;
+import org.apache.doris.nereids.rules.analysis.CheckScoreUsage;
 import org.apache.doris.nereids.rules.analysis.CheckSearchUsage;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
@@ -209,7 +209,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
              * so we move MergeProjects from analyze to rewrite phase.
              */
             bottomUp(new SubqueryToApply()),
-            bottomUp(new CheckScoreInCorrelatedSubquery()),
+            custom(RuleType.CHECK_SCORE_USAGE, CheckScoreUsage::new),
             topDown(
                     // merge normal filter and hidden column filter
                     new MergeFilters()

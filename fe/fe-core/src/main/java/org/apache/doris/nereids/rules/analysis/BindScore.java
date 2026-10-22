@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -61,10 +62,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -72,6 +75,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Bind score() to the olap scan that computes it.
@@ -86,7 +90,7 @@ import java.util.stream.Collectors;
  * </ul>
  * A SELECT in a subquery, view, CTE or set operation has to ORDER BY score() with a LIMIT, which keeps
  * the predicates of the outer query away from its scan. A correlated subquery cannot call score(), see
- * CheckScoreInCorrelatedSubquery. Any other use of score() is rejected.
+ * CheckScoreUsage. Any other use of score() is rejected.
  *
  * <p>This rule runs first on each plan the analyzer binds: a statement, and on their own its views, CTEs
  * and subqueries. The plan nodes of each SELECT are still its clauses then. The rule asks the table of a
@@ -117,11 +121,14 @@ public class BindScore implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (!plan.anyMatch(node -> callsScore((Plan) node))) {
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        FunctionRegistry functions = connectContext.getEnv().getFunctionRegistry();
+        // A UDF named score takes precedence over the builtin score() with prefer_udf_over_builtin, see
+        // FunctionRegistry.findFunctionBuilder.
+        if (!plan.anyMatch(node -> callsScore((Plan) node)) || connectContext.getSessionVariable().preferUdfOverBuiltin
+                && !functions.findUdfBuilder(null, "score").isEmpty()) {
             return plan;
         }
-        FunctionRegistry functions = jobContext.getCascadesContext().getConnectContext().getEnv()
-                .getFunctionRegistry();
         // A view, a CTE and a subquery are analyzed without the sink of their statement.
         Plan newPlan = bindQuery(plan, plan instanceof LogicalSink, functions);
         // Outside the clauses of a SELECT, e.g. in a join condition.
@@ -243,7 +250,7 @@ public class BindScore implements CustomRewriter {
         if (where.stream().noneMatch(conjunct -> conjunct.anyMatch(BindScore::matchesText))) {
             throw new AnalysisException(UNSUPPORTED_SELECT_ERROR);
         }
-        clauses.forEach(clause -> clause.getExpressions().forEach(expression -> expression.foreach(node -> {
+        clauses.forEach(clause -> expressions(clause).forEach(expression -> expression.foreach(node -> {
             if (node instanceof ComparisonPredicate) {
                 checkComparedWithNumber((ComparisonPredicate) node);
             }
@@ -261,7 +268,7 @@ public class BindScore implements CustomRewriter {
         // HAVING and QUALIFY can also read score(), MATCH and SEARCH through aliases of the select list.
         Set<String> scoringAliases = new HashSet<>();
         for (int i = aboveWhere.size() - 1; i >= 0; i--) {
-            for (Expression expression : aboveWhere.get(i).getExpressions()) {
+            for (Expression expression : expressions(aboveWhere.get(i)).collect(Collectors.toList())) {
                 if (expression instanceof UnboundAlias && ((UnboundAlias) expression).getAlias().isPresent()
                         && scores(expression, scoringAliases)) {
                     scoringAliases.add(((UnboundAlias) expression).getAlias().get().toLowerCase());
@@ -357,15 +364,25 @@ public class BindScore implements CustomRewriter {
         return false;
     }
 
-    private static boolean isScoreOrAlias(Expression expression, List<Plan> aboveWhere) {
-        if (isScoreCall(expression)) {
-            return true;
+    // score(), its alias or its position in the select list.
+    private static boolean isScoreOrAlias(Expression key, List<Plan> aboveWhere) {
+        List<NamedExpression> selectList = aboveWhere.stream().filter(LogicalProject.class::isInstance)
+                .findFirst().map(project -> ((LogicalProject<?>) project).getProjects()).orElse(ImmutableList.of());
+        if (key instanceof IntegerLikeLiteral) {
+            // A * before the position adds the columns of a table to the select list.
+            BigDecimal position = ((IntegerLikeLiteral) key).getBigDecimalValue();
+            return position.compareTo(BigDecimal.ONE) >= 0
+                    && position.compareTo(BigDecimal.valueOf(selectList.size())) <= 0
+                    && selectList.subList(0, position.intValue()).stream().noneMatch(UnboundStar.class::isInstance)
+                    && isScoreItem(selectList.get(position.intValue() - 1));
         }
-        return expression instanceof UnboundSlot && ((UnboundSlot) expression).getNameParts().size() == 1
-                && aboveWhere.stream().flatMap(clause -> clause.getExpressions().stream())
-                        .anyMatch(item -> item instanceof UnboundAlias && isScoreCall(item.child(0))
-                                && ((UnboundAlias) item).getAlias()
-                                        .filter(((UnboundSlot) expression).getName()::equalsIgnoreCase).isPresent());
+        return isScoreCall(key) || key instanceof UnboundSlot && ((UnboundSlot) key).getNameParts().size() == 1
+                && selectList.stream().anyMatch(item -> isScoreItem(item) && ((UnboundAlias) item).getAlias()
+                        .filter(((UnboundSlot) key).getName()::equalsIgnoreCase).isPresent());
+    }
+
+    private static boolean isScoreItem(NamedExpression item) {
+        return item instanceof UnboundAlias && isScoreCall(item.child(0));
     }
 
     // Replaces the score() calls of a clause with the score column, which * leaves out because it is not
@@ -385,34 +402,44 @@ public class BindScore implements CustomRewriter {
         } else if (clause instanceof LogicalProject) {
             LogicalProject<?> project = (LogicalProject<?>) clause;
             return project.withProjects(project.getProjects().stream()
-                    .map(item -> exceptScore((NamedExpression) bind.apply(item), scoreSlot))
+                    .map(item -> exceptScore((NamedExpression) bind.apply(item), scoreSlot, bind))
                     .collect(ImmutableList.toImmutableList()));
         } else if (clause instanceof LogicalAggregate) {
             LogicalAggregate<?> aggregate = (LogicalAggregate<?>) clause;
             return aggregate.withAggOutput(aggregate.getOutputExpressions().stream()
-                    .map(item -> exceptScore(item, scoreSlot))
+                    .map(item -> exceptScore(item, scoreSlot, bind))
                     .collect(ImmutableList.toImmutableList()));
         } else if (clause instanceof LogicalRepeat) {
             LogicalRepeat<?> repeat = (LogicalRepeat<?>) clause;
             return repeat.withAggOutput(repeat.getOutputExpressions().stream()
-                    .map(item -> exceptScore(item, scoreSlot))
+                    .map(item -> exceptScore(item, scoreSlot, bind))
                     .collect(ImmutableList.toImmutableList()));
         }
         return clause;
     }
 
-    private static NamedExpression exceptScore(NamedExpression item, Slot scoreSlot) {
+    private static NamedExpression exceptScore(NamedExpression item, Slot scoreSlot,
+            Function<Expression, Expression> bind) {
         if (!(item instanceof UnboundStar)) {
             return item;
         }
         UnboundStar star = (UnboundStar) item;
         return new UnboundStar(star.getQualifier(), ImmutableList.<NamedExpression>builder()
                 .addAll(star.getExceptedSlots()).add(scoreSlot).build(),
-                star.getReplacedAlias(), star.getIndexInSqlString());
+                star.getReplacedAlias().stream().map(alias -> (NamedExpression) bind.apply(alias))
+                        .collect(ImmutableList.toImmutableList()),
+                star.getIndexInSqlString());
     }
 
     private static boolean callsScore(Plan plan) {
-        return plan.getExpressions().stream().anyMatch(expression -> expression.anyMatch(BindScore::isScoreCall));
+        return expressions(plan).anyMatch(expression -> expression.anyMatch(BindScore::isScoreCall));
+    }
+
+    // The expressions of a plan node, with the replacements of * REPLACE, which analysis expands later.
+    private static Stream<Expression> expressions(Plan plan) {
+        return plan.getExpressions().stream().flatMap(expression -> expression instanceof UnboundStar
+                ? Stream.concat(Stream.of(expression), ((UnboundStar) expression).getReplacedAlias().stream())
+                : Stream.of(expression));
     }
 
     private static boolean isScoreCall(Object expression) {

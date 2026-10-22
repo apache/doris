@@ -15,6 +15,10 @@
 1	apple red	sweet
 2	apple green	sour
 
+-- !select_star_replace_score --
+1	apple red	0.4700036
+2	apple green	0.4700036
+
 -- !table_alias_score_range --
 1	0.4700036
 2	0.4700036
@@ -81,6 +85,10 @@ sweet	1
 -- !nested_score_topn --
 1	0.4700036	sweet
 2	0.4700036	sour
+
+-- !nested_score_topn_by_position --
+1	0.4700036
+2	0.4700036
 
 -- !union_score_topn --
 1	0.9808291

@@ -60,6 +60,11 @@ suite("test_score_filter_usage", "p0") {
         SELECT * FROM test_score_filter_usage
         WHERE c1 MATCH 'apple' AND score() > 0.00001
     """
+    // * REPLACE puts score() into the select list like any other item.
+    order_qt_select_star_replace_score """
+        SELECT * REPLACE (score() AS c2) FROM test_score_filter_usage
+        WHERE c1 MATCH 'apple' AND score() > 0.00001
+    """
     order_qt_table_alias_score_range """
         SELECT t.id, score() AS s FROM test_score_filter_usage t
         WHERE t.c1 MATCH 'apple' AND score() > 0.00001
@@ -342,6 +347,12 @@ suite("test_score_filter_usage", "p0") {
             WHERE c1 MATCH 'apple' AND score() > 0.00001 ORDER BY s DESC LIMIT 2
         ) x JOIN test_score_filter_usage b ON x.id = b.id
         WHERE x.s > 0.00001
+    """
+    // ORDER BY the position of score() in the select list.
+    order_qt_nested_score_topn_by_position """
+        SELECT * FROM (
+            SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'apple' ORDER BY 2 DESC LIMIT 2
+        ) x
     """
     order_qt_union_score_topn """
         (SELECT id, score() AS s FROM test_score_filter_usage WHERE c1 MATCH 'green' ORDER BY s DESC LIMIT 1)

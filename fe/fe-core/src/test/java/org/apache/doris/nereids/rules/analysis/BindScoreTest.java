@@ -221,6 +221,42 @@ class BindScoreTest extends TestWithFeService {
         assertMinimumScore("SELECT a.* FROM score_usage_V2 a" + where, 3);
         assertMinimumScore("SELECT *, score() AS s FROM score_usage_V2" + where, 4);
         assertMinimumScore("SELECT * EXCEPT (c2) FROM score_usage_V2" + where, 2);
+        // * REPLACE puts score() into the select list like any other item.
+        assertMinimumScore("SELECT * REPLACE (score() AS c2) FROM score_usage_V2" + where, 3);
+        assertFullScoring("SELECT * REPLACE (score() AS c2) FROM score_usage_V2 WHERE c1 MATCH 'apple'", 3);
+    }
+
+    // Analysis expands an alias function after BindScore, so its score() is not bound to a scan.
+    @Test
+    void testScoreInAliasFunctionIsRejected() throws Exception {
+        createFunction("CREATE ALIAS FUNCTION score_usage_alias() WITH PARAMETER() AS score()");
+        assertScoreUsageError("SELECT id, score_usage_alias() FROM score_usage_V2 WHERE c1 MATCH 'apple'",
+                BindScore.UNSUPPORTED_SELECT_ERROR);
+    }
+
+    // With prefer_udf_over_builtin, a UDF named score is called instead of the builtin score().
+    @Test
+    void testUdfNamedScore() throws Exception {
+        createFunction("CREATE ALIAS FUNCTION score() WITH PARAMETER() AS abs(1)");
+        boolean preferUdf = connectContext.getSessionVariable().preferUdfOverBuiltin;
+        connectContext.getSessionVariable().preferUdfOverBuiltin = true;
+        try {
+            LogicalOlapScan scan = rewrittenScan("SELECT id, score() FROM score_usage_V2 WHERE c1 MATCH 'apple'");
+            Assertions.assertFalse(BindScore.findScoreSlot(scan).isPresent());
+        } finally {
+            connectContext.getSessionVariable().preferUdfOverBuiltin = preferUdf;
+            executeSql("DROP FUNCTION score()");
+        }
+    }
+
+    // SEARCH keeps every document when another predicate follows, so the scan only takes over the
+    // minimum score, as before score() could be used without a TopN.
+    @Test
+    void testMinimumScoreOfSearchWithAnotherPredicate() {
+        LogicalOlapScan scan = rewrittenScan("SELECT id, score() AS s FROM score_usage_V2 WHERE search('c1:apple')"
+                + " AND id % 2 = 0 AND score() > 0.00001 ORDER BY s DESC LIMIT 10");
+        Assertions.assertEquals(0L, scan.getScoreLimit().get().longValue());
+        Assertions.assertTrue(scan.getScoreRangeInfo().isPresent());
     }
 
     @Test
@@ -254,8 +290,11 @@ class BindScoreTest extends TestWithFeService {
     void testNestedScoreRequiresTopN(String query) {
         String scored = "SELECT id, score() AS s FROM score_usage_V2 WHERE c1 MATCH 'apple' AND score() > 0.00001";
         assertScoreUsageError(String.format(query, scored), BindScore.NESTED_SELECT_ERROR);
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(
-                String.format(query, scored + " ORDER BY s DESC LIMIT 2")));
+        assertScoreUsageError(String.format(query, scored + " ORDER BY 1 DESC LIMIT 2"), BindScore.NESTED_SELECT_ERROR);
+        for (String topN : new String[] {" ORDER BY s DESC LIMIT 2", " ORDER BY 2 DESC LIMIT 2"}) {
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).checkPlannerResult(
+                    String.format(query, scored + topN)), topN);
+        }
     }
 
     @Test

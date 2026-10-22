@@ -59,7 +59,8 @@ import java.util.Set;
  * <p>BindScore makes the scan score every row it returns. When a TopN orders the rows of
  * the scan by the score alone, the scan can keep the best rows of each segment instead, and SEARCH
  * can skip documents that cannot reach them. The scan keeps the best rows only when no filter
- * follows it, so it also takes over a minimum score of the filter.
+ * follows it, so it also takes over a minimum score of the filter, as before score() could be used
+ * without a TopN.
  */
 public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
 
@@ -84,7 +85,7 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         LogicalOlapScan scan = filter.child();
         Optional<Slot> scoreSlot = BindScore.findScoreSlot(scan);
         if (!scoreSlot.isPresent() || !scan.getScoreLimit().equals(Optional.of(0L))
-                || topN.getOrderKeys().size() != 1) {
+                || scan.getScoreRangeInfo().isPresent() || topN.getOrderKeys().size() != 1) {
             return Optional.empty();
         }
         OrderKey orderKey = topN.getOrderKeys().get(0);
@@ -102,14 +103,15 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         Set<Expression> conjuncts = filter.getConjuncts().stream()
                 .filter(conjunct -> !minimum.equals(Optional.of(conjunct)))
                 .collect(ImmutableSet.toImmutableSet());
-        if (searchNeedsAllScores(conjuncts)) {
+        // A zero limit keeps scoring every row, and the scan applies the minimum score.
+        long limit = searchNeedsAllScores(conjuncts) ? 0 : topN.getLimit() + topN.getOffset();
+        if (limit == 0 && !minimum.isPresent()) {
             return Optional.empty();
         }
         LogicalOlapScan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(),
                 scan.getAnnOrderKeys(), scan.getAnnLimit(),
                 ImmutableList.of(new OrderKey(scoreSlot.get(), orderKey.isAsc(), orderKey.isNullFirst())),
-                Optional.of(topN.getLimit() + topN.getOffset()),
-                minimum.flatMap(conjunct -> extractScoreRange(conjunct, scoreSlot.get())));
+                Optional.of(limit), minimum.flatMap(conjunct -> extractScoreRange(conjunct, scoreSlot.get())));
         return Optional.of(conjuncts.isEmpty() ? newScan : filter.withConjunctsAndChild(conjuncts, newScan));
     }
 
