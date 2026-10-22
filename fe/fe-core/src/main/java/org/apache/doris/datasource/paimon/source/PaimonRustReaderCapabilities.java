@@ -52,23 +52,46 @@ final class PaimonRustReaderCapabilities {
     private final FileStoreTable table;
     private final TableSchema schema;
     private final boolean tableCompatible;
+
+    // Whether this is a primary-key table with the partial-update or aggregation merge
+    // engine: the engines whose writers historically retained repeated INSERT keys within
+    // one file, driving the merge reader's unbounded batch retention.
+    private final boolean puAggPrimaryKeyEngine;
     private final Map<Long, Boolean> compatibleFileSchemas = new ConcurrentHashMap<>();
 
     PaimonRustReaderCapabilities(FileStoreTable table, TupleDescriptor tuple) {
         this.table = table;
         this.schema = table.schema();
         this.tableCompatible = schema != null && hasCompatibleSchemaVersion(schema)
-                && hasFullNestedProjection(tuple) && hasCompatibleMergeEngine(schema)
-                && hasCompatibleAggregates(schema);
+                && hasFullNestedProjection(tuple) && hasCompatibleAggregates(schema);
+        // The merge-engine gate is split-level, not table-level: it exists for the merge
+        // reader's unbounded losing-batch retention, which only a split that must merge
+        // can trigger. See canRead.
+        this.puAggPrimaryKeyEngine = schema != null && hasPuAggPrimaryKeyEngine(schema);
     }
 
     boolean canRead(DataSplit split) {
         if (!tableCompatible) {
             return false;
         }
-        // The pinned merge reader retains losing input batches until an output batch fills.
-        // Neither zero deletes nor a small read.batch-size bounds this across multiple files.
-        if (!schema.primaryKeys().isEmpty() && split.dataFiles().size() > 1) {
+        // paimon-rust's read_pk dispatch (pk_split_needs_merge / is_fully_materialized_pk_dv):
+        // a rawConvertible split whose files are all compacted (level != 0) never reaches
+        // the pinned merge reader. It streams through DataFileReader's raw path instead --
+        // one file at a time, each bounded by read.batch-size, with the split's
+        // deletion-vector factory masking stale rows per file. Both gates below exist
+        // solely for that merge reader, whose losing-input-batch retention no delete count
+        // or batch size can bound, so they must not judge a split that never merges.
+        boolean readsRawWithoutMerge = split.rawConvertible()
+                && split.dataFiles().stream().allMatch(file -> file.level() != 0);
+        // Older partial-update/aggregate writers retained repeated INSERT keys within one
+        // file, so even a single uncompacted file can drive unbounded merge retention.
+        if (puAggPrimaryKeyEngine && !readsRawWithoutMerge) {
+            return false;
+        }
+        // Across multiple files the same retention accumulates the whole split's inputs
+        // until an output batch fills.
+        if (!schema.primaryKeys().isEmpty() && !readsRawWithoutMerge
+                && split.dataFiles().size() > 1) {
             return false;
         }
         for (DataFileMeta file : split.dataFiles()) {
@@ -116,12 +139,11 @@ final class PaimonRustReaderCapabilities {
         return schema.version() > TableSchema.PAIMON_07_VERSION;
     }
 
-    private static boolean hasCompatibleMergeEngine(TableSchema schema) {
+    private static boolean hasPuAggPrimaryKeyEngine(TableSchema schema) {
         CoreOptions.MergeEngine engine = new CoreOptions(schema.options()).mergeEngine();
-        // Older partial-update/aggregate writers retained repeated INSERT keys within one
-        // file. Zero deletes cannot bound Rust's retained losing batches for those producers.
-        return schema.primaryKeys().isEmpty()
-                || (engine != CoreOptions.MergeEngine.PARTIAL_UPDATE && engine != CoreOptions.MergeEngine.AGGREGATE);
+        return !schema.primaryKeys().isEmpty()
+                && (engine == CoreOptions.MergeEngine.PARTIAL_UPDATE
+                        || engine == CoreOptions.MergeEngine.AGGREGATE);
     }
 
     private static boolean hasIncompatibleEvolution(List<DataField> oldFields, List<DataField> newFields) {

@@ -24,6 +24,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VectorType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,6 +82,16 @@ final class PaimonReadTypeProjection {
     }
 
     private static DataType projectArray(DataType tableType, ColumnType requiredType) {
+        // Doris maps a Paimon VECTOR column to ARRAY (PaimonUtil.paimonPrimitiveTypeToDorisType),
+        // so a VECTOR column arrives here with an ARRAY request. The Doris ARRAY is only the
+        // logical view: the physical read must stay the VECTOR type, whose binary layout
+        // differs from an array's (readVectorData carries a 4-byte element count that
+        // readArrayData does not -- see PaimonColumnValue.unpackArray, which dispatches on
+        // this type being VectorType). Forcing an ArrayType read would make the reader
+        // decode vector bytes as a BinaryArray, i.e. silently wrong values.
+        if (tableType instanceof VectorType) {
+            return tableType;
+        }
         if (!(tableType instanceof ArrayType)) {
             throw incompatibleType(requiredType, tableType);
         }

@@ -2916,6 +2916,114 @@ public class PaimonScanNodeTest {
                     rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
         }
     }
+    // --- filterVectorIndexOptions ---------------------------------------------------
+    //
+    // CoreOptions.primaryKeyVectorIndexOptions seeds its result with a copy of every
+    // table option, so what reaches TExternalSearchRequest.paimon_options is the whole table
+    // property bag unless it is filtered. These cover the three reasons it must be:
+    // a thrift-fatal null value, redundant table options paimon-rust already merges
+    // itself, and properties that should not travel to BE at all.
+
+    @Test
+    public void testFilterVectorIndexOptionsKeepsFieldAndAlgorithmScopedKeys() {
+        Map<String, String> options = new HashMap<>();
+        options.put("field.embedding.vector-dim", "2048");
+        options.put("ivf-flat.metric", "l2");
+        options.put("ivf-flat.nlist", "1024");
+        options.put("fields.embedding.some-field-option", "v");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals("l2", filtered.get("ivf-flat.metric"));
+        Assert.assertEquals("1024", filtered.get("ivf-flat.nlist"));
+        Assert.assertEquals("v", filtered.get("fields.embedding.some-field-option"));
+        // "field." (singular) is a different namespace from the "fields." one the filter
+        // keeps, so the dimension is not forwarded -- paimon-rust reads it off the index.
+        Assert.assertFalse(filtered.containsKey("field.embedding.vector-dim"));
+        Assert.assertEquals(3, filtered.size());
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsDropsNullValues() {
+        // The actual production failure: these catalog audit properties carry a Java null,
+        // which HashMap accepts and thrift's writeString does not (NPE in the generated
+        // TPaimonVectorSearchOptions writer). They are also not algorithm- or field-scoped,
+        // so they would be dropped anyway -- asserted separately so a future widening of
+        // the prefix rule cannot silently reintroduce the crash.
+        Map<String, String> options = new HashMap<>();
+        options.put("owner", null);
+        options.put("createdBy", null);
+        options.put("updatedBy", null);
+        options.put("ivf-flat.metric", "l2");
+        options.put("ivf-flat.nprobe", null);
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertFalse(filtered.containsValue(null));
+        Assert.assertFalse(filtered.containsKey("ivf-flat.nprobe"));
+        Assert.assertEquals(Collections.singletonMap("ivf-flat.metric", "l2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsDropsUnrelatedTableProperties() {
+        Map<String, String> options = new HashMap<>();
+        options.put("path", "viewfs://cluster/db/tbl");
+        options.put("security.hadoop.username", "hudi");
+        options.put("bucket", "1");
+        options.put("primary-key", "id");
+        options.put("merge-engine", "partial-update");
+        options.put("ivf-flat.metric", "l2");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals(Collections.singletonMap("ivf-flat.metric", "l2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsDropsPkVectorDeclarations() {
+        // fields.<col>.pk-vector.* is FE's own index declaration, not a search parameter;
+        // primaryKeyVectorAlgorithmOptions excludes it from its collection too.
+        Map<String, String> options = new HashMap<>();
+        options.put("fields.embedding.pk-vector.index.type", "ivf-flat");
+        options.put("fields.embedding.pk-vector.distance.metric", "l2");
+        options.put("fields.embedding.pk-vector.index.options", "{\"nlist\":\"1024\"}");
+        options.put("fields.embedding.refine-factor", "2");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals(Collections.singletonMap("fields.embedding.refine-factor", "2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsWithNullAlgorithmKeepsFieldScopedOnly() {
+        // A null index type must not be turned into a "null." prefix; keep the
+        // field-scoped half rather than guessing.
+        Map<String, String> options = new HashMap<>();
+        options.put("fields.embedding.refine-factor", "2");
+        options.put("ivf-flat.metric", "l2");
+        options.put("owner", null);
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", null);
+
+        Assert.assertEquals(Collections.singletonMap("fields.embedding.refine-factor", "2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsIsScopedToTheQueriedColumn() {
+        Map<String, String> options = new HashMap<>();
+        options.put("fields.embedding.refine-factor", "2");
+        options.put("fields.other_vec.refine-factor", "8");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals(Collections.singletonMap("fields.embedding.refine-factor", "2"), filtered);
+    }
 
     @Test
     public void testRustReaderRejectsConflictingStaticCredentials() throws Exception {
@@ -3537,6 +3645,66 @@ public class PaimonScanNodeTest {
                                     : TPaimonReaderType.PAIMON_RUST, f.reader(split));
                 }
             }
+        }
+    }
+
+    @Test
+    public void testRustMultiFileRawConvertibleSplitStaysOnRust() throws Exception {
+        // A rawConvertible split whose files are all compacted (level != 0) never reaches
+        // the pinned merge reader on BE: paimon-rust dispatches it to the raw path, which
+        // streams one file at a time bounded by read.batch-size (crate pk_split_needs_merge
+        // / read_pk). The multi-file merge gate must not judge it, or compacted PK buckets
+        // (the normal PK-vector table layout) could never use the rust reader at all.
+        for (String engine : Arrays.asList("deduplicate", "aggregation", "partial-update")) {
+            for (int fileCount : new int[] {2, 8}) {
+                for (boolean rawConvertible : Arrays.asList(true, false)) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    f.schema(1, new IntType(), ImmutableMap.of("merge-engine", engine,
+                            "read.batch-size", "1"), true);
+                    List<DataFileMeta> files = new ArrayList<>();
+                    for (int i = 0; i < fileCount; i++) {
+                        DataFileMeta file = Mockito.spy(createDataSplit("run-" + i + ".parquet")
+                                .dataFiles().get(0));
+                        Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                        Mockito.doReturn(1).when(file).level();
+                        files.add(file);
+                    }
+                    DataSplit.Builder builder = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                            .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                            .withDataFiles(files);
+                    if (rawConvertible) {
+                        builder.rawConvertible(true);
+                    }
+                    DataSplit split = builder.build();
+                    Assert.assertEquals(engine + " files=" + fileCount + " raw=" + rawConvertible,
+                            rawConvertible ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                            f.reader(split));
+                }
+            }
+        }
+
+        // A level-0 file forces the merge path even on a rawConvertible split (deletion
+        // vector tables merge any uncompacted level), so the multi-file gate must keep
+        // routing it to JNI.
+        for (boolean rawConvertible : Arrays.asList(true, false)) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.schema(1, new IntType(), ImmutableMap.of("merge-engine", "deduplicate",
+                    "deletion-vectors.enabled", "true", "read.batch-size", "1"), true);
+            DataFileMeta compacted = Mockito.spy(createDataSplit("compacted.parquet")
+                    .dataFiles().get(0));
+            Mockito.doReturn(Optional.of(0L)).when(compacted).deleteRowCount();
+            Mockito.doReturn(1).when(compacted).level();
+            DataFileMeta levelZero = Mockito.spy(createDataSplit("level0.parquet").dataFiles().get(0));
+            Mockito.doReturn(Optional.of(0L)).when(levelZero).deleteRowCount();
+            Mockito.doReturn(0).when(levelZero).level();
+            DataSplit.Builder builder = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                    .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                    .withDataFiles(Arrays.asList(compacted, levelZero));
+            if (rawConvertible) {
+                builder.rawConvertible(true);
+            }
+            Assert.assertEquals("level0 raw=" + rawConvertible,
+                    TPaimonReaderType.PAIMON_JNI, f.reader(builder.build()));
         }
     }
 

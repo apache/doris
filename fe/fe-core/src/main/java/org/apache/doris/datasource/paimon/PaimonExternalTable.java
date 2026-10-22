@@ -55,7 +55,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
@@ -300,12 +299,6 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 // Incremental, file-creation-time and compacted scans do not necessarily read
                 // the complete snapshot selected by TimeTravelUtil.
                 return UNKNOWN_ROW_COUNT;
-        }
-        if (table instanceof PrivilegedFileStoreTable) {
-            // Preserve SELECT authorization without planning. TimeTravelUtil calls tagManager(),
-            // which would incorrectly require INSERT permission on the privilege wrapper.
-            table.newScan();
-            table = PaimonTableDecorators.unwrapToFallbackOrBase(table);
         }
         if (options.queryAuthEnabled()) {
             table.catalogEnvironment().tableQueryAuth(options).auth(null);

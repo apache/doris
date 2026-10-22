@@ -42,6 +42,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.paimon.source.PaimonVectorSearch;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -377,6 +378,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
             if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
+                continue;
+            }
+            // Reader-produced Paimon PK-vector search distance: a synthetic output column
+            // filled by the BE reader by name, not present in the table's file schema,
+            // so it has no Parquet/ORC column position to map.
+            if (PaimonVectorSearch.SEARCH_DISTANCE_COLUMN.equalsIgnoreCase(colName)) {
                 continue;
             }
 
