@@ -2127,7 +2127,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //==========================================================================
     auto stats = response->mutable_stats();
     TabletStats detached_stats;
-    TabletStatsPB load_stats;
     if (is_versioned_read) {
         TxnErrorCode err = reader.get_tablet_compact_stats(txn.get(), new_tablet_id, stats, nullptr,
                                                            config::snapshot_get_tablet_stats);
@@ -2139,6 +2138,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             return;
         }
 
+        TabletStatsPB load_stats;
         internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id, new_tablet_idx,
                                        load_stats, false);
         if (code != MetaServiceCode::OK) {
@@ -2162,8 +2162,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                     .tag("msg", msg);
             return;
         }
-        merge_tablet_stats(load_stats, detached_stats);
-        copy_last_active_cluster_info(*stats, load_stats);
     }
     schema_change_update_tablet_stats(schema_change, stats, num_remove_rows, size_remove_rowsets,
                                       num_remove_rowsets, num_remove_segments,
@@ -2188,8 +2186,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         copy_last_active_cluster_info(old_tablet_stats, *stats);
     }
 
-    copy_last_active_cluster_info(*stats, load_stats);
-
+    // The aggregate key carries the owner and every owner read overlays it, so the versioned load
+    // stats are not rewritten here. A newer load-stats version would shadow the counters that a
+    // pending lazy commit later writes at its older reserved versionstamp.
     auto stats_val = stats->SerializeAsString();
     txn->put(stats_key, stats_val);
 
@@ -2204,15 +2203,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, new_tablet_id});
         versioned_put(txn.get(), compact_stats_key, compact_stats_val);
-
-        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
-        if (!versioned::document_put(txn.get(), load_stats_key, std::move(load_stats))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize schema change load stats, tablet_id={}",
-                              new_tablet_id);
-            return;
-        }
-        schema_change_log.set_update_tablet_load_stats(true);
 
         LOG_INFO("put versioned tablet compact stats key")
                 .tag("tablet_id", tablet_id)

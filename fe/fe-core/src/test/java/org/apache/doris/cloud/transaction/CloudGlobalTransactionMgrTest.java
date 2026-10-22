@@ -669,7 +669,7 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
-    public void testSubTransactionCommitPreservesBackendTabletMappingForVisibility() throws Exception {
+    public void testSubTransactionCommitSkipsVisibilityButRefreshesOwner() throws Exception {
         Table table = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         TTabletCommitInfo thriftCommitInfo = new TTabletCommitInfo();
@@ -678,6 +678,8 @@ public class CloudGlobalTransactionMgrTest {
         SubTransactionState subTransactionState = new SubTransactionState(
                 12353L, table, List.of(thriftCommitInfo), SubTransactionState.SubTransactionType.INSERT);
         AtomicReference<List<TTabletCommitInfo>> notifiedCommitInfos = new AtomicReference<>();
+        AtomicReference<String> notifiedLoadClusterId = new AtomicReference<>();
+        AtomicReference<List<Long>> notifiedOwnerTabletIds = new AtomicReference<>();
         CloudGlobalTransactionMgr transactionMgr = new CloudGlobalTransactionMgr() {
             @Override
             public void sendMakeCloudTmpRsVisibleTasks(long txnId,
@@ -685,6 +687,8 @@ public class CloudGlobalTransactionMgrTest {
                     long updateVersionVisibleTime, String loadClusterId,
                     List<Long> lastActiveTabletIds, List<Long> lastActiveEpochs) {
                 notifiedCommitInfos.set(commitInfos);
+                notifiedLoadClusterId.set(loadClusterId);
+                notifiedOwnerTabletIds.set(lastActiveTabletIds);
             }
         };
 
@@ -694,11 +698,14 @@ public class CloudGlobalTransactionMgrTest {
                 .setTxnId(12353L)
                 .setLabel("subtxn")
                 .setListenerId(-1)
+                .setLoadClusterId("cluster_a")
                 .build();
         CommitTxnResponse response = CommitTxnResponse.newBuilder()
                 .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                         .setCode(MetaServiceCode.OK).setMsg("OK"))
                 .setTxnInfo(txnInfo)
+                .addLastActiveTabletIds(CatalogTestUtil.testTabletId1)
+                .addLastActiveEpochs(3L)
                 .build();
         boolean oldNotify = Config.enable_notify_be_after_load_txn_commit;
         Config.enable_notify_be_after_load_txn_commit = true;
@@ -714,11 +721,12 @@ public class CloudGlobalTransactionMgrTest {
             Config.enable_notify_be_after_load_txn_commit = oldNotify;
         }
 
+        // The parent txn id and final partition versions cannot describe sub transactions committed
+        // at earlier versions, so no rowset is made visible; the owner refresh is still sent.
         Assertions.assertNotNull(notifiedCommitInfos.get());
-        Assertions.assertEquals(1, notifiedCommitInfos.get().size());
-        Assertions.assertEquals(CatalogTestUtil.testTabletId1,
-                notifiedCommitInfos.get().get(0).getTabletId());
-        Assertions.assertEquals(10001L, notifiedCommitInfos.get().get(0).getBackendId());
+        Assertions.assertTrue(notifiedCommitInfos.get().isEmpty());
+        Assertions.assertEquals("cluster_a", notifiedLoadClusterId.get());
+        Assertions.assertEquals(List.of(CatalogTestUtil.testTabletId1), notifiedOwnerTabletIds.get());
     }
 
     @Test

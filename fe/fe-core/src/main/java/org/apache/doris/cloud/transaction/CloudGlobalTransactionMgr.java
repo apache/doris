@@ -1757,7 +1757,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         lockContext, partitionToSubTxnIds);
             }
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
-                    backendToPartitionInfos, tabletCommitInfos);
+                    backendToPartitionInfos);
             // clear signature after commit succeeds
             clearTxnLastSignature(db.getId(), transactionId);
         } catch (Exception e) {
@@ -1795,8 +1795,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void commitTransactionWithSubTxns(long dbId, List<Table> tableList, long transactionId,
             List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
-            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
-            List<TabletCommitInfo> tabletCommitInfos)
+            Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
             throws UserException {
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
@@ -1832,7 +1831,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
-        executeCommitTxnRequest(builder, tableList, transactionId, false, null, tabletCommitInfos,
+        // The rowset visibility notification carries only the parent txn id and the final partition
+        // versions, which cannot describe sub transactions committed at earlier versions. Skip it;
+        // the owner refresh from the commit response is still sent.
+        executeCommitTxnRequest(builder, tableList, transactionId, false, null, null,
                 new ArrayList<>(tabletIds));
     }
 
