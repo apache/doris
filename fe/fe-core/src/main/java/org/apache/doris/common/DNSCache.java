@@ -60,6 +60,10 @@ public class DNSCache {
         return cache.computeIfAbsent(hostname, this::resolveHostname);
     }
 
+    public void invalidate(String hostname) {
+        cache.remove(hostname);
+    }
+
     /**
      * The resolveHostname method resolves a hostname to an IP address.
      * If the hostname cannot be resolved, it returns an empty string.

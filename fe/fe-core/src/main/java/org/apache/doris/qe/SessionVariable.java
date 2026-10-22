@@ -85,6 +85,13 @@ import java.util.function.BiConsumer;
  * System variable.
  **/
 public class SessionVariable implements Serializable, Writable {
+    public static final String ENABLE_GRACEFUL_SHUTDOWN = "enable_graceful_shutdown";
+
+    @VarAttr(name = ENABLE_GRACEFUL_SHUTDOWN, flag = VarAttrDef.GLOBAL,
+            description = "Enable bounded Stream Load master-failover retries during a rolling restart. "
+                    + "Set GLOBAL to true before restarting nodes and restore false afterwards.")
+    public volatile boolean enableGracefulShutdown = false;
+
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final List<Field> affectQueryResultFields;

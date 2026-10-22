@@ -91,6 +91,21 @@ public class BackendServiceProxy {
         return Holder.get();
     }
 
+    public static void invalidateForAll(TNetworkAddress address) {
+        for (BackendServiceProxy proxy : Holder.proxies) {
+            BackendServiceClientExtIp removed;
+            proxy.lock.lock();
+            try {
+                removed = proxy.serviceMap.remove(address);
+            } finally {
+                proxy.lock.unlock();
+            }
+            if (removed != null) {
+                removed.client.shutdownGracefully();
+            }
+        }
+    }
+
     private class BackendServiceClientExtIp {
         private String realIp;
         private BackendServiceClient client;

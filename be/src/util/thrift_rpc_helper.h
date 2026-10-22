@@ -29,6 +29,8 @@
 namespace doris {
 
 class ExecEnv;
+class FrontendServiceClient;
+class TStatus;
 template <class T>
 class ClientConnection;
 
@@ -60,7 +62,22 @@ public:
 
     static ExecEnv* get_exec_env() { return _s_exec_env; }
 
+    // Only for stream-load operations with a stable request_id / transaction id.
+    // Application errors other than NOT_MASTER are returned without replaying the RPC.
+    static Status rpc_fe_with_master_refresh(
+            std::function<TNetworkAddress()> address_provider,
+            std::function<void(ClientConnection<FrontendServiceClient>&)> callback,
+            std::function<TStatus()> response_status,
+            std::function<const TNetworkAddress*()> master_hint,
+            int timeout_ms = config::thrift_rpc_timeout_ms);
+
 private:
+    static Status _retry_fe_rpc(const std::function<TNetworkAddress()>& address_provider,
+                                const std::function<Status(const TNetworkAddress&)>& attempt,
+                                const std::function<TStatus()>& response_status,
+                                const std::function<const TNetworkAddress*()>& master_hint,
+                                bool enabled, int retry_interval_ms);
+
     static ExecEnv* _s_exec_env;
 };
 
