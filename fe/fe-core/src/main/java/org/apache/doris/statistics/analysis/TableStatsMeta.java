@@ -398,8 +398,17 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
             return rowCount;
         }
         if (rowCount == TableIf.UNKNOWN_ROW_COUNT) {
-            // The index has no collected row count yet, neither the row count of the table nor a delta row
-            // count can be derived from it. The planner treats the unknown row count as no information.
+            // A row-preserving index which was added after the row counts were collected has no entry of
+            // its own, for instance the rollup of an ALTER TABLE ADD ROLLUP: the record describes a table
+            // without that index. It keeps one row per base row, so the collected row count of the base
+            // index is its row count as well. Without this fallback the index would be planned at one row
+            // until the backends report it for the first time, although the base index has a usable count.
+            rowCount = getRowCount(table.getBaseIndexId());
+        }
+        if (rowCount == TableIf.UNKNOWN_ROW_COUNT) {
+            // Neither the index nor the base index has a collected row count. The delta rows are relative to
+            // a collection which does not exist, so no row count can be derived from them and the planner
+            // treats the unknown row count as no information.
             return rowCount;
         }
         return rowCount + getBaseIndexDeltaRowCount(table);

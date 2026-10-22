@@ -297,4 +297,53 @@ class TableStatsMetaTest {
         // rows of the whole table.
         Assertions.assertEquals(-1, meta.getRowCountWithDeltaRows(table, ROLLUP_INDEX_ID));
     }
+
+    /**
+     * ALTER TABLE ADD ROLLUP keeps the record which the analysis of the table collected, so the new rollup
+     * has no entry of its own, and its tablets are not reported by the backends until the next report cycle.
+     * The rollup keeps one row per base row, so it is planned with the collected row count of the base index
+     * plus the rows loaded since then, instead of one row which the unknown row count is clamped to.
+     */
+    @Test
+    void testRollupAddedAfterTheRowCountWasCollectedReportsTheBaseRows() {
+        OlapTable table = mockOlapTable();
+        TableStatsMeta meta = new TableStatsMeta();
+        // The analysis collected the 100 rows which had been loaded, and the rollup does not exist yet.
+        meta.updatedRows.set(100);
+        meta.update(analyzeJob(), table);
+        // ALTER TABLE ADD ROLLUP r_dup(k1, v): the record is left as it is, r_dup has no entry.
+        mockRollupIndex(table, ROLLUP_INDEX_ID, KeysType.DUP_KEYS, AggregateType.NONE, null);
+        // 50 more rows are loaded before the backends report the tablets of the new index.
+        meta.updatedRows.addAndGet(50);
+
+        Assertions.assertEquals(150, meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID));
+        Assertions.assertEquals(150, meta.getRowCountWithDeltaRows(table, ROLLUP_INDEX_ID));
+    }
+
+    @Test
+    void testAggregatingRollupAddedAfterTheRowCountWasCollectedReportsNoRowCount() {
+        OlapTable table = mockOlapTable();
+        TableStatsMeta meta = new TableStatsMeta();
+        meta.update(analyzeJob(), table);
+        mockRollupIndex(table, ROLLUP_INDEX_ID, KeysType.AGG_KEYS, AggregateType.SUM, null);
+        meta.updatedRows.addAndGet(50);
+
+        // The rollup merges the rows of the base index, the collected row count of the base index must not be
+        // reported as its own.
+        Assertions.assertEquals(-1, meta.getRowCountWithDeltaRows(table, ROLLUP_INDEX_ID));
+    }
+
+    @Test
+    void testRollupWithoutCollectedRowCountOfTheBaseIndexStaysUnknown() {
+        OlapTable table = mockOlapTable();
+        mockRollupIndex(table, ROLLUP_INDEX_ID, KeysType.DUP_KEYS, AggregateType.NONE, null);
+        // A record which has never collected a row count, e.g. one written before updatedRowsBase existed.
+        TableStatsMeta meta = new TableStatsMeta();
+        meta.updatedRows.set(50);
+
+        // The loaded rows are a delta relative to a collection which does not exist, neither the rollup nor
+        // the base index can be reported with a row count.
+        Assertions.assertEquals(-1, meta.getRowCountWithDeltaRows(table, ROLLUP_INDEX_ID));
+        Assertions.assertEquals(-1, meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID));
+    }
 }
