@@ -249,8 +249,9 @@ void AggSharedState::_close_without_key() {
     }
 }
 
-BucketedAggSharedState::PerInstanceData::PerInstanceData() : arena(std::make_unique<Arena>()) {
-    bucket_agg_data.resize(BUCKETED_AGG_NUM_BUCKETS);
+BucketedAggSharedState::PerInstanceData::PerInstanceData(int num_buckets)
+        : arena(std::make_unique<Arena>()) {
+    bucket_agg_data.resize(num_buckets);
     for (auto& p : bucket_agg_data) {
         p = std::make_unique<BucketedAggDataVariants>();
     }
@@ -261,16 +262,36 @@ BucketedAggSharedState::~BucketedAggSharedState() {
 }
 
 Status BucketedAggSharedState::init_instances(int num_instances,
-                                              const std::function<Status()>& metadata_init) {
+                                              const std::function<Status()>& metadata_init,
+                                              int requested_num_buckets) {
     std::call_once(_init_once, [&]() {
+        // Mask-based routing requires a power of two, and the merge state has 256 slots.
+        if (requested_num_buckets < 0 || requested_num_buckets > BUCKETED_AGG_NUM_BUCKETS ||
+            (requested_num_buckets & (requested_num_buckets - 1)) != 0) {
+            _init_status = Status::InvalidArgument(
+                    "Bucketed aggregation bucket count must be 0 or a power of two in [1, {}], got "
+                    "{}",
+                    BUCKETED_AGG_NUM_BUCKETS, requested_num_buckets);
+            return;
+        }
+        // One sink can feed several sources. Keep multiple buckets in that case,
+        // otherwise one source holds the only bucket lock across every output batch.
+        num_buckets = requested_num_buckets;
+        if (num_buckets == 0) {
+            num_buckets =
+                    num_instances == 1 && source_deps.size() == 1 ? 1 : BUCKETED_AGG_NUM_BUCKETS;
+        }
         num_sink_instances = num_instances;
-        per_instance_data.resize(num_instances);
+        per_instance_data.reserve(num_instances);
+        for (int i = 0; i < num_instances; ++i) {
+            per_instance_data.emplace_back(num_buckets);
+        }
         sink_finished = std::make_unique<std::atomic<bool>[]>(num_instances);
         for (int i = 0; i < num_instances; ++i) {
             sink_finished[i].store(false, std::memory_order_relaxed);
         }
-        for (auto& bs : bucket_states) {
-            bs.merged_instances.resize(num_instances, false);
+        for (int b = 0; b < num_buckets; ++b) {
+            bucket_states[b].merged_instances.resize(num_instances, false);
         }
         source_merge_arenas.resize(source_deps.size());
         for (auto& arena : source_merge_arenas) {

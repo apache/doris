@@ -1319,6 +1319,9 @@ struct TBucketedAggregationNode {
   // so intermediate and output tuples are always identical.
   3: optional Types.TTupleId tuple_id
   5: optional bool need_finalize
+  // 0 selects one bucket when both sink and source have one instance, otherwise 256 buckets.
+  // Positive values must be powers of two in [1, 256]. Missing retains 256 buckets.
+  6: optional i32 num_buckets
 }
 
 struct TRepeatNode {

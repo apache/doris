@@ -3491,7 +3491,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 AggregateInfo.AggPhase.FIRST);
 
         BucketedAggregationNode bucketedAggNode = new BucketedAggregationNode(
-                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true);
+                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true,
+                context.getSessionVariable().bucketedAggNumBuckets);
 
         bucketedAggNode.setNereidsId(aggregate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), bucketedAggNode.getId());
