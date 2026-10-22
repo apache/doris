@@ -56,15 +56,21 @@ suite('test_compaction_rw_separation_load_commit_owner', 'docker') {
         def (code, out, err) = curl('POST',
                 "http://${be.ip}:${be.httpPort}/api/compaction/run?tablet_id=${tabletId}&compact_type=full")
         assertEquals(0, code, "Failed to trigger full compaction: ${out}, ${err}")
-        def result = new JsonSlurper().parseText(out.trim())
-        assertEquals('success', result.status.toLowerCase(), "Failed to submit full compaction: ${result}")
+        return new JsonSlurper().parseText(out.trim())
     }
 
     def runAndWaitFullCompaction = { be, tabletId, boolean expectSuccess ->
         def before = getTabletStatus(be.ip, be.httpPort, tabletId)
         def beforeSuccess = before['last full success time']
         def beforeFailure = before['last full failure time']
-        triggerFullCompaction(be, tabletId)
+        def submitResult = triggerFullCompaction(be, tabletId)
+        if (submitResult.status.toLowerCase() != 'success') {
+            // A non-owner is rejected synchronously while preparing the compaction.
+            assertFalse(expectSuccess, "Failed to submit full compaction: ${submitResult}")
+            assertTrue(submitResult.msg.contains('owned by another active compute group'),
+                    "Unexpected full compaction rejection: ${submitResult}")
+            return
+        }
 
         def after = null
         def deadline = System.currentTimeMillis() + 90000L
