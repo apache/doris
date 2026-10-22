@@ -21,9 +21,16 @@
 
 namespace doris {
 
-inline bool hive_multipart_protocol_supported(io::ObjStorageProvider provider,
-                                              bool supports_deferred_azure_multipart) {
-    return provider != io::ObjStorageProvider::AZURE || supports_deferred_azure_multipart;
+// Whether the coordinator can complete the uploads that a client with `completion` stages.
+inline bool deferred_completion_supported(io::ObjStorageDeferredCompletion completion,
+                                          bool supports_deferred_azure_multipart) {
+    switch (completion) {
+    case io::ObjStorageDeferredCompletion::ANY_COORDINATOR:
+        return true;
+    case io::ObjStorageDeferredCompletion::NAMESPACED_BLOCK_IDS:
+        return supports_deferred_azure_multipart;
+    }
+    __builtin_unreachable();
 }
 
 } // namespace doris

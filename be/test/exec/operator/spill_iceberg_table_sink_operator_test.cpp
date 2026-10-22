@@ -138,9 +138,13 @@ TEST(SpillIcebergTableSinkOperatorTest, TerminalWriterDrainsQueuedReservations) 
 }
 
 TEST(SpillIcebergTableSinkOperatorTest, AzureDeferredMultipartRequiresCoordinatorCapability) {
-    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageProvider::AWS, false));
-    EXPECT_FALSE(hive_multipart_protocol_supported(io::ObjStorageProvider::AZURE, false));
-    EXPECT_TRUE(hive_multipart_protocol_supported(io::ObjStorageProvider::AZURE, true));
+    using io::ObjStorageDeferredCompletion;
+    EXPECT_TRUE(
+            deferred_completion_supported(ObjStorageDeferredCompletion::ANY_COORDINATOR, false));
+    EXPECT_FALSE(deferred_completion_supported(ObjStorageDeferredCompletion::NAMESPACED_BLOCK_IDS,
+                                               false));
+    EXPECT_TRUE(deferred_completion_supported(ObjStorageDeferredCompletion::NAMESPACED_BLOCK_IDS,
+                                              true));
 }
 
 } // namespace doris

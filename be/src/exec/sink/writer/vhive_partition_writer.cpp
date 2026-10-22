@@ -82,15 +82,16 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     if (auto* s3_fs = dynamic_cast<io::ObjStorageFileSystem*>(_fs.get());
         s3_fs != nullptr &&
-        !hive_multipart_protocol_supported(s3_fs->client_holder()->state()->config.provider(),
-                                           _supports_deferred_azure_multipart)) {
+        !deferred_completion_supported(
+                s3_fs->client_holder()->get()->capabilities().deferred_completion,
+                _supports_deferred_azure_multipart)) {
         // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
         // compatibility fence, so reject before creating an upload that it could corrupt.
         return Status::NotSupported(
                 "Azure Hive writes require a coordinator that supports deferred multipart "
                 "completion");
     }
-    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
+    io::FileWriterOptions file_writer_options = {.deferred_completion = true};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     switch (_file_format_type) {

@@ -139,7 +139,7 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
     }
     auto holder = std::make_shared<io::ObjClientHolder>(std::move(client_config));
     holder->set_client_for_test(client);
-    io::FileWriterOptions options {.used_by_s3_committer = true};
+    io::FileWriterOptions options {.deferred_completion = true};
     auto file_writer = std::make_unique<io::ObjStorageFileWriter>(holder, "bucket",
                                                                   "table/part.parquet", &options);
     file_writer->_upload_id = "upload-id";

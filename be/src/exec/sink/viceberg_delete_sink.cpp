@@ -740,7 +740,7 @@ Status VIcebergDeleteSink::_write_puffin_file(const std::string& puffin_path,
     }
     io::FileDescription file_description = {.path = puffin_path, .fs_name {}};
     auto fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
+    io::FileWriterOptions file_writer_options = {.deferred_completion = false};
     io::FileWriterPtr file_writer;
     _created_files.emplace_back(fs, puffin_path);
     RETURN_IF_ERROR(fs->create_file(file_description.path, &file_writer, &file_writer_options));

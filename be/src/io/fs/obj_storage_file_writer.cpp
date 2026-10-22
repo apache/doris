@@ -65,7 +65,7 @@ ObjStorageFileWriter::ObjStorageFileWriter(std::shared_ptr<ObjClientHolder> clie
         : _obj_storage_path_opts({.path = fmt::format("s3://{}/{}", bucket, key),
                                   .bucket = std::move(bucket),
                                   .key = std::move(key)}),
-          _used_by_s3_committer(opts ? opts->used_by_s3_committer : false),
+          _deferred_completion(opts ? opts->deferred_completion : false),
           _obj_client(std::move(client)) {
     obj_storage_file_writer_total << 1;
     obj_storage_file_being_written << 1;
@@ -297,7 +297,7 @@ Status ObjStorageFileWriter::_close_impl() {
         DCHECK_EQ(_cur_part_num, 1);
         // No data written, but need to create an empty file
         RETURN_IF_ERROR(_build_upload_buffer());
-        if (!_used_by_s3_committer) {
+        if (!_deferred_completion) {
             auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
             pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) { _put_object(buf); });
         } else {
@@ -472,7 +472,7 @@ Status ObjStorageFileWriter::_complete() {
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
-    if (_used_by_s3_committer) { // S3 committer will complete multipart upload file on FE side.
+    if (_deferred_completion) { // The coordinator completes the staged upload at commit.
         obj_storage_file_created_total << 1; // Assume that it will be created successfully
         return Status::OK();
     }
@@ -521,8 +521,8 @@ Status ObjStorageFileWriter::_complete() {
 Status ObjStorageFileWriter::_set_upload_to_remote_less_than_buffer_size() {
     auto* buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
     DCHECK(buf != nullptr);
-    if (_used_by_s3_committer) {
-        // If used_by_s3_committer, we always use multi-parts uploading.
+    if (_deferred_completion) {
+        // A deferred upload is always staged as parts, even when it fits in one buffer.
         buf->set_upload_to_remote([part_num = _cur_part_num, this](UploadFileBuffer& buf) {
             _upload_one_part(part_num, buf);
         });
