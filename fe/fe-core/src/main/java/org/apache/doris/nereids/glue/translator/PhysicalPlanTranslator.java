@@ -3438,8 +3438,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return null;
         }
 
-        // Child must be PhysicalHashJoin (optionally through one pure-passthrough
-        // PhysicalProject; see the project gate in GroupJoinFusionUtils).
+        // Child must be PhysicalHashJoin, optionally through one Project whose aggregate
+        // arguments can be inlined (see the project gate in GroupJoinFusionUtils).
         Plan child = aggregate.child(0);
         PhysicalProject<?> project = null;
         if (child instanceof PhysicalProject) {
@@ -3467,7 +3467,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // All checks passed — generate GroupJoinNode
-        return translateToGroupJoinNode((Aggregate<?>) aggregate, join, context);
+        Aggregate<?> groupJoinAggregate = (Aggregate<?>) aggregate;
+        if (project != null) {
+            groupJoinAggregate = GroupJoinFusionUtils.inlineJoinBasedProject(groupJoinAggregate, project);
+        }
+        return translateToGroupJoinNode(groupJoinAggregate, join, context);
     }
 
     /** Translate Aggregate(HashJoin) pattern into a GroupJoinNode fragment. */
@@ -3565,8 +3569,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     aggFuncExprs.add(ExpressionTranslator.translate(aggExpr, context));
                     boolean fromBuild = aggExpr.getInputSlots().stream()
                             .anyMatch(rightOutput::contains);
-                    aggSides.add(fromBuild
-                            ? TGroupJoinAggSide.BUILD : TGroupJoinAggSide.PROBE);
+                    boolean fromProbe = aggExpr.getInputSlots().stream()
+                            .anyMatch(join.left().getOutputSet()::contains);
+                    if (fromBuild && fromProbe) {
+                        aggSides.add(TGroupJoinAggSide.JOINED);
+                    } else {
+                        aggSides.add(fromBuild ? TGroupJoinAggSide.BUILD : TGroupJoinAggSide.PROBE);
+                    }
                 }
             }
         }

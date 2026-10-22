@@ -861,7 +861,7 @@ DECLARE_OPERATOR(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR(AggSinkLocalState)
 DECLARE_OPERATOR(BucketedAggSinkLocalState)
 DECLARE_OPERATOR(PartitionedAggSinkLocalState)
-DECLARE_OPERATOR(GroupJoinBuildSinkLocalState)
+template class DataSinkOperatorX<GroupJoinBuildSinkLocalState>;
 DECLARE_OPERATOR(ExchangeSinkLocalState)
 DECLARE_OPERATOR(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR(UnionSinkLocalState)

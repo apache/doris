@@ -1322,27 +1322,25 @@ struct TAggregationNode {
 enum TGroupJoinAggSide {
   BUILD = 0,
   PROBE = 1,
+  // Evaluate arguments over each matched row pair.
+  JOINED = 2,
 }
 
 enum TGroupJoinAggOutputMode {
   // 直接输出最终聚合结果。这是 GroupJoin 的主路径：
   // hash join 已经按照 join/group key 做过数据分布，所以不需要下游 global agg merge。
-  // 目前第一版只支持FINAL_RESULT？
+  // Only FINAL_RESULT is supported by the current executor.
   FINAL_RESULT = 0,
-  // 输出序列化的中间聚合状态。这个模式作为 fallback 保留：
-  // 当 GroupJoin 不能证明当前 instance 拥有完整 group 时，仍然可以交给下游 global agg merge。
+  // Reserved for serialized-state output; the current FE does not emit it and BE rejects it.
   SERIALIZED_STATE = 1,
 }
 
 struct TGroupJoinAggFunction {
-  // FE 生成的聚合函数表达式。这个表达式必须能在 join 行物化前，只基于某一侧 child 执行。
+  // Aggregate arguments may reference build, probe, or both sides of a matched row pair.
   1: required Exprs.TExpr aggregate_function
-  // 聚合函数输入列来自哪一侧 child。
-  // BUILD 表示在消费 build child 时更新 state，drain 时按 probe 行数做 repeat。
-  // PROBE 表示在消费 probe child 时更新 state，drain 时按 build 行数做 repeat。
+  // Select the input row indices used for aggregate updates; every matched pair contributes.
   2: required TGroupJoinAggSide input_side
-  // 当前 demo 版本不支持带 ORDER BY 的顺序敏感聚合函数，例如 group_concat(v order by t)。
-  // 因为 GroupJoin 只保存单侧局部 state 和另一侧 row count，无法恢复 join 后完整行序。
+  // Aggregate ORDER BY is unsupported: this descriptor carries no per-function sort info.
 }
 
 struct TGroupJoinNode {
@@ -1370,6 +1368,7 @@ struct TGroupJoinNode {
   // 聚合 slot 使用最终结果类型；agg_output_mode == SERIALIZED_STATE 时，
   // 聚合 slot 使用序列化 state 类型。
   23: required Types.TTupleId output_tuple_id
+  // Field id 24 was used by the join-based experiment. Do not reuse it.
   // GroupJoin 产生的 runtime filter 描述复用 TPlanNode.runtime_filters 字段。
   // FE 应该把 build 侧 join key 作为 src_expr，把可下推到 probe 侧 scan 的表达式作为 target expr。
 }
