@@ -62,7 +62,9 @@ Status PythonUDTFFunction::open() {
     PythonUDFMeta python_udf_meta;
     python_udf_meta.id = _t_fn.id;
     python_udf_meta.pool_size = _t_fn.__isset.pool_size ? _t_fn.pool_size : 3;
-    python_udf_meta.auto_suspend = _t_fn.__isset.auto_suspend ? _t_fn.auto_suspend : -1;
+    python_udf_meta.auto_suspend = _t_fn.__isset.auto_suspend
+                                           ? _t_fn.auto_suspend
+                                           : PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
     python_udf_meta.name = _t_fn.name.function_name;
     python_udf_meta.symbol = _t_fn.scalar_fn.symbol;
 

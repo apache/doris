@@ -54,7 +54,8 @@ Status PythonFunctionCall::open(FunctionContext* context,
     PythonUDFMeta func_meta;
     func_meta.id = _fn.id;
     func_meta.pool_size = _fn.__isset.pool_size ? _fn.pool_size : 3;
-    func_meta.auto_suspend = _fn.__isset.auto_suspend ? _fn.auto_suspend : -1;
+    func_meta.auto_suspend = _fn.__isset.auto_suspend ? _fn.auto_suspend
+                                                      : PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
     func_meta.name = _fn.name.function_name;
     func_meta.symbol = _fn.scalar_fn.symbol;
     if (!_fn.function_code.empty()) {

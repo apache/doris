@@ -186,14 +186,17 @@ public class CreateFunctionTest extends TestWithFeService {
         dorisAssert.useDatabase("python_pool_db");
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("python_pool_db");
         for (String kind : new String[]{"", "aggregate ", "tables "}) {
-            String name = kind.isEmpty() ? "scalar_fn" : kind.trim() + "_fn";
             String ret = kind.equals("tables ") ? "array<int>" : "int";
-            createFunction("create " + kind + "function python_pool_db." + name
-                    + "(int) returns " + ret + " properties('type'='PYTHON_UDF', "
-                    + "'symbol'='evaluate', 'runtime_version'='3.10.2', 'pool_size'='3');", ctx);
-            Function fn = findFunction(db, name);
-            Assertions.assertEquals(3, fn.getPoolSize());
-            Assertions.assertTrue(FunctionToSqlConverter.toSql(fn, false).contains("\"POOL_SIZE\"=\"3\""));
+            for (int requested : new int[]{3, 10000}) {
+                String name = (kind.isEmpty() ? "scalar_fn" : kind.trim() + "_fn") + requested;
+                createFunction("create " + kind + "function python_pool_db." + name
+                        + "(int) returns " + ret + " properties('type'='PYTHON_UDF', "
+                        + "'symbol'='evaluate', 'runtime_version'='3.10.2', 'pool_size'='" + requested + "');", ctx);
+                Function fn = findFunction(db, name);
+                Assertions.assertEquals(requested, fn.getPoolSize());
+                Assertions.assertTrue(FunctionToSqlConverter.toSql(fn, false)
+                        .contains("\"POOL_SIZE\"=\"" + requested + "\""));
+            }
         }
         for (String invalid : new String[]{"0", "-1", "abc", "1.5", "2147483648"}) {
             assertCreateFunctionAnalysisException(ctx,
@@ -229,11 +232,11 @@ public class CreateFunctionTest extends TestWithFeService {
                     + "'symbol'='evaluate', 'runtime_version'='3.10.2'";
             createFunction("create " + kind + "function python_auto_suspend_db." + prefix + "_default"
                     + definition + ");", ctx);
-            assertAutoSuspendMetadata(findFunction(db, prefix + "_default"), -1);
+            assertAutoSuspendMetadata(findFunction(db, prefix + "_default"), 14400);
             if (kind.equals("tables ")) {
-                assertAutoSuspendMetadata(findFunction(db, prefix + "_default_outer"), -1);
+                assertAutoSuspendMetadata(findFunction(db, prefix + "_default_outer"), 14400);
             }
-            long[] values = {Long.MIN_VALUE, -2, -1, 0, 30, Long.MAX_VALUE};
+            long[] values = {-1, 0, 30, 14400, Long.MAX_VALUE};
             for (int i = 0; i < values.length; i++) {
                 String name = prefix + "_explicit_" + i;
                 createFunction("create " + kind + "function python_auto_suspend_db." + name
@@ -277,6 +280,13 @@ public class CreateFunctionTest extends TestWithFeService {
                             + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
                             + "'runtime_version'='3.10.2', 'auto_suspend'='" + invalid + "');",
                     "auto_suspend must be an integer number of seconds");
+        }
+        for (String invalid : new String[]{"-2", Long.toString(Long.MIN_VALUE)}) {
+            assertCreateFunctionAnalysisException(ctx,
+                    "create function invalid_auto_suspend_db.invalid_fn(int) returns int "
+                            + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                            + "'runtime_version'='3.10.2', 'auto_suspend'='" + invalid + "');",
+                    "auto_suspend must be -1 or a non-negative integer");
         }
     }
 
