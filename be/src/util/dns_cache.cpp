@@ -115,19 +115,14 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
         }
     }
 
-    // Claim the refresh before resolving so an invalidation arriving during DNS
-    // resolution is retained for the next get(). Cache hits above still use shared_lock.
-    {
-        std::unique_lock<std::shared_mutex> lock(mutex);
-        _refresh_pending.erase(hostname);
-    }
-
     // First access, forced refresh or negative TTL expiry: resolve and populate the cache.
     // Consume the IP returned by _update() directly to avoid a second cache
     // lookup — operator[] under a shared_lock would mutate the map and could
     // reinsert an empty entry if a concurrent refresh cycle evicted the hostname
     // between _update() and here.
-    return _update(hostname, nullptr, ip);
+    // An expired negative entry above has already reserved a DNS retry. Other
+    // callers can reuse a lookup completed while they waited for the hostname lock.
+    return _update(hostname, nullptr, ip, !has_negative_entry);
 }
 
 // Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
@@ -270,8 +265,8 @@ bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t thr
     return true;
 }
 
-Status DNSCache::_update(const std::string& hostname, FailureState* out_state,
-                         std::string* out_ip) {
+Status DNSCache::_update(const std::string& hostname, FailureState* out_state, std::string* out_ip,
+                         bool reuse_cached) {
     std::shared_ptr<std::mutex> refresh_mutex;
     {
         std::unique_lock<std::shared_mutex> lock(mutex);
@@ -291,6 +286,30 @@ Status DNSCache::_update(const std::string& hostname, FailureState* out_state,
     // A background lookup that captured IP A must finish before a forced lookup
     // publishes B; otherwise its stale fallback (or old DNS answer) can overwrite B.
     std::lock_guard<std::mutex> refresh_lock(*refresh_mutex);
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (reuse_cached) {
+            // Cold misses can queue before the first lookup fills either cache.
+            // Do not make every waiter pay another resolver timeout in sequence.
+            auto it = cache.find(hostname);
+            if (it != cache.end() && _refresh_pending.count(hostname) == 0) {
+                *out_ip = it->second;
+                return Status::OK();
+            }
+            auto neg_it = _negative_cache.find(hostname);
+            int32_t ttl = config::dns_cache_negative_ttl_seconds;
+            if (neg_it != _negative_cache.end() && ttl > 0 &&
+                std::chrono::steady_clock::now() < neg_it->second + std::chrono::seconds(ttl)) {
+                out_ip->clear();
+                return Status::InternalError<false>(
+                        "Hostname {} is in negative DNS cache, skipping resolve", hostname);
+            }
+        }
+        // Claim before DNS I/O, under the hostname lock. An invalidation received
+        // during this lookup remains pending for the next get(). Background refresh
+        // and the expired-negative retry always resolve instead of reusing the cache.
+        _refresh_pending.erase(hostname);
+    }
     bool is_fresh = false;
     std::string real_ip = _resolve_hostname(hostname, &is_fresh);
     if (real_ip.empty()) {

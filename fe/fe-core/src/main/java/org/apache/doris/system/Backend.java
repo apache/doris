@@ -885,6 +885,11 @@ public class Backend implements Writable {
 
     /** Refresh FE-local connections before publishing a restarted backend. */
     public void invalidateLocalConnections() {
+        // Checkpoint replay builds a separate metadata image, but these RPC pools are
+        // process-wide. Historical restarts must not close the serving FE's clients.
+        if (Env.isCheckpointThread()) {
+            return;
+        }
         Env.getCurrentEnv().getDnsCache().invalidate(host);
         BackendServiceProxy.invalidateForAll(new TNetworkAddress(host, brpcPort));
         ClientPool.backendPool.clearPool(new TNetworkAddress(host, bePort));
