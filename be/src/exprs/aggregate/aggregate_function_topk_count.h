@@ -19,7 +19,7 @@
 
 #include <cstdint>
 #include <memory>
-#include <vector>
+#include <utility>
 
 #include "common/check.h"
 #include "common/compare.h"
@@ -30,6 +30,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -61,7 +62,9 @@ struct AggregateTopKCountData {
     bool has_bound = false;
     MutableColumnPtr bound_column;
     MutableColumnPtr value_column;
-    std::vector<int64_t> counts;
+    // Tracked so that the per-group counts participate in query memory accounting: at the maximum
+    // k this buffer alone is 512 KiB per group.
+    DorisVector<int64_t> counts;
 
     explicit AggregateTopKCountData(const DataTypes& argument_types_)
             : value_type(argument_types_[0]),
@@ -124,9 +127,13 @@ public:
         if (!state.has_k) {
             state.has_k = true;
             state.k = other.k;
-        } else {
-            // Both sides are partial states of the same constant k.
-            DCHECK_EQ(state.k, other.k);
+        } else if (UNLIKELY(state.k != other.k)) {
+            // Ordinary partial/final aggregation always shares the same constant k, but the
+            // public _state/_merge/_union combinators do not encode k in the AggState type, so a
+            // UNION ALL of states built with different literal k can reach this merge.
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "{} states have incompatible counts: {} vs {}", get_name(), state.k,
+                            other.k);
         }
         if (state.k == 0) {
             merge_bound(state, other);
@@ -311,6 +318,18 @@ private:
             return;
         }
 
+        // A full list already holds the k best values, so a value worse than the last entry would
+        // be inserted at the end and popped immediately: it can only flip the truncation flag.
+        // Rebating it early avoids cloning and copying the whole retained column for every
+        // rejected distinct value (ascending inputs at k = 65536 otherwise copy ~k values each).
+        if (left == state.value_column->size() &&
+            std::cmp_greater_equal(state.value_column->size(), state.k)) {
+            if (!state.has_bound) {
+                set_bound_from_value(state, state.value_column->size() - 1);
+            }
+            return;
+        }
+
         insert_entry(state, left, column, row_num, 1);
         if (static_cast<int64_t>(state.value_column->size()) > state.k) {
             // More than k distinct values: drop the worst one. The k-th (last kept) value is the
@@ -346,7 +365,7 @@ private:
             return;
         }
         auto merged = state.value_column->clone_empty();
-        std::vector<int64_t> merged_counts;
+        DorisVector<int64_t> merged_counts;
         merged_counts.reserve(state.counts.size() + other.counts.size());
         size_t lhs_index = 0;
         size_t rhs_index = 0;
@@ -389,7 +408,7 @@ private:
         auto merged_size = static_cast<int64_t>(merged->size());
         if (merged_size > state.k) {
             merged->pop_back(merged_size - state.k);
-            merged_counts.resize(state.k);
+            merged_counts.resize(static_cast<size_t>(state.k));
             truncated = true;
         }
         state.value_column = std::move(merged);
@@ -402,25 +421,29 @@ private:
         }
     }
 
+    /// Writes a length-prefixed column blob. The declared length is
+    /// get_uncompressed_serialized_bytes(), which is an upper bound: above
+    /// SERIALIZED_MEM_SIZE_LIMIT the serde may compress the payload and return an earlier end
+    /// pointer, so the reader skips the same declared length and the unused tail is padding.
     void write_column(BufferWritable& buf, const IColumn& column) const {
-        int64_t size_bytes = this->argument_types[0]->get_uncompressed_serialized_bytes(
+        int64_t capacity = this->argument_types[0]->get_uncompressed_serialized_bytes(
                 column, IAggregateFunction::version);
-        buf.write_binary(size_bytes);
-        buf.resize(size_bytes);
+        buf.write_binary(capacity);
+        buf.resize(capacity);
         auto* pos =
                 this->argument_types[0]->serialize(column, buf.data(), IAggregateFunction::version);
-        DCHECK_EQ(pos, buf.data() + size_bytes);
-        buf.add_offset(size_bytes);
+        DCHECK_LE(pos, buf.data() + capacity);
+        buf.add_offset(capacity);
     }
 
     MutableColumnPtr read_column(BufferReadable& buf) const {
-        int64_t size_bytes = 0;
-        buf.read_binary(size_bytes);
+        int64_t capacity = 0;
+        buf.read_binary(capacity);
         MutableColumnPtr column = this->argument_types[0]->create_column();
         const auto* pos = this->argument_types[0]->deserialize(buf.data(), &column,
                                                                IAggregateFunction::version);
-        DCHECK_EQ(pos, buf.data() + size_bytes);
-        buf.add_offset(size_bytes);
+        DCHECK_LE(pos, buf.data() + capacity);
+        buf.add_offset(capacity);
         return column;
     }
 };

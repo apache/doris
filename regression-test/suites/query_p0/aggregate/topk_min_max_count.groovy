@@ -61,10 +61,37 @@ suite("topk_min_max_count") {
         (16, 'd', 16,   16, 'p', 16.10, '2024-03-07 10:00:00', 16.5),
         (17, 'd', 17,   17, 'q', 17.10, '2024-03-08 10:00:00', 17.5),
         (18, 'e', 0,    0,  's',  0.00, NULL, 0.0),
-        (19, 'e', 0,    0,  's',  0.00, NULL, CAST('-0' AS DOUBLE)),
+        (19, 'e', 0,    0,  's',  0.00, NULL, 0.0),
         (20, 'e', 0,    0,  's',  0.00, NULL, CAST('NaN' AS DOUBLE)),
         (21, 'e', 0,    0,  's',  0.00, NULL, 1.0),
         (22, 'e', 0,    0,  's',  0.00, NULL, CAST('NaN' AS DOUBLE))"""
+
+    // Bounds are ordinary per-row columns: the scalar must read each row's bound at that row's
+    // index, not at index 0 of the block.
+    sql """drop table if exists topk_merge_rows_t"""
+
+    sql """
+        CREATE TABLE topk_merge_rows_t (
+            id INT NOT NULL,
+            s ARRAY<STRUCT<value:INT, count:BIGINT>>,
+            b INT,
+            n BIGINT
+        )
+        ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+
+    sql """INSERT INTO topk_merge_rows_t VALUES
+        (1, CAST(array(named_struct('value', CAST(1 AS INT), 'count', CAST(1 AS BIGINT)),
+                       named_struct('value', CAST(2 AS INT), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>), CAST(2 AS INT), CAST(2 AS BIGINT)),
+        (2, CAST(array(named_struct('value', CAST(10 AS INT), 'count', CAST(1 AS BIGINT)),
+                       named_struct('value', CAST(20 AS INT), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:INT, count:BIGINT>>), CAST(20 AS INT), CAST(2 AS BIGINT))"""
 
     // k = 0: no list, bound is the extreme value of this side (NULL when no non-NULL input).
     order_qt_min_k0 """
@@ -335,6 +362,35 @@ suite("topk_min_max_count") {
             CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
             CAST(NULL AS INT),
             CAST(4 AS BIGINT), CAST(0 AS BIGINT), CAST(2 AS BIGINT))
+    """
+
+    // Each row keeps its own bound: row 1 is truncated at 2, row 2 at 20.
+    order_qt_merge_multi_row_bounds """
+        SELECT id, topk_merge_min(
+            s,
+            b,
+            CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+            CAST(NULL AS INT),
+            n, CAST(0 AS BIGINT), CAST(2 AS BIGINT)) AS merged
+        FROM topk_merge_rows_t
+    """
+
+    // -0.0 and 0.0 are the same value: they merge into a single entry with the summed count.
+    // Written as an explicit merge so the retained representative (-0.0, the left side) and the
+    // result do not depend on the scan order of the aggregate test above.
+    order_qt_merge_double_signed_zero """
+        SELECT topk_merge_min(
+            CAST(array(named_struct('value', CAST('-0' AS DOUBLE), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:DOUBLE, count:BIGINT>>),
+            CAST(NULL AS DOUBLE),
+            CAST(array(named_struct('value', CAST(0 AS DOUBLE), 'count', CAST(1 AS BIGINT)))
+                 AS ARRAY<STRUCT<value:DOUBLE, count:BIGINT>>),
+            CAST(NULL AS DOUBLE),
+            CAST(array() AS ARRAY<STRUCT<value:DOUBLE, count:BIGINT>>),
+            CAST(NULL AS DOUBLE),
+            CAST(2 AS BIGINT), CAST(0 AS BIGINT), CAST(8 AS BIGINT))
     """
 
     // Every argument NULL: NULL lists are empty, NULL bounds are complete, the result struct is

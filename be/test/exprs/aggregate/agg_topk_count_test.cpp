@@ -239,44 +239,88 @@ TEST(TopKCountTest, SerializeDeserializeRoundTrip) {
     Arena arena;
 
     auto function = create_function(factory, "topk_min_count", argument_types);
+
+    auto round_trip = [&](const std::vector<int32_t>& input, int64_t k) {
+        std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
+        AggregateDataPtr source = memory.get();
+        AggregateDataPtr target = memory.get() + function->size_of_data();
+        function->create(source);
+        function->create(target);
+
+        auto values = ColumnInt32::create();
+        for (int32_t value : input) {
+            values->insert_value(value);
+        }
+        auto k_column = ColumnInt64::create(values->size(), k);
+        const IColumn* columns[2] = {values.get(), k_column.get()};
+        for (size_t row = 0; row != values->size(); ++row) {
+            function->add(source, columns, row, arena);
+        }
+
+        auto serialized = ColumnString::create();
+        BufferWritable writer(*serialized);
+        function->serialize(source, writer);
+        writer.commit();
+
+        StringRef ref = serialized->get_data_at(0);
+        BufferReadable reader(ref);
+        function->deserialize(target, reader, arena);
+
+        auto source_result = function->get_return_type()->create_column();
+        auto target_result = function->get_return_type()->create_column();
+        function->insert_result_into(source, *source_result);
+        function->insert_result_into(target, *target_result);
+        TopKResult source_values = read_result(*source_result);
+        TopKResult target_values = read_result(*target_result);
+        EXPECT_EQ(source_values.values, target_values.values);
+        EXPECT_EQ(source_values.counts, target_values.counts);
+        EXPECT_EQ(source_values.bound_is_null, target_values.bound_is_null);
+        EXPECT_EQ(source_values.bound, target_values.bound);
+
+        function->destroy(source);
+        function->destroy(target);
+    };
+
+    round_trip({3, 1, 2, 1, 4}, 2);
+    // 65 distinct INTs = 260 bytes, above SERIALIZED_MEM_SIZE_LIMIT: the serde compresses the
+    // value column and the encoded end pointer is earlier than the declared capacity.
+    std::vector<int32_t> compressed;
+    for (int32_t value = 0; value < 65; ++value) {
+        compressed.push_back(value);
+    }
+    round_trip(compressed, 65);
+}
+
+TEST(TopKCountTest, MergeRejectsIncompatibleK) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_topk_count(factory);
+    DataTypes argument_types = {std::make_shared<DataTypeInt32>(),
+                                std::make_shared<DataTypeInt64>()};
+    Arena arena;
+
+    auto function = create_function(factory, "topk_min_count", argument_types);
     std::unique_ptr<char[]> memory(new char[function->size_of_data() * 2]);
-    AggregateDataPtr source = memory.get();
-    AggregateDataPtr target = memory.get() + function->size_of_data();
-    function->create(source);
-    function->create(target);
+    AggregateDataPtr lhs = memory.get();
+    AggregateDataPtr rhs = memory.get() + function->size_of_data();
+    function->create(lhs);
+    function->create(rhs);
 
-    auto values = ColumnInt32::create();
-    for (int32_t value : {3, 1, 2, 1, 4}) {
-        values->insert_value(value);
-    }
-    auto k_column = ColumnInt64::create(values->size(), 2);
-    const IColumn* columns[2] = {values.get(), k_column.get()};
-    for (size_t row = 0; row != values->size(); ++row) {
-        function->add(source, columns, row, arena);
-    }
+    auto add_one = [&](AggregateDataPtr place, int32_t value, int64_t k) {
+        auto value_column = ColumnInt32::create();
+        value_column->insert_value(value);
+        auto k_column = ColumnInt64::create(1, k);
+        const IColumn* columns[2] = {value_column.get(), k_column.get()};
+        function->add(place, columns, 0, arena);
+    };
+    add_one(lhs, 1, 2);
+    // The public _state/_merge/_union combinators do not encode k in the AggState type, so states
+    // built with different literal k can reach one merge.
+    add_one(rhs, 1, 0);
 
-    auto serialized = ColumnString::create();
-    BufferWritable writer(*serialized);
-    function->serialize(source, writer);
-    writer.commit();
+    EXPECT_THROW(function->merge(lhs, rhs, arena), Exception);
 
-    StringRef ref = serialized->get_data_at(0);
-    BufferReadable reader(ref);
-    function->deserialize(target, reader, arena);
-
-    auto source_result = function->get_return_type()->create_column();
-    auto target_result = function->get_return_type()->create_column();
-    function->insert_result_into(source, *source_result);
-    function->insert_result_into(target, *target_result);
-    TopKResult source_values = read_result(*source_result);
-    TopKResult target_values = read_result(*target_result);
-    EXPECT_EQ(source_values.values, target_values.values);
-    EXPECT_EQ(source_values.counts, target_values.counts);
-    EXPECT_EQ(source_values.bound_is_null, target_values.bound_is_null);
-    EXPECT_EQ(source_values.bound, target_values.bound);
-
-    function->destroy(source);
-    function->destroy(target);
+    function->destroy(lhs);
+    function->destroy(rhs);
 }
 
 TEST(TopKCountTest, MergeOverflowIsReported) {

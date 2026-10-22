@@ -110,9 +110,12 @@ TopKArrayView make_array_view(const IColumn& column, size_t row) {
     return view;
 }
 
-/// One scalar bound argument: NULL means the corresponding side was not truncated.
+/// One scalar bound argument: NULL means the corresponding side was not truncated. `row` is the
+/// index of the current input row inside `value`: bounds are ordinary per-row columns, so a block
+/// can carry a different bound in every row.
 struct TopKBoundView {
     const IColumn* value = nullptr;
+    size_t row = 0;
     bool is_null = true;
 };
 
@@ -126,6 +129,7 @@ TopKBoundView make_bound_view(const IColumn& column, size_t row) {
         value_column = &nullable->get_nested_column();
     }
     view.value = value_column;
+    view.row = row;
     view.is_null = false;
     return view;
 }
@@ -292,7 +296,7 @@ public:
             const TopKBoundView b_view = make_bound_view(*columns[1], row);
             const TopKBoundView bi_view = make_bound_view(*columns[3], row);
             const TopKBoundView bd_view = make_bound_view(*columns[5], row);
-            const IColumn* effective_bound =
+            const TopKBoundView effective_bound =
                     effective_bound_of(b_view, bi_view, bd_view, primitive_type);
 
             size_t positive = 0;
@@ -315,8 +319,9 @@ public:
                                                                  out_pair.size() - 1);
                 out_bound_column.get_null_map_data().push_back(0);
             } else {
-                DCHECK(effective_bound != nullptr);
-                out_bound_column.get_nested_column().insert_from(*effective_bound, 0);
+                DCHECK(!effective_bound.is_null);
+                out_bound_column.get_nested_column().insert_from(*effective_bound.value,
+                                                                 effective_bound.row);
                 out_bound_column.get_null_map_data().push_back(0);
             }
         }
@@ -328,21 +333,21 @@ public:
 private:
     /// bE: the best (smallest for MIN, largest for MAX) of the non-NULL bounds, or nullptr when
     /// every side is complete/untruncated.
-    static const IColumn* effective_bound_of(const TopKBoundView& b_view,
-                                             const TopKBoundView& bi_view,
-                                             const TopKBoundView& bd_view, PrimitiveType type) {
-        const IColumn* bound = nullptr;
+    static TopKBoundView effective_bound_of(const TopKBoundView& b_view,
+                                            const TopKBoundView& bi_view,
+                                            const TopKBoundView& bd_view, PrimitiveType type) {
+        TopKBoundView bound;
         for (const TopKBoundView* view : {&b_view, &bi_view, &bd_view}) {
             if (view->is_null) {
                 continue;
             }
-            if (bound == nullptr) {
-                bound = view->value;
+            if (bound.is_null) {
+                bound = *view;
                 continue;
             }
-            int cmp = compare_values(type, *view->value, 0, *bound, 0);
+            int cmp = compare_values(type, *view->value, view->row, *bound.value, bound.row);
             if (IsMin ? cmp < 0 : cmp > 0) {
-                bound = view->value;
+                bound = *view;
             }
         }
         return bound;
@@ -393,7 +398,7 @@ private:
     /// positive candidates, capped at k + 1: once more than k are found the scan stops, which is
     /// enough to decide the bound.
     Status append_trusted_values(const TopKArrayView& s_view, const TopKArrayView& i_view,
-                                 const TopKArrayView& d_view, const IColumn* effective_bound,
+                                 const TopKArrayView& d_view, const TopKBoundView& effective_bound,
                                  int64_t k, PrimitiveType type, IColumn& out_value_column,
                                  ColumnInt64& out_count_column, ColumnNullable& out_pair_nullable,
                                  size_t* positive) const {
@@ -408,8 +413,9 @@ private:
             if (head == nullptr) {
                 break;
             }
-            if (effective_bound != nullptr) {
-                int cmp = compare_values(type, *head, head_row, *effective_bound, 0);
+            if (!effective_bound.is_null) {
+                int cmp = compare_values(type, *head, head_row, *effective_bound.value,
+                                         effective_bound.row);
                 if (IsMin ? cmp > 0 : cmp < 0) {
                     // Everything left is outside the range whose counts both sides know exactly.
                     break;
