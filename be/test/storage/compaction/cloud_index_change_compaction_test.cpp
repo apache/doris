@@ -544,7 +544,7 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
     ASSERT_TRUE(in_predicates[0].values().size() == 2);
 }
 
-TEST_F(CloudIndexChangeCompactionTest, prepare_rechecks_compaction_owner) {
+TEST_F(CloudIndexChangeCompactionTest, index_change_ignores_compaction_owner) {
     config::enable_compaction_rw_separation = true;
     _cluster_info->set_my_cluster_id("cluster_a");
 
@@ -553,32 +553,18 @@ TEST_F(CloudIndexChangeCompactionTest, prepare_rechecks_compaction_owner) {
     std::vector<TOlapTableIndex> index_list;
     std::vector<TColumn> columns;
     auto* sync_point = SyncPoint::get_instance();
-    tablet->set_last_active_cluster_info("cluster_a", 100, 1);
+    // BUILD INDEX runs on the submitting compute group, which need not own the tablet.
+    tablet->set_last_active_cluster_info("cluster_b", 100, 1);
     _cluster_info->set_cluster_status("cluster_b", cloud::ClusterStatus::NORMAL, 100);
-    bool sync_called = false;
-    sync_point->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& outcome) {
-        sync_called = true;
-        tablet->set_last_active_cluster_info("cluster_b", 200, 2);
-        auto* result = try_any_cast_ret<Status>(outcome);
-        result->second = true;
-        result->first = Status::OK();
-    });
-
-    CloudIndexChangeCompaction foreign_owner_compaction(*_engine, tablet, 2, index_list, columns);
-    EXPECT_TRUE(foreign_owner_compaction.prepare_compact()
-                        .is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>());
-    EXPECT_TRUE(sync_called);
-    EXPECT_TRUE(foreign_owner_compaction._input_rowsets.empty());
-
     sync_point->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [](auto&& outcome) {
         auto* result = try_any_cast_ret<Status>(outcome);
         result->second = true;
         result->first = Status::OK();
     });
-    tablet->set_last_active_cluster_info("cluster_a", 300, 3);
-    CloudIndexChangeCompaction local_owner_compaction(*_engine, tablet, 2, index_list, columns);
-    EXPECT_TRUE(local_owner_compaction.prepare_compact().ok());
-    EXPECT_EQ(local_owner_compaction._input_rowsets.size(), 1);
+
+    CloudIndexChangeCompaction compaction(*_engine, tablet, 2, index_list, columns);
+    EXPECT_TRUE(compaction.prepare_compact().ok());
+    EXPECT_EQ(compaction._input_rowsets.size(), 1);
 }
 
 TEST_F(CloudIndexChangeCompactionTest, snii_drop_index_enables_native_index_compaction) {

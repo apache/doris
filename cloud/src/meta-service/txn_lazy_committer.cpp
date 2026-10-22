@@ -594,11 +594,14 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
         std::ranges::sort(candidate_tablet_ids);
         txn_info.clear_last_active_candidate_tablet_ids();
         if (!candidate_tablet_ids.empty()) {
+            // The owner result only feeds a best-effort notification. Read it with snapshot reads
+            // so a large load does not add read conflicts to this mandatory finalization and push
+            // it past the FDB transaction size limit.
             std::unordered_map<int64_t, TabletIndexPB> tablet_indexes;
             if (txn_info.versioned_read()) {
                 CloneChainReader meta_reader(instance_id, txn_kv.get(), resource_mgr);
                 err = meta_reader.get_tablet_indexes(txn.get(), candidate_tablet_ids,
-                                                     &tablet_indexes);
+                                                     &tablet_indexes, true);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format(
@@ -609,8 +612,7 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
                 }
             } else {
                 // A non-versioned instance has no versioned tablet-index documents. Read the
-                // single-version exact keys in bounded batches while retaining the same final
-                // transaction and its conflict ranges.
+                // single-version exact keys in bounded batches.
                 for (size_t begin = 0; begin < candidate_tablet_ids.size();
                      begin += config::max_tablet_index_num_per_batch) {
                     const size_t end = std::min(begin + config::max_tablet_index_num_per_batch,
@@ -622,7 +624,8 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
                                 meta_tablet_idx_key({instance_id, candidate_tablet_ids[i]}));
                     }
                     std::vector<std::optional<std::string>> index_values;
-                    err = txn->batch_get(&index_values, index_keys);
+                    err = txn->batch_get(&index_values, index_keys,
+                                         Transaction::BatchGetOptions(true));
                     if (err != TxnErrorCode::TXN_OK) {
                         code = cast_as<ErrCategory::READ>(err);
                         msg = fmt::format(
@@ -676,7 +679,7 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
                                               idx.partition_id(), tablet_id}));
                 }
                 std::vector<std::optional<std::string>> stats_values;
-                err = txn->batch_get(&stats_values, stats_keys);
+                err = txn->batch_get(&stats_values, stats_keys, Transaction::BatchGetOptions(true));
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format(

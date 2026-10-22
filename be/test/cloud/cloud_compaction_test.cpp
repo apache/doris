@@ -796,7 +796,7 @@ TEST_F(CloudCompactionTest, // NOLINT(readability-function-cognitive-complexity)
     EXPECT_TRUE(prepare_called);
 }
 
-TEST_F(CloudCompactionTest, index_change_start_rechecks_owner_and_uses_token) {
+TEST_F(CloudCompactionTest, index_change_start_ignores_owner_and_sends_no_token) {
     const bool old_rw_separation = config::enable_compaction_rw_separation;
     Defer restore_config([&] { config::enable_compaction_rw_separation = old_rw_separation; });
     config::enable_compaction_rw_separation = true;
@@ -820,9 +820,10 @@ TEST_F(CloudCompactionTest, index_change_start_rechecks_owner_and_uses_token) {
         prepare_called = true;
         auto job = try_any_cast<cloud::TabletJobInfoPB>(outcome[0]);
         const auto& request = job.compaction(0);
-        EXPECT_EQ(request.observed_last_active_cluster_id(), "cluster_a");
-        EXPECT_EQ(request.observed_last_active_epoch(), 12);
-        EXPECT_EQ(request.requester_cluster_id(), "cluster_a");
+        // BUILD INDEX is an explicit DDL, so it carries no compaction owner token.
+        EXPECT_FALSE(request.has_observed_last_active_cluster_id());
+        EXPECT_FALSE(request.has_observed_last_active_epoch());
+        EXPECT_FALSE(request.has_requester_cluster_id());
 
         auto* result = try_any_cast_ret<Status>(outcome);
         result->first = Status::OK();
@@ -832,16 +833,10 @@ TEST_F(CloudCompactionTest, index_change_start_rechecks_owner_and_uses_token) {
     });
     sync_point->enable_processing();
 
+    // Another active compute group owns the tablet.
     tablet->set_last_active_cluster_info("cluster_b", 100, 11);
     _cluster_info->set_cluster_status("cluster_b", cloud::ClusterStatus::NORMAL, 100);
     bool should_skip_error = false;
-    EXPECT_TRUE(compaction.request_global_lock(should_skip_error)
-                        .is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>());
-    EXPECT_TRUE(should_skip_error);
-    EXPECT_FALSE(prepare_called);
-
-    tablet->set_last_active_cluster_info("cluster_a", 200, 12);
-    should_skip_error = false;
     EXPECT_TRUE(compaction.request_global_lock(should_skip_error).ok());
     EXPECT_FALSE(should_skip_error);
     EXPECT_TRUE(prepare_called);
