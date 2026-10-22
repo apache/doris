@@ -136,7 +136,7 @@ public class HboStatisticsStore {
     /**
      * Upsert one pinned entry (UNIQUE KEY fingerprint replaces on conflict).
      */
-    public static void persist(String fingerprint, long rows,
+    public static boolean persist(String fingerprint, long rows,
             HboPlanStatisticsManager.PinnedType type, String structCanonical, double expansion,
             HboPlanStatisticsManager.LiteralMode literalMode, long createTimeMs) {
         try {
@@ -161,17 +161,18 @@ public class HboStatisticsStore {
                     + (expansion > 0 ? String.valueOf(expansion) : "NULL")
                     + ", '" + createTimeLiteral(createTimeMs) + "')";
             StatisticsUtil.execUpdate(sql);
+            return true;
         } catch (Exception t) {
             LOG.warn("failed to persist hbo pinned statistics for fingerprint {}", fingerprint, t);
+            return false;
         }
     }
 
     /**
-     * Remove the pinned entry a removal judged: the row is deleted only while its create time is not
-     * newer than {@code generation}, so a row another FE wrote after the judge was read survives.
+     * Remove the pinned entry of a fingerprint.
      *
-     * @return true when the row was removed (or the table had no such row), false when the
-     *         best-effort removal failed (e.g. internal schema not ready yet)
+     * @return true when the row was removed (or the table had no such row), false when the removal
+     *         failed (e.g. the internal schema is not ready yet); the caller reports the failure
      */
     public static boolean delete(String fingerprint) {
         try {

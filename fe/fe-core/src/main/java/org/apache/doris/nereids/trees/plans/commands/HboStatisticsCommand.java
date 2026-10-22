@@ -235,9 +235,17 @@ public class HboStatisticsCommand extends Command {
             if (scope == Scope.LEARNED) {
                 hboManager.putLearnedPlanStatistics(fingerprint, (long) value, structCanonical);
             } else if (type == PinnedType.JOIN_EXPANSION) {
-                hboManager.putPinnedExpansionStatistics(fingerprint, value, canonical);
+                try {
+                    hboManager.putPinnedExpansionStatistics(fingerprint, value, canonical);
+                } catch (IllegalStateException e) {
+                    throw new AnalysisException(e.getMessage());
+                }
             } else {
-                hboManager.putPinnedPlanStatistics(fingerprint, (long) value, type, canonical, literalMode);
+                try {
+                    hboManager.putPinnedPlanStatistics(fingerprint, (long) value, type, canonical, literalMode);
+                } catch (IllegalStateException e) {
+                    throw new AnalysisException(e.getMessage());
+                }
             }
             return;
         }
