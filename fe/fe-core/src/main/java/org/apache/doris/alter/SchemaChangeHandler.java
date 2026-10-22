@@ -3962,9 +3962,10 @@ public class SchemaChangeHandler extends AlterHandler {
             Set<String> partitionNames) throws DdlException {
         // Scan the retained job history once instead of once per partition, the table write lock is held here.
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            if (isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
-                    olapTable.getId(), alterIndexes, true)
-                    && partitionNames.contains(indexChangeJob.getPartitionName())) {
+            // Cheap partition check first, the predicate compares index lists.
+            if (partitionNames.contains(indexChangeJob.getPartitionName())
+                    && isConflictingIndexChangeJob(indexChangeJob, olapTable.getBaseIndexId(), db.getId(),
+                    olapTable.getId(), alterIndexes, true)) {
                 throw new DdlException("partition " + indexChangeJob.getPartitionName() + " of table "
                         + olapTable.getName() + " has an unfinished index change job, please retry after it finishes.");
             }
@@ -3976,8 +3977,9 @@ public class SchemaChangeHandler extends AlterHandler {
             List<Index> alterIndexes, boolean isDrop) {
         // TODO: this is temporary methods
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            if (isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes, isDrop)
-                    && indexChangeJob.getPartitionName().equals(partitionName)) {
+            if (indexChangeJob.getPartitionName().equals(partitionName)
+                    && isConflictingIndexChangeJob(indexChangeJob, originIndexId, dbId, tableId, alterIndexes,
+                    isDrop)) {
                 return true;
             }
         }
