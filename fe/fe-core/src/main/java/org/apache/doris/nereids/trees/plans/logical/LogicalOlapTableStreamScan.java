@@ -445,9 +445,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     public LogicalOlapTableStreamScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        LogicalProperties logicalProperties = getLogicalProperties();
-        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        List<Slot> output = outputWithVirtualColumns(virtualColumns);
         LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,

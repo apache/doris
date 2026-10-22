@@ -687,15 +687,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * add virtual column to olap scan.
+     * replace the virtual columns of olap scan, also in its output.
      * @param virtualColumns generated virtual columns
      * @return scan with virtual columns
      */
     @Override
     public LogicalOlapScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        LogicalProperties logicalProperties = getLogicalProperties();
-        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        List<Slot> output = outputWithVirtualColumns(virtualColumns);
         LogicalProperties finalLogicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
@@ -705,6 +703,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
+    }
+
+    /**
+     * The output with the slots of the given virtual columns instead of the slots of the current ones. The other
+     * slots keep their ids, which the slots of the parent plan may already refer to.
+     */
+    protected List<Slot> outputWithVirtualColumns(List<NamedExpression> newVirtualColumns) {
+        Set<ExprId> oldVirtualColumns = virtualColumns.stream()
+                .map(NamedExpression::getExprId)
+                .collect(Collectors.toSet());
+        List<Slot> output = getLogicalProperties().getOutput().stream()
+                .filter(slot -> !oldVirtualColumns.contains(slot.getExprId()))
+                .collect(Collectors.toCollection(ArrayList::new));
+        newVirtualColumns.forEach(column -> output.add(column.toSlot()));
+        return output;
     }
 
     /**
