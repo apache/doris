@@ -117,6 +117,50 @@ public:
                 typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
     }
 
+    void add_batch_indexed(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                           const IColumn** columns, const uint32_t* rows, Arena&) const override {
+        if (batch_size == 0) {
+            return;
+        }
+        const auto& values =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data();
+        constexpr size_t prefetch_distance = 16;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (i + prefetch_distance < batch_size) {
+                __builtin_prefetch(places[i + prefetch_distance] + place_offset, 1, 3);
+                __builtin_prefetch(values.data() + rows[i + prefetch_distance], 0, 3);
+            }
+            this->data(places[i] + place_offset)
+                    .add(typename PrimitiveTypeTraits<TResult>::CppType(values[rows[i]]));
+        }
+    }
+
+    // Nullable wrappers supply metadata updates without reading NULL payloads.
+    template <typename NullHandler>
+    void add_batch_indexed_with_nulls(size_t batch_size, AggregateDataPtr* places,
+                                      size_t place_offset, const IColumn** columns,
+                                      const uint32_t* rows, const uint8_t* null_map,
+                                      const NullHandler& handle_null, Arena&) const {
+        if (batch_size == 0) {
+            return;
+        }
+        const auto& values =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]).get_data();
+        constexpr size_t prefetch_distance = 16;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (i + prefetch_distance < batch_size && !null_map[rows[i + prefetch_distance]]) {
+                __builtin_prefetch(places[i + prefetch_distance] + place_offset, 1, 3);
+                __builtin_prefetch(values.data() + rows[i + prefetch_distance], 0, 3);
+            }
+            const bool is_null = null_map[rows[i]] != 0;
+            handle_null(places[i], is_null);
+            if (!is_null) {
+                this->data(places[i] + place_offset)
+                        .add(typename PrimitiveTypeTraits<TResult>::CppType(values[rows[i]]));
+            }
+        }
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -136,44 +180,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to);
         column.get_data().push_back(this->data(place).get());
-    }
-
-    void insert_result_into_repeat(ConstAggregateDataPtr place, uint64_t repeat, IColumn& to,
-                                   Arena& arena) const override {
-        if constexpr (is_decimalv2(TResult)) {
-            Base::insert_result_into_repeat(place, repeat, to, arena);
-        } else {
-            auto& column = assert_cast<ColVecResult&>(to);
-            auto result = this->data(place).get();
-            if constexpr (is_decimalv3(TResult)) {
-                result.value *= typename decltype(result)::NativeType(repeat);
-            } else {
-                result *= static_cast<decltype(result)>(repeat);
-            }
-            column.get_data().push_back(result);
-        }
-    }
-
-    void insert_result_into_repeat_vec(const std::vector<AggregateDataPtr>& places,
-                                       const size_t offset, const std::vector<uint64_t>& repeats,
-                                       IColumn& to, const size_t num_rows,
-                                       Arena& arena) const override {
-        if constexpr (is_decimalv2(TResult)) {
-            Base::insert_result_into_repeat_vec(places, offset, repeats, to, num_rows, arena);
-        } else {
-            auto& column = assert_cast<ColVecResult&>(to);
-            auto& column_data = column.get_data();
-            column_data.reserve(column_data.size() + num_rows);
-            for (size_t i = 0; i != num_rows; ++i) {
-                auto result = this->data(places[i] + offset).get();
-                if constexpr (is_decimalv3(TResult)) {
-                    result.value *= typename decltype(result)::NativeType(repeats[i]);
-                } else {
-                    result *= static_cast<decltype(result)>(repeats[i]);
-                }
-                column_data.push_back(result);
-            }
-        }
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,

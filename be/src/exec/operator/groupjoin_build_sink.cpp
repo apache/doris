@@ -17,66 +17,72 @@
 
 #include "exec/operator/groupjoin_build_sink.h"
 
-#include <variant>
+#include <algorithm>
+#include <limits>
 
-#include "common/cast_set.h"
-#include "core/data_type/data_type_nullable.h"
+#include "core/column/column_nullable.h"
 #include "exec/common/hash_table/hash_map_util.h"
+#include "exec/common/hash_table/join_hash_table_utils.h"
+#include "exec/common/join_utils.h"
+#include "exec/common/template_helpers.hpp"
 #include "exec/common/util.hpp"
 #include "exec/operator/groupjoin_operator_utils.h"
-#include "exprs/vectorized_agg_fn.h"
+#include "exec/runtime_filter/runtime_filter_producer_helper.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/defer_op.h"
 
 namespace doris {
-
-GroupJoinBuildSinkLocalState::GroupJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
-                                                           RuntimeState* state)
-        : Base(parent, state) {
-    _finish_dependency = std::make_shared<CountedFinishDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY");
-}
+GroupJoinSharedState::GroupJoinSharedState()
+        : build_context(std::make_shared<JoinDataVariants>()) {}
+GroupJoinSharedState::~GroupJoinSharedState() = default;
 
 Status GroupJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _shared_state->memory_used_counter = _memory_used_counter;
-    auto& p = _parent->cast<GroupJoinBuildSinkOperatorX>();
-    _build_expr_ctxs.resize(p._build_expr_ctxs.size());
-    for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
-        RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
+    auto& parent = _parent->cast<GroupJoinBuildSinkOperatorX>();
+    for (const auto& expr : parent._key_exprs) {
+        VExprContextSPtr clone;
+        RETURN_IF_ERROR(expr->clone(state, clone));
+        _key_exprs.push_back(std::move(clone));
     }
-    _aggregate_evaluators.reserve(p._aggregate_evaluators.size());
-    for (auto* evaluator : p._aggregate_evaluators) {
-        _aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
+    if (!parent._runtime_filter_descs.empty()) {
+        _filter_helper = std::make_shared<RuntimeFilterProducerHelper>(true, false);
+        RETURN_IF_ERROR(_filter_helper->init(state, _key_exprs, parent._runtime_filter_descs,
+                                             parent._child->operator_row_desc_after_projection()));
     }
-    RETURN_IF_ERROR(groupjoin::register_agg_state_layout(
-            _shared_state, p._aggregate_sides, p._sizes_of_aggregate_states,
-            p._aligns_of_aggregate_states, p._aggregate_indices, p._aggregate_evaluators));
-    DCHECK(std::holds_alternative<std::monostate>(_shared_state->data_variants->method_variant));
-    std::vector<DataTypePtr> data_types;
-    data_types.reserve(_build_expr_ctxs.size());
-    for (const auto& ctx : _build_expr_ctxs) {
-        data_types.emplace_back(remove_nullable(ctx->root()->data_type()));
-    }
-    RETURN_IF_ERROR(init_hash_method<GroupJoinDataVariants>(_shared_state->data_variants.get(),
-                                                            data_types, true));
-    _shared_state->update_memory_usage();
-    if (!p._runtime_filter_descs.empty()) {
-        _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperGroupJoin>();
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->init(
-                state, _build_expr_ctxs, p._runtime_filter_descs,
-                p._child->operator_row_desc_after_projection()));
-    }
+    _build_table_timer = ADD_TIMER(custom_profile(), "BuildHashTableTime");
+    _merge_timer = ADD_TIMER(custom_profile(), "MergeBuildBlockTime");
     _dependency->set_ready();
     return Status::OK();
 }
 
-Status GroupJoinBuildSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
-    if (_shared_state->data_container == nullptr) {
-        groupjoin::init_data_container(_shared_state);
+GroupJoinBuildSinkOperatorX::GroupJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                         int dest_id, const TPlanNode& node,
+                                                         const DescriptorTbl& descs)
+        : Base(operator_id, node, dest_id),
+          _runtime_filter_descs(node.runtime_filters),
+          _distribution(node.group_join_node.dist_type),
+          _partition_exprs(node.__isset.distribute_expr_lists ? node.distribute_expr_lists[1]
+                                                              : std::vector<TExpr> {}) {
+    _name = "GROUP_JOIN_BUILD_SINK_OPERATOR";
+}
+
+Status GroupJoinBuildSinkOperatorX::init(const TPlanNode& node, RuntimeState* state) {
+    RETURN_IF_ERROR(Base::init(node, state));
+    RETURN_IF_ERROR(groupjoin::validate_group_join_node(node));
+    for (const auto& conjunct : node.group_join_node.eq_join_conjuncts) {
+        VExprContextSPtr expr;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(conjunct.right, expr));
+        _key_exprs.push_back(std::move(expr));
+    }
+    return Status::OK();
+}
+
+Status GroupJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
+    for (const auto& expr : _key_exprs) {
+        RETURN_IF_ERROR(expr->prepare(state, _child->operator_row_desc_after_projection()));
+        RETURN_IF_ERROR(expr->open(state));
     }
     return Status::OK();
 }
@@ -85,8 +91,8 @@ Status GroupJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    if (_runtime_filter_producer_helper) {
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    if (_filter_helper) {
+        RETURN_IF_ERROR(_filter_helper->skip_process(state));
     }
     return Base::terminate(state);
 }
@@ -95,185 +101,151 @@ Status GroupJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_stat
     if (_closed) {
         return Status::OK();
     }
-    try {
-        if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
-            if (_runtime_filter_size_sent && exec_status.ok()) {
-                RETURN_IF_ERROR(_runtime_filter_producer_helper->build_and_publish(state));
-            } else {
-                RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
-            }
+    if (_filter_helper) {
+        if (!_terminated && !state->is_cancelled() && exec_status.ok() && _filter_size_sent &&
+            _shared_state->build_block.rows() > 1) {
+            // Decoupled RF expressions may append columns: never mutate the published build Block.
+            Block filter_block = _shared_state->build_block;
+            std::map<int, std::shared_ptr<RuntimeFilterWrapper>> unused_shared_filters;
+            RETURN_IF_ERROR(
+                    _filter_helper->build(state, &filter_block, false, unused_shared_filters));
+            RETURN_IF_ERROR(_filter_helper->publish(state));
+        } else {
+            RETURN_IF_ERROR(_filter_helper->skip_process(state));
         }
-    } catch (Exception& e) {
-        return Status::InternalError("GroupJoin runtime filter process meet error: {}",
-                                     e.to_string());
-    }
-    if (_runtime_filter_producer_helper) {
-        _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
+        _filter_helper->collect_realtime_profile(custom_profile());
     }
     return Base::close(state, exec_status);
 }
 
-Status GroupJoinBuildSinkLocalState::_append_runtime_filter_columns(Block* block) {
-    auto& p = _parent->cast<GroupJoinBuildSinkOperatorX>();
-    if (p._runtime_filter_descs.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->append_block(block));
-    return Status::OK();
-}
-
-GroupJoinBuildSinkOperatorX::GroupJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                         int dest_id, const TPlanNode& tnode,
-                                                         const DescriptorTbl& descs)
-        : Base(operator_id, tnode, dest_id),
-          _join_distribution(tnode.group_join_node.__isset.dist_type
-                                     ? tnode.group_join_node.dist_type
-                                     : TJoinDistributionType::NONE),
-          _pool(pool),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[1]
-                                                               : std::vector<TExpr> {}),
-          _runtime_filter_descs(tnode.runtime_filters) {}
-
-Status GroupJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(Base::init(tnode, state));
-    RETURN_IF_ERROR(groupjoin::validate_group_join_node(tnode));
-    for (const auto& eq_join_conjunct : tnode.group_join_node.eq_join_conjuncts) {
-        VExprContextSPtr build_ctx;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
-        {
-            VExprContextSPtr probe_ctx;
-            RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
-            auto build_side_expr_type = build_ctx->root()->data_type();
-            auto probe_side_expr_type = probe_ctx->root()->data_type();
-            if (!make_nullable(build_side_expr_type)
-                         ->equals(*make_nullable(probe_side_expr_type))) {
-                return Status::InternalError(
-                        "GroupJoin build side type {}, not match probe side type {}, node={}",
-                        build_side_expr_type->get_name(), probe_side_expr_type->get_name(),
-                        debug_string(0));
-            }
-        }
-        _build_expr_ctxs.push_back(build_ctx);
-    }
-    const auto& group_join_node = tnode.group_join_node;
-    _aggregate_sides.resize(group_join_node.aggregate_functions.size());
-    _sizes_of_aggregate_states.assign(group_join_node.aggregate_functions.size(), 0);
-    _aligns_of_aggregate_states.assign(group_join_node.aggregate_functions.size(), 1);
-    _output_tuple_id = group_join_node.output_tuple_id;
-
-    TSortInfo dummy;
-    for (int i = 0; i < group_join_node.aggregate_functions.size(); ++i) {
-        const auto& aggregate_function = group_join_node.aggregate_functions[i];
-        _aggregate_sides[i] = aggregate_function.input_side;
-        if (aggregate_function.input_side != TGroupJoinAggSide::BUILD) {
-            continue;
-        }
-        AggFnEvaluator* evaluator = nullptr;
-        RETURN_IF_ERROR(AggFnEvaluator::create(_pool, aggregate_function.aggregate_function, dummy,
-                                               false, false, &evaluator));
-        _aggregate_evaluators.push_back(evaluator);
-        _aggregate_indices.push_back(i);
-    }
-    return Status::OK();
-}
-
-Status GroupJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(
-            VExpr::prepare(_build_expr_ctxs, state, _child->operator_row_desc_after_projection()));
-    RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    DCHECK(_output_tuple_desc != nullptr);
-    const auto key_size = _build_expr_ctxs.size();
-    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-        const auto agg_idx = _aggregate_indices[i];
-        SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[key_size + agg_idx];
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child->operator_row_desc_after_projection(), output_slot_desc,
-                output_slot_desc));
-        _aggregate_evaluators[i]->set_version(state->be_exec_version());
-        _sizes_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->size_of_data();
-        _aligns_of_aggregate_states[agg_idx] = _aggregate_evaluators[i]->align_of_data();
-    }
-    for (auto* evaluator : _aggregate_evaluators) {
-        RETURN_IF_ERROR(evaluator->open(state));
-    }
-    return Status::OK();
-}
-
-Status GroupJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
-    auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.exec_time_counter());
-    COUNTER_UPDATE(local_state.rows_input_counter(), static_cast<int64_t>(in_block->rows()));
-    if (in_block->rows() > 0) {
-        // Snapshot before publishing build EOS: probe may then grow the shared arena.
-        Defer update_memory {[&]() { local_state._shared_state->update_memory_usage(); }};
-        const auto rows = cast_set<uint32_t>(in_block->rows());
-        RETURN_IF_ERROR(groupjoin::do_evaluate(*in_block, local_state._build_expr_ctxs,
-                                               local_state._key_columns_holder));
-        RETURN_IF_ERROR(groupjoin::extract_key_columns(
-                in_block->rows(), local_state._key_columns_holder,
-                local_state._build_key_not_nullable_columns, local_state._null_map_column));
-        const uint8_t* null_map = local_state._null_map_column
-                                          ? local_state._null_map_column->get_data().data()
-                                          : nullptr;
-        local_state._places.resize(rows);
-        RETURN_IF_ERROR(groupjoin::add_build_counts_by_key(
-                local_state._shared_state, *local_state._shared_state->arena,
-                local_state._build_key_not_nullable_columns, rows, null_map, _aggregate_indices,
-                local_state._places.data()));
-        for (size_t i = 0; i < local_state._aggregate_evaluators.size(); ++i) {
-            const auto offset =
-                    local_state._shared_state->offsets_of_aggregate_states[_aggregate_indices[i]];
-            // If there is no nullable join key, every build row has a valid place because build
-            // always creates/fetches a hash-table entry. If null_map exists, rows with NULL join
-            // keys are skipped for normal inner equal join and keep places[row] as nullptr.
-            if (null_map == nullptr) {
-                RETURN_IF_ERROR(local_state._aggregate_evaluators[i]->execute_batch_add(
-                        in_block, offset, local_state._places.data(),
-                        *local_state._shared_state->arena));
-            } else {
-                RETURN_IF_ERROR(local_state._aggregate_evaluators[i]->execute_batch_add_selected(
-                        in_block, offset, local_state._places.data(),
-                        *local_state._shared_state->arena));
-            }
-        }
-        RETURN_IF_ERROR(local_state._append_runtime_filter_columns(in_block));
+size_t GroupJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                         const Block* block) {
+    auto& local = get_local_state(state);
+    size_t reserve = block->allocated_bytes();
+    const auto incoming_bytes = block->bytes();
+    if (local._build_rows.bytes() + incoming_bytes >= local._build_rows.allocated_bytes()) {
+        reserve += local._build_rows.allocated_bytes();
     }
     if (eos) {
-        if (local_state._runtime_filter_producer_helper) {
-            RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
-                    state, local_state._runtime_filter_producer_helper->build_rows(),
-                    local_state._finish_dependency));
-            local_state._runtime_filter_size_sent = true;
+        const auto rows = local._build_rows.rows() + block->rows() + 1;
+        // Match ordinary Hash Join's estimate; the final layout is selected after key evaluation.
+        const auto buckets = hash_join_table_calc_bucket_size(rows + 1);
+        reserve += (buckets + rows + 1) * sizeof(uint32_t);
+        // Key evaluation, fixed-key packing and serialization may coexist with raw build rows.
+        reserve += rows * (sizeof(UInt256) + sizeof(StringRef));
+        reserve += local._build_rows.allocated_bytes() + block->allocated_bytes();
+    }
+    return reserve;
+}
+
+Status GroupJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool eos) {
+    auto& local = get_local_state(state);
+    RETURN_IF_CANCELLED(state);
+    SCOPED_TIMER(local.exec_time_counter());
+    COUNTER_UPDATE(local.rows_input_counter(), static_cast<int64_t>(block->rows()));
+    if (local._build_rows.empty() && (block->rows() > 0 || eos)) {
+        auto schema = VectorizedUtils::create_empty_columnswithtypename(
+                _child->operator_row_desc_after_projection());
+        // Row zero is reserved by JoinHashTable. Copy a real row so evaluating BUILD
+        // arguments does not introduce errors from synthetic default values.
+        // An entirely empty build keeps a default sentinel and skips expression evaluation.
+        auto sentinel = schema.create_same_struct_block(block->rows() > 0 ? 0 : 1, false);
+        local._build_rows = MutableBlock::build_mutable_block(std::move(*sentinel));
+        if (block->rows() > 0) {
+            for (size_t i = 0; i < local._build_rows.columns(); ++i) {
+                auto source = block->get_by_position(i).column->convert_to_full_column_if_const();
+                local._build_rows.get_column_by_position(i)->insert_from(*source, 0);
+            }
         }
-        local_state._dependency->set_ready_to_read();
+    }
+    if (block->rows() > 0) {
+        if (local._build_rows.rows() + block->rows() > std::numeric_limits<uint32_t>::max()) {
+            return Status::NotSupported("GroupJoin build exceeds uint32 row indexes");
+        }
+        SCOPED_TIMER(local._merge_timer);
+        // TODO: Support ColumnString64 in build key and aggregate argument expressions before
+        // allowing string offset overflow. Use checked merge to reject oversized string columns.
+        RETURN_IF_ERROR(local._build_rows.merge(std::move(*block)));
+        COUNTER_SET(local._memory_used_counter, local._build_rows.allocated_bytes());
+    }
+    if (eos) {
+        auto* shared = local._shared_state;
+        shared->build_block = local._build_rows.to_block();
+        RETURN_IF_ERROR(_build_hash_table(state, local));
+        if (local._filter_helper && shared->build_block.rows() > 1) {
+            RETURN_IF_ERROR(local._filter_helper->send_filter_size(
+                    state, shared->build_block.rows() - 1, local._finish_dependency));
+            local._filter_size_sent = true;
+        }
+        local._dependency->set_ready_to_read();
     }
     return Status::OK();
 }
 
-DataDistribution GroupJoinBuildSinkOperatorX::required_data_distribution(
-        RuntimeState* state) const {
-    // Keep the same distribution rule as hash join's non-broadcast path. GroupJoin currently
-    // supports only inner equi join, so broadcast/null-aware special branches are not needed.
-    return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
-                           _join_distribution == TJoinDistributionType::COLOCATE
-                   ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                   : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
-                                      _partition_exprs);
+Status GroupJoinBuildSinkOperatorX::_build_hash_table(RuntimeState* state,
+                                                      GroupJoinBuildSinkLocalState& local) const {
+    auto* shared = local._shared_state;
+    if (shared->build_block.rows() == 1) {
+        // Do not evaluate join keys on a synthetic row when the actual build is empty.
+        shared->short_circuit_for_probe = true;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(
+            groupjoin::do_evaluate(shared->build_block, local._key_exprs, shared->build_keys));
+    ColumnRawPtrs raw_keys;
+    ColumnUInt8::MutablePtr null_map;
+    RETURN_IF_ERROR(groupjoin::extract_key_columns(shared->build_block.rows(), shared->build_keys,
+                                                   raw_keys, null_map));
+    const auto* nulls = null_map ? null_map->get_data().data() : nullptr;
+    std::vector<DataTypePtr> key_types;
+    ColumnRawPtrs nullable_keys;
+    for (size_t i = 0; i < local._key_exprs.size(); ++i) {
+        key_types.push_back(remove_nullable(local._key_exprs[i]->root()->data_type()));
+        nullable_keys.push_back(shared->build_keys[i].get());
+    }
+    RETURN_IF_ERROR(
+            init_hash_method<JoinDataVariants>(shared->build_context.get(), key_types, true));
+    // Use the ordinary Join conversion, retaining the NULL map during min/max selection.
+    std::visit(
+            [&](auto& method) {
+                try_convert_to_direct_mapping(&method, nullable_keys, {shared->build_context});
+            },
+            shared->build_context->method_variant);
+    shared->short_circuit_for_probe =
+            null_map && std::all_of(null_map->get_data().begin() + 1, null_map->get_data().end(),
+                                    [](uint8_t value) { return value != 0; });
+    {
+        SCOPED_TIMER(local._build_table_timer);
+        const auto rows = static_cast<uint32_t>(shared->build_block.rows());
+        std::visit(Overload {[](std::monostate&) { DORIS_CHECK(false); },
+                             [&](auto& method) {
+                                 build_join_hash_table<TJoinOp::INNER_JOIN>(
+                                         method, raw_keys, rows, state->batch_size(), nulls,
+                                         nulls && simd::contain_one(nulls + 1, rows - 1), false);
+                                 COUNTER_SET(local._memory_used_counter,
+                                             shared->build_block.allocated_bytes() +
+                                                     method.hash_table->get_byte_size() +
+                                                     method.serialized_keys_size(true));
+                                 local.custom_profile()->add_info_string(
+                                         "IndexLayout", method.direct_mapping_range() != 0
+                                                                ? "DirectMapping"
+                                                                : "BucketChain");
+                             }},
+                   shared->build_context->method_variant);
+    }
+    return Status::OK();
 }
 
+DataDistribution GroupJoinBuildSinkOperatorX::required_data_distribution(RuntimeState*) const {
+    return groupjoin::distribution(_distribution, _partition_exprs);
+}
 bool GroupJoinBuildSinkOperatorX::is_shuffled_operator() const {
-    return _join_distribution == TJoinDistributionType::PARTITIONED ||
-           _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
-           _join_distribution == TJoinDistributionType::COLOCATE;
+    return _distribution != TJoinDistributionType::NONE;
 }
-
 bool GroupJoinBuildSinkOperatorX::is_colocated_operator() const {
-    return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
-           _join_distribution == TJoinDistributionType::COLOCATE;
+    return _distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+           _distribution == TJoinDistributionType::COLOCATE;
 }
-
 bool GroupJoinBuildSinkOperatorX::followed_by_shuffled_operator() const {
     return (is_shuffled_operator() && !is_colocated_operator()) || _followed_by_shuffled_operator;
 }
