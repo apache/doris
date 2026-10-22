@@ -206,6 +206,8 @@ private:
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
     RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _bitmap_allowlist_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _bitmap_allowlist_filter_timer = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;

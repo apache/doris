@@ -710,6 +710,12 @@ bool VectorizedFnCall::is_deterministic() const {
 }
 
 bool VectorizedFnCall::is_safe_to_execute_on_selected_rows() const {
+    if (_function_name == "bitmap_contains" && get_num_children() == 2) {
+        // The allowlist must be decoded before filtering so malformed input cannot be hidden
+        // by a preceding predicate. Membership itself is total for bitmap and BIGINT inputs.
+        return get_child(0)->is_const_and_have_executed() &&
+               get_child(1)->is_safe_to_execute_on_selected_rows() && is_deterministic();
+    }
     static const std::set<std::string> TOTAL_PREDICATE_FUNCTIONS = {"eq",
                                                                     "eq_for_null",
                                                                     "ne",

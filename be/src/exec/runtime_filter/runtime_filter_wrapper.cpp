@@ -17,8 +17,11 @@
 
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 
+#include "core/column/column_complex.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
+#include "core/value/bitmap_value.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
@@ -49,6 +52,10 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         _hybrid_set.reset(create_set(_column_return_type, params->null_aware));
         _bloom_filter_func.reset(create_bloom_filter(_column_return_type, params->null_aware));
         _bloom_filter_func->init_params(params);
+        return;
+    }
+    case RuntimeFilterType::BITMAP_ALLOWLIST_FILTER: {
+        _bitmap_allowlist = std::make_shared<BitmapValue>();
         return;
     }
     default:
@@ -112,6 +119,26 @@ Status RuntimeFilterWrapper::insert(const ColumnPtr& column, size_t start) {
         } else {
             _hybrid_set->insert_fixed_len(column, start);
         }
+        break;
+    }
+    case RuntimeFilterType::BITMAP_ALLOWLIST_FILTER: {
+        std::vector<const BitmapValue*> bitmaps;
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
+            const auto& values = assert_cast<const ColumnBitmap&>(nullable->get_nested_column());
+            const auto& nullmap = nullable->get_null_map_column().get_data();
+            for (size_t i = start; i < column->size(); ++i) {
+                if (!nullmap[i]) {
+                    bitmaps.push_back(&values.get_data()[i]);
+                }
+            }
+        } else {
+            const auto& values = assert_cast<const ColumnBitmap&>(*column);
+            for (size_t i = start; i < column->size(); ++i) {
+                bitmaps.push_back(&values.get_data()[i]);
+            }
+        }
+        _bitmap_allowlist->fastunion(bitmaps);
         break;
     }
     default:
@@ -213,6 +240,10 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other,
                 RETURN_IF_ERROR(_bloom_filter_func->merge(other->_bloom_filter_func.get()));
             }
         }
+        break;
+    }
+    case RuntimeFilterType::BITMAP_ALLOWLIST_FILTER: {
+        *_bitmap_allowlist |= *other->_bitmap_allowlist;
         break;
     }
     default:
@@ -684,6 +715,9 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
 }
 
 bool RuntimeFilterWrapper::contain_null() const {
+    if (get_real_type() == RuntimeFilterType::BITMAP_ALLOWLIST_FILTER) {
+        return false;
+    }
     if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
         return _bloom_filter_func->contain_null();
     }
@@ -760,6 +794,9 @@ std::string RuntimeFilterWrapper::debug_string() const {
         if (get_real_type() == RuntimeFilterType::IN_FILTER) {
             result += fmt::format(", size: {}, max_in_num: {}", _hybrid_set->size(), _max_in_num);
         }
+        if (get_real_type() == RuntimeFilterType::BITMAP_ALLOWLIST_FILTER) {
+            result += fmt::format(", cardinality: {}", _bitmap_allowlist->cardinality());
+        }
     }
 
     if (!_reason.ok()) {
@@ -805,6 +842,17 @@ Status RuntimeFilterWrapper::to_protobuf(PBloomFilter* filter, char** data, int*
     return Status::OK();
 }
 
+Status RuntimeFilterWrapper::to_protobuf(PBitmapAllowlistFilter* filter) {
+    if (get_real_type() != RuntimeFilterType::BITMAP_ALLOWLIST_FILTER) {
+        return Status::InternalError("Runtime filter {} cannot serialize to PBitmapAllowlistFilter",
+                                     int(get_real_type()));
+    }
+    std::string bytes(_bitmap_allowlist->getSizeInBytes(), '\0');
+    _bitmap_allowlist->write_to(bytes.data());
+    filter->set_bitmap_value(std::move(bytes));
+    return Status::OK();
+}
+
 template <class T>
 Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
     PFilterType filter_type = request.filter_type();
@@ -842,6 +890,22 @@ Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInpu
                     _filter_id);
         }
         return _assign(request.minmax_filter(), request.contain_null());
+    }
+    case PFilterType::BITMAP_ALLOWLIST_FILTER: {
+        if (!request.has_bitmap_allowlist_filter() ||
+            !request.bitmap_allowlist_filter().has_bitmap_value()) {
+            return Status::InternalError(
+                    "BITMAP_ALLOWLIST_FILTER missing bitmap payload, filter_id: {}", _filter_id);
+        }
+        if (!_bitmap_allowlist) {
+            _bitmap_allowlist = std::make_shared<BitmapValue>();
+        }
+        if (!_bitmap_allowlist->deserialize(
+                    request.bitmap_allowlist_filter().bitmap_value().data())) {
+            return Status::InternalError("Invalid bitmap allowlist payload, filter_id: {}",
+                                         _filter_id);
+        }
+        return Status::OK();
     }
     default:
         return Status::InternalError(

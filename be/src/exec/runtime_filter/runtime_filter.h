@@ -88,6 +88,8 @@ public:
                    real_runtime_filter_type == RuntimeFilterType::MAX_FILTER) {
             auto minmax_filter = request->mutable_minmax_filter();
             RETURN_IF_ERROR(_to_protobuf(minmax_filter));
+        } else if (real_runtime_filter_type == RuntimeFilterType::BITMAP_ALLOWLIST_FILTER) {
+            RETURN_IF_ERROR(_to_protobuf(request->mutable_bitmap_allowlist_filter()));
         } else {
             return Status::InternalError("not implemented !");
         }

@@ -336,6 +336,9 @@ public final class RuntimeFilter {
         tFilter.setBuildBfByRuntimeSize(buildBfByRuntimeSize);
 
         tFilter.setType(runtimeFilterType);
+        if (runtimeFilterType == TRuntimeFilterType.BITMAP_ALLOWLIST) {
+            tFilter.setBitmapTargetExpr(ExprToThriftVisitor.treeToThrift(targets.get(0).expr));
+        }
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
             tFilter.setMinMaxType(tMinMaxRuntimeFilterType);

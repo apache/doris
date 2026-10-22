@@ -111,6 +111,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromRoaringBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapFromString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHasAny;
@@ -720,6 +721,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapEmpty.class, "bitmap_empty"),
             scalar(BitmapFromArray.class, "bitmap_from_array"),
             scalar(BitmapFromBase64.class, "bitmap_from_base64"),
+            scalar(BitmapFromRoaringBase64.class, "bitmap_from_roaring_base64"),
             scalar(BitmapFromString.class, "bitmap_from_string"),
             scalar(BitmapHasAll.class, "bitmap_has_all"),
             scalar(BitmapHasAny.class, "bitmap_has_any"),

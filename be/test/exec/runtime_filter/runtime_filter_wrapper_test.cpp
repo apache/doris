@@ -20,9 +20,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <utility>
+
+#include "core/column/column_complex.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/value/bitmap_value.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
@@ -38,6 +42,46 @@ public:
     void SetUp() override {}
     void TearDown() override {}
 };
+
+TEST_F(RuntimeFilterWrapperTest, BitmapAllowlistMergeAndWireRoundTrip) {
+    RuntimeFilterParams params {.filter_id = 7,
+                                .filter_type = RuntimeFilterType::BITMAP_ALLOWLIST_FILTER,
+                                .column_return_type = TYPE_BIGINT};
+    RuntimeFilterWrapper producer(&params);
+    auto column = ColumnBitmap::create();
+    BitmapValue first;
+    first.add(97);
+    first.add(uint64_t {1} << 32 | 97);
+    BitmapValue second;
+    second.add(uint64_t {1} << 32 | 98);
+    column->insert_value(first);
+    ASSERT_TRUE(producer.insert(std::move(column), 0).ok());
+    EXPECT_EQ(producer.bitmap_allowlist()->cardinality(), 2);
+
+    RuntimeFilterWrapper other_producer(&params);
+    auto other_column = ColumnBitmap::create();
+    other_column->insert_value(second);
+    ASSERT_TRUE(other_producer.insert(std::move(other_column), 0).ok());
+    other_producer.set_state(RuntimeFilterWrapper::State::READY);
+
+    PBitmapAllowlistFilter payload;
+    ASSERT_TRUE(producer.to_protobuf(&payload).ok());
+    PMergeFilterRequest request;
+    request.set_filter_type(PFilterType::BITMAP_ALLOWLIST_FILTER);
+    *request.mutable_bitmap_allowlist_filter() = payload;
+    RuntimeFilterWrapper remote(&params);
+    ASSERT_TRUE(remote.assign(request, nullptr).ok());
+    EXPECT_TRUE(remote.bitmap_allowlist()->contains(uint64_t {1} << 32 | 97));
+    EXPECT_FALSE(remote.bitmap_allowlist()->contains(uint64_t {1} << 32 | 98));
+    EXPECT_FALSE(remote.bitmap_allowlist()->contains(99));
+
+    RuntimeFilterWrapper merged(&params);
+    merged.set_state(RuntimeFilterWrapper::State::READY);
+    ASSERT_TRUE(merged.merge(&remote).ok());
+    ASSERT_TRUE(merged.merge(&other_producer).ok());
+    EXPECT_EQ(merged.bitmap_allowlist()->cardinality(), 3);
+    EXPECT_TRUE(merged.bitmap_allowlist()->contains(uint64_t {1} << 32 | 98));
+}
 
 TEST_F(RuntimeFilterWrapperTest, TestIn) {
     using DataType = DataTypeInt32;

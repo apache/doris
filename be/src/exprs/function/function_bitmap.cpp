@@ -312,6 +312,45 @@ struct BitmapFromBase64 {
         return Status::OK();
     }
 };
+struct BitmapFromRoaringBase64 {
+    using ArgumentType = DataTypeString;
+
+    static constexpr auto name = "bitmap_from_roaring_base64";
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res, NullMap& null_map,
+                         size_t input_rows_count) {
+        res.reserve(input_rows_count);
+        if (offsets.empty() && input_rows_count == 1) {
+            res.emplace_back();
+            null_map[0] = 1;
+            return Status::OK();
+        }
+        std::string decoded;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const char* encoded = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            const size_t encoded_size = offsets[i] - offsets[i - 1];
+            if (encoded_size % 4 != 0) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            decoded.resize(encoded_size + 3);
+            const int64_t decoded_size = base64_decode(encoded, encoded_size, decoded.data());
+            if (decoded_size <= 0) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+            BitmapValue bitmap;
+            if (!bitmap.deserialize_portable(decoded.data(), static_cast<size_t>(decoded_size))) {
+                return Status::InvalidArgument("bitmap_from_roaring_base64 decode failed");
+            }
+            res.emplace_back(std::move(bitmap));
+        }
+        return Status::OK();
+    }
+};
 struct BitmapFromArray {
     using ArgumentType = DataTypeArray;
     static constexpr auto name = "bitmap_from_array";
@@ -1200,6 +1239,7 @@ using FunctionBitmapMax = FunctionBitmapSingle<FunctionBitmapMaxImpl>;
 using FunctionBitmapToString = FunctionUnaryToType<BitmapToString, NameBitmapToString>;
 using FunctionBitmapToBase64 = FunctionUnaryToType<BitmapToBase64, NameBitmapToBase64>;
 using FunctionBitmapFromBase64 = FunctionBitmapAlwaysNull<BitmapFromBase64>;
+using FunctionBitmapFromRoaringBase64 = FunctionBitmapAlwaysNull<BitmapFromRoaringBase64>;
 using FunctionBitmapNot =
         FunctionBinaryToType<DataTypeBitMap, DataTypeBitMap, BitmapNot, NameBitmapNot>;
 using FunctionBitmapContains =
@@ -1222,6 +1262,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapToBase64>();
     factory.register_function<FunctionBitmapFromBase64>();
+    factory.register_function<FunctionBitmapFromRoaringBase64>();
     factory.register_function<FunctionBitmapFromArray>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();

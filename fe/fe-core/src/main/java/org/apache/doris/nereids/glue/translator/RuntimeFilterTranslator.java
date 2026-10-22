@@ -199,7 +199,9 @@ public class RuntimeFilterTranslator {
                             new RuntimeFilterExpressionTranslator(targetSlotRef);
                     targetExpr = curTargetExpression.accept(translator, ctx);
                 }
-                targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr);
+                if (head.getType() != TRuntimeFilterType.BITMAP_ALLOWLIST) {
+                    targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr);
+                }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
@@ -308,7 +310,9 @@ public class RuntimeFilterTranslator {
                 }
 
                 // adjust data type
-                targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr);
+                if (filter.getType() != TRuntimeFilterType.BITMAP_ALLOWLIST) {
+                    targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr);
+                }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
@@ -369,6 +373,9 @@ public class RuntimeFilterTranslator {
     }
 
     private void updateConditionCacheEligibility(ScanNode scanNode, RuntimeFilter filter) {
+        if (filter.getType() == TRuntimeFilterType.BITMAP_ALLOWLIST) {
+            return;
+        }
         Expression target = filter.getTargetExpression();
         DataType sourceType = filter.getSrcExpr().getDataType();
         // Include the implicit cast inserted by castTargetToSourceTypeIfNeeded.

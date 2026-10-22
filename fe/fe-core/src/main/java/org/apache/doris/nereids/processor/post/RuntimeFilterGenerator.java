@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -784,6 +785,29 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+
+        if (ctx.getSessionVariable().enableBitmapSubqueryRuntimeFilter
+                && join.getJoinType() == JoinType.LEFT_SEMI_JOIN) {
+            int exprOrder = 0;
+            for (Expression conjunct : join.getOtherJoinConjuncts()) {
+                if (conjunct instanceof BitmapContains) {
+                    Expression bitmap = conjunct.child(0);
+                    Expression resourceId = conjunct.child(1);
+                    if (bitmap.getDataType().isBitmapType() && resourceId.getDataType().isBigIntType()
+                            && join.right().getOutputSet().containsAll(bitmap.getInputSlots())
+                            && join.left().getOutputSet().containsAll(resourceId.getInputSlots())) {
+                        RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
+                                RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
+                                        ctx, join, bitmap, resourceId,
+                                        TRuntimeFilterType.BITMAP_ALLOWLIST, false, -1, exprOrder);
+                        if (pushDownContext.isValid()) {
+                            join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
+                        }
+                    }
+                }
+                exprOrder++;
+            }
+        }
 
         if (ctx.getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.MIN_MAX)) {
             generateMinMaxRuntimeFilter(join, ctx);
