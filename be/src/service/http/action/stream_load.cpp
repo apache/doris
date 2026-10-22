@@ -829,9 +829,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 ctx->put_result = {};
                 client->streamLoadPut(ctx->put_result, request);
             },
-            [ctx]() { return ctx->put_result.status; },
-            // TStreamLoadPutResult has no redirect address; retries follow master heartbeats.
-            []() -> const TNetworkAddress* { return nullptr; }));
+            [ctx]() { return ctx->put_result.status; }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 #else
     ctx->put_result = k_stream_load_put_result;

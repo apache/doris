@@ -154,24 +154,6 @@ public class SimpleScheduler {
             }
         }
 
-        // Check if there are recent error records being accumulated.
-        // This prevents clearing a backend entry that is actively receiving errors
-        // but hasn't yet reached the blacklist threshold count.
-        // Without this, the UpdateBlacklistThread would clear the entry every second
-        // (because isAlive=true), resetting the counter, so the threshold would never be reached.
-        public boolean isRecentlyRecorded() {
-            lock.lock();
-            try {
-                if (lastRecordBlackTimestampMs <= 0) {
-                    return false;
-                }
-                return System.currentTimeMillis() - lastRecordBlackTimestampMs
-                        < Config.do_add_backend_black_list_threshold_seconds * 1000;
-            } finally {
-                lock.unlock();
-            }
-        }
-
         public String getReasonForBlackList() {
             lock.lock();
             try {
@@ -402,19 +384,10 @@ public class SimpleScheduler {
                             LOG.info("remove backend {} from black list because it does not exist", backendId);
                         } else {
                             BlackListInfo blackListInfo = entry.getValue();
-                            if (blackListInfo.shouldBeRemoved()) {
-                                // Backend has been in blacklist long enough, remove it
+                            if (backend.isAlive() || blackListInfo.shouldBeRemoved()) {
                                 iterator.remove();
-                                LOG.info("remove backend {} from black list. timeout reached,"
-                                        + " backend is alive: {}", backendId, backend.isAlive());
-                            } else if (backend.isAlive() && !blackListInfo.isBlacked()
-                                    && !blackListInfo.isRecentlyRecorded()) {
-                                // Backend is alive, was never fully blacklisted,
-                                // and has no recent error records. Safe to remove.
-                                iterator.remove();
-                                LOG.info("remove backend {} from black list."
-                                        + " backend is alive, not fully blacked,"
-                                        + " and no recent error records", backendId);
+                                LOG.info("remove backend {} from black list. backend is alive: {}",
+                                        backendId, backend.isAlive());
                             } else {
                                 if (LOG.isDebugEnabled()) {
                                     LOG.debug("blacklistBackends {}", blackListInfo.toString());

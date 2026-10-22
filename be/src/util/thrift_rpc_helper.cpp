@@ -148,8 +148,7 @@ template Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
 Status ThriftRpcHelper::rpc_fe_with_master_refresh(
         std::function<TNetworkAddress()> address_provider,
         std::function<void(ClientConnection<FrontendServiceClient>&)> callback,
-        std::function<TStatus()> response_status,
-        std::function<const TNetworkAddress*()> master_hint, int timeout_ms) {
+        std::function<TStatus()> response_status, int timeout_ms) {
     const bool enabled = _s_exec_env->cluster_info()->in_graceful_shutdown();
     // With graceful mode disabled, preserve the existing transport retry's live
     // provider: a new-master heartbeat may arrive after the old master's socket closes.
@@ -163,46 +162,31 @@ Status ThriftRpcHelper::rpc_fe_with_master_refresh(
                                                          timeout_ms);
                 // A restarted FE can keep its hostname but get a different pod IP.
                 // Reopening a socket against the cached old IP cannot recover.
-                if (enabled && !status.ok()) {
+                if (!status.ok()) {
                     _s_exec_env->dns_cache()->invalidate(address.hostname);
                 }
                 return status;
             },
-            response_status, master_hint, enabled, 1000);
+            response_status, 1000);
 }
 
 Status ThriftRpcHelper::_retry_fe_rpc(const std::function<TNetworkAddress()>& address_provider,
                                       const std::function<Status(const TNetworkAddress&)>& attempt,
                                       const std::function<TStatus()>& response_status,
-                                      const std::function<const TNetworkAddress*()>& master_hint,
-                                      bool enabled, int retry_interval_ms) {
+                                      int retry_interval_ms) {
     constexpr int max_retries = 5;
-    TNetworkAddress heartbeat_address = address_provider();
-    TNetworkAddress target = heartbeat_address;
     for (int retry = 0;; ++retry) {
+        // Heartbeats already publish the elected master. Re-read it for every attempt,
+        // including NOT_MASTER replies received before the new heartbeat arrives.
+        TNetworkAddress target = address_provider();
         Status st = attempt(target);
-        if (!enabled || (st.ok() && response_status().status_code != TStatusCode::NOT_MASTER) ||
+        if ((st.ok() && response_status().status_code != TStatusCode::NOT_MASTER) ||
             retry == max_retries) {
             return st;
         }
-        // Keep the redirect local to this request. Heartbeat alone owns the cached
-        // master and its epoch; an old follower's hint must not overwrite that state.
-        if (st.ok()) {
-            const auto* hint = master_hint();
-            // During election the old master may have no elected successor yet.
-            if (hint != nullptr && !hint->hostname.empty() && hint->port > 0) {
-                target = *hint;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(retry_interval_ms * (2 * retry + 1)));
-        auto current_address = address_provider();
-        // A newer heartbeat supersedes any redirect retained from a failed attempt.
-        if (current_address != heartbeat_address) {
-            heartbeat_address = current_address;
-            target = current_address;
-        }
         LOG(INFO) << "retry stream-load FE RPC " << retry + 1 << "/" << max_retries
-                  << ", target=" << target;
+                  << ", previous target=" << target;
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_interval_ms * (2 * retry + 1)));
     }
 }
 
