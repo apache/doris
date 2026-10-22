@@ -21,8 +21,13 @@
 #include <gtest/gtest-test-part.h>
 #include <netdb.h>
 
+#include <atomic>
+#include <future>
+#include <thread>
+
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "util/countdown_latch.h"
 
 namespace doris {
 
@@ -887,6 +892,52 @@ TEST_F(DNSCacheTest, invalidation_preserves_fallback_during_transient_dns_failur
     ASSERT_TRUE(cache.get("be.test", &ip).ok());
     EXPECT_EQ(ip, "10.0.0.2");
     EXPECT_EQ(0u, cache.failure_count_for_test("be.test"));
+}
+
+TEST_F(DNSCacheTest, background_failure_cannot_overwrite_forced_refresh) {
+    config::dns_cache_max_consecutive_failures = 1;
+    std::atomic<int> calls {0};
+    CountDownLatch background_started(1);
+    CountDownLatch release_background(1);
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int* error) {
+        int call = calls.fetch_add(1);
+        if (call == 1) {
+            background_started.count_down();
+            release_background.wait();
+            *error = EAI_AGAIN;
+            return Status::InternalError<false>("older background lookup failed");
+        }
+        *error = 0;
+        ip = call == 0 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    std::thread background([&] { cache.refresh_for_test(); });
+    background_started.wait();
+    cache.invalidate("be.test");
+    CountDownLatch forced_started(1);
+    std::promise<Status> forced_result;
+    auto result = forced_result.get_future();
+    std::string forced_ip;
+    std::thread forced([&] {
+        forced_started.count_down();
+        forced_result.set_value(cache.get("be.test", &forced_ip));
+    });
+    forced_started.wait();
+    const auto before_release = result.wait_for(std::chrono::milliseconds(100));
+    release_background.count_down();
+    background.join();
+    forced.join();
+
+    EXPECT_EQ(before_release, std::future_status::timeout);
+    EXPECT_TRUE(result.get().ok());
+    EXPECT_EQ(forced_ip, "10.0.0.2");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(calls.load(), 3);
+    EXPECT_EQ(cache.negative_cache_size_for_test(), 0u);
+    EXPECT_TRUE(cache._refresh_locks.empty());
 }
 
 } // end of namespace doris

@@ -389,10 +389,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                 client->streamLoadPut(ctx->put_result, request);
             },
             [ctx]() { return ctx->put_result.status; },
-            [ctx]() -> const TNetworkAddress* {
-                return ctx->put_result.__isset.master_address ? &ctx->put_result.master_address
-                                                              : nullptr;
-            }));
+            // TStreamLoadPutResult has no redirect address; retries follow master heartbeats.
+            []() -> const TNetworkAddress* { return nullptr; }));
     ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
     Status plan_status(Status::create(ctx->put_result.status));

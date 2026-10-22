@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -271,6 +272,25 @@ bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t thr
 
 Status DNSCache::_update(const std::string& hostname, FailureState* out_state,
                          std::string* out_ip) {
+    std::shared_ptr<std::mutex> refresh_mutex;
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto [it, inserted] = _refresh_locks.try_emplace(hostname);
+        if (inserted) {
+            it->second = std::make_shared<std::mutex>();
+        }
+        refresh_mutex = it->second;
+    }
+    Defer remove_refresh_lock {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        // Only this call and the map retain the mutex: no running lookup or waiter needs it.
+        if (refresh_mutex.use_count() == 2) {
+            _refresh_locks.erase(hostname);
+        }
+    }};
+    // A background lookup that captured IP A must finish before a forced lookup
+    // publishes B; otherwise its stale fallback (or old DNS answer) can overwrite B.
+    std::lock_guard<std::mutex> refresh_lock(*refresh_mutex);
     bool is_fresh = false;
     std::string real_ip = _resolve_hostname(hostname, &is_fresh);
     if (real_ip.empty()) {
