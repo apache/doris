@@ -758,8 +758,7 @@ public class AnalysisManager implements Writable {
         // Remove tableMetaStats if drop whole table stats.
         if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNamesInfo == null
                 || partitionNamesInfo.isStar() || partitionNamesInfo.getPartitionNames() == null)) {
-            removeTableStats(tblId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+            removeTableStatsAndLog(table);
         }
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNamesInfo);
         // Drop stats ddl is master only operation.
@@ -1524,6 +1523,42 @@ public class AnalysisManager implements Writable {
         synchronized (idToTblStats) {
             idToTblStats.remove(tableId);
         }
+    }
+
+    /**
+     * Remove the statistics record of the table and journal the deletion, under the table write lock.
+     *
+     * <p>A load recreates the record of a table which has none while its transaction becomes visible: the
+     * transaction is journaled as {@code VISIBLE} and the record is created by
+     * {@code DatabaseTransactionMgr#updateCatalogAfterVisible} afterwards, both under the table write lock
+     * which {@code finishTransaction} holds until that method returns. A deletion which is applied in
+     * between is replayed by the followers after the creation (the journal order is "transaction, then
+     * deletion") while the master applied it before the creation, so the master keeps the record the load
+     * created and every follower, and every image built from a follower, ends up without it. Removing and
+     * journaling the deletion under the same lock orders it either before the transaction was journaled or
+     * after the record was created, which is the order the journal has as well, so all frontends agree.
+     *
+     * <p>The lock is deliberately held across the journal write: the record creation of a load which is
+     * already past its own journal write must not slip in between the removal and its journal entry.
+     */
+    public void removeTableStatsAndLog(TableIf table) {
+        if (!(table instanceof OlapTable)) {
+            // Only a load into an OLAP table recreates the record of a table which has none, there is no
+            // creation to be ordered with.
+            removeTableStatsAndLog(table.getId());
+            return;
+        }
+        table.writeLock();
+        try {
+            removeTableStatsAndLog(table.getId());
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
+    private void removeTableStatsAndLog(long tableId) {
+        removeTableStats(tableId);
+        Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
     }
 
     public Set<Long> getIdToTblStatsKeys() {

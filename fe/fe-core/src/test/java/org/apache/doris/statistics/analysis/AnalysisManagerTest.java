@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
@@ -841,5 +842,78 @@ public class AnalysisManagerTest {
             manager.updateUpdatedRows(tabletRecords, db.getId(), 0L);
         }
         Assertions.assertNull(manager.findTableStatsStatus(39999L));
+    }
+
+    private OlapTable mockOlapTableForRemoval(long tableId, String name, Database db, List<String> calls) {
+        OlapTable table = mockOlapTableInReplica(tableId, name, db);
+        // The lock is not taken by the mock, record the calls instead: the deletion has to be journaled
+        // between them.
+        Mockito.doAnswer(invocation -> {
+            calls.add("writeLock");
+            return null;
+        }).when(table).writeLock();
+        Mockito.doAnswer(invocation -> {
+            calls.add("writeUnlock");
+            return null;
+        }).when(table).writeUnlock();
+        return table;
+    }
+
+    /**
+     * The record of a table which has none is recreated by the load that makes a transaction visible, in
+     * {@code DatabaseTransactionMgr.updateCatalogAfterVisible}, which runs under the table write lock until it
+     * returns. A deletion which is applied between the journaling of that transaction and the recreation is
+     * replayed after the creation on every follower while the master applied it before the creation, so the
+     * master would keep a record which no follower has. The deletion is therefore applied and journaled under
+     * the same lock, and the journal entry is written before the lock is released.
+     */
+    @Test
+    public void testRemoveTableStatsAndLogHoldsTheTableLock() {
+        AnalysisManager manager = new AnalysisManager();
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20001L, "test_remove_table_stats_lock");
+        catalog.unprotectCreateDb(db);
+        List<String> calls = new ArrayList<>();
+        OlapTable table = mockOlapTableForRemoval(30005L, "t_remove_stats", db, calls);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.doAnswer(invocation -> {
+                calls.add("logDeleteTableStats");
+                // The record is already removed, and the lock is still held.
+                Assertions.assertNull(manager.findTableStatsStatus(30005L));
+                return null;
+            }).when(editLog).logDeleteTableStats(Mockito.any(TableStatsDeletionLog.class));
+
+            manager.replayUpdateTableStatsStatus(new TableStatsMeta(table));
+            manager.removeTableStatsAndLog(table);
+
+            Assertions.assertEquals(ImmutableList.of("writeLock", "logDeleteTableStats", "writeUnlock"), calls);
+            Assertions.assertNull(manager.findTableStatsStatus(30005L));
+        }
+    }
+
+    @Test
+    public void testRemoveTableStatsAndLogDoesNotLockANonOlapTable() {
+        AnalysisManager manager = new AnalysisManager();
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            TableIf table = Mockito.mock(TableIf.class);
+            Mockito.when(table.getId()).thenReturn(30006L);
+
+            manager.removeTableStatsAndLog(table);
+
+            // A load only recreates the record of an OLAP table, there is no creation to be ordered with.
+            Mockito.verify(table, Mockito.never()).writeLock();
+            Mockito.verify(editLog).logDeleteTableStats(Mockito.any(TableStatsDeletionLog.class));
+        }
     }
 }

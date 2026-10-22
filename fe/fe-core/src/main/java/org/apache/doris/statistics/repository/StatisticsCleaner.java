@@ -140,6 +140,8 @@ public class StatisticsCleaner extends MasterDaemon {
                 }
                 LOG.info("Table {}.{}.{} with id {} not exist, remove its table stats record.",
                         stats.ctlName, stats.dbName, stats.tblName, id);
+                // No table lock: the table is gone, so no load can recreate the record of this id while the
+                // deletion is journaled (see AnalysisManager#removeTableStatsAndLog for the case which can).
                 analysisManager.removeTableStats(id);
                 Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(id));
             } catch (Exception e) {
