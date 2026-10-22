@@ -91,6 +91,8 @@ public class FeMetaCacheEntry<K, V> {
     private final MetaCache<K, V> data;
     private final BiConsumer<K, V> discardedValueAction;
     private final Object lifecycleLock = new Object();
+    private Runnable retirementCleanup;
+    private final AtomicBoolean registrationReleased = new AtomicBoolean();
     private volatile boolean retired;
     private int activeUses;
 
@@ -144,7 +146,8 @@ public class FeMetaCacheEntry<K, V> {
             Function<K, ScopePath> scopeResolver, ScopePath invalidationScope,
             String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
             boolean autoRefresh, int stripeCount, @Nullable RemovalListener<K, V> removalListener) {
-        return new FeMetaCacheEntry<>(owner, scopeResolver, invalidationScope, name, loader, cacheSpec,
+        return new FeMetaCacheEntry<>(owner, scopeResolver, invalidationScope.in(ScopePath.Coordinates.LOCAL),
+                name, loader, cacheSpec,
                 refreshExecutor, autoRefresh, false, stripeCount, removalListener, true,
                 MetaCacheDefinition.BudgetPolicy.WEIGHTED_PAYLOAD);
     }
@@ -154,7 +157,8 @@ public class FeMetaCacheEntry<K, V> {
             Function<K, ScopePath> scopeResolver, ScopePath invalidationScope,
             String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
             boolean autoRefresh, int stripeCount, @Nullable RemovalListener<K, V> removalListener) {
-        return new FeMetaCacheEntry<>(owner, scopeResolver, invalidationScope, name, loader, cacheSpec,
+        return new FeMetaCacheEntry<>(owner, scopeResolver, invalidationScope.in(ScopePath.Coordinates.LOCAL),
+                name, loader, cacheSpec,
                 refreshExecutor, autoRefresh, false, stripeCount, removalListener, true,
                 MetaCacheDefinition.BudgetPolicy.COUNT_ONLY);
     }
@@ -168,6 +172,8 @@ public class FeMetaCacheEntry<K, V> {
         discardedValueAction = retireDiscardedValues && removalListener != null
                 ? (key, value) -> removalListener.onRemoval(key, value, RemovalCause.EXPLICIT) : null;
         this.invalidationScope = Objects.requireNonNull(invalidationScope, "invalidationScope");
+        Function<K, ScopePath> entryScope = retireDiscardedValues
+                ? key -> scopeResolver.apply(key).in(ScopePath.Coordinates.LOCAL) : scopeResolver;
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.loader = loader;
         this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
@@ -196,7 +202,7 @@ public class FeMetaCacheEntry<K, V> {
         effectiveEnabled = CacheSpec.isCacheEnabled(
                 cacheSpec.isEnable(), cacheSpec.getTtlSecond(), cacheSpec.getCapacity());
         MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.<K, V>builder(
-                name, cacheSpec, scopeResolver)
+                name, cacheSpec, entryScope)
                 .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .budgetPolicy(budgetPolicy);
         if (loader != null) {
@@ -292,7 +298,7 @@ public class FeMetaCacheEntry<K, V> {
                         && (!effectiveEnabled || data.getIfPresent(key) == value);
                 if (current && required.test(key, value) && isCurrent(stripe, token)) {
                     try {
-                        action.accept(key, value);
+                        data.runIfCurrent(key, value, () -> action.accept(key, value));
                     } catch (RuntimeException | Error throwable) {
                         data.invalidateKey(key);
                         throw throwable;
@@ -456,6 +462,28 @@ public class FeMetaCacheEntry<K, V> {
         owner.invalidateScope(invalidationScope);
     }
 
+    /** Auxiliary state has the same accepted-operation lifetime as this exact physical registration. */
+    public void onRetired(Runnable cleanup) {
+        synchronized (lifecycleLock) {
+            if (retired || retirementCleanup != null) {
+                throw new IllegalStateException("Retirement cleanup must be bound once before retirement");
+            }
+            retirementCleanup = Objects.requireNonNull(cleanup, "cleanup");
+        }
+    }
+
+    private void releaseRegistration() {
+        if (registrationReleased.compareAndSet(false, true)) {
+            try {
+                owner.remove(data);
+            } finally {
+                if (retirementCleanup != null) {
+                    retirementCleanup.run();
+                }
+            }
+        }
+    }
+
     /**
      * Stops accepting cached operations without waiting for a remote load. Accepted operations pin the physical
      * entry until they finish; later reads use the loader without publishing cache values or ID side effects.
@@ -468,7 +496,7 @@ public class FeMetaCacheEntry<K, V> {
             remove = activeUses == 0;
         }
         if (remove) {
-            owner.remove(data);
+            releaseRegistration();
         }
     }
 
@@ -503,7 +531,7 @@ public class FeMetaCacheEntry<K, V> {
                 remove = retired && activeUses == 0;
             }
             if (remove) {
-                owner.remove(data);
+                releaseRegistration();
             }
         }
     }

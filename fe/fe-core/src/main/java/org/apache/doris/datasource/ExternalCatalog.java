@@ -173,7 +173,7 @@ public abstract class ExternalCatalog
 
     private boolean objectCreated = false;
     protected TransactionManager transactionManager;
-    private transient CatalogMetaCache feMetaCacheOwner;
+    private transient volatile CatalogMetaCache feMetaCacheOwner;
     private transient CatalogMetaCache namingCacheOwner;
     private transient boolean feCacheRetired;
     private transient AtomicLong cacheEntrySequence =
@@ -410,7 +410,7 @@ public abstract class ExternalCatalog
         return this.initialized;
     }
 
-    /** One FE invalidation/lifecycle owner; connector caches retain their remote-name ownership. */
+    /** Catalog root shared by FE entries and connector instance domains. */
     public synchronized CatalogMetaCache getFeMetaCacheOwner() {
         Preconditions.checkState(!feCacheRetired, "External catalog cache owner has been retired: %s", name);
         if (feMetaCacheOwner == null || feMetaCacheOwner.isClosed()) {
@@ -419,13 +419,18 @@ public abstract class ExternalCatalog
             overlayMetaCacheConfig(properties);
             String engine = this instanceof RemoteDorisExternalCatalog
                     ? "doris" : "default";
-            feMetaCacheOwner = CatalogMetaCache.managed(id, engine, properties);
+            feMetaCacheOwner = CatalogMetaCache.managed(id, engine, properties, ExternalCatalog.class.getClassLoader());
             dbIdNameIndex.clear();
             if (replacingClosedOwner) {
                 initialized = false;
             }
         }
         return feMetaCacheOwner;
+    }
+
+    public CatalogMetaCache getMetaCacheOwnerIfPresent() {
+        CatalogMetaCache owner = feMetaCacheOwner;
+        return owner == null || owner.isClosed() ? null : owner;
     }
 
     /** Cache retirement must also work before the first schema entry has been prepared. */
@@ -461,7 +466,9 @@ public abstract class ExternalCatalog
         // Replay must not resurrect a retired owner or initialize a remote catalog after ALTER.
         CatalogMetaCache owner = feMetaCacheOwner;
         if (owner != null && !owner.isClosed()) {
-            owner.invalidateDatabaseAndNames(localDbName);
+            owner.invalidateScopes(java.util.Arrays.asList(
+                    ScopePath.database(localDbName).in(ScopePath.Coordinates.LOCAL),
+                    ScopePath.databaseCollection().in(ScopePath.Coordinates.LOCAL)));
         }
     }
 
@@ -478,6 +485,7 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
         }
+        dbIdNameIndex.bind(owner, "database_ids", ScopePath::database);
         CacheSpec namesSpec = CacheSpec.of(
                 true,
                 Config.external_cache_expire_time_seconds_after_access,
@@ -1036,6 +1044,11 @@ public abstract class ExternalCatalog
         this.lastUpdateTime = lastUpdateTime;
     }
 
+    /** Only registry publication may reactivate an instance retired by rename cleanup. */
+    synchronized void onRegistered() {
+        feCacheRetired = false;
+    }
+
     @Override
     public final void onClose() {
         synchronized (this) {
@@ -1588,7 +1601,7 @@ public abstract class ExternalCatalog
         return namesValue.localNames();
     }
 
-    private String resolveDatabaseNameForInvalidation(String dbName) {
+    public String resolveDatabaseNameForInvalidation(String dbName) {
         int mode = getLowerCaseDatabaseNames();
         if (mode == 1) {
             return dbName.toLowerCase(Locale.ROOT);

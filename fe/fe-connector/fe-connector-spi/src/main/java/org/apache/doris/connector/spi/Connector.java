@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.event.ConnectorEventSource;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
@@ -52,6 +53,19 @@ import java.util.Set;
  * package documentation for the full rule.</p>
  */
 public interface Connector extends Closeable {
+
+    /**
+     * Additional physical resource identities used by this gateway's already-resolved tables. Pure projection:
+     * no loading, connector construction or invalidation. The host invalidates all returned scopes together.
+     */
+    default List<ScopePath> cacheDependencies(ScopePath remoteScope) {
+        return Collections.emptyList();
+    }
+
+    /** Translate event partition names into the identities used by this connector's caches, without I/O. */
+    default List<ScopePath> partitionCacheScopes(String database, String table, List<String> partitions) {
+        return Collections.singletonList(ScopePath.table(database, table));
+    }
 
     /**
      * Returns the metadata interface for the given session. The engine calls this exactly once per catalog per
@@ -220,29 +234,30 @@ public interface Connector extends Closeable {
 
     /**
      * Invalidates any connector-side per-table cache (e.g. a latest-snapshot/version cache) so a subsequent
-     * read reflects the latest external state. Called by the engine on {@code REFRESH TABLE} and before applying
-     * structural table events (create, drop, rename, and same-name view recreation). The names are the REMOTE
-     * db/table names (as seen by the connector). Default no-op for connectors that cache nothing.
+     * read reflects the latest external state. This is a direct connector/standalone entry point; engine refresh,
+     * DDL and events invalidate shared resource scopes instead, including {@link #cacheDependencies(ScopePath)}.
+     * The names are the REMOTE db/table names. Default no-op for connectors that cache nothing.
      */
     default void invalidateTable(String dbName, String tableName) {
     }
 
-    /** Invalidates all connector-side per-table caches. Default no-op. */
+    /** Direct connector invalidation entry point. Engine changes use the shared root. Default no-op. */
     default void invalidateAll() {
     }
 
     /**
-     * Invalidates the connector-side caches for every table in one database. Called by the engine on
-     * {@code REFRESH DATABASE} and before applying structural database events (create, drop, and rename).
-     * The name is the REMOTE db name (as seen by the connector). Default no-op for connectors that cache nothing.
+     * Directly invalidates the connector-side caches for every table in one database. Engine refresh, DDL and
+     * events use the shared root's resource scopes. The name is the REMOTE db name.
+     * Default no-op for connectors that cache nothing.
      */
     default void invalidateDb(String dbName) {
     }
 
     /**
      * Invalidates the connector-side caches for specific partitions of a table so a subsequent read
-     * reflects the latest external state. Driven by the engine's metastore-event sync when partitions
-     * are added/dropped/altered. The names are the REMOTE db/table names and canonical partition names
+     * reflects the latest external state. Engine events project partition scopes through
+     * {@link #partitionCacheScopes(String, String, List)} and invalidate them at the shared root instead.
+     * The names are the REMOTE db/table names and canonical partition names
      * ({@code "col=val/.../colN=valN"}); an empty/whole-table drop is expressed by
      * {@link #invalidateTable(String, String)}. A connector whose partition cache cannot target a single
      * name may degrade to invalidating the whole table's partition caches (correctness-safe when the

@@ -31,6 +31,35 @@ Three design rules shape everything in this directory:
    reached only through the SPI, and optional behavior is opt-in via
    capabilities (see "Reading the API").
 
+## Catalog cache ownership
+
+`ExternalCatalog` owns one `CatalogMetaCache` root. Each connector instance acquires a domain through
+`ConnectorContext.createCacheDomain`; embedded siblings acquire child domains. FE entries and connector
+entries share the root's registry and catalog/global budgets. Domains qualify physical registration names,
+wrap plugin callbacks with the registering classloader, and retire only their own registrations. Closing an
+old instance never invalidates a replacement instance's resource scope.
+
+Resource dependencies are independent of domain lifetime:
+
+```
+Catalog root
+  LOCAL  -> database -> table -> schema/content
+  REMOTE -> database -> table -> partition
+  ID     -> database id -> table id -> derived row count
+```
+
+Each cache value declares one most-specific `ScopePath`. Membership snapshots have typed collection scopes.
+`CatalogMetadataChanges` projects a semantic refresh, mutation, DDL, event or replay into these coordinates
+and detaches all affected scopes at one publication barrier. Content changes preserve lookup objects and
+name lists; explicit lookup refresh also invalidates the target identity and parent membership. Newly
+written journals persist local/remote identities and the operation's lookup flag. Old records widen only
+the remote scope when a cache-only lookup cannot recover the remote identity.
+
+Gateways with different physical identities implement the pure `Connector.cacheDependencies` projection;
+it must not perform I/O or construct siblings. Partition names are translated by `partitionCacheScopes`.
+The host applies the resulting scopes; gateways do not maintain a second list of invalidation callbacks.
+Immutable path-addressed caches can stay at catalog scope and survive table refreshes.
+
 ## Module Map
 
 Roles only — one line each. For anything deeper, read the module's javadoc
@@ -61,7 +90,7 @@ endpoint properties)
 
 | Module | Role |
 |---|---|
-| `fe-connector-cache` | Self-contained caching framework used by several connectors. No fe-core dependency; it is bundled into each consuming plugin, so shared third-party libraries stay at the consumers' lowest common version (see the version notes in consumer poms). |
+| `fe-connector-cache` | Shared metadata-cache framework with no fe-core dependency. The parent-first `org.apache.doris.connector.*` loader policy gives FE and plugins one runtime identity; plugin packaging does not create private cache owners. ConnectorContext supplies instance domains under the catalog root. |
 | `fe-connector-hms-hive-shade` | Slim, relocated HMS metastore-client closure for connectors that speak HMS thrift. The pom comments say exactly what relocates where and why. |
 | `fe-connector-paimon-hive-shade` | Paimon-private relocated HMS-thrift closure; same idea, different owner. |
 

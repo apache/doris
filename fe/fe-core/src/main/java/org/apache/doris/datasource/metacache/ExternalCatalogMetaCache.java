@@ -150,7 +150,7 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     public void invalidateDb(long catalogId, String dbName) {
         CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
         if (group != null) {
-            group.owner().invalidateDatabase(dbName);
+            group.owner().invalidateScope(ScopePath.database(dbName).in(ScopePath.Coordinates.LOCAL));
         }
     }
 
@@ -158,7 +158,7 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
         if (group != null) {
-            group.owner().invalidateScope(ScopePath.tableMetadata(dbName, tableName));
+            group.owner().invalidateScope(ScopePath.tableMetadata(dbName, tableName).in(ScopePath.Coordinates.LOCAL));
         }
     }
 

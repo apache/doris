@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
@@ -47,12 +48,13 @@ public class MetastoreEventSyncDriverMappedNameTest {
         apply(catalog, connector, descriptor, env);
 
         InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
-        inOrder.verify(connector).invalidateDb("OldDb");
-        inOrder.verify(connector).invalidateDb("NewDb");
+        inOrder.verify(connector).cacheDependencies(ScopePath.database("OldDb"));
+        inOrder.verify(connector).cacheDependencies(ScopePath.database("NewDb"));
         inOrder.verify(catalogMgr).unregisterExternalDatabaseFromEvent("local_OldDb", "test_catalog");
         inOrder.verify(catalogMgr).registerExternalDatabaseFromEvent(
                 "NewDb", "local_NewDb", "test_catalog");
-        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
+        Mockito.verifyNoMoreInteractions(catalogMgr);
+        Mockito.verify(connector, Mockito.never()).getMetadata(Mockito.any());
     }
 
     @Test
@@ -68,13 +70,14 @@ public class MetastoreEventSyncDriverMappedNameTest {
         apply(catalog, connector, descriptor, env);
 
         InOrder inOrder = Mockito.inOrder(connector, catalogMgr);
-        inOrder.verify(connector).invalidateTable("OldDb", "OldTable");
-        inOrder.verify(connector).invalidateTable("NewDb", "NewTable");
+        inOrder.verify(connector).cacheDependencies(ScopePath.table("OldDb", "OldTable"));
+        inOrder.verify(connector).cacheDependencies(ScopePath.table("NewDb", "NewTable"));
         inOrder.verify(catalogMgr).unregisterExternalTableFromEvent(
                 "local_OldDb", "local_OldDb_OldTable", "test_catalog");
         inOrder.verify(catalogMgr).registerExternalTableFromEvent(
                 "local_NewDb", "NewTable", "local_NewDb_NewTable", "test_catalog", 2L);
-        Mockito.verifyNoMoreInteractions(connector, catalogMgr);
+        Mockito.verifyNoMoreInteractions(catalogMgr);
+        Mockito.verify(connector, Mockito.never()).getMetadata(Mockito.any());
     }
 
     @Test
@@ -122,7 +125,7 @@ public class MetastoreEventSyncDriverMappedNameTest {
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             Deencapsulation.invoke(
-                    new MetastoreEventSyncDriver(), "applyOne", catalog, connector, descriptor);
+                    new MetastoreEventSyncDriver(), "applyOne", catalog, descriptor);
         }
     }
 

@@ -67,7 +67,7 @@ public class AdbcConnector implements Connector {
         // The raw map, because the cache knobs are the shared framework's keys rather than this
         // connector's: CacheSpec owns their names, and mirroring them as fields here would give the
         // validator and the reader two things to drift apart.
-        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "adbc", props.getRaw());
+        this.metaCache = context.createCacheDomain("adbc", props.getRaw());
         try {
             this.metadataCache = new AdbcMetadataCache(metaCache, props.getRaw());
         } catch (RuntimeException | Error e) {

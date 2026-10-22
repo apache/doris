@@ -61,7 +61,6 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalFunctionRules;
-import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.connector.converter.ConnectorBranchTagConverter;
@@ -69,6 +68,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.ConnectorPartitionFieldConverter;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.fs.FileSystemFactory;
@@ -215,6 +215,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         DefaultConnectorContext context = new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
                 () -> catalogProperty.getStorageAdaptersMap(),
                 catalogProperty::getEffectiveRawStorageProperties);
+        context.bindCacheRoot(this::getFeMetaCacheOwner);
         this.connectorContext = context;
         // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
         // lazy build after image deserialization), and both doors must agree on what may become a catalog.
@@ -441,33 +442,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         super.notifyPropertiesUpdated(updatedProps);
     }
 
-    /**
-     * Invalidates connector-owned metadata before FE caches because connector metadata feeds row-count loading.
-     * The connector field is read directly so refreshing an uninitialized catalog does not initialize it.
-     */
-    @Override
-    public void onRefreshCache(boolean invalidCache) {
-        if (!invalidCache) {
-            super.onRefreshCache(false);
-            return;
-        }
-        try {
-            invalidateAllConnectorCachesIfPresent();
-        } finally {
-            super.onRefreshCache(true);
-        }
-    }
-
-    /**
-     * Invalidates connector-owned caches without initializing or rebuilding the connector.
-     *
-     * <p>Replay also uses this when no database object is cached and remote cache keys cannot be recovered.
-     */
-    public void invalidateAllConnectorCachesIfPresent() {
-        Connector localConnector = connector;
-        if (localConnector != null) {
-            localConnector.invalidateAll();
-        }
+    /** Cache coordination is cache-only; replay must never initialize a connector. */
+    public Connector getConnectorIfPresent() {
+        return connector;
     }
 
     @Override
@@ -646,7 +623,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     /**
      * Routes CREATE TABLE through the connector SPI. Returning {@code true} for an existing table preserves
      * the caller's CTAS short-circuit contract. A newly created table persists canonical local names; every
-     * successful path invalidates connector, metadata, and row-count caches in that order.
+     * successful path applies the same catalog cache change to connector metadata and derived FE state.
      */
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
@@ -702,7 +679,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         org.apache.doris.persist.CreateTableInfo persistInfo =
                 new org.apache.doris.persist.CreateTableInfo(
-                        getName(), db.getFullName(), localTableName);
+                        getName(), db.getFullName(), localTableName).withExternalCacheChange(
+                                ExternalObjectLog.createForExplicitRefreshTable(getId(), db.getFullName(),
+                                        localTableName, 0L).withRemoteNames(
+                                                db.getRemoteName(), createTableInfo.getTableName()));
         Env.getCurrentEnv().getEditLog().logCreateTable(persistInfo);
         invalidateCreatedTableCaches(db, createTableInfo.getTableName(), localTableName);
         LOG.info("finished to create table {}.{}.{}", getName(),
@@ -751,7 +731,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             }
             throw new DdlException(e.getMessage(), e);
         }
-        Env.getCurrentEnv().getEditLog().logCreateDb(new CreateDbInfo(getName(), localDbName, null));
+        Env.getCurrentEnv().getEditLog().logCreateDb(new CreateDbInfo(getName(), localDbName, null)
+                .withExternalCacheChange(ExternalObjectLog.createForRefreshDb(getId(), localDbName)
+                        .withRemoteNames(dbName, null)));
         invalidateCreatedDatabaseCaches(dbName, localDbName);
         LOG.info("finished to create database {}.{}", getName(), dbName);
     }
@@ -788,12 +770,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
-        Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), db.getFullName()));
-        try {
-            connector.invalidateDb(db.getRemoteName());
-        } finally {
-            unregisterDatabase(db.getFullName());
-        }
+        Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), db.getFullName())
+                .withExternalCacheChange(ExternalObjectLog.createForRefreshDb(getId(), db.getFullName())
+                        .withRemoteNames(db.getRemoteName(), null)));
+        CatalogMetadataChanges.apply(this, ExternalObjectLog.createForRefreshDb(getId(), db.getFullName())
+                .withRemoteNames(db.getRemoteName(), null));
         LOG.info("finished to drop database {}.{}", getName(), dbName);
     }
 
@@ -946,7 +927,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         long updateTime = System.currentTimeMillis();
         Env.getCurrentEnv().getEditLog().logTruncateTable(
-                new TruncateTableInfo(getName(), db.getFullName(), dorisTable.getName(), partitions, updateTime));
+                new TruncateTableInfo(getName(), db.getFullName(), dorisTable.getName(), partitions, updateTime)
+                        .withExternalCacheChange(CatalogMetadataChanges.table(dorisTable, false, updateTime)));
         Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, dorisTable, updateTime);
         LOG.info("finished to truncate table {}.{}.{}", getName(), dbName, tableName);
     }
@@ -958,95 +940,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void replayTruncateTable(TruncateTableInfo info) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(info.getDb());
-        Optional<? extends ExternalTable> table = db.flatMap(database -> database.getTableForReplay(info.getTable()));
-        if (table.isPresent()) {
-            Env.getCurrentEnv().getRefreshManager()
-                    .refreshTableInternal(db.get(), table.get(), info.getUpdateTime());
-            return;
-        }
-        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        try {
-            Connector replayConnector = connector;
-            if (isInitialized() && replayConnector != null) {
-                if (db.isPresent()) {
-                    replayConnector.invalidateDb(db.get().getRemoteName());
-                } else {
-                    replayConnector.invalidateAll();
-                }
-            }
-        } finally {
-            long dbId = Util.genIdByName(getName(), info.getDb());
-            cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
-                    Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
-        }
+        CatalogMetadataChanges.apply(this, info.getExternalCacheChange() != null ? info.getExternalCacheChange()
+                : ExternalObjectLog.createForRefreshTable(
+                        getId(), info.getDb(), info.getTable(), info.getUpdateTime()));
     }
 
     @Override
-    public void replayDropTable(String dbName, String tblName) {
-        try {
-            invalidateTableConnectorCacheForReplay(dbName, tblName);
-        } finally {
-            super.replayDropTable(dbName, tblName);
-        }
+    public void replayDropTable(String dbName, String tableName) {
+        applyTableLookupChange(dbName, tableName, null, null);
     }
 
     @Override
     public void replayDropDb(String dbName) {
-        try {
-            invalidateDatabaseConnectorCacheForReplay(dbName);
-        } finally {
-            super.replayDropDb(dbName);
-        }
+        CatalogMetadataChanges.apply(this, ExternalObjectLog.createForRefreshDb(getId(), dbName));
     }
 
     @Override
-    public void replayCreateTable(String dbName, String tblName) {
-        try {
-            invalidateDatabaseConnectorCacheForReplay(dbName);
-        } finally {
-            super.replayCreateTable(dbName, tblName);
-        }
+    public void replayCreateTable(String dbName, String tableName) {
+        applyTableLookupChange(dbName, tableName, null, null);
     }
 
     @Override
     public void replayCreateDb(String dbName) {
-        try {
-            invalidateDatabaseConnectorCacheForReplay(dbName);
-        } finally {
-            super.replayCreateDb(dbName);
-        }
-    }
-
-    // Replay never initializes a cold catalog; missing local-to-remote identity widens the live connector scope.
-    private void invalidateDatabaseConnectorCacheForReplay(String localDbName) {
-        Connector replayConnector = connector;
-        if (isInitialized() && replayConnector != null) {
-            Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(localDbName);
-            if (db.isPresent()) {
-                replayConnector.invalidateDb(db.get().getRemoteName());
-            } else {
-                replayConnector.invalidateAll();
-            }
-        }
-    }
-
-    private void invalidateTableConnectorCacheForReplay(String localDbName, String localTableName) {
-        Connector replayConnector = connector;
-        if (!isInitialized() || replayConnector == null) {
-            return;
-        }
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDbForReplay(localDbName);
-        if (!db.isPresent()) {
-            replayConnector.invalidateAll();
-            return;
-        }
-        Optional<? extends ExternalTable> table = db.get().getTableForReplay(localTableName);
-        if (table.isPresent()) {
-            replayConnector.invalidateTable(db.get().getRemoteName(), table.get().getRemoteName());
-        } else {
-            replayConnector.invalidateDb(db.get().getRemoteName());
-        }
+        CatalogMetadataChanges.apply(this, ExternalObjectLog.createForRefreshDb(getId(), dbName));
     }
 
     /**
@@ -1450,8 +1366,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     /** Persists replay identity, then refreshes the cached table when present or the resolved transient table. */
     protected void afterExternalDdl(ExternalTable externalTable, long updateTime) {
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
-                ExternalObjectLog.createForRefreshTable(
-                        getId(), externalTable.getDbName(), externalTable.getName(), updateTime));
+                CatalogMetadataChanges.table(externalTable, false, updateTime));
         ExternalTable refreshTarget = getDbForReplay(externalTable.getDbName())
                 .<ExternalTable>flatMap(db -> db.getTableForReplay(externalTable.getName()))
                 .orElse(externalTable);
@@ -1460,62 +1375,41 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     }
 
     private void invalidateCreatedDatabaseCaches(String remoteDbName, String localDbName) {
-        try {
-            connector.invalidateDb(remoteDbName);
-        } finally {
-            invalidateCreatedDatabase(localDbName);
-        }
+        CatalogMetadataChanges.apply(this, ExternalObjectLog.createForRefreshDb(getId(), localDbName)
+                .withRemoteNames(remoteDbName, null));
     }
 
     private void invalidateCreatedTableCaches(ExternalDatabase<? extends ExternalTable> db,
             String remoteTableName, String localTableName) {
-        try {
-            connector.invalidateTable(db.getRemoteName(), remoteTableName);
-        } finally {
-            invalidateCreatedTable(db.getFullName(), localTableName);
-        }
+        applyTableLookupChange(db.getFullName(), localTableName, db.getRemoteName(), remoteTableName);
+    }
+
+    private void applyTableLookupChange(String database, String table, String remoteDb, String remoteTable) {
+        CatalogMetadataChanges.apply(this, ExternalObjectLog.createForExplicitRefreshTable(
+                getId(), database, table, 0L).withRemoteNames(remoteDb, remoteTable));
     }
 
     private void finishDropTable(ExternalDatabase<? extends ExternalTable> db, ExternalTable table) {
         Env.getCurrentEnv().getEditLog().logDropTable(
-                new DropInfo(getName(), db.getFullName(), table.getName()));
-        try {
-            connector.invalidateTable(table.getRemoteDbName(), table.getRemoteName());
-        } finally {
-            invalidateDroppedTable(db.getFullName(), table.getName());
-        }
+                new DropInfo(getName(), db.getFullName(), table.getName())
+                        .withExternalCacheChange(CatalogMetadataChanges.table(table, true, 0L)));
+        CatalogMetadataChanges.apply(this, CatalogMetadataChanges.table(table, true, 0L));
     }
 
     protected void afterExternalRename(ExternalDatabase<? extends ExternalTable> db,
             ExternalTable table, String remoteNewTableName, String localNewTableName) {
-        String dbName = db.getFullName();
-        String oldTableName = table.getName();
-        // The remote rename has committed; persist replay identity before fallible local bookkeeping.
-        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
-                ExternalObjectLog.createForRenameTable(
-                        getId(), dbName, oldTableName, localNewTableName));
-        try {
-            try {
-                connector.invalidateTable(table.getRemoteDbName(), table.getRemoteName());
-            } finally {
-                connector.invalidateTable(table.getRemoteDbName(), remoteNewTableName);
-            }
-        } finally {
-            try {
-                getDbForReplay(dbName).ifPresent(
-                        cachedDb -> cachedDb.invalidateTableRename(oldTableName, localNewTableName));
-            } finally {
-                try {
-                    Env.getCurrentEnv().getConstraintManager().renameTable(
-                            new TableNameInfo(getName(), dbName, oldTableName),
-                            new TableNameInfo(getName(), dbName, localNewTableName));
-                } finally {
-                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRename(
-                            getId(), db.getId(), dbName, table.getId(), oldTableName,
-                            Util.genIdByName(getName(), dbName, localNewTableName), localNewTableName);
-                }
-            }
-        }
+        ExternalObjectLog change = ExternalObjectLog.createForRenameTable(
+                getId(), db.getFullName(), table.getName(), localNewTableName)
+                .withRemoteNames(table.getRemoteDbName(), table.getRemoteName());
+        change.setRemoteNewTableName(remoteNewTableName);
+        change.setDbId(db.getId());
+        change.setTableId(table.getId());
+        // Persist the committed remote identities before fallible local bookkeeping.
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(change);
+        CatalogMetadataChanges.apply(this, change);
+        Env.getCurrentEnv().getConstraintManager().renameTable(
+                new TableNameInfo(getName(), db.getFullName(), table.getName()),
+                new TableNameInfo(getName(), db.getFullName(), localNewTableName));
     }
 
     @Override

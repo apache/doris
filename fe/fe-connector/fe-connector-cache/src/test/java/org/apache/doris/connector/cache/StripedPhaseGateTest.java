@@ -147,6 +147,38 @@ public class StripedPhaseGateTest {
         Assertions.assertTrue(gate.readBoolean(() -> true));
     }
 
+    @Test
+    public void nestedPublicationCanFinishWhileAnInvalidationWriterWaits() throws Exception {
+        StripedPhaseGate gate = new StripedPhaseGate();
+        java.lang.reflect.Field activeWriter = StripedPhaseGate.class.getDeclaredField("writerActive");
+        activeWriter.setAccessible(true);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch nest = new CountDownLatch(1);
+        try {
+            Future<Boolean> publication = workers.submit(() -> gate.readBoolean(() -> {
+                entered.countDown();
+                await(nest);
+                return gate.readBoolean(() -> true);
+            }));
+            await(entered);
+            Future<?> invalidation = workers.submit(() -> gate.write(() -> { }));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+            while (!activeWriter.getBoolean(gate) && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            Assertions.assertTrue(activeWriter.getBoolean(gate));
+            nest.countDown();
+            Assertions.assertTrue(publication.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            invalidation.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> gate.read(() -> gate.write(() -> true)));
+        } finally {
+            nest.countDown();
+            workers.shutdownNow();
+        }
+    }
+
     private static void await(CountDownLatch latch) {
         try {
             if (!latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {

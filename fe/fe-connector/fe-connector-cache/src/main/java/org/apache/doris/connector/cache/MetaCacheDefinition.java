@@ -47,8 +47,10 @@ public final class MetaCacheDefinition<K, V> {
     private final Executor refreshExecutor;
     private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     private final BudgetPolicy budgetPolicy;
+    private final ScopePath.Coordinates coordinates;
 
     private MetaCacheDefinition(Builder<K, V> builder) {
+        coordinates = builder.coordinates;
         name = requireName(builder.name);
         budgetGroup = requireName(builder.budgetGroup == null ? builder.name : builder.budgetGroup);
         cacheSpec = Objects.requireNonNull(builder.cacheSpec, "cacheSpec can not be null");
@@ -116,6 +118,31 @@ public final class MetaCacheDefinition<K, V> {
         return budgetPolicy;
     }
 
+    MetaCacheDefinition<K, V> forDomain(ScopePath.Coordinates coordinates, CacheCallbackContext callbacks) {
+        Builder<K, V> copy = builder(name, cacheSpec, key -> callbacks.call(() -> {
+            ScopePath path = scope(key);
+            return coordinates == null ? path : path.in(coordinates);
+        }));
+        copy.budgetGroup = budgetGroup;
+        copy.budgetPolicy = budgetPolicy;
+        copy.refreshAfterWrite = refreshAfterWrite;
+        copy.refreshExecutor = refreshExecutor == null ? null
+                : command -> refreshExecutor.execute(() -> callbacks.run(command));
+        copy.loader = loader == null ? null : key -> callbacks.call(() -> loader.apply(key));
+        copy.removalListener = removalListener == null ? null
+                : (key, value, reason) -> callbacks.run(() -> removalListener.onRemoval(key, value, reason));
+        copy.discardListener = discardListener == null ? null
+                : (key, value) -> callbacks.run(() -> discardListener.accept(key, value));
+        copy.sizeEstimator = sizeEstimator == null ? null
+                : (key, value) -> callbacks.call(() -> sizeEstimator.estimate(key, value));
+        copy.coordinates = coordinates;
+        return copy.build();
+    }
+
+    ScopePath project(ScopePath path) {
+        return coordinates == null ? path : path.in(coordinates);
+    }
+
     private static String requireName(String name) {
         String nonNullName = Objects.requireNonNull(name, "name can not be null");
         if (nonNullName.isEmpty()) {
@@ -135,6 +162,7 @@ public final class MetaCacheDefinition<K, V> {
         private Executor refreshExecutor;
         private MetaCacheSizeEstimator<K, V> sizeEstimator;
         private String budgetGroup;
+        private ScopePath.Coordinates coordinates;
         private BudgetPolicy budgetPolicy = BudgetPolicy.WEIGHTED_PAYLOAD;
 
         private Builder(String name, CacheSpec cacheSpec, Function<K, ScopePath> scopeResolver) {

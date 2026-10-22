@@ -35,6 +35,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
@@ -97,6 +99,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     private ConnectorMetadata metadata;
     private ConnectorSession session;
     private TestablePluginCatalog catalog;
+    private CatalogMetaCache cacheRoot;
 
     @BeforeEach
     public void setUp() {
@@ -126,10 +129,18 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(mockEnv.getRefreshManager()).thenReturn(mockRefreshManager);
         Mockito.when(mockEnv.getConstraintManager()).thenReturn(mockConstraintManager);
         Mockito.when(mockEnv.getExtMetaCacheMgr()).thenReturn(mockMetaCacheMgr);
+        Mockito.when(mockMetaCacheMgr.commonRefreshExecutor())
+                .thenReturn(com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService());
+        cacheRoot = Mockito.spy(CatalogMetaCache.unmanaged());
+        Deencapsulation.setField(catalog, "feMetaCacheOwner", cacheRoot);
+        org.apache.doris.datasource.CatalogMgr catalogs = Mockito.mock(org.apache.doris.datasource.CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogs).getCatalog(1L);
+        Mockito.when(mockEnv.getCatalogMgr()).thenReturn(catalogs);
     }
 
     @AfterEach
     public void tearDown() {
+        cacheRoot.close();
         if (mockedEnv != null) {
             mockedEnv.close();
         }
@@ -146,11 +157,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Mockito.verify(metadata).createDatabase(session, "db1", props);
         Mockito.verify(mockEditLog).logCreateDb(Mockito.any());
-        Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
-        InOrder order = Mockito.inOrder(connector, mockMetaCacheMgr);
-        order.verify(connector).invalidateDb("db1");
-        order.verify(mockMetaCacheMgr).invalidateDb(
-                1L, Util.genIdByName("test-catalog", "db1"), "db1");
+        verifyInvalidation(ScopePath.databaseCollection().in(ScopePath.Coordinates.LOCAL));
+        verifyRemoteDatabaseInvalidation("db1");
+        verifyDeterministicDatabaseInvalidation("db1");
     }
 
     @Test
@@ -162,9 +171,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         ArgumentCaptor<CreateDbInfo> log = ArgumentCaptor.forClass(CreateDbInfo.class);
         Mockito.verify(mockEditLog).logCreateDb(log.capture());
         Assertions.assertEquals("local_db", log.getValue().getDbName());
-        Mockito.verify(connector).invalidateDb("REMOTE_DB");
-        Mockito.verify(mockMetaCacheMgr).invalidateDb(
-                1L, Util.genIdByName("test-catalog", "local_db"), "local_db");
+        verifyRemoteDatabaseInvalidation("REMOTE_DB");
+        verifyDeterministicDatabaseInvalidation("local_db");
     }
 
     @Test
@@ -175,10 +183,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Mockito.verify(metadata, Mockito.never()).createDatabase(Mockito.any(), Mockito.any(), Mockito.any());
         Mockito.verify(mockEditLog, Mockito.never()).logCreateDb(Mockito.any());
-        Mockito.verify(connector).invalidateDb("DB1");
-        Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
-        Mockito.verify(mockMetaCacheMgr).invalidateDb(
-                1L, Util.genIdByName("test-catalog", "db1"), "db1");
+        verifyRemoteDatabaseInvalidation("DB1");
+        verifyInvalidation(ScopePath.databaseCollection().in(ScopePath.Coordinates.LOCAL));
+        verifyDeterministicDatabaseInvalidation("db1");
     }
 
     @Test
@@ -201,9 +208,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(metadata).databaseExists(session, "db1");
         Mockito.verify(metadata, Mockito.never()).createDatabase(Mockito.any(), Mockito.any(), Mockito.any());
         Mockito.verify(mockEditLog, Mockito.never()).logCreateDb(Mockito.any());
-        Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
-        Mockito.verify(mockMetaCacheMgr).invalidateDb(
-                1L, Util.genIdByName("test-catalog", "db1"), "db1");
+        verifyInvalidation(ScopePath.databaseCollection().in(ScopePath.Coordinates.LOCAL));
+        verifyDeterministicDatabaseInvalidation("db1");
     }
 
     @Test
@@ -217,7 +223,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(metadata).databaseExists(session, "db1");
         Mockito.verify(metadata).createDatabase(session, "db1", props);
         Mockito.verify(mockEditLog).logCreateDb(Mockito.any());
-        Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
+        verifyInvalidation(ScopePath.databaseCollection().in(ScopePath.Coordinates.LOCAL));
     }
 
     @Test
@@ -230,9 +236,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Mockito.verify(metadata, Mockito.times(2)).databaseExists(session, "db1");
         Mockito.verify(mockEditLog, Mockito.never()).logCreateDb(Mockito.any());
-        Mockito.verify(connector).invalidateDb("db1");
-        Mockito.verify(mockMetaCacheMgr).invalidateDb(
-                1L, Util.genIdByName("test-catalog", "db1"), "db1");
+        verifyRemoteDatabaseInvalidation("db1");
+        verifyDeterministicDatabaseInvalidation("db1");
     }
 
     @Test
@@ -277,9 +282,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
         Mockito.verify(mockEditLog).logDropDb(Mockito.any());
-        Assertions.assertEquals("db1", catalog.unregisteredDb,
-                "dropDb must remove the db from the cache (legacy afterDropDb parity)");
-        Mockito.verify(mockMetaCacheMgr).invalidateDb(1L, DATABASE_ID, "db1");
+        verifyDeterministicDatabaseInvalidation("db1");
     }
 
     @Test
@@ -350,9 +353,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockEditLog).logDropDb(dropDbInfo.capture());
         Assertions.assertEquals("db1", dropDbInfo.getValue().getDbName(),
                 "edit-log DropDbInfo must carry the LOCAL db name for follower replay");
-        Assertions.assertEquals("db1", catalog.unregisteredDb,
-                "cache invalidation must use the LOCAL db name");
-        Mockito.verify(connector).invalidateDb("REMOTE_DB1");
+        verifyDeterministicDatabaseInvalidation("db1");
+        verifyRemoteDatabaseInvalidation("REMOTE_DB1");
     }
 
     // ==================== DROP TABLE ====================
@@ -366,6 +368,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("T1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
         catalog.dbForReplayResult = Optional.of(replayDb);
@@ -391,9 +395,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg);
         Mockito.verify(replayDb, Mockito.never()).unregisterTable(Mockito.anyString());
         Mockito.verify(db, Mockito.never()).unregisterTable(Mockito.anyString());
-        Mockito.verify(mockMetaCacheMgr).invalidateTable(1L, DATABASE_ID, "db1", TABLE_ID, "t1");
+        verifyDeterministicTableInvalidation("db1", "t1");
         // Connector caches are keyed by the remote identity.
-        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
+        verifyRemoteTableInvalidation("DB1", "TBL1");
     }
 
     @Test
@@ -438,6 +442,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
 
         DdlException ex = Assertions.assertThrows(DdlException.class,
@@ -455,6 +461,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Mockito.when(table.getName()).thenReturn("t1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
 
         catalog.dropTable("db1", "t1", false, false, false, true, true, false);
@@ -473,6 +481,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
 
@@ -480,9 +490,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
         Mockito.verify(metadata, Mockito.never()).dropTable(Mockito.any(), Mockito.any());
-        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
+        verifyRemoteTableInvalidation("DB1", "TBL1");
         Mockito.verify(mockEditLog).logDropTable(Mockito.any());
-        Mockito.verify(mockMetaCacheMgr).invalidateTable(1L, DATABASE_ID, "db1", TABLE_ID, "t1");
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     @Test
@@ -492,6 +502,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
 
@@ -507,6 +519,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
 
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
@@ -528,6 +542,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(view.getRemoteName()).thenReturn("V1");
         Mockito.doReturn(view).when(db).getTableNullable("v1");
+        Mockito.doReturn(db).when(view).getDb();
+        Mockito.when(view.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
         catalog.dbForReplayResult = Optional.of(replayDb);
@@ -546,8 +562,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals("v1", dropInfo.getValue().getTableName(),
                 "edit-log DropInfo must carry the LOCAL view name for follower replay");
         Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg);
-        Mockito.verify(replayDb).unregisterTable("v1");
-        Mockito.verify(connector).invalidateTable("DB1", "V1");
+        verifyDeterministicTableInvalidation("db1", "v1");
+        verifyRemoteTableInvalidation("DB1", "V1");
     }
 
     @Test
@@ -557,6 +573,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(view.getRemoteName()).thenReturn("V1");
         Mockito.doReturn(view).when(db).getTableNullable("v1");
+        Mockito.doReturn(db).when(view).getDb();
+        Mockito.when(view.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         Mockito.when(metadata.viewExists(session, "DB1", "V1")).thenReturn(true);
         Mockito.doThrow(new DorisConnectorException("boom")).when(metadata).dropView(session, "DB1", "V1");
@@ -578,6 +596,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(db.canonicalLocalTableNameFromRemote("REMOTE_T2")).thenReturn("local_t2");
         catalog.dbNullableResult = db;
         ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
@@ -606,11 +626,10 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertEquals("t1", logCap.getValue().getTableName());
         Assertions.assertEquals("local_t2", logCap.getValue().getNewTableName());
         // The destination has no pre-rename mapping, so its remote name is the requested new name.
-        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
-        Mockito.verify(connector).invalidateTable("DB1", "REMOTE_T2");
-        Mockito.verify(mockMetaCacheMgr).invalidateTableRename(
-                1L, DATABASE_ID, "db1", TABLE_ID, "t1",
-                Util.genIdByName("test-catalog", "db1", "local_t2"), "local_t2");
+        verifyRemoteTableInvalidation("DB1", "TBL1");
+        verifyRemoteTableInvalidation("DB1", "REMOTE_T2");
+        verifyDeterministicTableInvalidation("db1", "t1");
+        verifyDeterministicTableInvalidation("db1", "local_t2");
     }
 
     @Test
@@ -620,6 +639,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(db.canonicalLocalTableNameFromRemote("TBL2"))
                 .thenThrow(new IllegalStateException("name mapping failed"));
         catalog.dbNullableResult = db;
@@ -642,6 +663,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         ExternalDatabase<? extends ExternalTable> cachedDb = mockExternalDatabase();
         catalog.dbForReplayResult = Optional.of(cachedDb);
@@ -650,14 +673,13 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.renameTable("db1", "t1", "t2");
 
-        long destinationId = Util.genIdByName("test-catalog", "db1", "t2");
         InOrder order = Mockito.inOrder(mockEditLog, connector, cachedDb, mockMetaCacheMgr);
         order.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
-        order.verify(connector).invalidateTable("DB1", "TBL1");
-        order.verify(connector).invalidateTable("DB1", "t2");
-        order.verify(cachedDb).invalidateTableRename("t1", "t2");
-        order.verify(mockMetaCacheMgr).invalidateTableRename(
-                1L, DATABASE_ID, "db1", TABLE_ID, "t1", destinationId, "t2");
+        verifyRemoteTableInvalidation("DB1", "TBL1");
+        verifyRemoteTableInvalidation("DB1", "t2");
+        verifyDeterministicTableInvalidation("db1", "t1");
+        verifyDeterministicTableInvalidation("db1", "t1");
+        verifyDeterministicTableInvalidation("db1", "t2");
     }
 
     @Test
@@ -685,6 +707,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         Mockito.doReturn(table).when(db).getTableNullable("t1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
         catalog.dbForReplayResult = Optional.of(replayDb);
@@ -763,9 +787,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                     "edit-log CreateTableInfo must carry the LOCAL db name for follower replay");
             Assertions.assertEquals("t1", persist.getValue().getTblName(),
                     "edit-log CreateTableInfo must carry the LOCAL table name for follower replay");
-            Mockito.verify(mockMetaCacheMgr).invalidateTable(
-                    1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "t1"), "t1");
-            Mockito.verify(connector).invalidateTable("DB1", "t1");
+            verifyDeterministicTableInvalidation("db1", "t1");
+            verifyRemoteTableInvalidation("DB1", "t1");
         }
     }
 
@@ -793,9 +816,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
             Mockito.verify(mockEditLog).logCreateTable(log.capture());
             Assertions.assertEquals("db1", log.getValue().getDbName());
             Assertions.assertEquals("local_t1", log.getValue().getTblName());
-            Mockito.verify(connector).invalidateTable("DB1", "REMOTE_T1");
-            Mockito.verify(mockMetaCacheMgr).invalidateTable(
-                    1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "local_t1"), "local_t1");
+            verifyRemoteTableInvalidation("DB1", "REMOTE_T1");
+            verifyDeterministicTableInvalidation("db1", "local_t1");
         }
     }
 
@@ -831,7 +853,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
             Assertions.assertTrue(result);
             Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
             Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
-            Mockito.verify(connector).invalidateTable("DB1", "t1");
+            verifyRemoteTableInvalidation("DB1", "t1");
             Assertions.assertEquals(200L, rowCountCache.getCachedRowCount(1L, DATABASE_ID, tableId, false));
         }
     }
@@ -860,9 +882,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Assertions.assertTrue(res, "losing the create race under IF NOT EXISTS must return true");
         Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
-        Mockito.verify(connector).invalidateTable("DB1", "t1");
-        Mockito.verify(mockMetaCacheMgr).invalidateTable(
-                1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "t1"), "t1");
+        verifyRemoteTableInvalidation("DB1", "t1");
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     @Test
@@ -908,8 +929,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
                 "an existing IF NOT EXISTS target must remain a no-op even if new validation rules exist");
         Mockito.verify(metadata, Mockito.never()).createTable(Mockito.any(), Mockito.any());
         Mockito.verify(mockEditLog, Mockito.never()).logCreateTable(Mockito.any());
-        Mockito.verify(mockMetaCacheMgr).invalidateTable(
-                1L, DATABASE_ID, "db1", Util.genIdByName("test-catalog", "db1", "t1"), "t1");
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     @Test
@@ -997,10 +1017,13 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testTruncateTablePersistsCanonicalLocalNames() throws Exception {
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         Mockito.when(db.getId()).thenReturn(DATABASE_ID);
+        Mockito.when(db.resolveTableNameForInvalidation(Mockito.anyString())).thenAnswer(inv -> inv.getArgument(0));
         ExternalTable table = mockAlterTable();
         Mockito.when(table.getId()).thenReturn(TABLE_ID);
         Mockito.when(db.getFullName()).thenReturn("db1");
         Mockito.doReturn(table).when(db).getTableNullable("T1");
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         catalog.dbNullableResult = db;
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
@@ -1025,8 +1048,10 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayTruncateTable(info);
 
-        Mockito.verify(mockRefreshManager).refreshTableInternal(db, table, 123L);
-        Mockito.verifyNoInteractions(mockMetaCacheMgr);
+        Mockito.verify(table).unsetObjectCreated();
+        Mockito.verify(table).setUpdateTime(123L);
+        verifyDeterministicTableInvalidation("db1", "t1");
+        verifyRemoteTableInvalidation("DB1", "TBL1");
     }
 
     @Test
@@ -1038,11 +1063,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayTruncateTable(new TruncateTableInfo("test-catalog", "db1", "t1", null, 123L));
 
-        InOrder order = Mockito.inOrder(connector, mockMetaCacheMgr);
-        order.verify(connector).invalidateDb("DB1");
-        order.verify(mockMetaCacheMgr).invalidateTable(
-                1L, Util.genIdByName("test-catalog", "db1"), "db1",
-                Util.genIdByName("test-catalog", "db1", "t1"), "t1");
+        verifyRemoteDatabaseInvalidation("DB1");
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     @Test
@@ -1051,11 +1073,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayTruncateTable(new TruncateTableInfo("test-catalog", "db1", "t1", null, 123L));
 
-        InOrder order = Mockito.inOrder(connector, mockMetaCacheMgr);
-        order.verify(connector).invalidateAll();
-        order.verify(mockMetaCacheMgr).invalidateTable(
-                1L, Util.genIdByName("test-catalog", "db1"), "db1",
-                Util.genIdByName("test-catalog", "db1", "t1"), "t1");
+        verifyInvalidation(ScopePath.catalog().in(ScopePath.Coordinates.REMOTE));
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     // ==================== EDIT-LOG REPLAY (follower / observer propagation) ====================
@@ -1071,8 +1090,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayDropTable("db1", "t1");
 
-        Mockito.verify(connector).invalidateTable("DB1", "TBL1");
-        Mockito.verify(replayDb).unregisterTable("t1");
+        verifyRemoteTableInvalidation("DB1", "TBL1");
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     @Test
@@ -1097,8 +1116,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayDropTable("db1", "t1");
 
-        Mockito.verify(connector).invalidateDb("DB1");
-        Mockito.verify(replayDb).unregisterTable("t1");
+        verifyRemoteDatabaseInvalidation("DB1");
+        verifyDeterministicTableInvalidation("db1", "t1");
     }
 
     @Test
@@ -1107,7 +1126,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayDropTable("db1", "t1");
 
-        Mockito.verify(connector).invalidateAll();
+        verifyInvalidation(ScopePath.catalog().in(ScopePath.Coordinates.REMOTE));
         verifyDeterministicTableInvalidation("db1", "t1");
     }
 
@@ -1131,8 +1150,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayDropDb("db1");
 
-        Mockito.verify(connector).invalidateDb("DB1");
-        Assertions.assertEquals("db1", catalog.unregisteredDb);
+        verifyRemoteDatabaseInvalidation("DB1");
         verifyDeterministicDatabaseInvalidation("db1");
     }
 
@@ -1142,8 +1160,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayDropDb("db1");
 
-        Mockito.verify(connector).invalidateAll();
-        Assertions.assertEquals("db1", catalog.unregisteredDb);
+        verifyInvalidation(ScopePath.catalog().in(ScopePath.Coordinates.REMOTE));
         verifyDeterministicDatabaseInvalidation("db1");
     }
 
@@ -1155,7 +1172,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayCreateTable("db1", "t1");
 
-        Mockito.verify(connector).invalidateDb("DB1");
+        verifyRemoteDatabaseInvalidation("DB1");
         verifyDeterministicTableInvalidation("db1", "t1");
     }
 
@@ -1165,7 +1182,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         catalog.replayCreateTable("db1", "t1");
 
-        Mockito.verify(connector).invalidateAll();
+        verifyInvalidation(ScopePath.catalog().in(ScopePath.Coordinates.REMOTE));
         verifyDeterministicTableInvalidation("db1", "t1");
     }
 
@@ -1173,8 +1190,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testReplayCreateDbInvalidatesDatabaseCaches() {
         catalog.replayCreateDb("db1");
 
-        Assertions.assertEquals(1, catalog.resetMetaCacheNamesCount);
-        Mockito.verify(connector).invalidateAll();
+        verifyInvalidation(ScopePath.databaseCollection().in(ScopePath.Coordinates.LOCAL));
+        verifyInvalidation(ScopePath.catalog().in(ScopePath.Coordinates.REMOTE));
         verifyDeterministicDatabaseInvalidation("db1");
     }
 
@@ -1575,6 +1592,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(table.getRemoteName()).thenReturn("TBL1");
         ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
         Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
         return table;
     }
 
@@ -1586,15 +1604,30 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     /** A nullable INT Doris column (iceberg add/modify reject non-nullable adds). */
-    private void verifyDeterministicDatabaseInvalidation(String dbName) {
-        Mockito.verify(mockMetaCacheMgr).invalidateDb(
-                1L, Util.genIdByName("test-catalog", dbName), dbName);
+    private void verifyInvalidation(ScopePath expected) {
+        boolean invalidated = Mockito.mockingDetails(cacheRoot).getInvocations().stream()
+                .filter(invocation -> invocation.getMethod().getName().equals("invalidateScopes"))
+                .map(invocation -> (java.util.Collection<?>) invocation.getArgument(0))
+                .flatMap(java.util.Collection::stream)
+                .map(ScopePath.class::cast)
+                .anyMatch(scope -> scope.contains(expected));
+        Assertions.assertTrue(invalidated, "Missing resource invalidation: " + expected);
     }
 
-    private void verifyDeterministicTableInvalidation(String dbName, String tableName) {
-        Mockito.verify(mockMetaCacheMgr).invalidateTable(
-                1L, Util.genIdByName("test-catalog", dbName), dbName,
-                Util.genIdByName("test-catalog", dbName, tableName), tableName);
+    private void verifyRemoteTableInvalidation(String database, String table) {
+        verifyInvalidation(ScopePath.table(database, table).in(ScopePath.Coordinates.REMOTE));
+    }
+
+    private void verifyRemoteDatabaseInvalidation(String database) {
+        verifyInvalidation(ScopePath.database(database).in(ScopePath.Coordinates.REMOTE));
+    }
+
+    private void verifyDeterministicDatabaseInvalidation(String database) {
+        verifyInvalidation(ScopePath.database(database).in(ScopePath.Coordinates.LOCAL));
+    }
+
+    private void verifyDeterministicTableInvalidation(String database, String table) {
+        verifyInvalidation(ScopePath.tableMetadata(database, table).in(ScopePath.Coordinates.LOCAL));
     }
 
     private static Column nullableIntColumn(String name) {
@@ -1608,6 +1641,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.when(db.getFullName()).thenReturn("db1");
         Mockito.when(db.getRemoteName()).thenReturn("DB1");
         Mockito.when(db.getId()).thenReturn(DATABASE_ID);
+        Mockito.when(db.resolveTableNameForInvalidation(Mockito.anyString())).thenAnswer(inv -> inv.getArgument(0));
         Mockito.when(db.isInitialized()).thenReturn(true);
         Mockito.when(db.canonicalLocalTableNameFromRemote(Mockito.anyString()))
                 .thenAnswer(inv -> inv.getArgument(0));

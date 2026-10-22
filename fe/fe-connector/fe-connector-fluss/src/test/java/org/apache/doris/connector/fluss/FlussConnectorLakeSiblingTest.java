@@ -186,8 +186,7 @@ public class FlussConnectorLakeSiblingTest {
         connector.invalidatePartition("db", "tbl", Collections.singletonList("dt=20260101"));
         connector.invalidateAll();
 
-        Assertions.assertEquals(Arrays.asList("invalidateTable:db.tbl", "invalidateDb:db",
-                "invalidatePartition:db.tbl:[dt=20260101]", "invalidateAll"), sibling.calls);
+        Assertions.assertTrue(sibling.calls.isEmpty(), "shared scopes replace manual forwarding");
     }
 
     @Test
@@ -208,16 +207,13 @@ public class FlussConnectorLakeSiblingTest {
         connector.invalidateDb("db");
         connector.invalidateDb("db");
 
-        Assertions.assertEquals(Arrays.asList(
-                "invalidatePartition:archive.orders_lake:[dt=20260101]",
-                "invalidateTable:archive.orders_lake",
-                "invalidateTable:archive.orders_lake",
-                "invalidateDb:db",
-                "invalidateDb:archive",
-                "invalidateDb:cold",
-                "invalidateDb:db",
-                "invalidateDb:archive",
-                "invalidateDb:cold"), sibling.calls);
+        Assertions.assertTrue(sibling.calls.isEmpty());
+        Assertions.assertEquals(Collections.singletonList(
+                org.apache.doris.connector.cache.ScopePath.table("archive", "orders_lake")),
+                connector.cacheDependencies(org.apache.doris.connector.cache.ScopePath.table("db", "orders")));
+        Assertions.assertEquals(Arrays.asList(org.apache.doris.connector.cache.ScopePath.database("archive"),
+                org.apache.doris.connector.cache.ScopePath.database("cold")),
+                connector.cacheDependencies(org.apache.doris.connector.cache.ScopePath.database("db")));
     }
 
     @Test

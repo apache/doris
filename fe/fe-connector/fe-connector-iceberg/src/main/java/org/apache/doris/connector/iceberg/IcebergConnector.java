@@ -269,7 +269,7 @@ public class IcebergConnector implements Connector {
         // authenticator never logs in — so without this the DDL/read hits secured HDFS as SIMPLE auth.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
-        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "iceberg", this.properties);
+        this.metaCache = context.createCacheDomain("iceberg", this.properties);
         this.manifestCache = new IcebergManifestCache(metaCache, this.properties);
         // The latest-snapshot, format and comment caches have no meta.cache.iceberg.<entry> keys of their own; they
         // take the table entry's enable / ttl-second / capacity (the legacy IcebergExternalMetaCache served the

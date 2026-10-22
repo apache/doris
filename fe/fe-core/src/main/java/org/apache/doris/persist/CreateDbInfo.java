@@ -20,6 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -29,6 +30,18 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class CreateDbInfo implements Writable {
+    @SerializedName("externalCacheChange")
+    private ExternalObjectLog externalCacheChange;
+
+    public ExternalObjectLog getExternalCacheChange() {
+        return externalCacheChange;
+    }
+
+    public CreateDbInfo withExternalCacheChange(ExternalObjectLog change) {
+        this.externalCacheChange = change;
+        return this;
+    }
+
 
     @SerializedName("ctl")
     private String ctlName;

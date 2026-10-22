@@ -107,6 +107,7 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetastoreEventSyncDriver;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.SplitSourceManager;
@@ -3737,7 +3738,12 @@ public class Env {
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(dbInfo.getCtlName());
             if (externalCatalog != null) {
-                externalCatalog.replayCreateDb(dbInfo.getDbName());
+                if (dbInfo.getExternalCacheChange() != null) {
+                    CatalogMetadataChanges.apply(
+                            externalCatalog, dbInfo.getExternalCacheChange());
+                } else {
+                    externalCatalog.replayCreateDb(dbInfo.getDbName());
+                }
             }
         }
     }
@@ -3759,7 +3765,12 @@ public class Env {
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
-                externalCatalog.replayDropDb(info.getDbName());
+                if (info.getExternalCacheChange() != null) {
+                    CatalogMetadataChanges.apply(
+                            externalCatalog, info.getExternalCacheChange());
+                } else {
+                    externalCatalog.replayDropDb(info.getDbName());
+                }
             }
         }
     }
@@ -5102,7 +5113,12 @@ public class Env {
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
-                externalCatalog.replayCreateTable(info.getDbName(), info.getTblName());
+                if (info.getExternalCacheChange() != null) {
+                    CatalogMetadataChanges.apply(
+                            externalCatalog, info.getExternalCacheChange());
+                } else {
+                    externalCatalog.replayCreateTable(info.getDbName(), info.getTblName());
+                }
             }
         }
     }

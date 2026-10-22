@@ -105,13 +105,14 @@ public final class AdbcMetadataCache {
         this.owner = Objects.requireNonNull(owner, "owner can not be null");
         CacheSpec spec = cacheSpec(properties);
         this.namespaces = owner.create(MetaCacheDefinition
-                .<String, List<AdbcNamespace>>builder("adbc-namespaces", spec, ignored -> ScopePath.catalog())
+                .<String, List<AdbcNamespace>>builder("adbc-namespaces", spec,
+                        ignored -> ScopePath.databaseCollection())
                 .budgetGroup(ENTRY)
                 .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
         this.tableNames = owner.create(MetaCacheDefinition
                 .<TableNameKey, List<String>>builder("adbc-table-names", spec,
-                        key -> ScopePath.database(key.dorisDbName))
+                        key -> ScopePath.tableCollection(key.dorisDbName))
                 .budgetGroup(ENTRY)
                 .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
@@ -174,11 +175,7 @@ public final class AdbcMetadataCache {
      * new name in, and the one the user tried would appear to do nothing.
      */
     void invalidateTable(String dbName, String tableName) {
-        owner.invalidateTable(dbName, tableName);
-        // A table refresh must also forget the parent name listing, so a remotely-created table can be found.
-        // This is an ancestor materialization, not a sibling-cache dependency, and therefore cannot be selected
-        // by the table's descendant scope.
-        tableNames.invalidateKey(TableNameKey.forDatabase(dbName));
+        owner.invalidateTableAndNames(dbName, tableName);
     }
 
     /** {@code REFRESH DATABASE}: that database's table listing and every schema in it. */

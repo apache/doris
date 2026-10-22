@@ -20,6 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -33,6 +34,18 @@ import java.util.List;
 import java.util.Map;
 
 public class TruncateTableInfo implements Writable {
+    @SerializedName("externalCacheChange")
+    private ExternalObjectLog externalCacheChange;
+
+    public ExternalObjectLog getExternalCacheChange() {
+        return externalCacheChange;
+    }
+
+    public TruncateTableInfo withExternalCacheChange(ExternalObjectLog change) {
+        this.externalCacheChange = change;
+        return this;
+    }
+
     @SerializedName(value = "ctl")
     private String ctl;
     @SerializedName(value = "dbId")

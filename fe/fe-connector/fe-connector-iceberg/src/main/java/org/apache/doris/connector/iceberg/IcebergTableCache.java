@@ -215,7 +215,7 @@ final class IcebergTableCache {
     /** Seals new borrows and retires every cache owner, including loaders that publish after invalidation. */
     void close() {
         if (closed.compareAndSet(false, true)) {
-            owner.invalidateCatalog();
+            owner.remove(entry);
         }
     }
 

@@ -19,6 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -28,9 +33,9 @@ import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -40,6 +45,7 @@ import java.util.Optional;
 public class RefreshManagerRenameReplayTest {
 
     private MockedStatic<Env> mockedEnv;
+    private final CatalogMetaCache root = CatalogMetaCache.unmanaged();
     private CatalogMgr catalogMgr;
     private ExternalMetaCacheMgr metaCacheMgr;
     private ConstraintManager constraintManager;
@@ -69,7 +75,9 @@ public class RefreshManagerRenameReplayTest {
         db = mockDb();
         Mockito.doReturn(catalog).when(catalogMgr).getCatalog(7L);
         Mockito.when(catalog.getName()).thenReturn("c");
-        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.getConnectorIfPresent()).thenReturn(connector);
+        Mockito.when(catalog.getMetaCacheOwnerIfPresent()).thenReturn(root);
+        Mockito.when(catalog.resolveDatabaseNameForInvalidation("db1")).thenReturn("db1");
         Mockito.doReturn(Optional.of(db)).when(catalog).getDbForReplay("db1");
         Mockito.when(db.getRemoteName()).thenReturn("DB1");
         dbId = Util.genIdByName("c", "db1");
@@ -79,6 +87,7 @@ public class RefreshManagerRenameReplayTest {
 
     @AfterEach
     public void tearDown() {
+        root.close();
         if (mockedEnv != null) {
             mockedEnv.close();
         }
@@ -93,24 +102,26 @@ public class RefreshManagerRenameReplayTest {
     public void testRenameReplayInvalidatesConnectorDatabaseOnFollower() {
         replayRename();
 
-        InOrder order = Mockito.inOrder(connector, db, metaCacheMgr);
-        order.verify(connector).invalidateDb("DB1");
-        order.verify(db).invalidateTableRename("t1", "t2");
-        order.verify(metaCacheMgr).invalidateTableRename(
-                7L, dbId, "db1", sourceTableId, "t1", destinationTableId, "t2");
+        Mockito.verify(connector).cacheDependencies(ScopePath.database("DB1"));
+        Mockito.verify(connector, Mockito.never()).invalidateDb(Mockito.anyString());
+        Mockito.verify(constraintManager).renameTable(Mockito.any(), Mockito.any());
     }
 
     @Test
     public void testRenameReplayWithoutDatabaseObjectInvalidatesBothIdentitiesWithoutConnectorInit() {
         Mockito.doReturn(Optional.empty()).when(catalog).getDbForReplay("db1");
-
+        MetaCache<String, String> old = root.create(MetaCacheDefinition.<String, String>builder("old",
+                CacheSpec.of(true, -1, 10), key -> ScopePath.table("db1", "t1")
+                        .in(ScopePath.Coordinates.LOCAL)).build());
+        MetaCache<String, String> destination = root.create(MetaCacheDefinition.<String, String>builder("new",
+                CacheSpec.of(true, -1, 10), key -> ScopePath.table("db1", "t2")
+                        .in(ScopePath.Coordinates.LOCAL)).build());
+        old.put("key", "old");
+        destination.put("key", "previous incarnation");
         replayRename();
-
-        Mockito.verify(metaCacheMgr).invalidateTableRename(
-                7L, dbId, "db1", sourceTableId, "t1", destinationTableId, "t2");
-        Mockito.verify(catalog).invalidateAllConnectorCachesIfPresent();
+        Assertions.assertNull(old.getIfPresent("key"));
+        Assertions.assertNull(destination.getIfPresent("key"));
         Mockito.verify(catalog, Mockito.never()).getConnector();
-        Mockito.verifyNoInteractions(connector);
     }
 
     private void replayRename() {

@@ -78,7 +78,7 @@ public class MaxComputeDorisConnector implements Connector {
             ConnectorContext context) {
         this.props = MCCatalogProperties.of(properties);
         this.context = context;
-        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "max_compute", props.getRaw());
+        this.metaCache = context.createCacheDomain("max_compute", props.getRaw());
         try {
             this.partitionCache = new MaxComputePartitionCache(metaCache, props.getRaw(),
                     (db, t) -> structureHelper.getPartitions(odps, db, t));

@@ -53,15 +53,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.function.Consumer;
 
 /**
  * Hive connector implementation. Manages the lifecycle of
@@ -151,7 +150,7 @@ public class HiveConnector implements Connector {
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
-        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hive", this.properties);
+        this.metaCache = context.createCacheDomain("hive", this.properties);
         this.fileListingCache = new HiveFileListingCache(metaCache, props);
         // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
         // via the framework's CacheSpec (default ON / 24h / 1000).
@@ -378,12 +377,12 @@ public class HiveConnector implements Connector {
      * schema, partitions AND files are all mutable, so a REFRESH must re-read all of them (unlike iceberg, whose
      * manifests are immutable and kept across REFRESH TABLE). fe-core already routes {@code REFRESH TABLE} to
      * {@code connector.invalidateTable} for a plugin-driven catalog.
-     * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
+     * Sibling domains share the REMOTE scope tree and participate without explicit forwarding.
      */
     @Override
     public void invalidateTable(String dbName, String tableName) {
         metaCache.invalidateTable(dbName, tableName);
-        forEachBuiltSibling(sibling -> sibling.invalidateTable(dbName, tableName));
+
     }
 
     /**
@@ -391,23 +390,23 @@ public class HiveConnector implements Connector {
      * layers (metastore-metadata + {@link HiveFileListingCache#invalidateDb}
      * directory listings). Same no-force-build read of the client as {@link #invalidateTable(String, String)}.
      * fe-core routes {@code REFRESH DATABASE} to {@code connector.invalidateDb} for a plugin-driven catalog.
-     * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
+     * Sibling domains share the REMOTE scope tree and participate without explicit forwarding.
      */
     @Override
     public void invalidateDb(String dbName) {
         metaCache.invalidateDatabase(dbName);
-        forEachBuiltSibling(sibling -> sibling.invalidateDb(dbName));
+
     }
 
     /**
      * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned scan caches — every metastore-metadata
      * entry and every directory listing.
-     * Also forwarded to the already-built embedded siblings — see {@link #forEachBuiltSibling}.
+     * Sibling domains share the REMOTE scope tree and participate without explicit forwarding.
      */
     @Override
     public void invalidateAll() {
         metaCache.invalidateCatalog();
-        forEachBuiltSibling(Connector::invalidateAll);
+
     }
 
     /**
@@ -418,17 +417,21 @@ public class HiveConnector implements Connector {
      * partition-metadata cache. Deriving values from the name
      * (rather than looking the partition up) is exactly what stops an evicted partition-metadata entry from
      * leaving a stale file listing — the #65334 failure mode. Table-level column stats and the table object are
-     * intentionally left intact (legacy did not drop them on a partition-level refresh). Also forwarded to the
-     * already-built embedded siblings.
+     * intentionally left intact. Embedded siblings participate through the shared remote resource scopes.
      */
     @Override
     public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
-        Set<List<String>> partitionValues = new HashSet<>();
-        for (String name : partitionNames) {
-            partitionValues.add(HiveWriteUtils.toPartitionValues(name));
+        metaCache.invalidateScopes(partitionCacheScopes(dbName, tableName, partitionNames));
+    }
+
+    @Override
+    public List<ScopePath> partitionCacheScopes(String database, String table, List<String> partitions) {
+        List<ScopePath> scopes = new ArrayList<>();
+        scopes.add(ScopePath.partitionCollection(database, table));
+        for (String name : partitions) {
+            scopes.add(ScopePath.partition(database, table, HiveWriteUtils.toPartitionValues(name)));
         }
-        metaCache.invalidatePartitions(dbName, tableName, partitionValues);
-        forEachBuiltSibling(sibling -> sibling.invalidatePartition(dbName, tableName, partitionNames));
+        return scopes;
     }
 
     /**
@@ -446,26 +449,6 @@ public class HiveConnector implements Connector {
             return null;
         }
         return new HmsEventSource(getOrCreateClient(), props.getHmsEventsBatchSizePerRpc());
-    }
-
-    /**
-     * Runs one invalidation action on each ALREADY-BUILT embedded sibling (iceberg, hudi). fe-core routes
-     * {@code REFRESH TABLE/DATABASE/CATALOG} only to a catalog's PRIMARY connector, so the gateway must
-     * propagate invalidation to the sibling-owned caches — e.g. the iceberg sibling's latest-snapshot pin,
-     * whose ACCESS-based expiry keeps a continuously-queried stale entry alive indefinitely, making an explicit
-     * REFRESH the only way to unpin an iceberg-on-HMS table's staleness. Mirrors {@link #close()}: plain
-     * volatile reads, never force-builds (a never-built sibling has no cache to drop, and building one just to
-     * flush it could fail-loud spuriously on a catalog whose sibling plugin is absent).
-     */
-    private void forEachBuiltSibling(Consumer<Connector> action) {
-        Connector iceberg = icebergSibling;
-        if (iceberg != null) {
-            action.accept(iceberg);
-        }
-        Connector hudi = hudiSibling;
-        if (hudi != null) {
-            action.accept(hudi);
-        }
     }
 
     /** The connector-owned directory-listing cache, exposed for unit tests (mirrors iceberg manifestCacheForTest). */

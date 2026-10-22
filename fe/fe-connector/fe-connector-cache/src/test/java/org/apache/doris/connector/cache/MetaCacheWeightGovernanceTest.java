@@ -247,7 +247,7 @@ class MetaCacheWeightGovernanceTest {
     }
 
     @Test
-    void managedOwnerClosesWhenPhysicalCacheConstructionFails() {
+    void failedEntryConstructionDoesNotCloseTheCatalogRoot() {
         long catalogId = Long.MIN_VALUE + 31L;
         Assertions.assertTrue(MetaCacheGovernance.catalogCaches(catalogId).isEmpty());
         CatalogMetaCache owner = CatalogMetaCache.managed(catalogId, "iceberg", Collections.emptyMap());
@@ -258,6 +258,9 @@ class MetaCacheWeightGovernanceTest {
                 .sizeEstimator((key, value) -> MetaCacheSizeEstimate.complete(512L))
                 .build()));
 
+        Assertions.assertFalse(owner.isClosed());
+        Assertions.assertTrue(MetaCacheGovernance.catalogCaches(catalogId).contains(owner));
+        owner.close();
         Assertions.assertTrue(MetaCacheGovernance.catalogCaches(catalogId).isEmpty());
     }
 

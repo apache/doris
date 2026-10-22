@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
@@ -97,21 +96,22 @@ public class RefreshDbTest extends TestWithFeService {
         RefreshDatabaseCommand refreshDatabaseCommand = new RefreshDatabaseCommand("test1", "db1", null);
         refreshDatabaseCommand.run(connectContext, null);
 
-        long l3 = db1.getLastUpdateTime();
-        Assertions.assertTrue(l3 == l2);
-        // the table will be recreated after refresh.
-        // so we need to get table again
-        table = db1.getTable("tbl11").get();
-        Assertions.assertFalse(table.isObjectCreated());
-        test1.getDbNullable("db1").getTables();
-        Assertions.assertFalse(table.isObjectCreated());
+        TestExternalDatabase replacement = (TestExternalDatabase) test1.getDbNullable("db1");
+        Assertions.assertNotSame(db1, replacement);
+        Assertions.assertFalse(replacement.isInitialized());
+        TestExternalTable replacementTable = replacement.getTable("tbl11").get();
+        Assertions.assertNotSame(table, replacementTable);
+        Assertions.assertFalse(replacementTable.isObjectCreated());
+        Assertions.assertTrue(replacement.getLastUpdateTime() > 0);
+        Assertions.assertEquals(l2, db1.getLastUpdateTime());
         refreshDatabaseCommand.run(connectContext, null);
 
-        Assertions.assertFalse(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        table.makeSureInitialized();
-        long l4 = db1.getLastUpdateTime();
-        Assertions.assertTrue(l4 > l3);
-        Assertions.assertTrue(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
+        TestExternalDatabase current = (TestExternalDatabase) test1.getDbNullable("db1");
+        Assertions.assertNotSame(replacement, current);
+        Assertions.assertFalse(current.isInitialized());
+        current.getTable("tbl11").get().makeSureInitialized();
+        Assertions.assertTrue(current.isInitialized());
+        Assertions.assertTrue(current.getLastUpdateTime() > 0);
         refreshDatabaseCommand.run(connectContext, null);
     }
 

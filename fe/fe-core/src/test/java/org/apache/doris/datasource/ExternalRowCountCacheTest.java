@@ -20,10 +20,12 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
@@ -46,14 +48,103 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class ExternalRowCountCacheTest {
+    private ExternalRowCountCache standalone(ExecutorService executor) {
+        Map<Long, CatalogMetaCache> owners = new java.util.concurrent.ConcurrentHashMap<>();
+        return new ExternalRowCountCache(executor, id -> owners.computeIfAbsent(id,
+                ignored -> CatalogMetaCache.unmanaged()));
+    }
+
+    @Test
+    public void testAutomaticRefreshKeepsLastSuccessfulCountUntilCompletion() throws Exception {
+        verifyAutomaticRefresh(false);
+    }
+
+    @Test
+    public void testFailedAutomaticRefreshKeepsLastSuccessfulCount() throws Exception {
+        verifyAutomaticRefresh(true);
+    }
+
+    private void verifyAutomaticRefresh(boolean failRefresh) throws Exception {
+        CountDownLatch refreshStarted = new CountDownLatch(1);
+        ExecutorService executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>()) {
+            @Override
+            protected void afterExecute(Runnable task, Throwable failure) {
+                // Also make an incorrectly published pending future observable before the assertion.
+                refreshStarted.countDown();
+            }
+        };
+        CompletableFuture<Optional<Long>> refresh = new CompletableFuture<>();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+                MockedConstruction<ExternalRowCountCache.RowCountCacheLoader> mocked =
+                        Mockito.mockConstruction(ExternalRowCountCache.RowCountCacheLoader.class,
+                                (loader, context) -> {
+                                    Mockito.when(loader.asyncLoad(Mockito.any(), Mockito.any()))
+                                            .thenReturn(CompletableFuture.completedFuture(Optional.of(100L)))
+                                            .thenReturn(refresh);
+                                    Mockito.when(loader.doLoad(Mockito.any())).thenAnswer(call -> {
+                                        refreshStarted.countDown();
+                                        return refresh.get(5L, TimeUnit.SECONDS);
+                                    });
+                                })) {
+            ExternalRowCountCache cache = new ExternalRowCountCache(executor, ignored -> owner);
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 2, 3, false));
+            Object delegate = Deencapsulation.getField(owner.entries().get("row_count"), "delegate");
+            com.github.benmanes.caffeine.cache.Cache<?, ?> data = Deencapsulation.getField(delegate, "data");
+            Object versioned = data.asMap().values().iterator().next();
+            Deencapsulation.setField(versioned, "writeTimeNanos", System.nanoTime()
+                    - TimeUnit.MINUTES.toNanos(Config.external_cache_refresh_time_minutes + 1L));
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 2, 3, false));
+            Assertions.assertTrue(refreshStarted.await(3L, TimeUnit.SECONDS));
+            // A refresh is pending, but callers must still see the last successfully loaded result.
+            Assertions.assertEquals(100L, cache.getCachedRowCountIfPresent(1, 2, 3));
+            refresh.complete(failRefresh ? null : Optional.of(200L));
+            executor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+            Assertions.assertEquals(failRefresh ? 100L : 200L, cache.getCachedRowCountIfPresent(1, 2, 3));
+        } finally {
+            refresh.complete(Optional.of(200L));
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void rowCountRetentionLimitRemainsGlobalAcrossCatalogRoots() throws Exception {
+        long original = Config.max_external_table_row_count_cache_num;
+        Config.max_external_table_row_count_cache_num = 1;
+        try (CatalogMetaCache first = CatalogMetaCache.unmanaged();
+                CatalogMetaCache second = CatalogMetaCache.unmanaged();
+                MockedStatic<StatisticsUtil> stats = Mockito.mockStatic(StatisticsUtil.class)) {
+            ExternalTable table = Mockito.mock(ExternalTable.class);
+            Mockito.when(table.fetchRowCountWithMetaCache(false)).thenReturn(100L);
+            stats.when(() -> StatisticsUtil.findTable(1, 11, 111)).thenReturn(table);
+            stats.when(() -> StatisticsUtil.findTable(2, 22, 222)).thenReturn(table);
+            ExternalRowCountCache cache = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService(),
+                    id -> id == 1 ? first : second);
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 11, 111, false));
+            Assertions.assertEquals(100L, cache.getCachedRowCount(2, 22, 222, false));
+            com.github.benmanes.caffeine.cache.Cache<?, ?> retention =
+                    Deencapsulation.getField(cache, "retention");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (first.entries().get("row_count").size() + second.entries().get("row_count").size() > 1
+                    && System.nanoTime() < deadline) {
+                retention.cleanUp();
+                Thread.sleep(10);
+            }
+            Assertions.assertTrue(first.entries().get("row_count").size()
+                    + second.entries().get("row_count").size() <= 1);
+        } finally {
+            Config.max_external_table_row_count_cache_num = original;
+        }
+    }
+
     @Test
     public void testRowCountKeyUsesTableIdAsCacheIdentity() {
         ExternalRowCountCache.RowCountKey key1 = new ExternalRowCountCache.RowCountKey(1, 2, 3);
@@ -91,7 +182,7 @@ public class ExternalRowCountCacheTest {
             mockedStatisticsUtil.when(() -> StatisticsUtil.findTable(1, 2, 3)).thenReturn(table);
             mockedStatisticsUtil.when(() -> StatisticsUtil.findTable(1, 2, 4)).thenReturn(table);
 
-            ExternalRowCountCache cache = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+            ExternalRowCountCache cache = standalone(MoreExecutors.newDirectExecutorService());
             Assertions.assertEquals(100L, cache.getCachedRowCount(1, 2, 3, true));
             Assertions.assertEquals(200L, cache.getCachedRowCount(1, 2, 4, false));
         }
@@ -109,7 +200,7 @@ public class ExternalRowCountCacheTest {
         try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
             mockedStatisticsUtil.when(() -> StatisticsUtil.findTable(1, 2, 3)).thenReturn(table);
 
-            ExternalRowCountCache cache = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+            ExternalRowCountCache cache = standalone(MoreExecutors.newDirectExecutorService());
             Assertions.assertEquals(100L, cache.getCachedRowCount(1, 2, 3, false));
 
             rowCount.set(200L);
@@ -140,7 +231,7 @@ public class ExternalRowCountCacheTest {
             mockedStatisticsUtil.when(() -> StatisticsUtil.findTable(1, 12, 112)).thenReturn(secondTable);
             mockedStatisticsUtil.when(() -> StatisticsUtil.findTable(2, 11, 211)).thenReturn(otherCatalogTable);
 
-            ExternalRowCountCache cache = new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+            ExternalRowCountCache cache = standalone(MoreExecutors.newDirectExecutorService());
             Assertions.assertEquals(100L, cache.getCachedRowCount(1, 11, 111, false));
             Assertions.assertEquals(200L, cache.getCachedRowCount(1, 12, 112, false));
             Assertions.assertEquals(300L, cache.getCachedRowCount(2, 11, 211, false));
@@ -162,7 +253,7 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
-    public void testTableInvalidationWaitsForFuturePublication() throws Exception {
+    public void testTableInvalidationFencesPublicationWithoutWaitingForExecutor() throws Exception {
         ExecutorService loadExecutor = Mockito.mock(ExecutorService.class);
         CountDownLatch loadSubmitted = new CountDownLatch(1);
         CountDownLatch allowPublication = new CountDownLatch(1);
@@ -178,7 +269,7 @@ public class ExternalRowCountCacheTest {
                         Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                         (loader, context) -> Mockito.doReturn(Optional.of(100L))
                                 .when(loader).doLoad(Mockito.any()))) {
-            ExternalRowCountCache cache = new ExternalRowCountCache(loadExecutor);
+            ExternalRowCountCache cache = standalone(loadExecutor);
 
             Future<Long> load = callers.submit(() -> cache.getCachedRowCount(1, 2, 3, false));
             Assertions.assertTrue(loadSubmitted.await(3L, TimeUnit.SECONDS));
@@ -188,8 +279,7 @@ public class ExternalRowCountCacheTest {
                 cache.invalidateTable(1, 2, 3);
             });
             Assertions.assertTrue(invalidationStarted.await(3L, TimeUnit.SECONDS));
-            Assertions.assertThrows(TimeoutException.class,
-                    () -> invalidation.get(200L, TimeUnit.MILLISECONDS));
+            invalidation.get(3L, TimeUnit.SECONDS);
 
             allowPublication.countDown();
             Assertions.assertEquals(100L, load.get(3L, TimeUnit.SECONDS));
@@ -214,7 +304,7 @@ public class ExternalRowCountCacheTest {
                                     return loadedRowCount;
                                 }))) {
             ExternalRowCountCache cache =
-                    new ExternalRowCountCache(MoreExecutors.newDirectExecutorService());
+                    standalone(MoreExecutors.newDirectExecutorService());
 
             Future<Long> load = callers.submit(() -> cache.getCachedRowCount(1, 2, 3, false));
             Assertions.assertTrue(loadStarted.await(3L, TimeUnit.SECONDS));
@@ -337,7 +427,7 @@ public class ExternalRowCountCacheTest {
 
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalRowCountCache rowCountCache = Mockito.spy(
-                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+                standalone(MoreExecutors.newDirectExecutorService()));
         Deencapsulation.setField(metaCacheMgr, "rowCountCache", rowCountCache);
 
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -364,7 +454,7 @@ public class ExternalRowCountCacheTest {
 
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalRowCountCache rowCountCache = Mockito.spy(
-                new ExternalRowCountCache(MoreExecutors.newDirectExecutorService()));
+                standalone(MoreExecutors.newDirectExecutorService()));
         Deencapsulation.setField(metaCacheMgr, "rowCountCache", rowCountCache);
 
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -399,7 +489,7 @@ public class ExternalRowCountCacheTest {
                             }).when(mock).doLoad(Mockito.any());
                         })) {
 
-            ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+            ExternalRowCountCache cache = standalone(executor);
             long cachedRowCount = cache.getCachedRowCount(1, 1, 1, false);
             Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
             for (int i = 0; i < 60; i++) {

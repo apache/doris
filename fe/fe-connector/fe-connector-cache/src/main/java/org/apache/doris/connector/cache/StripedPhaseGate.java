@@ -24,7 +24,8 @@ import java.util.function.Supplier;
 /**
  * Writer-preferred phase gate for short cache-publication critical sections.
  *
- * <p>The gate is intentionally non-reentrant: an action must not enter either phase of the same gate. In particular,
+ * <p>Read phases are reentrant so one guarded publication can update a second cache in the same catalog.
+ * Read-to-write upgrade is forbidden. In particular,
  * synchronous removal callbacks must run after the read phase. Reader actions must also avoid remote I/O or other
  * unbounded work because a waiting writer and newly arriving readers spin until the current reader phase drains.
  */
@@ -37,13 +38,14 @@ final class StripedPhaseGate {
     private final AtomicIntegerArray activeReaders =
             new AtomicIntegerArray(READER_STRIPE_COUNT * READER_STRIDE);
     private volatile boolean writerActive;
+    private final ThreadLocal<Integer> readDepth = new ThreadLocal<>();
 
     boolean readBoolean(BooleanSupplier action) {
         int readerIndex = enterRead();
         try {
             return action.getAsBoolean();
         } finally {
-            activeReaders.decrementAndGet(readerIndex);
+            exitRead(readerIndex);
         }
     }
 
@@ -52,7 +54,7 @@ final class StripedPhaseGate {
         try {
             return action.get();
         } finally {
-            activeReaders.decrementAndGet(readerIndex);
+            exitRead(readerIndex);
         }
     }
 
@@ -64,6 +66,9 @@ final class StripedPhaseGate {
     }
 
     <T> T write(Supplier<T> action) {
+        if (readDepth.get() != null) {
+            throw new IllegalStateException("A cache publication action cannot invalidate its own scope");
+        }
         synchronized (writerLock) {
             writerActive = true;
             try {
@@ -76,6 +81,11 @@ final class StripedPhaseGate {
     }
 
     private int enterRead() {
+        Integer depth = readDepth.get();
+        if (depth != null) {
+            readDepth.set(depth + 1);
+            return -1;
+        }
         int readerIndex = readerIndex();
         while (true) {
             while (writerActive) {
@@ -83,8 +93,18 @@ final class StripedPhaseGate {
             }
             activeReaders.incrementAndGet(readerIndex);
             if (!writerActive) {
+                readDepth.set(1);
                 return readerIndex;
             }
+            activeReaders.decrementAndGet(readerIndex);
+        }
+    }
+
+    private void exitRead(int readerIndex) {
+        if (readerIndex < 0) {
+            readDepth.set(readDepth.get() - 1);
+        } else {
+            readDepth.remove();
             activeReaders.decrementAndGet(readerIndex);
         }
     }

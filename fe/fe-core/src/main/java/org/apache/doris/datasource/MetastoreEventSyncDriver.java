@@ -30,7 +30,9 @@ import org.apache.doris.connector.spi.event.EventPollRequest;
 import org.apache.doris.connector.spi.event.EventPollResult;
 import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
 import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
@@ -234,7 +236,7 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
             List<MetastoreChangeDescriptor> descriptors) {
         for (MetastoreChangeDescriptor descriptor : descriptors) {
             try {
-                applyOne(catalog, connector, descriptor);
+                applyOne(catalog, descriptor);
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to apply metastore change " + descriptor + " on catalog "
@@ -245,15 +247,14 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
 
     // Applies one neutral descriptor via the engine's own (connector-agnostic) mutators — the same ones the
     // legacy event.process() bodies called, now generalized to work on a flipped catalog.
-    private void applyOne(PluginDrivenExternalCatalog catalog, Connector connector,
-            MetastoreChangeDescriptor descriptor) throws Exception {
+    private void applyOne(PluginDrivenExternalCatalog catalog, MetastoreChangeDescriptor descriptor) throws Exception {
         EventIdentity before = EventIdentity.from(
                 catalog, descriptor.getDbName(), descriptor.getTableName());
         EventIdentity after = descriptor.getDbNameAfter() == null ? null : EventIdentity.from(
                 catalog, descriptor.getDbNameAfter(), descriptor.getTableNameAfter());
         String catalogName = catalog.getName();
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
-        invalidateStructuralEventCaches(connector, descriptor.getOp(), before, after);
+        invalidateStructuralEventCaches(catalog, descriptor.getOp(), before, after);
         switch (descriptor.getOp()) {
             case REGISTER_DATABASE:
                 catalogMgr.registerExternalDatabaseFromEvent(
@@ -310,37 +311,34 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
         }
     }
 
-    /**
-     * Invalidates connector-owned caches for structural events before publishing the corresponding FE mutation.
-     * Connector cache keys use remote identities; FE mutators below use the local identities from the same values.
-     */
-    private void invalidateStructuralEventCaches(Connector connector,
+    /** Structural events invalidate both coordinates before the incremental FE snapshot mutation. */
+    private void invalidateStructuralEventCaches(PluginDrivenExternalCatalog catalog,
             MetastoreChangeDescriptor.Op op, EventIdentity before, EventIdentity after) {
         switch (op) {
             case REGISTER_DATABASE:
             case UNREGISTER_DATABASE:
-                connector.invalidateDb(before.remoteDbName);
-                break;
-            case RENAME_DATABASE:
-                connector.invalidateDb(before.remoteDbName);
-                if (!Objects.equals(before.remoteDbName, after.remoteDbName)) {
-                    connector.invalidateDb(after.remoteDbName);
-                }
-                break;
             case REGISTER_TABLE:
             case UNREGISTER_TABLE:
-                connector.invalidateTable(before.remoteDbName, before.remoteTableName);
+                CatalogMetadataChanges.apply(catalog, structuralChange(catalog, before));
                 break;
+            case RENAME_DATABASE:
             case RENAME_TABLE:
-                connector.invalidateTable(before.remoteDbName, before.remoteTableName);
-                if (!Objects.equals(before.remoteDbName, after.remoteDbName)
-                        || !Objects.equals(before.remoteTableName, after.remoteTableName)) {
-                    connector.invalidateTable(after.remoteDbName, after.remoteTableName);
-                }
+                ExternalObjectLog source = structuralChange(catalog, before);
+                ExternalObjectLog destination = structuralChange(catalog, after);
+                CatalogMetadataChanges.apply(catalog, source.equals(destination)
+                        ? java.util.Collections.singletonList(source) : java.util.Arrays.asList(source, destination));
                 break;
             default:
                 break;
         }
+    }
+
+    private ExternalObjectLog structuralChange(PluginDrivenExternalCatalog catalog, EventIdentity identity) {
+        ExternalObjectLog change = identity.localTableName == null
+                ? ExternalObjectLog.createForRefreshDb(catalog.getId(), identity.localDbName)
+                : ExternalObjectLog.createForExplicitRefreshTable(
+                        catalog.getId(), identity.localDbName, identity.localTableName, 0);
+        return change.withRemoteNames(identity.remoteDbName, identity.remoteTableName);
     }
 
     /** One remote connector identity and its canonical FE-local counterpart. */

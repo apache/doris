@@ -38,7 +38,8 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.log.CatalogLog;
-import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
@@ -111,12 +112,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private void addCatalog(CatalogIf catalog) {
-        nameToCatalog.put(catalog.getName(), catalog);
-        idToCatalog.put(catalog.getId(), catalog);
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).resetToUninitialized(false);
+            ExternalCatalog external = (ExternalCatalog) catalog;
+            external.resetToUninitialized(false);
+            external.onRegistered();
         }
+        nameToCatalog.put(catalogName, catalog);
+        idToCatalog.put(catalog.getId(), catalog);
     }
 
     private RemovedCatalog removeCatalog(long catalogId) {
@@ -892,16 +895,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (table == null) {
             return;
         }
-        try {
-            if (catalog instanceof PluginDrivenExternalCatalog) {
-                ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
-                        ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
-                        partitionNames);
-                ((ExternalTable) table).setUpdateTime(updateTime);
-            }
-        } finally {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRowCountCache((ExternalTable) table);
-        }
+        CatalogMetadataChanges.apply((ExternalCatalog) catalog,
+                ExternalObjectLog.createForRefreshPartitions(catalog.getId(), localDbName, localTableName,
+                        partitionNames, null, updateTime).withRemoteNames(
+                                ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName()));
     }
 
     public void dropExternalPartitionsFromEvent(String catalogName,
@@ -924,16 +921,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        try {
-            if (catalog instanceof PluginDrivenExternalCatalog) {
-                ((PluginDrivenExternalCatalog) catalog).getConnector().invalidatePartition(
-                        ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName(),
-                        partitionNames);
-                ((ExternalTable) table).setUpdateTime(updateTime);
-            }
-        } finally {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableRowCountCache((ExternalTable) table);
-        }
+        CatalogMetadataChanges.apply((ExternalCatalog) catalog,
+                ExternalObjectLog.createForRefreshPartitions(catalog.getId(), localDbName, localTableName,
+                        partitionNames, null, updateTime).withRemoteNames(
+                                ((ExternalDatabase<?>) db).getRemoteName(), ((ExternalTable) table).getRemoteName()));
     }
 
     public void registerCatalogRefreshListener(Env env) {

@@ -145,7 +145,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (tables != null) {
             tables.close();
         }
-        tableIdNameIndex.clear();
+        // The table adapter pins its auxiliary identity index until accepted table operations finish.
+        if (tables == null) {
+            CatalogMetaCache owner = extCatalog.getMetaCacheOwnerIfPresent();
+            if (owner != null) {
+                tableIdNameIndex.close(owner);
+            } else {
+                tableIdNameIndex.clear();
+            }
+        }
     }
 
     /** Full refresh also invalidates the parent membership snapshot at the shared publication barrier. */
@@ -155,7 +163,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         } else {
             tableIdNameIndex.removeName(localTableName);
         }
-        extCatalog.getFeMetaCacheOwner().invalidateTableAndNames(name, localTableName);
+        extCatalog.getFeMetaCacheOwner().invalidateScopes(java.util.Arrays.asList(
+                ScopePath.table(name, localTableName).in(ScopePath.Coordinates.LOCAL),
+                ScopePath.tableCollection(name).in(ScopePath.Coordinates.LOCAL)));
     }
 
     public boolean isInitialized() {
@@ -203,6 +213,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (LOG.isDebugEnabled()) {
             LOG.debug("buildMetaCache for database: {}:{}", this.name, this.id, new Exception());
         }
+        tableIdNameIndex.bind(owner, extCatalog.nextFeCacheEntryName("table_ids"),
+                tableName -> ScopePath.table(name, tableName));
         CacheSpec namesSpec = CacheSpec.of(
                 true,
                 Config.external_cache_expire_time_seconds_after_access,
@@ -240,6 +252,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 false,
                 FeMetaCacheEntry.defaultObjectStripeCount(), null);
+        tables.onRetired(() -> tableIdNameIndex.close(owner));
     }
 
     private List<Pair<String, String>> listTableNames() {
@@ -713,11 +726,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return localTableName.equals(requestedTableName);
     }
 
-    private String resolveTableNameForInvalidation(String tableName) {
+    public String resolveTableNameForInvalidation(String tableName) {
         if (isStoredTableNamesLowerCase()) {
             return tableName.toLowerCase(Locale.ROOT);
         }
-        if (!isTableNamesCaseInsensitive()) {
+        if (cacheEntriesReleased || !isTableNamesCaseInsensitive() || !isInitialized()) {
             return tableName;
         }
 

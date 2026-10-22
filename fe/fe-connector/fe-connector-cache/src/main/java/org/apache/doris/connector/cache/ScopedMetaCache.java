@@ -186,26 +186,32 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         BiConsumer<V, Consumer<Runnable>> coordinator = Objects.requireNonNull(
                 publicationCoordinator, "publicationCoordinator can not be null");
         checkOpen();
+
         if (!effectiveEnabled) {
             recordAccess(false);
-            V loaded = loadAndRecord(key, loadFunction);
-            if (loaded != null) {
-                AtomicBoolean commitInvoked = new AtomicBoolean(false);
-                try {
-                    coordinator.accept(loaded, beforePublication -> {
-                        if (!commitInvoked.compareAndSet(false, true)) {
-                            throw new IllegalStateException("Metadata cache publication callback was invoked twice");
+            // Disabled retention keeps the original per-request load behavior, but auxiliary publication still
+            // captures its resource generation before I/O and is rejected if an invalidation races the load.
+            try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
+                V loaded = loadAndRecord(key, loadFunction);
+                if (loaded != null) {
+                    AtomicBoolean invoked = new AtomicBoolean();
+                    try {
+                        coordinator.accept(loaded, action -> {
+                            if (!invoked.compareAndSet(false, true)) {
+                                throw new IllegalStateException(
+                                        "Metadata cache publication callback was invoked twice");
+                            }
+                            commitLoaded(lease, key, loaded, action);
+                        });
+                        if (!invoked.get()) {
+                            throw new IllegalStateException("Metadata cache publication callback was not invoked");
                         }
-                        Objects.requireNonNull(beforePublication, "beforePublication can not be null").run();
-                    });
-                    if (!commitInvoked.get()) {
-                        throw new IllegalStateException("Metadata cache publication callback was not invoked");
+                    } finally {
+                        notifyDiscarded(key, loaded);
                     }
-                } finally {
-                    notifyDiscarded(key, loaded);
                 }
+                return loaded;
             }
-            return loaded;
         }
 
         VersionedValue<K, V> presentVersioned = currentVersionedValue(key, path);
@@ -349,6 +355,21 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
+    /** Runs a short side effect only while the exact retained value and its resource scope are current. */
+    public boolean runIfCurrent(K key, ScopePath path, V expected, Runnable action) {
+        checkOpen();
+        try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
+            return guardedCommit(lease, () -> {
+                VersionedValue<K, V> current = currentVersionedValue(key, path);
+                if (current == null || current.value != expected) {
+                    return false;
+                }
+                action.run();
+                return true;
+            });
+        }
+    }
+
     public boolean compareAndSet(K key, ScopePath path, V expectedValue, V updatedValue) {
         return compareAndSet(key, path, expectedValue, updatedValue, NO_OP);
     }
@@ -360,8 +381,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
         checkOpen();
         if (!effectiveEnabled) {
-            action.run();
-            return true;
+            try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
+                return guardedCommit(lease, () -> {
+                    action.run();
+                    return true;
+                });
+            }
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
             AtomicReference<VersionedValue<K, V>> preparedRef = new AtomicReference<>();
@@ -711,6 +736,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private VersionedValue<K, V> prepareVersionedValue(
             PublicationLease<K, V> lease, K key, V value) {
+        if (!effectiveEnabled) {
+            return null;
+        }
         MetaCacheBudgetManager.AdmissionReservation reservation = reserve(key, value);
         if (weightBounded && reservation == null) {
             return null;

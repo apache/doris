@@ -26,6 +26,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Catalog-local owner of all framework metadata caches.
@@ -40,6 +41,14 @@ public final class CatalogMetaCache implements AutoCloseable {
     private final String engine;
     private final OptionalLong catalogMaxWeight;
     private final boolean managed;
+    private final CatalogMetaCache parent;
+    private final ScopePath.Coordinates coordinates;
+    private final CacheCallbackContext callbacks;
+    private final CatalogMetaCache rootOwner;
+    private final String registrationPrefix;
+    private final AtomicLong domainSequence;
+    private final Set<CatalogMetaCache> domains = ConcurrentHashMap.newKeySet();
+    private final Map<String, MetaCache<?, ?>> allEntries;
     private final Set<String> names = ConcurrentHashMap.newKeySet();
     private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -71,26 +80,77 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     public static CatalogMetaCache managed(long catalogId, String engine,
             Map<String, String> catalogProperties) {
+        return managed(catalogId, engine, catalogProperties, Thread.currentThread().getContextClassLoader());
+    }
+
+    public static CatalogMetaCache managed(long catalogId, String engine,
+            Map<String, String> catalogProperties, ClassLoader classLoader) {
         MetaCacheBudgetManager manager = MetaCacheGovernance.budgetManager();
         CatalogMetaCache cache = new CatalogMetaCache(new ScopedMetaCacheRegistry(), manager,
-                catalogId, engine, manager.parseCatalogMaxWeight(catalogProperties), true);
+                catalogId, engine, manager.parseCatalogMaxWeight(catalogProperties), true, classLoader);
         MetaCacheGovernance.register(cache);
         return cache;
     }
 
     CatalogMetaCache(ScopedMetaCacheRegistry registry, MetaCacheBudgetManager budgetManager,
             long catalogId, String engine, OptionalLong catalogMaxWeight, boolean managed) {
+        this(registry, budgetManager, catalogId, engine, catalogMaxWeight, managed,
+                Thread.currentThread().getContextClassLoader());
+    }
+
+    private CatalogMetaCache(ScopedMetaCacheRegistry registry, MetaCacheBudgetManager budgetManager,
+            long catalogId, String engine, OptionalLong catalogMaxWeight, boolean managed, ClassLoader classLoader) {
         this.registry = Objects.requireNonNull(registry, "registry can not be null");
         this.budgetManager = Objects.requireNonNull(budgetManager, "budgetManager can not be null");
         this.catalogId = catalogId;
         this.engine = Objects.requireNonNull(engine, "engine can not be null");
         this.catalogMaxWeight = Objects.requireNonNull(catalogMaxWeight, "catalogMaxWeight can not be null");
         this.managed = managed;
+        this.parent = null;
+        this.coordinates = null;
+        this.callbacks = new CacheCallbackContext(classLoader);
+        this.rootOwner = this;
+        this.registrationPrefix = "";
+        this.domainSequence = new AtomicLong();
+        this.allEntries = new ConcurrentHashMap<>();
+    }
+
+    private CatalogMetaCache(CatalogMetaCache parent, String engine,
+            ScopePath.Coordinates coordinates, ClassLoader classLoader) {
+        this.coordinates = coordinates;
+        this.callbacks = new CacheCallbackContext(classLoader);
+        this.registry = parent.registry;
+        this.budgetManager = parent.budgetManager;
+        this.catalogId = parent.catalogId;
+        this.engine = Objects.requireNonNull(engine, "engine");
+        this.catalogMaxWeight = parent.catalogMaxWeight;
+        this.managed = false;
+        this.parent = parent;
+        this.rootOwner = parent.rootOwner;
+        this.domainSequence = rootOwner.domainSequence;
+        this.registrationPrefix = engine + "@" + domainSequence.incrementAndGet() + ".";
+        this.allEntries = rootOwner.allEntries;
+    }
+
+    /** Opens one instance-owned domain. Resource invalidation is shared; close only retires this instance. */
+    public CatalogMetaCache openDomain(String engine) {
+        return openDomain(engine, coordinates, Thread.currentThread().getContextClassLoader());
+    }
+
+    public CatalogMetaCache openDomain(String engine, ScopePath.Coordinates coordinates, ClassLoader classLoader) {
+        checkOpen();
+        CatalogMetaCache domain = new CatalogMetaCache(this, engine, coordinates, classLoader);
+        domains.add(domain);
+        if (isClosed()) {
+            domain.close();
+            throw new IllegalStateException("Parent metadata cache domain was retired during construction");
+        }
+        return domain;
     }
 
     public <K, V> MetaCache<K, V> create(MetaCacheDefinition<K, V> definition) {
         MetaCacheDefinition<K, V> nonNullDefinition =
-                Objects.requireNonNull(definition, "definition can not be null");
+                Objects.requireNonNull(definition, "definition can not be null").forDomain(coordinates, callbacks);
         checkOpen();
         if (!names.add(nonNullDefinition.name())) {
             throw new IllegalArgumentException("Duplicate meta cache name: " + nonNullDefinition.name());
@@ -109,26 +169,25 @@ public final class CatalogMetaCache implements AutoCloseable {
                         nonNullDefinition.name(), nonNullDefinition.budgetGroup(), catalogMaxWeight,
                         nonNullDefinition.cacheSpec().getMaxWeight());
             }
-            MetaCache<K, V> created = new MetaCache<>(nonNullDefinition,
-                    registry.createCacheWithMetaRemovalListener(nonNullDefinition.name(),
+            String registrationName = registrationPrefix + nonNullDefinition.name();
+            MetaCache<K, V> created = new MetaCache<>(nonNullDefinition, engine, registrationName, callbacks,
+                    registry.createCacheWithMetaRemovalListener(registrationName,
                             nonNullDefinition.cacheSpec(), nonNullDefinition.removalListener(),
                             nonNullDefinition.discardListener(),
                             nonNullDefinition.refreshAfterWrite(), nonNullDefinition.refreshExecutor(),
                             entryBudget == null ? null : nonNullDefinition.sizeEstimator(), entryBudget));
             entries.put(nonNullDefinition.name(), created);
+            allEntries.put(created.registrationName(), created);
+            if (isClosed()) {
+                remove(created);
+                throw new IllegalStateException("Metadata cache domain was retired during entry construction");
+            }
             return created;
         } catch (RuntimeException | Error throwable) {
             if (entryBudget != null) {
                 entryBudget.close();
             }
             names.remove(nonNullDefinition.name());
-            if (managed) {
-                try {
-                    close();
-                } catch (RuntimeException | Error closeFailure) {
-                    throwable.addSuppressed(closeFailure);
-                }
-            }
             throw throwable;
         }
     }
@@ -140,6 +199,7 @@ public final class CatalogMetaCache implements AutoCloseable {
     public void remove(MetaCache<?, ?> cache) {
         MetaCache<?, ?> nonNullCache = Objects.requireNonNull(cache, "cache can not be null");
         if (entries.remove(nonNullCache.name(), nonNullCache)) {
+            allEntries.remove(nonNullCache.registrationName(), nonNullCache);
             try {
                 nonNullCache.closeFromOwner();
             } finally {
@@ -149,42 +209,53 @@ public final class CatalogMetaCache implements AutoCloseable {
     }
 
     public void invalidateCatalog() {
-        registry.invalidate(ScopePath.catalog());
+        invalidateScope(ScopePath.catalog());
     }
 
     public void invalidateDatabase(String database) {
-        registry.invalidate(ScopePath.database(database));
+        invalidateScope(ScopePath.database(database));
     }
 
     public void invalidateTable(String database, String table) {
-        registry.invalidate(ScopePath.table(database, table));
+        invalidateScope(ScopePath.table(database, table));
     }
 
     /** Invalidates an object and its parent membership view at one logical publication barrier. */
     public void invalidateTableAndNames(String database, String table) {
-        registry.invalidate(java.util.Arrays.asList(
+        invalidateScopes(java.util.Arrays.asList(
                 ScopePath.table(database, table), ScopePath.tableCollection(database)));
     }
 
     public void invalidateDatabaseAndNames(String database) {
-        registry.invalidate(java.util.Arrays.asList(
+        invalidateScopes(java.util.Arrays.asList(
                 ScopePath.database(database), ScopePath.databaseCollection()));
     }
 
     public void invalidateScope(ScopePath scope) {
-        registry.invalidate(scope);
+        registry.invalidate(project(scope));
+    }
+
+    /** One barrier covers local and remote dependencies, even when their object caches are cold. */
+    public void invalidateScopes(Collection<ScopePath> scopes) {
+        List<ScopePath> projected = new ArrayList<>(scopes.size());
+        scopes.forEach(scope -> projected.add(project(scope)));
+        registry.invalidate(projected);
+    }
+
+    private ScopePath project(ScopePath scope) {
+        return coordinates == null ? scope : scope.in(coordinates);
     }
 
     public boolean isClosed() {
-        return closed.get();
+        return closed.get() || (parent != null && parent.isClosed());
     }
 
     public void invalidatePartition(String database, String table, Object partition) {
-        registry.invalidate(ScopePath.partition(database, table, partition));
+        invalidateScope(ScopePath.partition(database, table, partition));
     }
 
     public void invalidatePartitionCollection(String database, String table) {
-        registry.invalidate(ScopePath.partitionCollection(database, table));
+        invalidateScope(ScopePath.partitionCollection(database, table));
     }
 
     /**
@@ -197,7 +268,7 @@ public final class CatalogMetaCache implements AutoCloseable {
         List<ScopePath> paths = new ArrayList<>(partitions.size() + 1);
         paths.add(ScopePath.partitionCollection(database, table));
         partitions.forEach(partition -> paths.add(ScopePath.partition(database, table, partition)));
-        registry.invalidate(paths);
+        invalidateScopes(paths);
     }
 
     public ScopedMetaCacheRegistry.ScopeMetrics metrics() {
@@ -206,6 +277,11 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     public Map<String, MetaCache<?, ?>> entries() {
         return java.util.Collections.unmodifiableMap(entries);
+    }
+
+    /** Catalog-wide registrations, including every live connector instance domain. */
+    public Map<String, MetaCache<?, ?>> allEntries() {
+        return java.util.Collections.unmodifiableMap(allEntries);
     }
 
     public long catalogId() {
@@ -226,22 +302,49 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            try {
-                registry.close();
-            } finally {
-                names.clear();
-                entries.clear();
-                if (managed) {
-                    MetaCacheGovernance.unregister(this);
-                }
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        Throwable failure = null;
+        for (CatalogMetaCache domain : new ArrayList<>(domains)) {
+            failure = closeAndCollect(domain::close, failure);
+        }
+        for (MetaCache<?, ?> entry : new ArrayList<>(entries.values())) {
+            failure = closeAndCollect(() -> remove(entry), failure);
+        }
+        domains.clear();
+        if (parent == null) {
+            failure = closeAndCollect(registry::close, failure);
+            allEntries.clear();
+            if (managed) {
+                MetaCacheGovernance.unregister(this);
             }
+        } else {
+            parent.domains.remove(this);
+        }
+        if (failure instanceof Error) {
+            throw (Error) failure;
+        }
+        if (failure != null) {
+            throw (RuntimeException) failure;
         }
     }
 
+    private static Throwable closeAndCollect(Runnable cleanup, Throwable failure) {
+        try {
+            cleanup.run();
+        } catch (RuntimeException | Error error) {
+            if (failure == null) {
+                return error;
+            }
+            failure.addSuppressed(error);
+        }
+        return failure;
+    }
+
     private void checkOpen() {
-        if (closed.get()) {
-            throw new IllegalStateException("Catalog meta cache is closed");
+        if (isClosed()) {
+            throw new IllegalStateException("Catalog meta cache domain is closed");
         }
     }
 }

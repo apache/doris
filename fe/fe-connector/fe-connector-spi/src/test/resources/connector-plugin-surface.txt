@@ -1,3 +1,4 @@
+org.apache.doris.connector.spi.Connector#cacheDependencies(org.apache.doris.connector.cache.ScopePath):java.util.List
 org.apache.doris.connector.spi.Connector#close():void
 org.apache.doris.connector.spi.Connector#defaultTestConnection():boolean
 org.apache.doris.connector.spi.Connector#deriveStorageProperties(java.util.Map):java.util.Map
@@ -16,6 +17,7 @@ org.apache.doris.connector.spi.Connector#invalidateDb(java.lang.String):void
 org.apache.doris.connector.spi.Connector#invalidatePartition(java.lang.String,java.lang.String,java.util.List):void
 org.apache.doris.connector.spi.Connector#invalidateTable(java.lang.String,java.lang.String):void
 org.apache.doris.connector.spi.Connector#ownsHandle(org.apache.doris.connector.spi.handle.ConnectorTableHandle):boolean
+org.apache.doris.connector.spi.Connector#partitionCacheScopes(java.lang.String,java.lang.String,java.util.List):java.util.List
 org.apache.doris.connector.spi.Connector#preCreateValidation(org.apache.doris.connector.spi.ConnectorValidationContext):void
 org.apache.doris.connector.spi.Connector#schemaCacheTtlSecondOverride():java.util.OptionalLong
 org.apache.doris.connector.spi.Connector#testConnection(org.apache.doris.connector.spi.ConnectorSession):org.apache.doris.connector.spi.ConnectorTestResult
@@ -63,6 +65,7 @@ org.apache.doris.connector.spi.ConnectorColumn#withSpecified(boolean,boolean):or
 org.apache.doris.connector.spi.ConnectorColumn#withStringWriteType(org.apache.doris.connector.spi.ConnectorType):org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withTimeZone():org.apache.doris.connector.spi.ConnectorColumn
 org.apache.doris.connector.spi.ConnectorColumn#withUniqueId(int):org.apache.doris.connector.spi.ConnectorColumn
+org.apache.doris.connector.spi.ConnectorContext#createCacheDomain(java.lang.String,java.util.Map):org.apache.doris.connector.cache.CatalogMetaCache
 org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector(java.lang.String,java.util.Map):org.apache.doris.connector.spi.Connector
 org.apache.doris.connector.spi.ConnectorContext#executeAuthenticated(java.util.concurrent.Callable):java.lang.Object
 org.apache.doris.connector.spi.ConnectorContext#getCatalogId():long

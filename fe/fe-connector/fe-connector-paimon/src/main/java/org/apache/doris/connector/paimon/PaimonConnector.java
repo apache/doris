@@ -178,7 +178,7 @@ public class PaimonConnector implements Connector {
         // this a DDL/read against secured HDFS negotiates SIMPLE auth. See TcclPinningConnectorContext.
         this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
                 this::pluginAuthenticator);
-        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "paimon", properties);
+        this.metaCache = context.createCacheDomain("paimon", properties);
         this.schemaAtMemo = new PaimonSchemaAtMemo(metaCache, PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(

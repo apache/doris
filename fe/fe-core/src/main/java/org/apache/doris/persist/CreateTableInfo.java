@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
@@ -34,6 +35,18 @@ import java.io.IOException;
 import java.util.Objects;
 
 public class CreateTableInfo implements Writable {
+    @SerializedName("externalCacheChange")
+    private ExternalObjectLog externalCacheChange;
+
+    public ExternalObjectLog getExternalCacheChange() {
+        return externalCacheChange;
+    }
+
+    public CreateTableInfo withExternalCacheChange(ExternalObjectLog change) {
+        this.externalCacheChange = change;
+        return this;
+    }
+
     public static final Logger LOG = LoggerFactory.getLogger(CreateTableInfo.class);
 
     @SerializedName(value = "ctl")

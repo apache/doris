@@ -52,6 +52,15 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "ntn")
     private String newTableName; // for rename table op
 
+    @SerializedName(value = "remoteDbName")
+    private String remoteDbName;
+
+    @SerializedName(value = "remoteTableName")
+    private String remoteTableName;
+
+    @SerializedName(value = "remoteNewTableName")
+    private String remoteNewTableName;
+
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
 
@@ -115,6 +124,13 @@ public class ExternalObjectLog implements Writable {
         externalObjectLog.setTableName(tblName);
         externalObjectLog.setNewTableName(newTblName);
         return externalObjectLog;
+    }
+
+    /** Persist both coordinates; replay must not need a warm object cache to recover remote identities. */
+    public ExternalObjectLog withRemoteNames(String database, String table) {
+        setRemoteDbName(database);
+        setRemoteTableName(table);
+        return this;
     }
 
     @Override

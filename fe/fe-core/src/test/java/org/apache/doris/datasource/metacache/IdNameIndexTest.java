@@ -17,6 +17,12 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -157,6 +163,27 @@ public class IdNameIndexTest {
                     || (firstName == null && "db".equals(secondName)));
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void identitySurvivesObjectEvictionButNotSemanticRefresh() {
+        try (CatalogMetaCache root = CatalogMetaCache.unmanaged()) {
+            IdNameIndex index = new IdNameIndex("table");
+            ScopePath scope = ScopePath.table("db", "t").in(ScopePath.Coordinates.LOCAL);
+            index.bind(root, "ids", name -> ScopePath.table("db", name));
+            MetaCache<String, String> objects = root.create(MetaCacheDefinition.<String, String>builder("objects",
+                    CacheSpec.of(true, -1, 1), key -> scope).build());
+            objects.put("t", "old");
+            index.put(1, "t");
+            objects.invalidateKey("t");
+            Assertions.assertEquals("t", index.getName(1));
+            root.invalidateScope(scope);
+            Assertions.assertNull(index.getName(1));
+            index.put(2, "t");
+            Assertions.assertEquals("t", index.getName(2));
+            Assertions.assertNull(index.getName(1));
+            index.close(root);
         }
     }
 

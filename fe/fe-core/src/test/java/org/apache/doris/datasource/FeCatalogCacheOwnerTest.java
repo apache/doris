@@ -21,11 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
+import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -103,6 +105,49 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
         manager.getIdToCatalog().remove(catalog.getId());
         Map<String, CatalogIf<?>> byName = Deencapsulation.getField(manager, "nameToCatalog");
         byName.remove(catalog.getName());
+    }
+
+    @Test
+    public void catalogRenameAndReplayReactivateOnlyTheRegisteredInstance() throws Exception {
+        database.getTableNullable("a").getFullSchema();
+        CatalogMetaCache before = catalog.getFeMetaCacheOwner();
+        CatalogMgr manager = Env.getCurrentEnv().getCatalogMgr();
+        String oldName = catalog.getName();
+        String renamed = oldName + "_renamed";
+        manager.alterCatalogName(oldName, renamed);
+        Assertions.assertNull(manager.getCatalog(oldName));
+        Assertions.assertSame(catalog, manager.getCatalog(renamed));
+        Assertions.assertTrue(before.isClosed());
+        Assertions.assertNotNull(catalog.getDbNullable("db").getTableNullable("a").getFullSchema());
+        CatalogMetaCache after = catalog.getFeMetaCacheOwner();
+        Assertions.assertNotSame(before, after);
+
+        CatalogLog replay = new CatalogLog();
+        replay.setCatalogId(catalog.getId());
+        replay.setNewCatalogName(renamed + "_replayed");
+        manager.replayAlterCatalogName(replay);
+        Assertions.assertTrue(after.isClosed());
+        Assertions.assertNotNull(catalog.getDbNullable("db").getTableNullable("a").getFullSchema());
+        Assertions.assertNotSame(after, catalog.getFeMetaCacheOwner());
+        Assertions.assertEquals(1, MetaCacheGovernance.catalogCaches(catalog.getId()).size());
+    }
+
+    @Test
+    public void disabledDatabaseCacheSupportsCaseInsensitiveDropAndRenameEvents() {
+        long originalTtl = Config.external_cache_expire_time_seconds_after_access;
+        try {
+            Config.external_cache_expire_time_seconds_after_access = 0;
+            catalog.modifyCatalogProps(Collections.singletonMap(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "2"));
+            catalog.closeFeMetaCacheOwner();
+            ExternalDatabase<?> transientDb = catalog.getDbNullable("db");
+            Assertions.assertNotNull(transientDb);
+            Assertions.assertFalse(transientDb.isInitialized());
+            Assertions.assertDoesNotThrow(() -> transientDb.unregisterTable("MixedTable"));
+            Assertions.assertDoesNotThrow(() -> transientDb.invalidateTableRename("MixedTable", "RenamedTable"));
+            Assertions.assertNotSame(transientDb, catalog.getDbNullable("db"));
+        } finally {
+            Config.external_cache_expire_time_seconds_after_access = originalTtl;
+        }
     }
 
     @Test
@@ -212,9 +257,9 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
             previous.releaseCachedEntries();
             Assertions.assertSame(replacement, database.getTableNullable("a"));
             Assertions.assertSame(schema, replacement.getFullSchema());
-            Assertions.assertEquals(5, catalog.getFeMetaCacheOwner().entries().size());
+            Assertions.assertEquals(7, catalog.getFeMetaCacheOwner().entries().size());
             Assertions.assertNotNull(previous.getTableNullable("a"));
-            Assertions.assertEquals(5, catalog.getFeMetaCacheOwner().entries().size());
+            Assertions.assertEquals(7, catalog.getFeMetaCacheOwner().entries().size());
         }
     }
 
@@ -276,7 +321,7 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
         Assertions.assertEquals(1, catalog.nameLoads.get());
         Assertions.assertSame(current, catalog.getDbNullable(current.getId()));
         Assertions.assertSame(table, current.getTableNullable(table.getId()));
-        Assertions.assertEquals(5, catalog.getFeMetaCacheOwner().entries().size());
+        Assertions.assertEquals(7, catalog.getFeMetaCacheOwner().entries().size());
         Assertions.assertTrue(Env.getCurrentEnv().getExtMetaCacheMgr().getCatalogCacheStats(catalog.getId()).stream()
                 .filter(stat -> "schema".equals(stat.getEntryName()))
                 .anyMatch(stat -> stat.getEntryStats().getEstimatedWeight() > 0));
@@ -313,10 +358,10 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
     @Test
     public void namingOnlyOwnerIsVisibleInStatsWithoutSchemaInitialization() {
         database.getTableNamesWithLock();
-        Assertions.assertEquals(4, Env.getCurrentEnv().getExtMetaCacheMgr()
+        Assertions.assertEquals(6, Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getCatalogCacheStats(catalog.getId()).size());
         database.getTableNullable("a").getFullSchema();
-        Assertions.assertEquals(5, Env.getCurrentEnv().getExtMetaCacheMgr()
+        Assertions.assertEquals(7, Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getCatalogCacheStats(catalog.getId()).size());
     }
 
@@ -351,7 +396,7 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
         Assertions.assertNotSame(replacement, old.get(10, TimeUnit.SECONDS));
         Assertions.assertSame(replacement, database.getTableNullable("a"));
         Assertions.assertNull(previous.getCachedTableNameByIdForTest(replacement.getId()));
-        Assertions.assertEquals(4, catalog.getFeMetaCacheOwner().entries().size());
+        Assertions.assertEquals(6, catalog.getFeMetaCacheOwner().entries().size());
     }
 
     @Test

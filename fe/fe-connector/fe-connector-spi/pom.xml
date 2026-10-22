@@ -57,6 +57,11 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-thrift</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>

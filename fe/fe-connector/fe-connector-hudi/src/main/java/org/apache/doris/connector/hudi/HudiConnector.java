@@ -191,7 +191,7 @@ public class HudiConnector implements Connector {
         this.props = HudiCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
-        this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hudi", this.properties);
+        this.metaCache = context.createCacheDomain("hudi", this.properties);
     }
 
     @Override

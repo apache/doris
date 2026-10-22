@@ -72,6 +72,8 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
     public void setUp() {
         Env env = Mockito.mock(Env.class);
         cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(cacheMgr.commonRefreshExecutor())
+                .thenReturn(com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService());
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);

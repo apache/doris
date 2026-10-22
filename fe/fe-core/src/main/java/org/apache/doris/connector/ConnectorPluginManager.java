@@ -414,7 +414,23 @@ public class ConnectorPluginManager {
                 }
                 LOG.info("Creating connector via provider '{}' for catalogType='{}'",
                         provider.getType(), catalogType);
-                return provider.create(properties, withConnectorConfig(context, provider));
+                ConnectorInstanceContext instance = new ConnectorInstanceContext(context, provider.getType(),
+                        properties, provider.getClass().getClassLoader());
+                Thread thread = Thread.currentThread();
+                ClassLoader previous = thread.getContextClassLoader();
+                try {
+                    thread.setContextClassLoader(provider.getClass().getClassLoader());
+                    return provider.create(properties, withConnectorConfig(instance, provider));
+                } catch (RuntimeException | Error failure) {
+                    try {
+                        instance.rollback();
+                    } catch (RuntimeException | Error cleanup) {
+                        failure.addSuppressed(cleanup);
+                    }
+                    throw failure;
+                } finally {
+                    thread.setContextClassLoader(previous);
+                }
             }
         }
         LOG.debug("No ConnectorProvider supports catalogType='{}' (standaloneOnly={}). Registered: {}",

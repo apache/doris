@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -31,6 +33,15 @@ import java.util.concurrent.Callable;
  * putting a storage service here would put it back in front of every connector that has no storage.
  */
 public interface ConnectorContext {
+
+    /**
+     * Obtains this connector instance's cache domain. Engine contexts bind it to the catalog root before
+     * construction; standalone/test contexts own an independent root and close it with their connector.
+     * Decorators must forward this service. A sibling receives a new instance context and a child domain.
+     */
+    default CatalogMetaCache createCacheDomain(String engine, Map<String, String> properties) {
+        return CatalogMetaCache.managed(getCatalogId(), engine, properties);
+    }
 
     /** Returns the catalog name. */
     String getCatalogName();

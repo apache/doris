@@ -198,6 +198,13 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog instanceof ExternalCatalog) {
+            CatalogMetaCache owner = ((ExternalCatalog) catalog).getMetaCacheOwnerIfPresent();
+            if (owner != null) {
+                owner.invalidateCatalog();
+            }
+        }
         try {
             try {
                 routeCatalogEngines(catalogId, cache -> safeInvalidate(
@@ -359,10 +366,10 @@ public class ExternalMetaCacheMgr {
                 .computeIfAbsent(externalMetaCache.engine(), ignored -> Maps.newHashMap())
                 .putAll(externalMetaCache.stats(catalogId)));
         for (CatalogMetaCache cache : MetaCacheGovernance.catalogCaches(catalogId)) {
-            Map<String, MetaCacheEntryStats> entries =
-                    byEngine.computeIfAbsent(cache.engine(), ignored -> Maps.newHashMap());
-            for (Map.Entry<String, MetaCache<?, ?>> entry : cache.entries().entrySet()) {
-                entries.put(entry.getKey(), MetaCacheEntryStats.from(entry.getValue()));
+            for (MetaCache<?, ?> entry : cache.allEntries().values()) {
+                Map<String, MetaCacheEntryStats> entries =
+                        byEngine.computeIfAbsent(entry.engine(), ignored -> Maps.newHashMap());
+                entries.put(entry.registrationName(), MetaCacheEntryStats.from(entry));
             }
         }
         byEngine.forEach((engine, entries) -> entries.forEach((entryName, entryStats) ->

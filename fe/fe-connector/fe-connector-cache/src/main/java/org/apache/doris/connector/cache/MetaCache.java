@@ -26,14 +26,29 @@ import java.util.function.Function;
 public final class MetaCache<K, V> {
     private final MetaCacheDefinition<K, V> definition;
     private final ScopedMetaCache<K, V> delegate;
+    private final String engine;
+    private final String registrationName;
+    private final CacheCallbackContext callbacks;
 
-    MetaCache(MetaCacheDefinition<K, V> definition, ScopedMetaCache<K, V> delegate) {
+    MetaCache(MetaCacheDefinition<K, V> definition, String engine, String registrationName,
+            CacheCallbackContext callbacks, ScopedMetaCache<K, V> delegate) {
+        this.callbacks = callbacks;
+        this.engine = engine;
+        this.registrationName = registrationName;
         this.definition = Objects.requireNonNull(definition, "definition can not be null");
         this.delegate = Objects.requireNonNull(delegate, "delegate can not be null");
     }
 
     public String name() {
         return definition.name();
+    }
+
+    public String engine() {
+        return engine;
+    }
+
+    public String registrationName() {
+        return registrationName;
     }
 
     public V get(K key) {
@@ -46,7 +61,8 @@ public final class MetaCache<K, V> {
 
     public V get(K key, Function<K, V> loader) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
-        return delegate.get(nonNullKey, definition.scope(nonNullKey), loader);
+        return delegate.get(nonNullKey, definition.scope(nonNullKey),
+                keyToLoad -> callbacks.call(() -> loader.apply(keyToLoad)));
     }
 
     /**
@@ -57,8 +73,8 @@ public final class MetaCache<K, V> {
     public V getWithPublicationAction(K key, Function<K, V> loader,
             BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
-        return delegate.getWithPublicationAction(nonNullKey, definition.scope(nonNullKey), loader,
-                publicationCoordinator);
+        return delegate.getWithPublicationAction(nonNullKey, definition.scope(nonNullKey),
+                keyToLoad -> callbacks.call(() -> loader.apply(keyToLoad)), publicationCoordinator);
     }
 
     public V getIfPresent(K key) {
@@ -89,6 +105,10 @@ public final class MetaCache<K, V> {
                 Objects.requireNonNull(commitAction, "commitAction can not be null"));
     }
 
+    public boolean runIfCurrent(K key, V expected, Runnable action) {
+        return delegate.runIfCurrent(key, definition.scope(key), expected, action);
+    }
+
     public void invalidateKey(K key) {
         delegate.invalidateKey(Objects.requireNonNull(key, "key can not be null"));
     }
@@ -99,7 +119,7 @@ public final class MetaCache<K, V> {
      * returns a currentness fence, but {@link BulkLoad#publish(Object, Object)} retains no values.
      */
     public BulkLoad<K, V> beginBulkLoad(ScopePath parentScope) {
-        return new BulkLoad<>(this, delegate.beginBulkLoad(parentScope));
+        return new BulkLoad<>(this, delegate.beginBulkLoad(definition.project(parentScope)));
     }
 
     public ScopedMetaCache.CacheMetrics metrics() {

@@ -67,6 +67,7 @@ import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.log.InitDatabaseLog;
 import org.apache.doris.datasource.log.MetaIdMappingsLog;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
@@ -415,7 +416,12 @@ public class EditLog {
                         ExternalCatalog ctl = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                                 .getCatalog(info.getCtl());
                         if (ctl != null) {
-                            ctl.replayDropTable(info.getDb(), info.getTableName());
+                            if (info.getExternalCacheChange() != null) {
+                                CatalogMetadataChanges.apply(
+                                        ctl, info.getExternalCacheChange());
+                            } else {
+                                ctl.replayDropTable(info.getDb(), info.getTableName());
+                            }
                         }
                     }
                     break;

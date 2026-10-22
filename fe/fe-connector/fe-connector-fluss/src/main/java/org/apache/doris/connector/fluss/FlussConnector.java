@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -37,7 +39,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -92,12 +93,14 @@ public class FlussConnector implements Connector {
 
     // Source Fluss identity -> physical lake identity. The latter may be overridden independently for the
     // database and table, and targeted invalidation must follow the same path as lookup.
+    private final CatalogMetaCache metaCache;
     private final Map<TablePath, TablePath> lakeTablePaths = new LinkedHashMap<>();
 
     public FlussConnector(FlussCatalogProperties properties, ConnectorContext context) {
         this.properties = properties;
         this.catalogName = context.getCatalogName();
         this.context = context;
+        this.metaCache = context.createCacheDomain("fluss", properties.getRawCatalogProperties());
     }
 
     @Override
@@ -229,53 +232,50 @@ public class FlussConnector implements Connector {
     }
 
     @Override
-    public synchronized void invalidateTable(String dbName, String tableName) {
-        if (lakeSibling != null) {
-            // Keep the mapping until the table is resolved again (which replaces it) or the whole catalog
-            // is invalidated. A single engine refresh may emit more than one targeted invalidation, and a
-            // second one must not fall back to the source name merely because the first already ran.
-            TablePath lakePath = lakeTablePaths.get(TablePath.of(dbName, tableName));
-            lakeSibling.invalidateTable(
-                    lakePath == null ? dbName : lakePath.getDatabaseName(),
-                    lakePath == null ? tableName : lakePath.getTableName());
+    public synchronized List<ScopePath> cacheDependencies(ScopePath scope) {
+        List<ScopePath> dependencies = new java.util.ArrayList<>();
+        if (scope.database() == null) {
+            return dependencies;
         }
-    }
-
-    @Override
-    public synchronized void invalidateDb(String dbName) {
-        if (lakeSibling != null) {
-            Set<String> lakeDatabases = new LinkedHashSet<>();
-            // An unresolved table cannot have populated the sibling's table cache, but the sibling may
-            // still hold database-level metadata for the source namespace. Invalidating it as well as every
-            // known physical override is conservative and prevents one overridden table from accidentally
-            // suppressing invalidation of ordinary lake tables in the same Fluss database.
-            lakeDatabases.add(dbName);
+        if (scope.table() != null) {
+            TablePath lake = lakeTablePaths.get(TablePath.of(scope.database(), scope.table()));
+            if (lake != null) {
+                dependencies.add(ScopePath.table(lake.getDatabaseName(), lake.getTableName()));
+            }
+        } else {
             lakeTablePaths.forEach((source, lake) -> {
-                if (source.getDatabaseName().equals(dbName)) {
-                    lakeDatabases.add(lake.getDatabaseName());
+                if (source.getDatabaseName().equals(scope.database())) {
+                    dependencies.add(scope.level() == ScopePath.Level.TABLE
+                            ? ScopePath.tableCollection(lake.getDatabaseName())
+                            : ScopePath.database(lake.getDatabaseName()));
                 }
             });
-            lakeDatabases.forEach(lakeSibling::invalidateDb);
         }
+        return dependencies;
     }
 
     @Override
-    public synchronized void invalidateAll() {
-        lakeTablePaths.clear();
-        if (lakeSibling != null) {
-            lakeSibling.invalidateAll();
-        }
+    public void invalidateTable(String database, String table) {
+        List<ScopePath> scopes = new java.util.ArrayList<>(cacheDependencies(ScopePath.table(database, table)));
+        scopes.add(ScopePath.table(database, table));
+        metaCache.invalidateScopes(scopes);
     }
 
     @Override
-    public synchronized void invalidatePartition(
-            String dbName, String tableName, List<String> partitionNames) {
-        if (lakeSibling != null) {
-            TablePath lakePath = lakeTablePaths.get(TablePath.of(dbName, tableName));
-            lakeSibling.invalidatePartition(
-                    lakePath == null ? dbName : lakePath.getDatabaseName(),
-                    lakePath == null ? tableName : lakePath.getTableName(), partitionNames);
-        }
+    public void invalidateDb(String database) {
+        List<ScopePath> scopes = new java.util.ArrayList<>(cacheDependencies(ScopePath.database(database)));
+        scopes.add(ScopePath.database(database));
+        metaCache.invalidateScopes(scopes);
+    }
+
+    @Override
+    public void invalidateAll() {
+        metaCache.invalidateCatalog();
+    }
+
+    @Override
+    public void invalidatePartition(String database, String table, List<String> partitions) {
+        invalidateTable(database, table);
     }
 
     @Override
@@ -296,6 +296,7 @@ public class FlussConnector implements Connector {
      */
     @Override
     public void close() throws IOException {
+        metaCache.close();
         Connector sibling;
         Connection toClose;
         synchronized (this) {

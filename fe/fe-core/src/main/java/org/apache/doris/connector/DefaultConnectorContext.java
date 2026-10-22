@@ -25,6 +25,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -110,6 +112,8 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     private final Object fsLock = new Object();
     private volatile FileSystem catalogFileSystem;
     private volatile boolean closed;
+    private Supplier<CatalogMetaCache> cacheRootSupplier;
+    private CatalogMetaCache standaloneCacheRoot;
 
     private final ConnectorHttpSecurityHook httpSecurityHook = new ConnectorHttpSecurityHook() {
         @Override
@@ -164,6 +168,36 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this.rawStoragePropsSupplier =
                 Objects.requireNonNull(rawStoragePropsSupplier, "rawStoragePropsSupplier");
         this.environment = buildEnvironment();
+    }
+
+    /** Runtime catalogs inject their root; validation contexts own their standalone connector root. */
+    public synchronized void bindCacheRoot(Supplier<CatalogMetaCache> supplier) {
+        this.cacheRootSupplier = Objects.requireNonNull(supplier, "cacheRootSupplier");
+    }
+
+    @Override
+    public CatalogMetaCache createCacheDomain(String engine, Map<String, String> properties) {
+        Supplier<CatalogMetaCache> supplier;
+        synchronized (this) {
+            if (closed) {
+                throw new IllegalStateException("Connector context has been closed");
+            }
+            supplier = cacheRootSupplier;
+            if (supplier == null) {
+                if (standaloneCacheRoot == null) {
+                    standaloneCacheRoot = CatalogMetaCache.managed(catalogId, engine, properties);
+                }
+                return standaloneCacheRoot;
+            }
+        }
+        // Catalog lookup may take the catalog monitor; never hold this context's retirement monitor here.
+        CatalogMetaCache domain = supplier.get().openDomain(engine, ScopePath.Coordinates.REMOTE,
+                Thread.currentThread().getContextClassLoader());
+        if (closed) {
+            domain.close();
+            throw new IllegalStateException("Connector context was retired during cache domain construction");
+        }
+        return domain;
     }
 
     @Override
@@ -395,17 +429,27 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
      */
     @Override
     public void close() throws IOException {
-        FileSystem fs;
-        synchronized (fsLock) {
+        CatalogMetaCache standalone;
+        synchronized (this) {
             if (closed) {
                 return;
             }
             closed = true;
+            standalone = standaloneCacheRoot;
+        }
+        FileSystem fs;
+        synchronized (fsLock) {
             fs = catalogFileSystem;
             catalogFileSystem = null;
         }
-        if (fs != null) {
-            fs.close();
+        try {
+            if (fs != null) {
+                fs.close();
+            }
+        } finally {
+            if (standalone != null) {
+                standalone.close();
+            }
         }
     }
 

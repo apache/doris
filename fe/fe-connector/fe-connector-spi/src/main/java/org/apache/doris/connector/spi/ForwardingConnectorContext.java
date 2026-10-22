@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.spi;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -63,6 +65,11 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
      */
     protected final ConnectorContext delegate() {
         return delegate;
+    }
+
+    @Override
+    public CatalogMetaCache createCacheDomain(String engine, Map<String, String> properties) {
+        return delegate.createCacheDomain(engine, properties);
     }
 
     @Override

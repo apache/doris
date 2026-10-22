@@ -43,7 +43,14 @@ public final class ScopePath {
         CATALOG,
         DATABASE,
         TABLE,
-        PARTITION
+        PARTITION,
+        NAMESPACE
+    }
+
+    public enum Coordinates {
+        LOCAL,
+        REMOTE,
+        ID
     }
 
     private static final ScopePath CATALOG = new ScopePath(Level.CATALOG, null, null, null);
@@ -53,13 +60,20 @@ public final class ScopePath {
     private final String table;
     private final Object partition;
     private final NameCollection nameCollection;
+    private final Coordinates coordinates;
 
     private ScopePath(Level level, String database, String table, Object partition) {
         this(level, database, table, partition, null);
     }
 
     private ScopePath(Level level, String database, String table, Object partition, NameCollection nameCollection) {
+        this(level, database, table, partition, nameCollection, null);
+    }
+
+    private ScopePath(Level level, String database, String table, Object partition,
+            NameCollection nameCollection, Coordinates coordinates) {
         this.level = level;
+        this.coordinates = coordinates;
         this.database = database;
         this.table = table;
         this.partition = partition;
@@ -116,6 +130,42 @@ public final class ScopePath {
         return partition(database, table, SyntheticPartition.METADATA);
     }
 
+    /** Selects a name coordinate system without embedding names or plugin instances in string prefixes. */
+    public ScopePath in(Coordinates coordinates) {
+        Objects.requireNonNull(coordinates, "coordinates");
+        return new ScopePath(level == Level.CATALOG ? Level.NAMESPACE : level,
+                database, table, partition, nameCollection, coordinates);
+    }
+
+    int depth() {
+        return level == Level.NAMESPACE ? 1 : level.ordinal() + (coordinates == null ? 0 : 1);
+    }
+
+    Object keyAtDepth(int depth) {
+        int resourceDepth = depth;
+        if (coordinates != null) {
+            if (depth == 1) {
+                return coordinates;
+            }
+            resourceDepth--;
+        }
+        switch (resourceDepth) {
+            case 1:
+                return databaseKey();
+            case 2:
+                return tableKey();
+            case 3:
+                return partition;
+            default:
+                throw new IllegalArgumentException("Invalid scope depth: " + depth);
+        }
+    }
+
+    Level levelAtDepth(int depth) {
+        return coordinates != null && depth == 1 ? Level.NAMESPACE
+                : Level.values()[depth - (coordinates == null ? 0 : 1)];
+    }
+
     Object databaseKey() {
         return nameCollection == NameCollection.DATABASES ? NameCollection.DATABASES : database;
     }
@@ -142,22 +192,18 @@ public final class ScopePath {
 
     public boolean contains(ScopePath other) {
         Objects.requireNonNull(other, "other can not be null");
-        if (level.ordinal() > other.level.ordinal()) {
-            return false;
-        }
         if (level == Level.CATALOG) {
             return true;
         }
-        if (!Objects.equals(databaseKey(), other.databaseKey())) {
+        if (coordinates != other.coordinates || depth() > other.depth()) {
             return false;
         }
-        if (level == Level.DATABASE) {
-            return true;
+        for (int i = 1; i <= depth(); i++) {
+            if (!Objects.equals(keyAtDepth(i), other.keyAtDepth(i))) {
+                return false;
+            }
         }
-        if (!Objects.equals(tableKey(), other.tableKey())) {
-            return false;
-        }
-        return level == Level.TABLE || partition.equals(other.partition);
+        return true;
     }
 
     @Override
@@ -169,7 +215,7 @@ public final class ScopePath {
             return false;
         }
         ScopePath other = (ScopePath) obj;
-        return level == other.level
+        return level == other.level && coordinates == other.coordinates
                 && Objects.equals(databaseKey(), other.databaseKey())
                 && Objects.equals(tableKey(), other.tableKey())
                 && Objects.equals(partition, other.partition);
@@ -179,6 +225,7 @@ public final class ScopePath {
     public int hashCode() {
         int pathHashCode = 1;
         pathHashCode = 31 * pathHashCode + Objects.hashCode(level);
+        pathHashCode = 31 * pathHashCode + Objects.hashCode(coordinates);
         pathHashCode = 31 * pathHashCode + Objects.hashCode(databaseKey());
         pathHashCode = 31 * pathHashCode + Objects.hashCode(tableKey());
         return 31 * pathHashCode + Objects.hashCode(partition);
@@ -193,6 +240,8 @@ public final class ScopePath {
         switch (level) {
             case CATALOG:
                 return "catalog";
+            case NAMESPACE:
+                return "namespace[" + coordinates + "]";
             case DATABASE:
                 return "database[" + database + "]";
             case TABLE:

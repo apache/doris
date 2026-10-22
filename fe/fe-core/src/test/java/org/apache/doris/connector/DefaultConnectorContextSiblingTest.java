@@ -67,8 +67,9 @@ public class DefaultConnectorContextSiblingTest {
                 "the sibling must be exactly the connector the matching provider produced");
         Assertions.assertSame(props, provider.lastProperties,
                 "the caller-synthesized properties must be forwarded to the sibling provider unchanged");
-        Assertions.assertSame(ctx, provider.lastContext,
-                "the gateway's own context (this) must be passed to the sibling so it shares id/auth/storage");
+        Assertions.assertEquals(ctx.getCatalogId(), provider.lastContext.getCatalogId());
+        Assertions.assertEquals(ctx.getCatalogName(), provider.lastContext.getCatalogName());
+        Assertions.assertInstanceOf(ConnectorInstanceContext.class, provider.lastContext);
     }
 
     @Test

@@ -198,7 +198,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         InvalidatedScope invalidated = publicationGate.write(() -> {
             List<ScopeNode> existing = resolveExisting(path);
             bumpPublicationStates(existing);
-            if (existing.size() != path.level().ordinal() + 1) {
+            if (existing.size() != path.depth() + 1) {
                 return null;
             }
             ScopeNode target = existing.get(existing.size() - 1);
@@ -224,7 +224,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                 Objects.requireNonNull(path, "path can not be null");
                 List<ScopeNode> existing = resolveExisting(path);
                 publicationNodes.addAll(existing);
-                if (existing.size() == path.level().ordinal() + 1) {
+                if (existing.size() == path.depth() + 1) {
                     ScopeNode target = existing.get(existing.size() - 1);
                     if (targets.add(target)) {
                         resolvedScopes.add(existing);
@@ -329,61 +329,28 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     private ScopeSnapshot resolveOrCreateSnapshot(ScopePath path) {
-        ScopeNode catalogNode = root;
-        if (path.level() == ScopePath.Level.CATALOG) {
-            return ScopeSnapshot.capture(path, catalogNode, null, null, null);
+        ScopeNode[] nodes = new ScopeNode[path.depth() + 1];
+        nodes[0] = root;
+        for (int depth = 1; depth < nodes.length; depth++) {
+            ScopeNode parent = nodes[depth - 1];
+            nodes[depth] = child(parent, parent.current.get(), path.keyAtDepth(depth), path.levelAtDepth(depth));
+            if (nodes[depth] == null) {
+                return null;
+            }
         }
-        ScopeState catalogState = catalogNode.current.get();
-        ScopeNode dbNode = child(catalogNode, catalogState, path.databaseKey(), ScopePath.Level.DATABASE);
-        if (dbNode == null) {
-            return null;
-        }
-        if (path.level() == ScopePath.Level.DATABASE) {
-            return ScopeSnapshot.capture(path, catalogNode, dbNode, null, null);
-        }
-        ScopeState dbState = dbNode.current.get();
-        ScopeNode tableNode = child(dbNode, dbState, path.tableKey(), ScopePath.Level.TABLE);
-        if (tableNode == null) {
-            return null;
-        }
-        if (path.level() == ScopePath.Level.TABLE) {
-            return ScopeSnapshot.capture(path, catalogNode, dbNode, tableNode, null);
-        }
-        ScopeState tableState = tableNode.current.get();
-        ScopeNode partitionNode = child(
-                tableNode, tableState, path.partition(), ScopePath.Level.PARTITION);
-        if (partitionNode == null) {
-            return null;
-        }
-        return ScopeSnapshot.capture(path, catalogNode, dbNode, tableNode, partitionNode);
+        return ScopeSnapshot.capture(path, nodes);
     }
 
     private List<ScopeNode> resolveExisting(ScopePath path) {
-        List<ScopeNode> nodes = new ArrayList<>(path.level().ordinal() + 1);
-        ScopeNode catalogNode = root;
-        nodes.add(catalogNode);
-        if (path.level() == ScopePath.Level.CATALOG) {
-            return nodes;
-        }
-        ScopeNode dbNode = catalogNode.current.get().children.get(path.databaseKey());
-        if (dbNode == null) {
-            return nodes;
-        }
-        nodes.add(dbNode);
-        if (path.level() == ScopePath.Level.DATABASE) {
-            return nodes;
-        }
-        ScopeNode tableNode = dbNode.current.get().children.get(path.tableKey());
-        if (tableNode == null) {
-            return nodes;
-        }
-        nodes.add(tableNode);
-        if (path.level() == ScopePath.Level.TABLE) {
-            return nodes;
-        }
-        ScopeNode partitionNode = tableNode.current.get().children.get(path.partition());
-        if (partitionNode != null) {
-            nodes.add(partitionNode);
+        List<ScopeNode> nodes = new ArrayList<>(path.depth() + 1);
+        ScopeNode node = root;
+        nodes.add(node);
+        for (int depth = 1; depth <= path.depth(); depth++) {
+            node = node.current.get().children.get(path.keyAtDepth(depth));
+            if (node == null) {
+                break;
+            }
+            nodes.add(node);
         }
         return nodes;
     }
@@ -446,30 +413,16 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         if (!snapshot.leafNode().tryRetain()) {
             return false;
         }
-        retainedActiveLoads[ScopePath.Level.CATALOG.ordinal()].increment();
-        if (snapshot.databaseNode != null) {
-            retainedActiveLoads[ScopePath.Level.DATABASE.ordinal()].increment();
-        }
-        if (snapshot.tableNode != null) {
-            retainedActiveLoads[ScopePath.Level.TABLE.ordinal()].increment();
-        }
-        if (snapshot.partitionNode != null) {
-            retainedActiveLoads[ScopePath.Level.PARTITION.ordinal()].increment();
+        for (ScopeNode node : snapshot.nodes) {
+            retainedActiveLoads[node.level.ordinal()].increment();
         }
         return true;
     }
 
     private void release(ScopeSnapshot snapshot) {
         snapshot.leafNode().releaseRetain();
-        retainedActiveLoads[ScopePath.Level.CATALOG.ordinal()].decrement();
-        if (snapshot.databaseNode != null) {
-            retainedActiveLoads[ScopePath.Level.DATABASE.ordinal()].decrement();
-        }
-        if (snapshot.tableNode != null) {
-            retainedActiveLoads[ScopePath.Level.TABLE.ordinal()].decrement();
-        }
-        if (snapshot.partitionNode != null) {
-            retainedActiveLoads[ScopePath.Level.PARTITION.ordinal()].decrement();
+        for (ScopeNode node : snapshot.nodes) {
+            retainedActiveLoads[node.level.ordinal()].decrement();
         }
         tryPrune(snapshot);
     }
@@ -481,14 +434,8 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     private void tryPrune(ScopeSnapshot snapshot) {
-        if (snapshot.partitionNode != null) {
-            tryPrune(snapshot.partitionNode);
-        }
-        if (snapshot.tableNode != null) {
-            tryPrune(snapshot.tableNode);
-        }
-        if (snapshot.databaseNode != null) {
-            tryPrune(snapshot.databaseNode);
+        for (int i = snapshot.nodes.length - 1; i > 0; i--) {
+            tryPrune(snapshot.nodes[i]);
         }
     }
 
@@ -525,6 +472,8 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         accumulator.registrations += state.entries.size();
         state.children.values().forEach(child -> {
             switch (child.level) {
+                case NAMESPACE:
+                    break;
                 case DATABASE:
                     accumulator.databaseNodes++;
                     break;
@@ -551,7 +500,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
     void forceGenerationForTest(ScopePath path, long generation) {
         List<ScopeNode> existing = resolveExisting(path);
-        if (existing.size() != path.level().ordinal() + 1) {
+        if (existing.size() != path.depth() + 1) {
             throw new IllegalStateException("Scope does not exist: " + path);
         }
         ScopeNode node = existing.get(existing.size() - 1);
@@ -568,7 +517,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
     long generationForTest(ScopePath path) {
         List<ScopeNode> existing = resolveExisting(path);
-        if (existing.size() != path.level().ordinal() + 1) {
+        if (existing.size() != path.depth() + 1) {
             throw new IllegalStateException("Scope does not exist: " + path);
         }
         return existing.get(existing.size() - 1).current.get().generation;
@@ -626,114 +575,48 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
 
     static final class ScopeSnapshot {
         private final ScopePath path;
-        private final ScopeNode catalogNode;
-        private final ScopeState catalogState;
-        private final ScopeNode databaseNode;
-        private final ScopeState databaseState;
-        private final ScopeNode tableNode;
-        private final ScopeState tableState;
-        private final ScopeNode partitionNode;
-        private final ScopeState partitionState;
+        private final ScopeNode[] nodes;
+        private final ScopeState[] states;
         private final int pathHashCode;
 
-        private ScopeSnapshot(
-                ScopePath path,
-                ScopeNode catalogNode,
-                ScopeState catalogState,
-                ScopeNode databaseNode,
-                ScopeState databaseState,
-                ScopeNode tableNode,
-                ScopeState tableState,
-                ScopeNode partitionNode,
-                ScopeState partitionState) {
+        private ScopeSnapshot(ScopePath path, ScopeNode[] nodes, ScopeState[] states) {
             this.path = path;
-            this.catalogNode = catalogNode;
-            this.catalogState = catalogState;
-            this.databaseNode = databaseNode;
-            this.databaseState = databaseState;
-            this.tableNode = tableNode;
-            this.tableState = tableState;
-            this.partitionNode = partitionNode;
-            this.partitionState = partitionState;
+            this.nodes = nodes;
+            this.states = states;
             this.pathHashCode = path.hashCode();
         }
 
-        static ScopeSnapshot capture(
-                ScopePath path,
-                ScopeNode catalogNode,
-                ScopeNode databaseNode,
-                ScopeNode tableNode,
-                ScopeNode partitionNode) {
-            ScopeState catalogState = catalogNode.current.get();
-            ScopeState databaseState = databaseNode == null ? null : databaseNode.current.get();
-            ScopeState tableState = tableNode == null ? null : tableNode.current.get();
-            ScopeState partitionState = partitionNode == null ? null : partitionNode.current.get();
-            ScopeState leafState = partitionState != null
-                    ? partitionState
-                    : tableState != null ? tableState : databaseState != null ? databaseState : catalogState;
-            ScopeSnapshot currentSnapshot = leafState.scopeSnapshot;
-            if (currentSnapshot != null && currentSnapshot.matches(
-                    catalogNode,
-                    catalogState,
-                    databaseNode,
-                    databaseState,
-                    tableNode,
-                    tableState,
-                    partitionNode,
-                    partitionState)) {
-                return currentSnapshot;
+        static ScopeSnapshot capture(ScopePath path, ScopeNode[] nodes) {
+            ScopeState[] states = new ScopeState[nodes.length];
+            for (int i = 0; i < nodes.length; i++) {
+                states[i] = nodes[i].current.get();
             }
-            synchronized (leafState) {
-                currentSnapshot = leafState.scopeSnapshot;
-                if (currentSnapshot == null || !currentSnapshot.matches(
-                        catalogNode,
-                        catalogState,
-                        databaseNode,
-                        databaseState,
-                        tableNode,
-                        tableState,
-                        partitionNode,
-                        partitionState)) {
-                    currentSnapshot = new ScopeSnapshot(
-                            path,
-                            catalogNode,
-                            catalogState,
-                            databaseNode,
-                            databaseState,
-                            tableNode,
-                            tableState,
-                            partitionNode,
-                            partitionState);
-                    leafState.scopeSnapshot = currentSnapshot;
+            ScopeState leaf = states[states.length - 1];
+            ScopeSnapshot current = leaf.scopeSnapshot;
+            if (current != null && current.matches(nodes, states)) {
+                return current;
+            }
+            synchronized (leaf) {
+                current = leaf.scopeSnapshot;
+                if (current == null || !current.matches(nodes, states)) {
+                    current = new ScopeSnapshot(path, nodes, states);
+                    leaf.scopeSnapshot = current;
                 }
-                return currentSnapshot;
+                return current;
             }
         }
 
         boolean isCurrent(ScopedMetaCacheRegistry registry) {
-            if (registry.closed.get() || registry.root != catalogNode
-                    || catalogNode.current.get() != catalogState) {
+            if (registry.closed.get() || registry.root != nodes[0]) {
                 return false;
             }
-            if (databaseNode == null) {
-                return true;
+            for (int i = 0; i < nodes.length; i++) {
+                if (nodes[i].current.get() != states[i]
+                        || (i > 0 && states[i - 1].children.get(nodes[i].childKey) != nodes[i])) {
+                    return false;
+                }
             }
-            if (catalogState.children.get(databaseNode.childKey) != databaseNode
-                    || databaseNode.current.get() != databaseState) {
-                return false;
-            }
-            if (tableNode == null) {
-                return true;
-            }
-            if (databaseState.children.get(tableNode.childKey) != tableNode
-                    || tableNode.current.get() != tableState) {
-                return false;
-            }
-            if (partitionNode == null) {
-                return true;
-            }
-            return tableState.children.get(partitionNode.childKey) == partitionNode
-                    && partitionNode.current.get() == partitionState;
+            return true;
         }
 
         ScopePath path() {
@@ -741,64 +624,31 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         }
 
         ScopeNode leafNode() {
-            if (partitionNode != null) {
-                return partitionNode;
-            }
-            if (tableNode != null) {
-                return tableNode;
-            }
-            if (databaseNode != null) {
-                return databaseNode;
-            }
-            return catalogNode;
+            return nodes[nodes.length - 1];
         }
 
         ScopeState leafState() {
-            if (partitionState != null) {
-                return partitionState;
-            }
-            if (tableState != null) {
-                return tableState;
-            }
-            if (databaseState != null) {
-                return databaseState;
-            }
-            return catalogState;
+            return states[states.length - 1];
         }
 
         boolean sameGeneration(ScopeSnapshot other) {
-            return matches(
-                    other.catalogNode,
-                    other.catalogState,
-                    other.databaseNode,
-                    other.databaseState,
-                    other.tableNode,
-                    other.tableState,
-                    other.partitionNode,
-                    other.partitionState);
+            return matches(other.nodes, other.states);
         }
 
         int pathHashCode() {
             return pathHashCode;
         }
 
-        private boolean matches(
-                ScopeNode expectedCatalogNode,
-                ScopeState expectedCatalogState,
-                ScopeNode expectedDatabaseNode,
-                ScopeState expectedDatabaseState,
-                ScopeNode expectedTableNode,
-                ScopeState expectedTableState,
-                ScopeNode expectedPartitionNode,
-                ScopeState expectedPartitionState) {
-            return catalogNode == expectedCatalogNode
-                    && catalogState == expectedCatalogState
-                    && databaseNode == expectedDatabaseNode
-                    && databaseState == expectedDatabaseState
-                    && tableNode == expectedTableNode
-                    && tableState == expectedTableState
-                    && partitionNode == expectedPartitionNode
-                    && partitionState == expectedPartitionState;
+        private boolean matches(ScopeNode[] expectedNodes, ScopeState[] expectedStates) {
+            if (nodes.length != expectedNodes.length) {
+                return false;
+            }
+            for (int i = 0; i < nodes.length; i++) {
+                if (nodes[i] != expectedNodes[i] || states[i] != expectedStates[i]) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 

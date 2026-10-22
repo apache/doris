@@ -20,6 +20,7 @@ package org.apache.doris.connector.adbc;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -40,6 +41,45 @@ import java.util.function.Supplier;
  * that only compared returned values would pass against a cache that never caches.
  */
 class AdbcMetadataCacheTest {
+
+    @Test
+    void rootResourceInvalidationIncludesRememberedMemberships() {
+        try (CatalogMetaCache root = CatalogMetaCache.unmanaged()) {
+            CatalogMetaCache domain = root.openDomain("adbc", ScopePath.Coordinates.REMOTE,
+                    getClass().getClassLoader());
+            AdbcMetadataCache cache = new AdbcMetadataCache(domain, Map.of());
+            Counting<List<AdbcNamespace>> namespaces = new Counting<>(List.of(MAIN, OTHER));
+            Counting<List<String>> main = new Counting<>(List.of("t1"));
+            Counting<List<String>> other = new Counting<>(List.of("t9"));
+            Counting<Schema> schema = new Counting<>(SCHEMA);
+            cache.namespaces(namespaces);
+            cache.tableNames(MAIN, main);
+            cache.tableNames(OTHER, other);
+            cache.tableSchema(MAIN_T1, schema);
+
+            root.invalidateScopes(List.of(
+                    ScopePath.table("main", "t1").in(ScopePath.Coordinates.REMOTE),
+                    ScopePath.tableCollection("main").in(ScopePath.Coordinates.REMOTE)));
+            cache.namespaces(namespaces);
+            cache.tableNames(MAIN, main);
+            cache.tableNames(OTHER, other);
+            cache.tableSchema(MAIN_T1, schema);
+            Assertions.assertEquals(1, namespaces.calls);
+            Assertions.assertEquals(2, main.calls);
+            Assertions.assertEquals(1, other.calls);
+            Assertions.assertEquals(2, schema.calls);
+
+            root.invalidateScopes(List.of(
+                    ScopePath.database("main").in(ScopePath.Coordinates.REMOTE),
+                    ScopePath.databaseCollection().in(ScopePath.Coordinates.REMOTE)));
+            cache.namespaces(namespaces);
+            cache.tableNames(MAIN, main);
+            cache.tableNames(OTHER, other);
+            Assertions.assertEquals(2, namespaces.calls);
+            Assertions.assertEquals(3, main.calls);
+            Assertions.assertEquals(1, other.calls);
+        }
+    }
 
     @Test
     void managedCachesAccountAllPayloadsAndReleaseReservations() {

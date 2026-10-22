@@ -18,64 +18,65 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Collections;
 
-/** Verifies connector-owned caches follow catalog refresh semantics. */
+/** Catalog refresh reaches connector domains through the root even before schema caches are initialized. */
 public class PluginDrivenExternalCatalogCacheTest {
-
-    private static PluginDrivenExternalCatalog catalogWith(Connector connector) {
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "iceberg");
-        return new PluginDrivenExternalCatalog(1L, "test_ctl", null, props, "", connector);
-    }
-
     @Test
     public void refreshCatalogWithInvalidateDropsConnectorCaches() {
-        Connector connector = Mockito.mock(Connector.class);
-        PluginDrivenExternalCatalog catalog = catalogWith(connector);
-        Env env = Mockito.mock(Env.class);
-        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
-        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            catalog.onRefreshCache(true);
-        }
-        // Connector state must be cleared before the engine invalidates row counts derived from it.
-        InOrder order = Mockito.inOrder(connector, cacheMgr);
-        order.verify(connector).invalidateAll();
-        order.verify(cacheMgr).invalidateCatalog(1L);
+        refresh(true);
     }
 
     @Test
-    public void refreshCatalogWithoutInvalidateDoesNotTouchConnector() {
+    public void refreshCatalogWithoutInvalidatePreservesConnectorCaches() {
+        refresh(false);
+    }
+
+    private void refresh(boolean invalidate) {
         Connector connector = Mockito.mock(Connector.class);
-        PluginDrivenExternalCatalog catalog = catalogWith(connector);
-        Env env = Mockito.mock(Env.class);
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            catalog.onRefreshCache(false);
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(1L, "c", null,
+                Collections.singletonMap("type", "iceberg"), "", connector);
+        try (CatalogMetaCache root = catalog.getFeMetaCacheOwner()) {
+            MetaCache<String, String> remote = root.openDomain("iceberg", ScopePath.Coordinates.REMOTE,
+                    getClass().getClassLoader()).create(MetaCacheDefinition.<String, String>builder("table",
+                            CacheSpec.of(true, -1, 10), key -> ScopePath.table("DB", key)).build());
+            remote.put("T", "old");
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+            Mockito.doReturn(catalog).when(catalogs).getCatalog(1L);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(new ExternalMetaCacheMgr(true));
+            try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+                current.when(Env::getCurrentEnv).thenReturn(env);
+                catalog.onRefreshCache(invalidate);
+            }
+            Assertions.assertEquals(invalidate ? null : "old", remote.getIfPresent("T"));
+            Mockito.verify(connector, Mockito.never()).invalidateAll();
         }
-        Mockito.verify(connector, Mockito.never()).invalidateAll();
     }
 
     @Test
     public void refreshCatalogWithNullConnectorIsSafe() {
-        // A reset catalog has no connector to invalidate.
-        PluginDrivenExternalCatalog catalog = catalogWith(null);
+        PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(1L, "c", null,
+                Collections.singletonMap("type", "iceberg"), "", null);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
+            current.when(Env::getCurrentEnv).thenReturn(env);
             Assertions.assertDoesNotThrow(() -> catalog.onRefreshCache(true));
         }
     }

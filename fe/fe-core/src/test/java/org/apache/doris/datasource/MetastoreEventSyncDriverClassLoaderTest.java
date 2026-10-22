@@ -54,7 +54,7 @@ public class MetastoreEventSyncDriverClassLoaderTest {
                     connectorLoader, new Class<?>[] {Connector.class}, (proxy, method, args) -> {
                         if ("getEventSource".equals(method.getName())) {
                             acquisitionClassLoader.set(Thread.currentThread().getContextClassLoader());
-                            return null;
+                            return Collections.emptyList();
                         }
                         if ("getMetadata".equals(method.getName()) || "close".equals(method.getName())) {
                             return null;
@@ -187,12 +187,12 @@ public class MetastoreEventSyncDriverClassLoaderTest {
                     });
             Connector connector = (Connector) Proxy.newProxyInstance(
                     connectorLoader, new Class<?>[] {Connector.class}, (proxy, method, args) -> {
-                        if ("invalidateDb".equals(method.getName())) {
+                        if ("cacheDependencies".equals(method.getName())) {
                             invalidationClassLoader.set(Thread.currentThread().getContextClassLoader());
                             if (failInvalidation) {
                                 throw new IllegalStateException("expected invalidation failure");
                             }
-                            return null;
+                            return Collections.emptyList();
                         }
                         if ("getMetadata".equals(method.getName()) || "close".equals(method.getName())) {
                             return null;
@@ -204,6 +204,8 @@ public class MetastoreEventSyncDriverClassLoaderTest {
             Mockito.when(catalog.getId()).thenReturn(1L);
             Mockito.when(catalog.getName()).thenReturn("test_catalog");
             Mockito.when(catalog.canonicalLocalDatabaseNameFromRemote("db1")).thenReturn("db1");
+            Mockito.when(catalog.resolveDatabaseNameForInvalidation("db1")).thenReturn("db1");
+            Mockito.when(catalog.getConnectorIfPresent()).thenReturn(connector);
             CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
             Mockito.doAnswer(invocation -> {
                 mutationClassLoader.set(Thread.currentThread().getContextClassLoader());

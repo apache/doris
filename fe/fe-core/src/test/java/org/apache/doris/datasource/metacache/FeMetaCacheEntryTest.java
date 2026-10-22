@@ -92,6 +92,40 @@ public class FeMetaCacheEntryTest {
     }
 
     @Test
+    public void testRetirementPinsAuxiliaryStateUntilAcceptedActionFinishes() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch actionEntered = new CountDownLatch(1);
+        CountDownLatch finishAction = new CountDownLatch(1);
+        AtomicInteger cleanups = new AtomicInteger();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            FeMetaCacheEntry<String, Integer> entry = FeMetaCacheEntry.sharedLookup(owner,
+                    ScopePath::database, ScopePath.catalog(), "objects",
+                    String::length, ENABLED, executor, false, 8, (key, value, cause) -> { });
+            entry.onRetired(cleanups::incrementAndGet);
+            Assertions.assertEquals(2, entry.get("db"));
+            Future<Integer> read = worker.submit(() -> entry.getAndRunIfCurrent("db", (key, value) -> {
+                actionEntered.countDown();
+                await(finishAction);
+                Assertions.assertEquals(0, cleanups.get());
+            }));
+            Assertions.assertTrue(actionEntered.await(3L, TimeUnit.SECONDS));
+            entry.close();
+            Assertions.assertEquals(0, cleanups.get());
+            finishAction.countDown();
+            Assertions.assertEquals(2, read.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, cleanups.get());
+            Assertions.assertTrue(owner.entries().isEmpty());
+            entry.close();
+            Assertions.assertEquals(1, cleanups.get());
+        } finally {
+            finishAction.countDown();
+            worker.shutdownNow();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testRejectedWeightedMutationReturnsWithoutRetryingForever() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService worker = Executors.newSingleThreadExecutor();

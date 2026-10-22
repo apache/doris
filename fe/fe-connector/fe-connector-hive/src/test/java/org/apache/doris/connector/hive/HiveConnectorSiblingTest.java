@@ -387,34 +387,40 @@ public class HiveConnectorSiblingTest {
     }
 
     @Test
-    public void refreshHooksForwardToBothBuiltSiblings() {
-        // WHY: fe-core routes REFRESH TABLE/DATABASE/CATALOG only to a catalog's PRIMARY connector. If the
-        // gateway did not forward its invalidate hooks, the iceberg sibling's latest-snapshot pin could NEVER
-        // be dropped by an explicit REFRESH — and its access-based expiry keeps a continuously-queried stale
-        // entry alive indefinitely, so staleness would be unbounded (breaks "bounded by TTL + REFRESH").
-        FakeSibling icebergSibling = new FakeSibling();
-        FakeSibling hudiSibling = new FakeSibling();
-        FakeConnectorContext context = new FakeConnectorContext() {
-            @Override
-            public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
-                return "hudi".equals(catalogType) ? hudiSibling : icebergSibling;
-            }
-        };
-        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
-        connector.getOrCreateIcebergSibling();
-        connector.getOrCreateHudiSibling();
+    public void refreshHooksInvalidateBuiltSiblingDomainsWithoutForwarding() {
+        try (org.apache.doris.connector.cache.CatalogMetaCache root =
+                org.apache.doris.connector.cache.CatalogMetaCache.unmanaged()) {
+            FakeSibling icebergSibling = new FakeSibling();
+            FakeConnectorContext context = new FakeConnectorContext() {
+                @Override
+                public org.apache.doris.connector.cache.CatalogMetaCache createCacheDomain(
+                        String engine, Map<String, String> properties) {
+                    return root.openDomain(engine);
+                }
 
-        connector.invalidateTable("db1", "t1");
-        connector.invalidateDb("db2");
-        connector.invalidateAll();
-
-        for (FakeSibling sibling : new FakeSibling[] {icebergSibling, hudiSibling}) {
-            Assertions.assertEquals("db1.t1", sibling.lastInvalidatedTable,
-                    "invalidateTable must forward the (db, table) pair to each built sibling");
-            Assertions.assertEquals("db2", sibling.lastInvalidatedDb,
-                    "invalidateDb must forward the db to each built sibling");
-            Assertions.assertEquals(1, sibling.invalidateAllCount,
-                    "invalidateAll must forward to each built sibling exactly once");
+                @Override
+                public Connector createSiblingConnector(String type, Map<String, String> properties) {
+                    return icebergSibling;
+                }
+            };
+            HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(), context);
+            connector.getOrCreateIcebergSibling();
+            org.apache.doris.connector.cache.MetaCache<String, String> siblingCache = root.openDomain("iceberg")
+                    .create(org.apache.doris.connector.cache.MetaCacheDefinition.<String, String>builder("table",
+                            org.apache.doris.connector.cache.CacheSpec.of(true, -1, 10),
+                            key -> org.apache.doris.connector.cache.ScopePath.table("db", key)).build());
+            siblingCache.put("a", "old");
+            siblingCache.put("b", "other");
+            connector.invalidateTable("db", "a");
+            Assertions.assertNull(siblingCache.getIfPresent("a"));
+            Assertions.assertEquals("other", siblingCache.getIfPresent("b"));
+            connector.invalidateDb("db");
+            Assertions.assertNull(siblingCache.getIfPresent("b"));
+            siblingCache.put("a", "reloaded");
+            connector.invalidateAll();
+            Assertions.assertNull(siblingCache.getIfPresent("a"));
+            Assertions.assertEquals(0, icebergSibling.invalidateAllCount);
+            Assertions.assertNull(icebergSibling.lastInvalidatedTable);
         }
     }
 

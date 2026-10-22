@@ -95,22 +95,16 @@ public class RefreshTableTest extends TestWithFeService {
         long l2 = table.getUpdateTime();
         Assertions.assertTrue(l2 >= l1);
         TableNameInfo tableNameInfo = new TableNameInfo("test1", "db1", "tbl11");
-        try {
-            Env.getCurrentEnv().getRefreshManager()
-                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
-        } catch (Exception e) {
-            // Do nothing
-        }
+        Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
+                tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
         Assertions.assertFalse(table.isObjectCreated());
-        long l3 = table.getUpdateTime();
-        Assertions.assertTrue(l3 >= l2);
-        table.getFullSchema();
-        // only table.getFullSchema() can change table.lastUpdateTime
-        long l4 = table.getUpdateTime();
-        Assertions.assertTrue(l4 > l3);
-        // updateTime is equal to schema update time as default
-        long l5 = table.getUpdateTime();
-        Assertions.assertTrue(l5 >= l4);
+        long retiredUpdateTime = table.getUpdateTime();
+        TestExternalTable replacement = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
+        Assertions.assertNotSame(table, replacement);
+        Assertions.assertFalse(replacement.isObjectCreated());
+        replacement.getFullSchema();
+        Assertions.assertTrue(replacement.getUpdateTime() > 0);
+        Assertions.assertEquals(retiredUpdateTime, table.getUpdateTime());
 
         // external info schema db
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDbNullable(InfoSchemaDb.DATABASE_NAME);

@@ -90,7 +90,7 @@ public class ConnectorPluginSurfaceTest {
         }
         // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean) - the nullability the
         // source declares, kept separate from the nullability the engine reads the column with.
-        Assertions.assertEquals("19.0", version.getProperty("api.version"));
+        Assertions.assertEquals("20.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
