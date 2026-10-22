@@ -260,7 +260,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         // of their own (buffered_reader.cpp:426), and the read does allocate down there: in cloud
         // mode _read_at reaches CachedRemoteFileReader::read_at_impl ->
         // _read_from_indirect_cache -> _read_remote_blocks_into_cache -> _execute_remote_read ->
-        // _execute_s3_fallback, which does `new char[span_size]`. Without this the span is charged
+        // _execute_remote_fallback, which does `new char[span_size]`. Without this the span is charged
         // to no tracker at all, which memory_orphan_check() (on by default) treats as a bug.
         // Same shape as the hedged-read path in cached_remote_file_reader.cpp:500-505.
         const std::shared_ptr<ResourceContext> parent_resource_ctx =
