@@ -33,7 +33,6 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
@@ -83,7 +82,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -104,7 +102,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final String READ_COMMITTED_ZERO_ROWS_WITH_LAG_MESSAGE = "Kafka routine load consumed 0 rows "
             + "while lag is still positive under isolation.level=read_committed. If the upstream producer uses "
             + "Kafka transactions, some records may be in uncommitted transactions and are not visible yet.";
-    private static final String SENSITIVE_PROPERTY_MASK = "******";
 
     @SerializedName("bl")
     private String brokerList;
@@ -740,25 +737,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
         Map<String, String> maskedProperties = new HashMap<>();
-        customProperties.forEach((key, value) -> {
-            String lowerKey = key.toLowerCase(Locale.ROOT);
-            boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
-                    || KafkaConfiguration.AWS_ACCESS_KEY.equalsIgnoreCase(key)
-                    || DatasourcePrintableMap.isSensitiveKey(key)
-                    || lowerKey.endsWith(".password")
-                    || lowerKey.endsWith(".secret")
-                    || lowerKey.endsWith(".secret_key")
-                    || lowerKey.endsWith(".secret.key")
-                    || lowerKey.endsWith(".session_key")
-                    || lowerKey.endsWith(".session.token")
-                    || lowerKey.contains(".private.key.")
-                    || lowerKey.endsWith(".private.key")
-                    || lowerKey.endsWith(".private_key")
-                    || lowerKey.endsWith(".passphrase")
-                    || "ssl.keystore.key".equals(lowerKey)
-                    || "ssl.key.pem".equals(lowerKey);
-            maskedProperties.put(keyPrefix + key, sensitive ? SENSITIVE_PROPERTY_MASK : value);
-        });
+        customProperties.forEach((key, value) -> maskedProperties.put(keyPrefix + key,
+                KafkaPropertiesUtil.isSensitiveKey(key) ? KafkaPropertiesUtil.SENSITIVE_PROPERTY_MASK : value));
         return maskedProperties;
     }
 
@@ -893,10 +873,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 }
             }
         }
-        LOG.info("modify the properties of kafka routine load job: {}, job property keys: {}, "
-                        + "datasource property keys: {}",
-                this.id, jobProperties.keySet(), dataSourceProperties == null ? Collections.emptySet()
-                        : MapUtils.emptyIfNull(dataSourceProperties.getOriginalDataSourceProperties()).keySet());
+        LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",
+                this.id, jobProperties, dataSourceProperties == null ? Collections.emptyMap()
+                        : KafkaPropertiesUtil.maskProperties(dataSourceProperties.getOriginalDataSourceProperties()));
     }
 
     private void resetCloudProgress(Cloud.ResetRLProgressRequest.Builder builder) throws DdlException {

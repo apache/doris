@@ -5314,7 +5314,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private String parsePropertyKey(PropertyKeyContext item) {
+    protected String parsePropertyKey(PropertyKeyContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant()).trim();
         }

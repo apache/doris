@@ -59,7 +59,7 @@ import java.util.Optional;
  * ...
  * )
  */
-public class AlterRoutineLoadCommand extends AlterCommand {
+public class AlterRoutineLoadCommand extends AlterCommand implements NeedAuditEncryption {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     private static final ImmutableSet<String> CONFIGURABLE_JOB_PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -352,5 +352,10 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     @Override
     public StmtType stmtType() {
         return StmtType.ALTER;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }
