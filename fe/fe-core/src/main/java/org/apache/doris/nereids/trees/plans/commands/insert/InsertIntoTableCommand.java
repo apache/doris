@@ -346,6 +346,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             // so we need to set this here
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
             stmtExecutor.setCoord(insertExecutor.getCoordinator());
+            if (insertExecutor instanceof BaseExternalTableInsertExecutor) {
+                stmtExecutor.setExternalDmlAuditCoordinator(insertExecutor.getCoordinator());
+            }
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));

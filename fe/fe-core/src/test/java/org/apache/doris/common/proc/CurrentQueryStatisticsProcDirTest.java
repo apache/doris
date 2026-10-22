@@ -19,12 +19,22 @@ package org.apache.doris.common.proc;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 /**
  * Unit test for CurrentQueryStatisticsProcDir progress formatting.
  * Tests the formatProgress method directly — no mocking or reflection required.
  */
 public class CurrentQueryStatisticsProcDirTest {
+
+    @Test
+    public void testRemoteSpillColumnsAreAppendedLast() {
+        // Old FE rows omit the appended columns during a rolling upgrade.
+        int n = CurrentQueryStatisticsProcDir.TITLE_NAMES.size();
+        Assertions.assertEquals("Progress", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 3));
+        Assertions.assertEquals("SpillWriteBytesToRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 2));
+        Assertions.assertEquals("SpillReadBytesFromRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 1));
+    }
 
     @Test
     public void testProgressNormal() {
