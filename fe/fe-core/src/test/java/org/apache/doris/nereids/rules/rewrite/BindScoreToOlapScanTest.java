@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 class BindScoreToOlapScanTest extends TestWithFeService {
-    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableFeatureChangelog;
     private boolean originalEnableTableStream;
 
     @Override
@@ -75,21 +75,21 @@ class BindScoreToOlapScanTest extends TestWithFeService {
                 + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
                 + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')");
-        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
         originalEnableTableStream = Config.enable_table_stream;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         Config.enable_table_stream = true;
         createTable("CREATE TABLE score_usage_binlog (id INT, c1 TEXT, "
                 + "INDEX idx_c1 (c1) USING INVERTED PROPERTIES ('parser' = 'english')) "
                 + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
-                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+                + "PROPERTIES ('replication_num' = '1', 'changelog.enable' = 'true')");
         createTable("CREATE STREAM score_usage_stream ON TABLE score_usage_binlog "
                 + "PROPERTIES ('type' = 'append_only')");
     }
 
     @Override
     protected void runAfterAll() {
-        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
         Config.enable_table_stream = originalEnableTableStream;
     }
 
