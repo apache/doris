@@ -84,8 +84,8 @@ public class OlapTableTest {
         OlapTable table = newFlexiblePartialUpdateTable();
         table.setIndexMeta(20L, "row_binlog", table.getBaseSchema(true), 0, 0, (short) 2,
                 TStorageType.COLUMN, KeysType.UNIQUE_KEYS);
-        table.getIndexMetaByIndexId(20L).setRowBinlogIndexId(20L);
-        table.getIndexMetaByIndexId(10L).setRowBinlogIndexId(20L);
+        table.getIndexMetaByIndexId(20L).setChangelogIndexId(20L);
+        table.getIndexMetaByIndexId(10L).setChangelogIndexId(20L);
 
         Assertions.assertDoesNotThrow(table::validateForFlexiblePartialUpdate);
     }
