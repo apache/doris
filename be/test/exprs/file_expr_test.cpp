@@ -167,12 +167,14 @@ protected:
         auto input =
                 make_nullable(file_type)->create_column_const(4, parent_null ? Field() : value);
         Block block {{input, make_nullable(file_type), "file"},
-                     {selector("inline", 4), text, "field"},
                      {nullptr, make_nullable(binary), "output"}};
-        FunctionArrayElement function;
-        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 4).ok());
-        const auto& output = block.get_by_position(2).column;
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "fl_get_binary", {block.get_by_position(0)}, make_nullable(binary));
+        ASSERT_NE(function, nullptr);
+        ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 4).ok());
+        const auto& output = block.get_by_position(1).column;
         ASSERT_EQ(output->size(), 4);
+        ASSERT_TRUE(is_column_const(*output));
         for (size_t row = 0; row < 4; ++row) {
             check_constant_inline_row(*output, row, payload, parent_null);
         }
@@ -202,19 +204,86 @@ TEST_F(FileExprTest, InlineGetterAndSixFieldStructRoundTripPreserveBinary) {
     EXPECT_EQ((*restored)[1].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(), 0);
     EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[5].is_null());
     EXPECT_TRUE(restored->is_null_at(3));
-    ColumnsWithTypeAndName args {input, {selector("InLiNe", 4), text, "field"}};
-    auto function = SimpleFunctionFactory::instance().get_function("element_at", args,
+    ColumnsWithTypeAndName args {input};
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", args,
                                                                    schema.get_element(5));
     ASSERT_NE(function, nullptr);
     EXPECT_EQ(remove_nullable(function->get_return_type())->get_primitive_type(), TYPE_VARBINARY);
-    Block block {args[0], args[1], {nullptr, schema.get_element(5), "output"}};
-    ASSERT_TRUE(function->execute(nullptr, block, {0, 1}, 2, 4).ok());
-    const auto& output = block.get_by_position(2).column;
+    Block block {args[0], {nullptr, schema.get_element(5), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 4).ok());
+    const auto& output = block.get_by_position(1).column;
     EXPECT_EQ((*output)[0].get<TYPE_VARBINARY>().str(), bytes);
     EXPECT_FALSE(output->is_null_at(1));
     EXPECT_EQ((*output)[1].get<TYPE_VARBINARY>().size(), 0);
     EXPECT_TRUE(output->is_null_at(2));
     EXPECT_TRUE(output->is_null_at(3));
+}
+
+TEST_F(FileExprTest, BinaryGetterPreservesParentNullsAndSharesPayload) {
+    std::string bytes(1 << 20, '\xff');
+    bytes[0] = '\0';
+    auto value = file_value();
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto values = make_nullable(file_type)->create_column();
+    values->insert(value);
+    values->insert(value);
+    values->insert(value);
+    auto& source = assert_cast<ColumnNullable&>(*values);
+    source.get_null_map_data()[0] = 1;
+    ColumnWithTypeAndName input {std::move(values), make_nullable(file_type), "input"};
+    const auto& inline_column = assert_cast<const ColumnNullable&>(
+            assert_cast<const ColumnFile&>(source.get_nested_column()).get_column(5));
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 3).ok());
+    const auto& output = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(output.is_null_at(0));
+    EXPECT_FALSE(output.is_null_at(1));
+    EXPECT_FALSE(output.is_null_at(2));
+    EXPECT_EQ(output[1].get<TYPE_VARBINARY>().str(), bytes);
+    EXPECT_EQ(output.get_nested_column_ptr(), inline_column.get_nested_column_ptr());
+    EXPECT_FALSE(inline_column.is_null_at(0));
+    EXPECT_FALSE(source.is_null_at(1));
+}
+
+TEST_F(FileExprTest, BinaryGetterInsertsNullForMissingInline) {
+    const std::string bytes("\0\xff\x80", 3);
+    auto value = file_value();
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto empty = file_value();
+    empty.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+    auto values = file_type->create_column();
+    values->insert(value);
+    values->insert(value);
+    values->insert(empty);
+    auto& inline_column = assert_cast<ColumnNullable&>(
+            assert_cast<ColumnFile&>(*values).get_column(DataTypeFile::INLINE_FIELD_INDEX));
+    inline_column.get_null_map_data()[1] = 1;
+    ColumnWithTypeAndName input {std::move(values), file_type, "input"};
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 3).ok());
+    const auto& output = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ(output[0].get<TYPE_VARBINARY>().str(), bytes);
+    EXPECT_TRUE(output.is_null_at(1));
+    EXPECT_TRUE(output.get_nested_column()[1].get<TYPE_VARBINARY>().empty());
+    EXPECT_FALSE(output.is_null_at(2));
+    EXPECT_TRUE(output[2].get<TYPE_VARBINARY>().empty());
+    EXPECT_EQ(inline_column.get_nested_column()[1].get<TYPE_VARBINARY>().str(), bytes);
+}
+
+TEST_F(FileExprTest, BinaryGetterHandlesEmptyColumns) {
+    const auto input = column(file_type, {});
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 0).ok());
+    EXPECT_EQ(block.get_by_position(1).column->size(), 0);
 }
 
 TEST_F(FileExprTest, StructCastMatchesReorderedPublicNamesAndStringFamily) {

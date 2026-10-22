@@ -232,6 +232,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Factorial;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Format;
@@ -1490,6 +1491,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitFirstSignificantSubdomain(FirstSignificantSubdomain firstSignificantSubdomain, C context) {
         return visitScalarFunction(firstSignificantSubdomain, context);
+    }
+
+    default R visitFlGetBinary(FlGetBinary function, C context) {
+        return visitScalarFunction(function, context);
     }
 
     default R visitFloor(Floor floor, C context) {
