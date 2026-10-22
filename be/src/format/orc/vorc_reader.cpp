@@ -2433,6 +2433,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             *read_rows = 0;
             return Status::OK();
         }
+    } catch (const Exception&) {
+        // Keep Doris errors (including memory limits) on the existing worker exception path.
+        throw;
     } catch (const std::exception& e) {
         const std::string err_msg = e.what();
         if (_io_ctx && _io_ctx->should_stop && err_msg == "stop") {

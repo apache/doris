@@ -18,6 +18,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <list>
 #include <memory>
 #include <string>
@@ -25,6 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -453,19 +455,24 @@ public:
     const std::string& getName() const override { return _input->getName(); }
 
     void read(void* buf, uint64_t length, uint64_t offset) override {
-        if (!_failure.empty()) {
+        if (_failure) {
             ++failed_reads;
-            if (_cancel_on_read) {
-                _io_ctx->should_stop = true;
-            }
-            throw orc::ParseError(_failure);
+            _failure();
         }
         _input->read(buf, length, offset);
     }
 
     void fail_reads(std::string message, bool cancel_on_read = false) {
-        _failure = std::move(message);
-        _cancel_on_read = cancel_on_read;
+        _failure = [this, message = std::move(message), cancel_on_read] {
+            if (cancel_on_read) {
+                _io_ctx->should_stop = true;
+            }
+            throw orc::ParseError(message);
+        };
+    }
+
+    void fail_with_doris_exception() {
+        _failure = [] { throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected memory limit"); };
     }
 
     size_t failed_reads = 0;
@@ -473,8 +480,7 @@ public:
 private:
     std::unique_ptr<orc::InputStream> _input;
     io::IOContext* _io_ctx;
-    std::string _failure;
-    bool _cancel_on_read = false;
+    std::function<void()> _failure;
 };
 
 class OrcRowIdSeekTest : public testing::TestWithParam<bool> {
@@ -528,6 +534,20 @@ TEST_P(OrcRowIdSeekTest, CancellationDuringSeekReturnsEof) {
     EXPECT_TRUE(io_ctx.should_stop);
     EXPECT_TRUE(eof);
     EXPECT_EQ(read_rows, 0);
+    EXPECT_EQ(input->failed_reads, 1);
+}
+
+TEST_P(OrcRowIdSeekTest, DorisExceptionsKeepTheirErrorCode) {
+    input->fail_with_doris_exception();
+    Block block;
+    size_t read_rows = 0;
+    bool eof = false;
+    try {
+        const auto status = reader->get_next_block(&block, &read_rows, &eof);
+        FAIL() << "Expected a Doris exception, got " << status;
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+    }
     EXPECT_EQ(input->failed_reads, 1);
 }
 
