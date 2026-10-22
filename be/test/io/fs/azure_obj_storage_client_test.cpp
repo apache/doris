@@ -244,7 +244,8 @@ TEST_F(AzureFileMetadataTest, HeadMetadataOverridesFilenameInferenceAndProvidesC
     auto context = FunctionContext::create_context(&state, file, {text, text});
     context->set_constant_cols({std::make_shared<ColumnPtrWrapper>(resource), nullptr});
     ToFileWithAzureFilesystem to_file(fs);
-    ASSERT_TRUE(to_file.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            to_file.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     Block block {
             {resource, text, "resource"}, {std::move(uri), text, "uri"}, {nullptr, file, "result"}};
     ASSERT_TRUE(to_file.execute(context.get(), block, {0, 1}, 2, 1).ok());
@@ -254,7 +255,8 @@ TEST_F(AzureFileMetadataTest, HeadMetadataOverridesFilenameInferenceAndProvidesC
     ASSERT_FALSE(value[4].is_null());
     EXPECT_EQ(value[4].get<TYPE_STRING>(), "ETAG:opaque-2");
     EXPECT_EQ(transport->requests, 2);
-    ASSERT_TRUE(to_file.close(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            to_file.close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertions expand to branches.

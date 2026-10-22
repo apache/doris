@@ -154,9 +154,10 @@ TEST_F(FunctionToFileTest, AllNullBatchesAndQueriesNeverCreateClient) {
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
     EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
     auto context = make_context();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     auto clone = context->clone();
-    ASSERT_TRUE(function.open(clone.get(), FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function.open(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     const auto null_input = uris({Field(), Field()});
     ASSERT_FALSE(is_column_const(*null_input.column));
     for (auto* active : {context.get(), clone.get()}) {
@@ -168,12 +169,16 @@ TEST_F(FunctionToFileTest, AllNullBatchesAndQueriesNeverCreateClient) {
         ASSERT_TRUE(execute(active, uris({}), output).ok());
         EXPECT_EQ(output->size(), 0);
     }
-    ASSERT_TRUE(function.close(clone.get(), FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function.close(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.close(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function.close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
 
     auto null_uri = make_nullable(text)->create_column_const(4, Field());
     auto null_context = make_context(nullptr, null_uri);
-    ASSERT_TRUE(function.open(null_context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(null_context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ColumnPtr output;
     ASSERT_TRUE(execute(null_context.get(), {null_uri, make_nullable(text), "uri"}, output).ok());
     ASSERT_EQ(output->size(), 4);
@@ -188,10 +193,12 @@ TEST_F(FunctionToFileTest, CreatesClientOnFirstNonNullUsingConfigurationCaptured
     set_resource_config(resource);
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
     EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     auto clone = context->clone();
-    ASSERT_TRUE(function.open(clone.get(), FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function.open(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     ColumnPtr output;
     ASSERT_TRUE(execute(context.get(), uris({Field(), Field()}), output).ok());
     ASSERT_TRUE(execute(clone.get(), uris({Field()}), output).ok());
@@ -229,7 +236,8 @@ TEST_F(FunctionToFileTest, CreatesClientOnFirstNonNullUsingConfigurationCaptured
 TEST_F(FunctionToFileTest, LazyClientCreationFailureDoesNotStatOrPublishOutput) {
     auto context = make_context();
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(&function));
     EXPECT_CALL(function, create_filesystem(_, _, _))
             .WillOnce(Return(Status::IOError("client connection failed")));
@@ -248,7 +256,8 @@ TEST_F(FunctionToFileTest, CancellationBeforeLazyCreationDoesNotCreateClient) {
     auto context = make_context(&runtime);
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
     EXPECT_CALL(*filesystem, stat_impl(_, _, _)).Times(0);
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     runtime.cancel(Status::Cancelled("cancel before client creation"));
     ColumnPtr output;
     EXPECT_FALSE(execute(context.get(), uris({string("s3://bucket/a.txt")}), output).ok());
@@ -259,7 +268,8 @@ TEST_F(FunctionToFileTest, CancellationDuringLazyCreationDoesNotStat) {
     RuntimeState runtime;
     auto context = make_context(&runtime);
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ASSERT_TRUE(testing::Mock::VerifyAndClearExpectations(&function));
     EXPECT_CALL(function, create_filesystem(_, _, _))
             .WillOnce(Invoke([&](const TS3Resource&, const std::string&,
@@ -319,7 +329,8 @@ TEST_F(FunctionToFileTest, SwitchesFilesystemWhenUriBucketChanges) {
                         *metadata = io::FileStat {.size = 1};
                         return Status::OK();
                     }));
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ColumnPtr output;
     ASSERT_TRUE(execute(context.get(),
                         uris({string("s3://bucket/a.txt"), string("s3://bucket/b.txt"),
@@ -333,12 +344,14 @@ TEST_F(FunctionToFileTest, SwitchesFilesystemWhenUriBucketChanges) {
 TEST_F(FunctionToFileTest, ReusesClientAcrossBlocksAndClones) {
     auto context = make_context();
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     auto clone = context->clone();
-    EXPECT_EQ(clone->get_function_state(FunctionContext::FRAGMENT_LOCAL),
-              context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    ASSERT_TRUE(function.open(clone.get(), FunctionContext::THREAD_LOCAL).ok());
+    EXPECT_EQ(clone->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL),
+              context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    ASSERT_TRUE(function.open(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     io::FileStatContext* first_context = nullptr;
     size_t calls = 0;
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
@@ -359,7 +372,8 @@ TEST_F(FunctionToFileTest, ReusesClientAcrossBlocksAndClones) {
     ASSERT_TRUE(execute(context.get(), uris({string("s3://bucket/a.txt"), Field()}), output).ok());
     EXPECT_TRUE(output->is_null_at(1));
     ASSERT_TRUE(execute(clone.get(), uris({string("s3://bucket/b.txt")}), output).ok());
-    ASSERT_TRUE(function.close(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function.close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
     ASSERT_TRUE(execute(clone.get(), uris({string("s3://bucket/c.txt")}), output).ok());
 }
 
@@ -375,9 +389,12 @@ TEST_F(FunctionToFileTest, ClonesStatConcurrentlyDuringSameBucketReuseAndBucketS
                     *result = uri.starts_with("s3://other/") ? other_filesystem : filesystem;
                     return Status::OK();
                 }));
-        ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(
+                function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
         auto clone = context->clone();
-        ASSERT_TRUE(function.open(clone.get(), FunctionContext::THREAD_LOCAL).ok());
+        ASSERT_TRUE(
+                function.open(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
         std::promise<void> first_entered;
         std::promise<void> second_entered;
         std::promise<void> release_first;
@@ -442,7 +459,8 @@ TEST_F(FunctionToFileTest, PreservesRawUriServerMetadataAndZeroSize) {
     const std::string uri = "s3://bucket/a%2Fb.PNG?versionId=Ab%2FC";
     auto context = make_context();
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
             .WillOnce(
                     Invoke([&](const io::Path& path, io::FileStat* metadata, io::FileStatContext*) {
@@ -470,7 +488,8 @@ TEST_F(FunctionToFileTest, PreservesRawUriServerMetadataAndZeroSize) {
 TEST_F(FunctionToFileTest, InfersRawKeyExtensionsAndDefaultsUnknownNames) {
     auto context = make_context();
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     size_t calls = 0;
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
             .Times(3)
@@ -495,7 +514,8 @@ TEST_F(FunctionToFileTest, InfersRawKeyExtensionsAndDefaultsUnknownNames) {
 TEST_F(FunctionToFileTest, MetadataErrorsPropagateWithoutPublishingPartialOutput) {
     auto context = make_context();
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     {
         testing::InSequence sequence;
         EXPECT_CALL(*filesystem, stat_impl(_, _, _))
@@ -517,7 +537,8 @@ TEST_F(FunctionToFileTest, MetadataErrorsPropagateWithoutPublishingPartialOutput
 TEST_F(FunctionToFileTest, InfersExtensionFromCompleteRawKey) {
     auto context = make_context();
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     const std::vector<std::pair<std::string, std::string>> cases {
             {"s3://bucket/a%2E%50%4eg?filename=a.txt", "text/plain"},
             {"s3://bucket/a%252Epng", "application/octet-stream"},
@@ -554,7 +575,8 @@ TEST_F(FunctionToFileTest, ConstantUriStillExecutesEachRow) {
     auto uri = text->create_column_const(2, string("s3://bucket/a.txt"));
     auto context = make_context(nullptr, uri);
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     int64_t size = 0;
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
             .Times(2)
@@ -598,7 +620,8 @@ TEST_F(FunctionToFileTest,
 TEST_F(FunctionToFileTest, PreservesUriAndValidatesMetadataAfterSuccessfulStat) {
     auto context = make_context();
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     ColumnPtr output;
     for (const std::string uri : {"s3://bucket/a%ZZ.txt", "s3://bucket/a%"}) {
         EXPECT_CALL(*filesystem, stat_impl(_, _, _))
@@ -630,7 +653,8 @@ TEST_F(FunctionToFileTest, CancellationStopsFurtherMetadataCalls) {
     RuntimeState runtime;
     auto context = make_context(&runtime);
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
             .WillOnce(Invoke([&](const io::Path&, io::FileStat* metadata,
                                  io::FileStatContext* stat_context) {
@@ -653,10 +677,12 @@ TEST_F(FunctionToFileTest, CancellationCallbackSurvivesOriginalContextCloseAndDe
     RuntimeState runtime;
     auto context = make_context(&runtime);
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     auto clone = context->clone();
-    ASSERT_TRUE(function.open(clone.get(), FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function.close(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function.open(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function.close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                        .ok());
     context.reset();
     const auto cancellation = Status::Cancelled("cancel cloned metadata request");
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
@@ -673,14 +699,16 @@ TEST_F(FunctionToFileTest, CancellationCallbackSurvivesOriginalContextCloseAndDe
             clone.get(), uris({string("s3://bucket/a.txt"), string("s3://bucket/b.txt")}), output);
     EXPECT_EQ(status.to_string(), cancellation.to_string());
     EXPECT_EQ(output.get(), nullptr);
-    ASSERT_TRUE(function.close(clone.get(), FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function.close(clone.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 TEST_F(FunctionToFileTest, QueryCancellationReasonTakesPrecedenceOverAbortedStatError) {
     RuntimeState runtime;
     auto context = make_context(&runtime);
     expect_client_creation();
-    ASSERT_TRUE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     const auto cancellation = Status::Cancelled("query cancelled during metadata request");
     EXPECT_CALL(*filesystem, stat_impl(_, _, _))
             .WillOnce(Invoke([&](const io::Path&, io::FileStat*, io::FileStatContext*) {
@@ -704,11 +732,14 @@ TEST_F(FunctionToFileTest, QueryConfigurationIsCopiedAndMissingResourceFailsOpen
     EXPECT_EQ(resource_config().properties.at("AWS_BUCKET"), "original");
     EXPECT_CALL(function, create_filesystem(_, _, _)).Times(0);
     query->set_s3_resources({{"other-resource", resource}});
-    EXPECT_FALSE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    EXPECT_FALSE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     query->set_s3_resources({});
-    EXPECT_FALSE(function.open(context.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    EXPECT_FALSE(
+            function.open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     auto missing = FunctionContext::create_context(nullptr, file, {text, text});
-    EXPECT_FALSE(function.open(missing.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    EXPECT_FALSE(
+            function.open(missing.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
 }
 
 TEST_F(FunctionToFileTest, SelectsResourcesByNameWithinOneQuery) {
@@ -722,8 +753,10 @@ TEST_F(FunctionToFileTest, SelectsResourcesByNameWithinOneQuery) {
     second->set_constant_cols({std::make_shared<ColumnPtrWrapper>(
                                        text->create_column_const(1, string("other-resource"))),
                                nullptr});
-    ASSERT_TRUE(function.open(first.get(), FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function.open(second.get(), FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(first.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(
+            function.open(second.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     expect_client_creation();
     EXPECT_CALL(function, create_filesystem(_, "s3://other-bucket/a.txt", _))
             .WillOnce(Invoke([&](const TS3Resource& resource, const std::string&,

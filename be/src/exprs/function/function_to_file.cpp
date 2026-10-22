@@ -83,7 +83,8 @@ Status FunctionToFile::create_filesystem(const TS3Resource& resource, const std:
 }
 
 Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::THREAD_LOCAL || context->get_function_state(scope)) {
+    if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL ||
+        context->get_function_state(scope)) {
         return Status::OK();
     }
     auto* runtime = context->state();
@@ -115,7 +116,7 @@ Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionS
 }
 
 Status FunctionToFile::close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         context->set_function_state(scope, nullptr);
     }
     return Status::OK();
@@ -125,8 +126,8 @@ Status FunctionToFile::close(FunctionContext* context, FunctionContext::Function
 Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, uint32_t result,
                                     size_t input_rows_count) const {
-    auto* state =
-            static_cast<ToFileState*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    auto* state = static_cast<ToFileState*>(
+            context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
     if (!state) {
         return Status::InternalError("TO_FILE has no fragment-local state");
     }
