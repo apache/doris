@@ -202,7 +202,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             VLOG_NOTICE << "tablet " << tablet_id << " is not cooldown replica";
             return;
         }
-        if (tablet->tablet_state() == TABLET_SHUTDOWN) [[unlikely]] {
+        if (tablet->tablet_state() == TabletState::TABLET_SHUTDOWN) [[unlikely]] {
             LOG_INFO("tablet {} has been dropped, don't do cooldown", tablet_id);
             return;
         }
@@ -1014,7 +1014,8 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
+    if (compaction_type == CompactionType::BASE_COMPACTION &&
+        tablet_state() != TabletState::TABLET_RUNNING) {
         // base compaction can only be done for tablet in TABLET_RUNNING state.
         // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
         return false;
@@ -1030,7 +1031,8 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
 
     // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
     // not merged in new tablet and then we can do compaction
-    return tablet_state() == TABLET_RUNNING || tablet_state() == TABLET_NOTREADY;
+    return tablet_state() == TabletState::TABLET_RUNNING ||
+           tablet_state() == TabletState::TABLET_NOTREADY;
 }
 
 uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) {
@@ -1085,10 +1087,10 @@ bool Tablet::suitable_for_compaction(
         compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+        DCHECK(compaction_type == CompactionType::BASE_COMPACTION);
         score = _calc_base_compaction_score();
     } else {
-        DCHECK(false) << "Unknown compaction type: " << compaction_type;
+        DCHECK(false) << "Unknown compaction type: " << static_cast<int>(compaction_type);
     }
     return score > 0;
 }
@@ -1560,8 +1562,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
     }
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
-    if (tablet_state() != TABLET_RUNNING) {
-        LOG(INFO) << "tablet is under state=" << tablet_state()
+    if (tablet_state() != TabletState::TABLET_RUNNING) {
+        LOG(INFO) << "tablet is under state=" << static_cast<int>(tablet_state())
                   << ", not running, skip do checkpoint"
                   << ", tablet=" << tablet_id();
         return false;
@@ -1701,7 +1703,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // If the tablet is in running state, it must not be doing schema-change. so if we can not
         // access its rowsets, it means that the tablet is bad and needs to be reported to the FE
         // for subsequent repairs (through the cloning task)
-        if (tablet_state() == TABLET_RUNNING) {
+        if (tablet_state() == TabletState::TABLET_RUNNING) {
             tablet_info->__set_used(false);
         }
         // For other states, FE knows that the tablet is in a certain change process, so here
@@ -1710,7 +1712,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // and perform state modification operations.
     }
 
-    if (tablet_state() == TABLET_RUNNING) {
+    if (tablet_state() == TabletState::TABLET_RUNNING) {
         if (has_version_cross || is_io_error_too_times() || !data_dir()->is_used()) {
             LOG(INFO) << "report " << tablet_id() << " as bad, version_cross=" << has_version_cross
                       << ", ioe times=" << get_io_error_times() << ", data_dir used "
@@ -1729,11 +1731,11 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     // There are two cases when tablet state is TABLET_NOTREADY
     // case 1: tablet is doing schema change. Fe knows it's state, doing nothing.
     // case 2: tablet has finished schema change, but failed. Fe will perform recovery.
-    if (tablet_state() == TABLET_NOTREADY && is_alter_failed()) {
+    if (tablet_state() == TabletState::TABLET_NOTREADY && is_alter_failed()) {
         tablet_info->__set_used(false);
     }
 
-    if (tablet_state() == TABLET_SHUTDOWN) {
+    if (tablet_state() == TabletState::TABLET_SHUTDOWN) {
         tablet_info->__set_used(false);
     }
 
@@ -1775,7 +1777,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
         tablet_info->__set_cooldown_meta_id(_tablet_meta->cooldown_meta_id().to_thrift());
     }
-    if (tablet_state() == TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
+    if (tablet_state() == TabletState::TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
@@ -1869,7 +1871,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::FULL_COMPACTION) {
-        DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
+        DCHECK(compaction_type == CompactionType::FULL_COMPACTION);
 
         compaction = std::make_shared<FullCompaction>(tablet->_engine, tablet);
         Status res = compaction->prepare_compact();
@@ -1902,7 +1904,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             return Status::OK();
         }
     } else {
-        DCHECK(false) << "Unknown compaction type: " << compaction_type;
+        DCHECK(false) << "Unknown compaction type: " << static_cast<int>(compaction_type);
     }
 
     // Time series policy does not rely on permits, it uses goal size to control memory
@@ -2197,7 +2199,7 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     {
         std::unique_lock meta_wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        if (tablet_state() == TABLET_RUNNING) {
+        if (tablet_state() == TabletState::TABLET_RUNNING) {
             RETURN_IF_ERROR(delete_rowsets({std::move(old_rowset)}, false));
             add_rowsets({std::move(new_rowset)});
             // TODO(plat1ko): process primary key
@@ -2380,7 +2382,7 @@ Status Tablet::_follow_cooldowned_data() {
     {
         std::lock_guard wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        if (tablet_state() != TABLET_RUNNING) {
+        if (tablet_state() != TabletState::TABLET_RUNNING) {
             return Status::InternalError<false>("tablet not running");
         }
 
@@ -2586,8 +2588,8 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
     gc_pb.set_resource_id(resource);
     gc_pb.set_tablet_id(tablet_id());
     gc_pb.set_num_segments(num_segments);
-    auto st =
-            _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, gc_key, gc_pb.SerializeAsString());
+    auto st = _data_dir->get_meta()->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, gc_key,
+                                         gc_pb.SerializeAsString());
     if (!st.ok()) {
         LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
                      << " rowset_id=" << rowset_id << " resource_id=" << resource;
@@ -2596,7 +2598,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
 }
 
 Status Tablet::remove_all_remote_rowsets() {
-    DCHECK(tablet_state() == TABLET_SHUTDOWN);
+    DCHECK(tablet_state() == TabletState::TABLET_SHUTDOWN);
     std::set<std::string> resource_ids;
     for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         if (!rs_meta->is_local()) {
@@ -2611,7 +2613,7 @@ Status Tablet::remove_all_remote_rowsets() {
     for (auto& resource_id : resource_ids) {
         gc_pb.add_resource_ids(resource_id);
     }
-    return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key,
+    return _data_dir->get_meta()->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, tablet_gc_key,
                                       gc_pb.SerializeAsString());
 }
 
@@ -2853,7 +2855,8 @@ void Tablet::gc_binlogs(int64_t version) {
         return true;
     };
 
-    auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
+    auto status =
+            meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
     if (!status.ok()) {
         LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
         return;
@@ -2875,7 +2878,8 @@ void Tablet::gc_binlogs(int64_t version) {
         }
     }
     if (!remove_binlog_files_failed) {
-        static_cast<void>(meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys));
+        static_cast<void>(meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX,
+                                       wait_for_deleted_binlog_keys));
     }
 }
 

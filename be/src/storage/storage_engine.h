@@ -43,6 +43,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "storage/adaptive_thread_pool_controller.h"
 #include "storage/compaction/compaction_permit_limiter.h"
+#include "storage/compaction_task_types.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/disk_health_check_watchdog.h"
 #include "storage/olap_common.h"
@@ -93,7 +94,7 @@ extern bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap_version;
 // allocation/deallocation must be done outside.
 class BaseStorageEngine {
 protected:
-    enum Type : uint8_t {
+    enum class Type : uint8_t {
         LOCAL, // Shared-nothing integrated compute and storage architecture
         CLOUD, // Separating compute and storage architecture
     };
@@ -359,7 +360,8 @@ public:
     void get_compaction_status_json(std::string* result);
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force, bool eager = true, int trigger_method = 0);
+                                  bool force, bool eager = true,
+                                  TriggerMethod trigger_method = TriggerMethod::AUTO);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -473,7 +475,7 @@ private:
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force, int trigger_method = 0);
+                                   bool force, TriggerMethod trigger_method = TriggerMethod::AUTO);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
                             CompactionType compaction_type, int64_t permits, bool force,

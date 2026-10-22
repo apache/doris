@@ -79,7 +79,7 @@ void ChangelogCumulativeCompactionPolicy::calculate_cumulative_point(
 void ChangelogCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
-    if (tablet->tablet_state() != TABLET_RUNNING || input_rowsets.empty() ||
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING || input_rowsets.empty() ||
         output_rowset->num_segments() == 0 ||
         output_rowset->rowset_meta()->compaction_level() != kChangelogCompactionMaxLevel - 1 ||
         !is_compaction_enough(output_rowset->rowset_meta())) {

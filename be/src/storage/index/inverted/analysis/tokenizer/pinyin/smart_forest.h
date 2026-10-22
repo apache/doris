@@ -40,7 +40,7 @@ public:
     static constexpr int MAX_SIZE = 65536; // 0x10000, supports all characters in BMP plane
 
     // Node status: corresponding to status values in Java
-    enum Status : uint8_t {
+    enum class Status : uint8_t {
         CONTINUE = 1,      // Continue matching (1 in Java)
         WORD_CONTINUE = 2, // Word can continue (2 in Java)
         WORD_END = 3       // Definite word end (3 in Java)
@@ -51,15 +51,15 @@ public:
     SmartForest* branch = nullptr;                                      // Temporary lookup result
 
 public:
-    SmartForest() : rate_(0.9), c_(0), status_(CONTINUE) {}
+    SmartForest() : rate_(0.9), c_(0), status_(Status::CONTINUE) {}
 
-    explicit SmartForest(double rate) : rate_(rate), c_(0), status_(CONTINUE) {}
+    explicit SmartForest(double rate) : rate_(rate), c_(0), status_(Status::CONTINUE) {}
 
-    explicit SmartForest(UChar32 c) : rate_(0.9), c_(c), status_(CONTINUE) {}
+    explicit SmartForest(UChar32 c) : rate_(0.9), c_(c), status_(Status::CONTINUE) {}
 
-    SmartForest(UChar32 c, uint8_t status) : rate_(0.9), c_(c), status_(status) {}
+    SmartForest(UChar32 c, Status status) : rate_(0.9), c_(c), status_(status) {}
 
-    SmartForest(UChar32 c, uint8_t status, ParamType param)
+    SmartForest(UChar32 c, Status status, ParamType param)
             : rate_(0.9), c_(c), status_(status), param_(std::move(param)) {}
 
     SmartForest* add(std::unique_ptr<SmartForest> branch_node);
@@ -91,8 +91,8 @@ public:
     UChar32 getC() const { return c_; }
     void setC(UChar32 c) { c_ = c; }
 
-    uint8_t getStatus() const { return status_; }
-    void setStatus(uint8_t status) { status_ = status; }
+    Status getStatus() const { return status_; }
+    void setStatus(Status status) { status_ = status; }
 
     const ParamType& getParam() const { return param_; }
     void setParam(const ParamType& param) { param_ = param; }
@@ -124,7 +124,7 @@ public:
 private:
     double rate_;
     UChar32 c_;
-    uint8_t status_;
+    Status status_;
     ParamType param_;
 
     int getIndex(UChar32 c);

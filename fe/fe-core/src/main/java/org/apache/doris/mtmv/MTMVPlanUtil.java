@@ -215,23 +215,34 @@ public class MTMVPlanUtil {
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.getState().setInternal(true);
-        ctx.setThreadLocalInfo();
-        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
-        // Debug session variable should be disabled when refreshed
-        ctx.getSessionVariable().skipDeletePredicate = false;
-        ctx.getSessionVariable().skipDeleteBitmap = false;
-        ctx.getSessionVariable().skipDeleteSign = false;
-        ctx.getSessionVariable().skipStorageEngineMerge = false;
-        ctx.getSessionVariable().showHiddenColumns = false;
-        ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        ctx.getSessionVariable().setDisableNereidsRules(
-                disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
-        ctx.setStartTime();
-        if (parentContext != null) {
-            ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
-            ctx.setDatabase(parentContext.getDatabase());
+        ConnectContext previousContext = ConnectContext.get();
+        try {
+            ctx.setThreadLocalInfo();
+            ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
+            // Debug session variable should be disabled when refreshed
+            ctx.getSessionVariable().skipDeletePredicate = false;
+            ctx.getSessionVariable().skipDeleteBitmap = false;
+            ctx.getSessionVariable().skipDeleteSign = false;
+            ctx.getSessionVariable().skipStorageEngineMerge = false;
+            ctx.getSessionVariable().showHiddenColumns = false;
+            ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+            ctx.getSessionVariable().setDisableNereidsRules(
+                    disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
+            ctx.setStartTime();
+            if (parentContext != null) {
+                ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
+                ctx.setDatabase(parentContext.getDatabase());
+            }
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            // Initialization can fail before MTMVCache takes responsibility for context cleanup.
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+            throw e;
         }
-        return ctx;
     }
 
 

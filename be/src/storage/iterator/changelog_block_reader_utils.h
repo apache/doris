@@ -21,29 +21,25 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "storage/changelog.h"
+#include "storage/changelog_types.h"
 
 namespace doris::changelog {
 
-constexpr int64_t CHANGELOG_OP_UNKNOWN = 3;
-
-constexpr int64_t STREAM_CHANGE_INSERT = 0;
-constexpr int64_t STREAM_CHANGE_DELETE = 1;
-constexpr int64_t STREAM_CHANGE_UPDATE_BEFORE = 2;
-constexpr int64_t STREAM_CHANGE_UPDATE_AFTER = 3;
 enum class MinDeltaResultType { SKIP, INSERT, DELETE, UPDATE_BEFORE_AFTER };
 
-// MIN_DELTA uses changelog op codes as indices into a 2D lookup table, so we guard the op layout
-// here.
-static_assert(doris::CHANGELOG_OP_APPEND == 0 && doris::CHANGELOG_OP_UPDATE == 1 &&
-                      doris::CHANGELOG_OP_DELETE == 2,
+// MIN_DELTA uses changelog op codes as indices into a 2D lookup table, so we guard the op layout here.
+static_assert(static_cast<int64_t>(ChangelogOp::APPEND) == 0 &&
+                      static_cast<int64_t>(ChangelogOp::UPDATE) == 1 &&
+                      static_cast<int64_t>(ChangelogOp::DELETE) == 2,
               "changelog op layout changed; update min-delta transition matrix");
 
-inline bool is_valid_changelog_op(int64_t op) {
-    return op >= doris::CHANGELOG_OP_APPEND && op <= doris::CHANGELOG_OP_DELETE;
+inline bool is_valid_changelog_op(ChangelogOp op) {
+    const auto value = static_cast<int64_t>(op);
+    return value >= static_cast<int64_t>(doris::ChangelogOp::APPEND) &&
+           value <= static_cast<int64_t>(doris::ChangelogOp::DELETE);
 }
 
-inline MinDeltaResultType calculate_min_delta_result(int64_t first_op, int64_t last_op) {
+inline MinDeltaResultType calculate_min_delta_result(ChangelogOp first_op, ChangelogOp last_op) {
     using ResultType = MinDeltaResultType;
 
     // Transition matrix: row=first_op, col=last_op, value=min-delta result type.
@@ -83,7 +79,7 @@ class AggregateFunctionMinDelta {
 public:
     using ResultType = MinDeltaResultType;
 
-    static ResultType calculate_result(int64_t first_op, int64_t last_op) {
+    static ResultType calculate_result(ChangelogOp first_op, ChangelogOp last_op) {
         return calculate_min_delta_result(first_op, last_op);
     }
 };
