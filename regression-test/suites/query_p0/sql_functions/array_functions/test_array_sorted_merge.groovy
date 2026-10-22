@@ -72,6 +72,57 @@ suite("test_array_sorted_merge") {
                                   CAST([] AS ARRAY<INT>), CAST([] AS ARRAY<INT>), true)
     """
 
+    // A captured input column must be read at the current row: with the capture at column
+    // index 0 the predicate compares against a candidate unless it is rebound, and with the
+    // capture at index 2 an unbound read reports a missing column.
+    sql """DROP TABLE IF EXISTS array_sorted_merge_capture_0"""
+    sql """
+        CREATE TABLE array_sorted_merge_capture_0 (
+            lim INT,
+            l ARRAY<INT>,
+            r ARRAY<INT>
+        )
+        DISTRIBUTED BY HASH(lim) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO array_sorted_merge_capture_0 VALUES (2, [1], [1])"""
+    order_qt_capture_column_zero """
+        SELECT array_sorted_merge((a, b) -> IF(a = b AND a < lim, a, NULL), l, r, true)
+        FROM array_sorted_merge_capture_0
+    """
+
+    sql """DROP TABLE IF EXISTS array_sorted_merge_capture_2"""
+    sql """
+        CREATE TABLE array_sorted_merge_capture_2 (
+            id INT,
+            l ARRAY<INT>,
+            r ARRAY<INT>,
+            lim INT
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO array_sorted_merge_capture_2 VALUES (0, [1], [1], 2)"""
+    order_qt_capture_column_two """
+        SELECT array_sorted_merge((a, b) -> IF(a = b AND a < lim, a, NULL), l, r, true)
+        FROM array_sorted_merge_capture_2
+    """
+
+    // A non-nullable lambda body (COALESCE) must be wrapped into the nullable element
+    // representation instead of being inserted directly.
+    order_qt_nonnullable_body """
+        SELECT array_sorted_merge((a, b) -> COALESCE(a, b, CAST(0 AS INT)),
+                                  CAST([1, 2] AS ARRAY<INT>),
+                                  CAST([1, 2] AS ARRAY<INT>), true)
+    """
+
+    test {
+        sql """SELECT array_sorted_merge(
+                   (a, b) -> CAST(a + element_at(array_map(x -> x + a, [1]), 1) AS INT),
+                   CAST([1] AS ARRAY<INT>), CAST([2] AS ARRAY<INT>), true)"""
+        exception "cannot be captured by a nested lambda"
+    }
+
     test {
         sql """SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL), [1], [2], 'asc')"""
         exception "ascending flag"

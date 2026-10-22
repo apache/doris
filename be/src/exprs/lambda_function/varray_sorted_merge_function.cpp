@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -30,6 +34,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
 #include "exprs/lambda_function/lambda_function_factory.h"
@@ -59,6 +64,58 @@ public:
     static LambdaFunctionPtr create() { return std::make_shared<ArraySortedMergeFunction>(); }
 
     std::string get_name() const override { return name; }
+
+    /// Rejects a nested lambda that captures one of this lambda's arguments: the position-based
+    /// frame below does not publish them into nested lambdas, so such a capture would resolve
+    /// against the wrong column. Nested lambdas may still use their own arguments (shadowing).
+    static Status validate_nested_captures(const VExprSPtr& expr,
+                                           const std::vector<std::string>& argument_names,
+                                           bool inside_nested_lambda,
+                                           std::vector<std::string> shadowed_names) {
+        if (expr->is_column_ref()) {
+            const std::string& column_name = expr->expr_name();
+            if (std::ranges::find(shadowed_names, column_name) != shadowed_names.end()) {
+                return Status::OK();
+            }
+            if (inside_nested_lambda &&
+                std::ranges::find(argument_names, column_name) != argument_names.end()) {
+                return Status::NotSupported(
+                        "array_sorted_merge merge lambda argument '{}' cannot be captured by a "
+                        "nested lambda",
+                        column_name);
+            }
+            return Status::OK();
+        }
+        if (expr->node_type() == TExprNodeType::LAMBDA_FUNCTION_EXPR) {
+            const auto* lambda = assert_cast<const VLambdaFunctionExpr*>(expr.get());
+            if (lambda->has_argument_names()) {
+                for (const auto& argument_name : lambda->argument_names()) {
+                    shadowed_names.emplace_back(argument_name);
+                }
+            }
+            return validate_nested_captures(lambda->get_child(0), argument_names, true,
+                                            std::move(shadowed_names));
+        }
+        for (const auto& child : expr->children()) {
+            RETURN_IF_ERROR(validate_nested_captures(child, argument_names, inside_nested_lambda,
+                                                     shadowed_names));
+        }
+        return Status::OK();
+    }
+
+    Status prepare(RuntimeState* state, const VExprSPtrs& children) override {
+        RETURN_IF_ERROR(LambdaFunction::prepare(state, children));
+        DCHECK_EQ(children.size(), 4);
+        const auto* lambda_expr = assert_cast<const VLambdaFunctionExpr*>(children[0].get());
+        if (!lambda_expr->has_argument_names()) {
+            return Status::OK();
+        }
+        // A nested lambda that captures one of this lambda's arguments would need a binding
+        // that does not exist in the position-based frame below; reject it during prepare so
+        // the query fails instead of resolving the argument against the wrong column.
+        return validate_nested_captures(children[0]->get_child(0), lambda_expr->argument_names(),
+                                        false, {});
+    }
 
     Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
                    size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
@@ -106,13 +163,41 @@ public:
         auto result_nullmap = ColumnUInt8::create(rows, 0);
         auto& result_nullmap_data = result_nullmap->get_data();
 
-        // Two one-row columns hold the lambda arguments of the current merge step. They carry
-        // the lambda argument names because the column refs resolve by name when no
-        // position-based gap is set.
+        // The lambda may capture enclosing columns (for example a table column compared against
+        // the candidates). Materialize every captured input at its original position in the
+        // one-row lambda block, so slot refs read the current row; the two merge candidates
+        // take the positions after the last captured column and are bound by name.
+        std::set<int> captured_ids;
+        children[0]->collect_slot_column_ids(captured_ids);
+        if (!captured_ids.empty() && block == nullptr) {
+            return Status::InternalError(
+                    "array_sorted_merge lambda references outer columns but has no input block");
+        }
+        std::map<int, ColumnPtr> captured_columns;
+        for (int id : captured_ids) {
+            if (id < 0 || static_cast<size_t>(id) >= block->columns()) {
+                return Status::InternalError(
+                        "array_sorted_merge lambda input column id {} is outside input block", id);
+            }
+            captured_columns[id] =
+                    block->get_by_position(id).column->convert_to_full_column_if_const();
+        }
+        const int lambda_argument_base = captured_ids.empty() ? 0 : *captured_ids.rbegin() + 1;
         const auto* lambda_expr = assert_cast<const VLambdaFunctionExpr*>(children[0].get());
         const std::vector<std::string>* argument_names =
                 lambda_expr->has_argument_names() ? &lambda_expr->argument_names() : nullptr;
         Block lambda_block;
+        for (int i = 0; i < lambda_argument_base; ++i) {
+            auto captured = captured_columns.find(i);
+            if (captured != captured_columns.end()) {
+                lambda_block.insert(ColumnWithTypeAndName(captured->second->clone_empty(),
+                                                          block->get_by_position(i).type,
+                                                          block->get_by_position(i).name));
+            } else {
+                lambda_block.insert(ColumnWithTypeAndName(
+                        ColumnUInt8::create(1, 0), std::make_shared<DataTypeUInt8>(), "temp"));
+            }
+        }
         for (int i = 0; i < 2; ++i) {
             const std::string argument_name =
                     argument_names != nullptr && i < argument_names->size()
@@ -121,11 +206,13 @@ public:
             lambda_block.insert(ColumnWithTypeAndName(nested_types[i]->create_column(),
                                                       nested_types[i], argument_name));
         }
-        // The lambda arguments are bound by position (column ids 0 and 1), like array_sort's
-        // comparator, so the body reads these two one-row columns.
+        // The lambda arguments are bound by name (the column refs carry the argument names),
+        // so the body reads these two one-row columns.
         IColumn* argument_columns[2] = {
-                lambda_block.get_by_position(0).column->assert_mutable().get(),
-                lambda_block.get_by_position(1).column->assert_mutable().get()};
+                lambda_block.get_by_position(lambda_argument_base).column->assert_mutable().get(),
+                lambda_block.get_by_position(lambda_argument_base + 1)
+                        .column->assert_mutable()
+                        .get()};
 
         LambdaExecutionContext::Frame lambda_frame;
         lambda_frame.bind_by_name = false;
@@ -136,6 +223,21 @@ public:
         const auto& offsets0 = arrays[0]->get_offsets();
         const auto& offsets1 = arrays[1]->get_offsets();
         const int lambda_result_base = static_cast<int>(lambda_block.columns());
+
+        // The merged element may come from a non-nullable lambda body (for example COALESCE),
+        // while array elements are always nullable; normalize before inserting.
+        auto append_element = [&](const IColumn& source, size_t source_row) {
+            if (auto* nullable_target = check_and_get_column<ColumnNullable>(result_nested.get())) {
+                if (const auto* nullable_source = check_and_get_column<ColumnNullable>(&source)) {
+                    nullable_target->insert_from(*nullable_source, source_row);
+                } else {
+                    nullable_target->get_nested_column().insert_from(source, source_row);
+                    nullable_target->get_null_map_data().push_back(0);
+                }
+            } else {
+                result_nested->insert_from(source, source_row);
+            }
+        };
 
         for (size_t row = 0; row < rows; ++row) {
             const bool row_is_null = (nullmaps[0] != nullptr && (*nullmaps[0])[row] != 0) ||
@@ -150,6 +252,9 @@ public:
                         "array_sorted_merge requires a non-null ascending flag");
             }
             const bool ascending = flags[row] != 0;
+            for (const auto& [id, column] : captured_columns) {
+                lambda_block.get_by_position(id).column = column->cut(row, 1);
+            }
 
             size_t left = row == 0 ? 0 : offsets0[row - 1];
             const size_t left_end = offsets0[row];
@@ -158,11 +263,11 @@ public:
 
             while (left < left_end || right < right_end) {
                 if (left == left_end) {
-                    result_nested->insert_from(*data[1], right++);
+                    append_element(*data[1], right++);
                     continue;
                 }
                 if (right == right_end) {
-                    result_nested->insert_from(*data[0], left++);
+                    append_element(*data[0], left++);
                     continue;
                 }
 
@@ -181,15 +286,15 @@ public:
                     merged_is_null = nullable->is_null_at(0);
                 }
                 if (!merged_is_null) {
-                    result_nested->insert_from(*merged_column, 0);
+                    append_element(*merged_column, 0);
                     ++left;
                     ++right;
                 } else {
                     const int cmp = data[0]->compare_at(left, right, *data[1], 1);
                     if (ascending ? cmp <= 0 : cmp >= 0) {
-                        result_nested->insert_from(*data[0], left++);
+                        append_element(*data[0], left++);
                     } else {
-                        result_nested->insert_from(*data[1], right++);
+                        append_element(*data[1], right++);
                     }
                 }
                 lambda_block.erase_tail(lambda_result_base);
