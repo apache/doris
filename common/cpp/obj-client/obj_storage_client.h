@@ -290,6 +290,7 @@ namespace doris::io {
 using ::doris::ObjStorageCapabilities;
 using ::doris::ObjStorageClient;
 using ::doris::ObjStorageCompletedPart;
+using ::doris::ObjStorageDeferredCompletion;
 using ::doris::ObjStorageDeleteExecutor;
 using ::doris::ObjStorageDeleteTask;
 using ::doris::ObjStorageEndpointInfo;
