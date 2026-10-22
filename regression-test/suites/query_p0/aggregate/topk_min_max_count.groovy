@@ -479,9 +479,45 @@ suite("topk_min_max_count") {
     }
 
     // A NULL counter is invalid SQL input and must be a query error; a checked invariant would
-    // terminate a debugging BE.
+    // terminate a debugging BE. Cover every counter on both MIN and MAX.
     test {
         sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(NULL AS BIGINT), 0, 2)"""
+        exception "n must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   0, CAST(NULL AS BIGINT), 2)"""
+        exception "dn must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   0, 0, CAST(NULL AS BIGINT))"""
+        exception "k must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_max(
                    CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
                    CAST(NULL AS INT),
                    CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
@@ -505,7 +541,7 @@ suite("topk_min_max_count") {
     }
 
     test {
-        sql """SELECT topk_merge_min(
+        sql """SELECT topk_merge_max(
                    CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
                    CAST(NULL AS INT),
                    CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
@@ -513,6 +549,58 @@ suite("topk_min_max_count") {
                    CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
                    CAST(NULL AS INT),
                    0, 0, CAST(NULL AS BIGINT))"""
+        exception "k must not be NULL"
+    }
+
+    // The counters can also arrive as nullable table columns instead of NULL literals.
+    sql """DROP TABLE IF EXISTS topk_merge_null_t"""
+    sql """
+        CREATE TABLE topk_merge_null_t (
+            row_id INT,
+            n BIGINT,
+            dn BIGINT,
+            k BIGINT
+        )
+        DISTRIBUTED BY HASH(row_id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO topk_merge_null_t VALUES (0, NULL, 0, 2), (1, 0, NULL, 2), (2, 0, 0, NULL)"""
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   n, dn, k)
+               FROM topk_merge_null_t WHERE row_id = 0"""
+        exception "n must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   n, dn, k)
+               FROM topk_merge_null_t WHERE row_id = 1"""
+        exception "dn must not be NULL"
+    }
+
+    test {
+        sql """SELECT topk_merge_min(
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   CAST(array() AS ARRAY<STRUCT<value:INT, count:BIGINT>>),
+                   CAST(NULL AS INT),
+                   n, dn, k)
+               FROM topk_merge_null_t WHERE row_id = 2"""
         exception "k must not be NULL"
     }
 
