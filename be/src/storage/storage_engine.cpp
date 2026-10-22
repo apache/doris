@@ -125,12 +125,12 @@ RowsetId BaseStorageEngine::next_rowset_id() {
 }
 
 StorageEngine& BaseStorageEngine::to_local() {
-    CHECK_EQ(_type, Type::LOCAL);
+    CHECK(_type == Type::LOCAL);
     return *static_cast<StorageEngine*>(this);
 }
 
 CloudStorageEngine& BaseStorageEngine::to_cloud() {
-    CHECK_EQ(_type, Type::CLOUD);
+    CHECK(_type == Type::CLOUD);
     return *static_cast<CloudStorageEngine*>(this);
 }
 

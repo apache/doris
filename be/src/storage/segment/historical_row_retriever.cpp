@@ -120,13 +120,13 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             // it's an insert row
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
-            _operators.emplace_back(have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_APPEND);
+            _operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND);
             continue;
         }
         if (outcome.use_default_or_null) {
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
-            _operators.emplace_back(CHANGELOG_OP_DELETE);
+            _operators.emplace_back(ChangelogOp::DELETE);
         } else {
             // partial update should not contain invisible columns
             _use_default_or_null_flag.emplace_back(false);
@@ -134,7 +134,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             // currently we think row_pos must be zero, so we won't consider row_pos > 0
             DCHECK(row_pos == 0);
             _row_fetcher->plan_fixed_read(outcome.loc, delta_pos);
-            _operators.emplace_back(have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_UPDATE);
+            _operators.emplace_back(have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::UPDATE);
         }
     }
 
@@ -265,8 +265,8 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
         }
         _operators.emplace_back(
                 outcome.result == KeyProbeResult::NOT_FOUND
-                        ? (have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_APPEND)
-                        : (have_delete_sign ? CHANGELOG_OP_DELETE : CHANGELOG_OP_UPDATE));
+                        ? (have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::APPEND)
+                        : (have_delete_sign ? ChangelogOp::DELETE : ChangelogOp::UPDATE));
     }
 
     RETURN_IF_ERROR(_row_fetcher->fill_non_primary_key_columns(
@@ -354,8 +354,8 @@ Status PrimaryKeyModelRowRetriever::revise_operators_by_old_delete_sign(size_t n
     DCHECK_EQ(_old_delete_signs.size(), num_rows);
 
     for (size_t idx = 0; idx < num_rows; ++idx) {
-        if (_operators[idx] == CHANGELOG_OP_UPDATE && _old_delete_signs[idx] != 0) {
-            _operators[idx] = CHANGELOG_OP_APPEND;
+        if (_operators[idx] == ChangelogOp::UPDATE && _old_delete_signs[idx] != 0) {
+            _operators[idx] = ChangelogOp::APPEND;
         }
     }
     return Status::OK();
