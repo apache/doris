@@ -281,6 +281,22 @@ public class ChangelogConfigSplitTest extends TestWithFeService {
     }
 
     @Test
+    public void testDdlValidatesBinlogProperties() throws Exception {
+        String dup = "(k INT, v INT) DUPLICATE KEY(k)";
+        assertCreateFails("binlog_invalid_enable", dup, "'binlog.enable'='yes'", "Invalid binlog enable value: yes");
+        assertCreateFails("binlog_unknown_key", dup, "'binlog.ttl_second'='10'",
+                "Unknown binlog property: binlog.ttl_second");
+
+        OlapTable table = createDupTable(db, "binlog_alter", "'binlog.enable'='TRUE'");
+        Assertions.assertTrue(table.getBinlogConfig().isEnableForCCR());
+        assertAlterFails("ALTER TABLE split.binlog_alter SET ('binlog.enable'='yes')",
+                "Invalid binlog enable value: yes");
+        assertAlterFails("ALTER TABLE split.binlog_alter SET ('binlog.ttl_second'='10')",
+                "Unknown binlog property: binlog.ttl_second");
+        Assertions.assertTrue(table.getBinlogConfig().isEnableForCCR());
+    }
+
+    @Test
     public void testDatabaseChangelogDefaults() throws Exception {
         createDatabaseWithSql("CREATE DATABASE split_default_db "
                 + "PROPERTIES ('changelog.enable'='true', 'changelog.ttl_seconds'='120')");

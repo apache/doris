@@ -1534,17 +1534,22 @@ public class PropertyAnalyzer {
             return null;
         }
         checkLegacyBinlogProperties(properties);
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_BINLOG_PREFIX) && !key.equals(PROPERTIES_BINLOG_ENABLE)
+                    && !key.equals(PROPERTIES_BINLOG_TTL_SECONDS) && !key.equals(PROPERTIES_BINLOG_MAX_BYTES)
+                    && !key.equals(PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+                throw new AnalysisException("Unknown binlog property: " + key);
+            }
+        }
 
         Map<String, String> binlogConfigMap = Maps.newHashMap();
         // check PROPERTIES_BINLOG_ENABLE = "binlog.enable";
         if (properties.containsKey(PROPERTIES_BINLOG_ENABLE)) {
-            String enable = properties.get(PROPERTIES_BINLOG_ENABLE);
-            try {
-                binlogConfigMap.put(PROPERTIES_BINLOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
-                properties.remove(PROPERTIES_BINLOG_ENABLE);
-            } catch (Exception e) {
+            String enable = properties.remove(PROPERTIES_BINLOG_ENABLE);
+            if (!StringUtils.equalsAnyIgnoreCase(enable, "true", "false")) {
                 throw new AnalysisException("Invalid binlog enable value: " + enable);
             }
+            binlogConfigMap.put(PROPERTIES_BINLOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
         }
         // check PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
         if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
@@ -1587,7 +1592,7 @@ public class PropertyAnalyzer {
     /**
      * Rejects the binlog keys the changelog.* properties replaced, whatever their value is.
      */
-    public static void checkLegacyBinlogProperties(Map<String, String> properties) throws AnalysisException {
+    private static void checkLegacyBinlogProperties(Map<String, String> properties) throws AnalysisException {
         if (properties.containsKey(PROPERTIES_LEGACY_BINLOG_FORMAT)) {
             throw new AnalysisException("Property " + PROPERTIES_LEGACY_BINLOG_FORMAT
                     + " is no longer supported, use \"" + PROPERTIES_CHANGELOG_ENABLE
