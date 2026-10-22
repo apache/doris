@@ -117,6 +117,33 @@ public class FlightProtocolAdapterTest {
     }
 
     @Test
+    public void testPendingResultCheckDoesNotCleanWhileCommandIsRunning() throws Exception {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread worker = new Thread(() -> holdSession(adapter, ctx, () -> {
+            started.countDown();
+            release.await();
+        }));
+        ExecutorService checker = Executors.newSingleThreadExecutor();
+        worker.start();
+        try {
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(checker.submit(adapter::hasPendingResults).get(1, TimeUnit.SECONDS));
+            release.countDown();
+            worker.join(10000);
+            Assertions.assertFalse(worker.isAlive());
+            Assertions.assertFalse(adapter.hasPendingResults());
+        } finally {
+            release.countDown();
+            worker.join(10000);
+            checker.shutdownNow();
+            adapter.getChannel().close();
+        }
+    }
+
+    @Test
     public void testFlightSessionIsBoundToItsAdapter() {
         ConnectContext ctx = flightSession();
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);

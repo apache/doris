@@ -184,8 +184,11 @@ public class DorisFE {
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
-                serverReady.set(false);
-                gracefulShutdown();
+                boolean wasReady = serverReady.getAndSet(false);
+                // Version/tool exits and startup failures have no ready traffic to drain.
+                if (wasReady) {
+                    gracefulShutdown();
+                }
 
                 if (qeService != null) {
                     qeService.stop();

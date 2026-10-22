@@ -576,6 +576,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         // Refuse new packets by closing the socket so a connection pool can reconnect.
         if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
             ctx.setKilled();
+            ctx.finishMysqlCommand();
             channel.close();
             return;
         }
@@ -583,7 +584,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             dispatch();
             finalizeCommand();
         } finally {
-            ctx.setCommand(MysqlCommand.COM_SLEEP);
+            ctx.finishMysqlCommand();
             ctx.clear();
             executor = null;
             QueryAdmissionController.INSTANCE.release();

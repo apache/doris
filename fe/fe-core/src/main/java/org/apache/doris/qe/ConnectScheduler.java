@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
@@ -137,7 +138,7 @@ public class ConnectScheduler {
     public boolean hasPendingFlightResults() {
         return getConnectionMap().values().stream()
                 .anyMatch(context -> context.getConnectType() == ConnectContext.ConnectType.ARROW_FLIGHT_SQL
-                        && context.getFlightSqlChannel().resultNum() > 0);
+                        && FlightProtocolAdapter.of(context).hasPendingResults());
     }
 
     public Map<String, AtomicInteger> getUserConnectionMap() {

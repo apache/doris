@@ -44,6 +44,8 @@ public class GracefulMysqlConnectionTest {
         Assertions.assertFalse(context.closed);
         Assertions.assertFalse(context.isKilled());
         context.setCommand(MysqlCommand.COM_SLEEP);
+        Assertions.assertFalse(context.closeIdleMysqlConnection());
+        context.finishMysqlCommand();
         Assertions.assertTrue(context.closeIdleMysqlConnection());
     }
 

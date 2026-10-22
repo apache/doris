@@ -589,6 +589,19 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         });
     }
 
+    public boolean hasPendingResults() {
+        // Expiration closes Arrow buffers. Serialize cleanup with DoGet, which may
+        // still be sending a result obtained before its cache entry expired.
+        if (!commandLock.tryLock()) {
+            return true;
+        }
+        try {
+            return channel.hasPendingResults();
+        } finally {
+            commandLock.unlock();
+        }
+    }
+
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
