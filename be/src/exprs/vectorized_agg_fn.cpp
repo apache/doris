@@ -428,5 +428,15 @@ bool AggFnEvaluator::is_blockable() const {
                        [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
 }
 
+bool AggFnEvaluator::is_simple_count() const {
+    // The inline count path never evaluates the arguments, so it is only valid when
+    // skipping the evaluation cannot change the result, e.g. COUNT(assert_true(...)).
+    return _function->is_simple_count() &&
+           std::all_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](const VExprContextSPtr& ctx) {
+                           return ctx->root()->is_slot_ref() || ctx->root()->is_literal();
+                       });
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris
