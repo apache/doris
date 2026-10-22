@@ -57,12 +57,13 @@ public class FunctionToThriftConverterTest {
                 Type.INT, null, "init", "update", "merge", null, null, null, null);
         aggregate.setBinaryType(BinaryType.PYTHON_UDF);
         for (Function fn : new Function[]{scalar, aggregate}) {
-            Assertions.assertEquals(-1, fn.getAutoSuspend());
+            Assertions.assertEquals(14400, fn.getAutoSuspend());
+            Assertions.assertEquals(14400, new TFunction().getAutoSuspend());
             JsonObject oldJson = GsonUtils.GSON.toJsonTree(fn).getAsJsonObject();
             oldJson.remove("as");
             Function oldRestored = GsonUtils.GSON.fromJson(oldJson, fn.getClass());
-            Assertions.assertEquals(-1, oldRestored.getAutoSuspend());
-            for (long value : new long[]{Long.MIN_VALUE, -2, 0, 30, Long.MAX_VALUE}) {
+            Assertions.assertEquals(14400, oldRestored.getAutoSuspend());
+            for (long value : new long[]{-1, 0, 30, 14400, Long.MAX_VALUE}) {
                 fn.setAutoSuspend(value);
                 Function copy = fn.clone();
                 Assertions.assertEquals(value, copy.getAutoSuspend());

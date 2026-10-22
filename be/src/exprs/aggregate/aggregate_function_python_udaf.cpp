@@ -192,7 +192,9 @@ Status AggregatePythonUDAF::open() {
     // Build function metadata from TFunction
     _func_meta.id = _fn.id;
     _func_meta.pool_size = _fn.__isset.pool_size ? _fn.pool_size : 3;
-    _func_meta.auto_suspend = _fn.__isset.auto_suspend ? _fn.auto_suspend : -1;
+    _func_meta.auto_suspend = _fn.__isset.auto_suspend
+                                      ? _fn.auto_suspend
+                                      : PythonUDFMeta::DEFAULT_AUTO_SUSPEND_SECONDS;
     _func_meta.name = _fn.name.function_name;
 
     // For UDAF, symbol is in aggregate_fn

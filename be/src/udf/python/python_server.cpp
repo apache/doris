@@ -42,6 +42,7 @@
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udtf_client.h"
+#include "util/cpu_info.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -99,13 +100,18 @@ PythonServerManager::_get_or_create_process_pool(
         return ResultError(
                 Status::InvalidArgument("Python UDF pool_size must be a positive integer"));
     }
+    if (meta.auto_suspend < -1) {
+        return ResultError(Status::InvalidArgument(
+                "Python UDF auto_suspend must be -1 or a non-negative integer"));
+    }
     auto& pool = _process_pools[meta.id];
     if (!pool) {
         pool = std::make_shared<FunctionProcessPool>();
         pool->version = version;
         pool->process_registry = _process_registry;
         pool->function_id = meta.id;
-        pool->pool_size = meta.pool_size;
+        // The same function may run on BEs with different CPU limits.
+        pool->pool_size = std::min(meta.pool_size, CpuInfo::num_cores());
         pool->auto_suspend = meta.auto_suspend;
         pool->package_cache_entry = std::move(package_cache_entry);
         // The first process can serve a client before the remaining slots finish initialization.

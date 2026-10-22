@@ -41,6 +41,8 @@ import java.util.Objects;
  */
 public class Function implements Writable {
 
+    public static final long DEFAULT_AUTO_SUSPEND_SECONDS = 14400;
+
     public enum NullableMode {
         // Whether output column is nullable is depend on the input column is nullable
         DEPEND_ON_ARGUMENT,
@@ -115,7 +117,7 @@ public class Function implements Writable {
     @SerializedName("ps")
     protected int poolSize = 3;
     @SerializedName("as")
-    protected long autoSuspend = -1;
+    protected long autoSuspend = DEFAULT_AUTO_SUSPEND_SECONDS;
     @SerializedName("fc")
     protected String functionCode;
     @SerializedName("vol")
