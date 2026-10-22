@@ -189,6 +189,17 @@ void CloudClusterInfo::_reconcile_cluster_status_cache(
                                                .status_mtime_trusted = status_mtime_trusted,
                                                .takeover_start_time_ms = takeover_start_time_ms});
     }
+    // Start the takeover window of a cluster that disappeared since the previous refresh, and
+    // forget the window of a cluster that is reported again.
+    if (_cluster_status_cache_initialized) {
+        for (const auto& [cluster_id, _] : _cluster_status_cache) {
+            if (!next_cache.contains(cluster_id)) {
+                _missing_cluster_first_seen_ms.try_emplace(cluster_id, observed_time_ms);
+            }
+        }
+    }
+    std::erase_if(_missing_cluster_first_seen_ms,
+                  [&](const auto& entry) { return next_cache.contains(entry.first); });
     _cluster_status_cache.swap(next_cache);
     _cluster_status_cache_initialized = true;
 }
@@ -262,10 +273,29 @@ bool CloudClusterInfo::_authorize_foreign_compaction(CloudTablet* tablet,
         return false;
     }
     if (!cluster_found) {
-        LOG(INFO) << "compaction_rw_separation: tablet " << tablet_id
-                  << " last_active_cluster=" << owner_cluster_id
-                  << " not found in cache (maybe deleted), my_cluster=" << requester_cluster_id
-                  << ", allow takeover";
+        // A deleted owner is unavailable as well, so it waits for the same takeover timeout. The
+        // window starts when this BE first observes the cluster missing.
+        int64_t missing_since_ms = now_ms;
+        {
+            std::unique_lock lock(_mutex);
+            missing_since_ms = _missing_cluster_first_seen_ms.try_emplace(owner_cluster_id, now_ms)
+                                       .first->second;
+        }
+        const int64_t elapsed = now_ms - missing_since_ms;
+        const int64_t timeout = config::compaction_cluster_takeover_timeout_ms;
+        if (elapsed <= timeout) {
+            LOG_EVERY_N(INFO, 100)
+                    << "compaction_rw_separation: skip tablet " << tablet_id
+                    << ", last_active_cluster=" << owner_cluster_id
+                    << " not found (maybe deleted), elapsed=" << elapsed
+                    << "ms <= timeout=" << timeout << "ms, my_cluster=" << requester_cluster_id
+                    << ", waiting for takeover";
+            return false;
+        }
+        LOG(INFO) << "compaction_rw_separation: takeover tablet " << tablet_id
+                  << ", last_active_cluster=" << owner_cluster_id
+                  << " not found (maybe deleted), elapsed=" << elapsed << "ms > timeout=" << timeout
+                  << "ms, my_cluster=" << requester_cluster_id;
         fill_compaction_authorization(compaction_job, owner_cluster_id, owner_epoch,
                                       requester_cluster_id, nullptr, false);
         return true;

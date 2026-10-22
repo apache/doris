@@ -196,7 +196,51 @@ TEST_F(CloudClusterInfoTest, ShouldSkipCompactionWaitsForInitialStatusRefresh) {
     std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>> empty_snapshot;
     CloudClusterInfoTestPeer::reconcile_cluster_status_cache(_cluster_info.get(), empty_snapshot,
                                                              1000);
-    EXPECT_FALSE(_cluster_info->should_skip_compaction(_tablet.get()));
+    // A deleted owner waits for the takeover timeout from the first missing observation.
+    config::compaction_cluster_takeover_timeout_ms = 1000;
+    EXPECT_TRUE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(), _tablet.get(),
+                                                                 10'000));
+    EXPECT_TRUE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(), _tablet.get(),
+                                                                 11'000));
+    EXPECT_FALSE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(),
+                                                                  _tablet.get(), 11'001));
+}
+
+// Case 4b: The takeover window of an owner deleted after the first snapshot starts when the
+// refresh first observes it missing, and resets when the cluster is reported again.
+TEST_F(CloudClusterInfoTest, DeletedOwnerWaitsForTakeoverTimeout) {
+    config::enable_compaction_rw_separation = true;
+    config::compaction_cluster_takeover_timeout_ms = 1000;
+    _cluster_info->set_my_cluster_id("cluster_a");
+    _tablet->set_last_active_cluster_info("cluster_b", UnixMillis());
+
+    std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>> with_owner {
+            {"cluster_a", {cloud::ClusterStatus::NORMAL, 1'000, 1'000, true}},
+            {"cluster_b", {cloud::ClusterStatus::NORMAL, 1'000, 1'000, true}},
+    };
+    std::unordered_map<std::string, std::tuple<int32_t, int64_t, int64_t, bool>> without_owner {
+            {"cluster_a", {cloud::ClusterStatus::NORMAL, 1'000, 1'000, true}},
+    };
+    CloudClusterInfoTestPeer::reconcile_cluster_status_cache(_cluster_info.get(), with_owner,
+                                                             5'000);
+    CloudClusterInfoTestPeer::reconcile_cluster_status_cache(_cluster_info.get(), without_owner,
+                                                             6'000);
+    EXPECT_TRUE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(), _tablet.get(),
+                                                                 7'000));
+    EXPECT_FALSE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(),
+                                                                  _tablet.get(), 7'001));
+
+    // The owner comes back and is deleted again: the window restarts.
+    CloudClusterInfoTestPeer::reconcile_cluster_status_cache(_cluster_info.get(), with_owner,
+                                                             8'000);
+    EXPECT_TRUE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(), _tablet.get(),
+                                                                 8'500));
+    CloudClusterInfoTestPeer::reconcile_cluster_status_cache(_cluster_info.get(), without_owner,
+                                                             9'000);
+    EXPECT_TRUE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(), _tablet.get(),
+                                                                 9'500));
+    EXPECT_FALSE(CloudClusterInfoTestPeer::should_skip_compaction(_cluster_info.get(),
+                                                                  _tablet.get(), 10'001));
 }
 
 TEST_F(CloudClusterInfoTest, ReconcileClusterStatusCacheHandlesLegacyAndClockSkew) {

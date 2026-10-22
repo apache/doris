@@ -1602,8 +1602,6 @@ TEST(MetaServiceJobTest, // NOLINT(readability-function-cognitive-complexity)
         return res.status().code();
     };
 
-    EXPECT_EQ(start(tablet_id, "stale", TabletCompactionJobPB::CUMULATIVE, true, true, true, 6),
-              MetaServiceCode::STALE_TABLET_CACHE);
     EXPECT_EQ(start(tablet_id, "partial", TabletCompactionJobPB::CUMULATIVE, true, false, false, 0),
               MetaServiceCode::INVALID_ARGUMENT);
     EXPECT_EQ(start(tablet_id, "partial-status", TabletCompactionJobPB::CUMULATIVE, true, true,
@@ -1632,7 +1630,8 @@ TEST(MetaServiceJobTest, // NOLINT(readability-function-cognitive-complexity)
                     "other"),
               MetaServiceCode::OK);
 
-    EXPECT_EQ(start(tablet_id, "matching", TabletCompactionJobPB::CUMULATIVE, true, true, true, 7),
+    // Loads advance the epoch continuously; the owner stays authorized with an older epoch.
+    EXPECT_EQ(start(tablet_id, "matching", TabletCompactionJobPB::CUMULATIVE, true, true, true, 6),
               MetaServiceCode::OK);
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     EXPECT_EQ(txn->get(job_key, &value), TxnErrorCode::TXN_OK);
@@ -1658,6 +1657,10 @@ TEST(MetaServiceJobTest, // NOLINT(readability-function-cognitive-complexity)
     EXPECT_EQ(start(tablet_id + 3, "owner-suspended", TabletCompactionJobPB::CUMULATIVE, true, true,
                     true, 7, "owner-b", ClusterStatus::SUSPENDED, 30000, false, {}, 30000),
               MetaServiceCode::OK);
+    // A status-based takeover is still fenced by the owner epoch.
+    EXPECT_EQ(start(tablet_id + 5, "foreign-stale-epoch", TabletCompactionJobPB::CUMULATIVE, true,
+                    true, true, 6, "owner-b", ClusterStatus::SUSPENDED, 30000, false, {}, 30000),
+              MetaServiceCode::STALE_TABLET_CACHE);
     EXPECT_EQ(start(tablet_id + 5, "owner-metadata-generation-changed",
                     TabletCompactionJobPB::CUMULATIVE, true, true, true, 7, "owner-b",
                     ClusterStatus::SUSPENDED, 30000, false, {}, 29000),

@@ -649,13 +649,15 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
                     }
                 }
             }
+            // The owner result is best effort and must never keep a committed txn from becoming
+            // visible, e.g. when a tablet was dropped after the partition conversion.
             if (tablet_indexes.size() != candidate_tablet_ids.size()) {
-                code = MetaServiceCode::TABLET_NOT_FOUND;
-                msg = fmt::format(
-                        "failed to get all tablet indexes for lazy owner result, txn_id={}, "
-                        "expected={}, actual={}",
-                        txn_id, candidate_tablet_ids.size(), tablet_indexes.size());
-                return;
+                LOG(WARNING) << "omit lazy owner result for tablets without index, txn_id="
+                             << txn_id << " expected=" << candidate_tablet_ids.size()
+                             << " actual=" << tablet_indexes.size();
+                std::erase_if(candidate_tablet_ids, [&](int64_t tablet_id) {
+                    return !tablet_indexes.contains(tablet_id);
+                });
             }
             txn_info.clear_last_active_tablet_ids();
             txn_info.clear_last_active_epochs();
@@ -684,13 +686,9 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
                 }
                 DCHECK_EQ(stats_values.size(), end - begin);
                 for (size_t i = begin; i < end; ++i) {
+                    // A cloned instance keeps inherited owners only in versioned load stats.
                     if (!stats_values[i - begin].has_value()) {
-                        code = MetaServiceCode::TABLET_NOT_FOUND;
-                        msg = fmt::format(
-                                "aggregate tablet stats missing for lazy result, txn_id={}, "
-                                "tablet_id={}",
-                                txn_id, candidate_tablet_ids[i]);
-                        return;
+                        continue;
                     }
                     TabletStatsPB stats;
                     if (!stats.ParseFromString(*stats_values[i - begin])) {
