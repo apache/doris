@@ -473,7 +473,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
         for (String dsl : new String[] {"", "   "}) {
             for (String options : new String[] {"", ", '{\"mode\":\"standard\"}'",
                     ", '{\"default_field\":\"title\"}'", ", '{\"fields\":[\"title\",\"content\"]}'"}) {
-                for (String condition : new String[] {"", " AND FALSE", " OR TRUE"}) {
+                for (String condition : new String[] {"", " AND id = 0", " OR id = 0"}) {
                     AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
                             PlanChecker.from(connectContext).analyze("SELECT id FROM test_search_table WHERE search('"
                                     + dsl + "'" + options + ")" + condition));
