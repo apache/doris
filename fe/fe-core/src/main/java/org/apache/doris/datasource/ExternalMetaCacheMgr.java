@@ -219,6 +219,10 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog instanceof ExternalCatalog) {
+            ((ExternalCatalog) catalog).closeFeMetaCacheOwner();
+        }
         try {
             try {
                 routeCatalogEngines(catalogId, cache -> safeInvalidate(
@@ -350,18 +354,19 @@ public class ExternalMetaCacheMgr {
 
     public List<CatalogMetaCacheStats> getCatalogCacheStats(long catalogId) {
         List<CatalogMetaCacheStats> stats = new ArrayList<>();
-        allCacheTypes().forEach(externalMetaCache -> externalMetaCache.stats(catalogId)
-                .forEach((entryName, entryStats) -> stats.add(
-                        new CatalogMetaCacheStats(externalMetaCache.engine(), entryName, entryStats))));
+        Map<String, Map<String, MetaCacheEntryStats>> byEngine = Maps.newHashMap();
+        allCacheTypes().forEach(externalMetaCache -> byEngine
+                .computeIfAbsent(externalMetaCache.engine(), ignored -> Maps.newHashMap())
+                .putAll(externalMetaCache.stats(catalogId)));
         for (CatalogMetaCache cache : MetaCacheGovernance.catalogCaches(catalogId)) {
-            if (ENGINE_DEFAULT.equals(cache.engine()) || ENGINE_DORIS.equals(cache.engine())) {
-                continue;
-            }
+            Map<String, MetaCacheEntryStats> entries =
+                    byEngine.computeIfAbsent(cache.engine(), ignored -> Maps.newHashMap());
             for (Map.Entry<String, MetaCache<?, ?>> entry : cache.entries().entrySet()) {
-                stats.add(new CatalogMetaCacheStats(
-                        cache.engine(), entry.getKey(), MetaCacheEntryStats.from(entry.getValue())));
+                entries.put(entry.getKey(), MetaCacheEntryStats.from(entry.getValue()));
             }
         }
+        byEngine.forEach((engine, entries) -> entries.forEach((entryName, entryStats) ->
+                stats.add(new CatalogMetaCacheStats(engine, entryName, entryStats))));
         stats.sort(Comparator.comparing(CatalogMetaCacheStats::getEngineName)
                 .thenComparing(CatalogMetaCacheStats::getEntryName));
         return stats;

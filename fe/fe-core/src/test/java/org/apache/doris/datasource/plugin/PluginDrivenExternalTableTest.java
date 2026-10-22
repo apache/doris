@@ -37,6 +37,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -982,6 +983,13 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertTrue(
                 ((PluginDrivenSchemaCacheValue) result.get()).getPartitionColumns().isEmpty(),
                 "a view has no partition columns");
+    }
+
+    @Test
+    public void missingTableHandlePreservesNotFoundInsteadOfGenericSchemaFailure() {
+        PluginDrivenExternalTable table = initSchemaViewTable(null, false);
+        CacheException error = Assertions.assertThrows(CacheException.class, table::initSchema);
+        Assertions.assertEquals("Table db1.v1 does not exist", error.getMessage());
     }
 
     @Test

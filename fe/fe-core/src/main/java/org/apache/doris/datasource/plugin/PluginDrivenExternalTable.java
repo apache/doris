@@ -43,6 +43,7 @@ import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -667,8 +668,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
             Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
             if (!handleOpt.isPresent()) {
-                LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
-                return Optional.empty();
+                throw new CacheException("Table %s.%s does not exist", null, dbName, tableName);
             }
 
             ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());

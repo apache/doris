@@ -32,6 +32,8 @@ import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
@@ -93,6 +95,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     private transient IdNameIndex tableIdNameIndex = new IdNameIndex("external table");
 
     private volatile boolean isInitializing = false;
+    private transient volatile boolean cacheEntriesReleased;
 
     /**
      * Create external database.
@@ -124,10 +127,35 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         synchronized (this) {
             this.initialized = false;
-            invalidateAllTableCache();
+            if (!cacheEntriesReleased) {
+                invalidateAllTableCache();
+            }
         }
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateDbMetadataCache(extCatalog.getId(), getFullName());
+    }
+
+    /** Eviction retires only this database instance's entries, never the current shared database scope. */
+    public synchronized void releaseCachedEntries() {
+        cacheEntriesReleased = true;
+        initialized = false;
+        if (tableNames != null) {
+            tableNames.close();
+        }
+        if (tables != null) {
+            tables.close();
+        }
+        tableIdNameIndex.clear();
+    }
+
+    /** Full refresh also invalidates the parent membership snapshot at the shared publication barrier. */
+    public void invalidateTableLookup(String localTableName) {
+        if (tables != null) {
+            tables.invalidateKeyAndRun(localTableName, () -> tableIdNameIndex.removeName(localTableName));
+        } else {
+            tableIdNameIndex.removeName(localTableName);
+        }
+        extCatalog.getFeMetaCacheOwner().invalidateTableAndNames(name, localTableName);
     }
 
     public boolean isInitialized() {
@@ -137,14 +165,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public final void makeSureInitialized() {
         // Must call this method before any operation on the database to avoid deadlock of synchronized block
         extCatalog.makeSureInitialized();
+        CatalogMetaCache owner = extCatalog.getFeMetaCacheOwner();
         synchronized (this) {
+            if (cacheEntriesReleased) {
+                // A database returned without cache admission must remain usable by the current caller.
+                // Its children are read through the existing transient path, never registered again.
+                return;
+            }
             if (isInitializing) {
                 return;
             }
             isInitializing = true;
             try {
                 if (!initialized) {
-                    buildMetaCache();
+                    buildMetaCache(owner);
                     setLastUpdateTime(System.currentTimeMillis());
                     initialized = true;
                 }
@@ -159,6 +193,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     private void buildMetaCache() {
+        buildMetaCache(extCatalog.getFeMetaCacheOwner());
+    }
+
+    private void buildMetaCache(CatalogMetaCache owner) {
         if (tableNames != null && tables != null) {
             return;
         }
@@ -170,13 +208,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 Config.external_cache_expire_time_seconds_after_access,
                 1);
         // Build one immutable names snapshot so list and lower-case index share the same cache version.
-        tableNames = new FeMetaCacheEntry<>(
-                name + ".table_names",
+        // Keep each database's existing capacity/TTL policy while sharing the catalog's invalidation tree.
+        // The database object's removal/discard hook closes these instance-qualified registrations.
+        String registrationName = extCatalog.nextFeCacheEntryName(name);
+        tableNames = FeMetaCacheEntry.shared(owner,
+                ignored -> ScopePath.tableCollection(name), ScopePath.tableCollection(name),
+                registrationName + ".table_names",
                 ignored -> NameCacheValue.of(listTableNames()),
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 true,
-                FeMetaCacheEntry.singleKeyStripeCount());
+                FeMetaCacheEntry.singleKeyStripeCount(), null);
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
@@ -184,8 +226,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 Math.max(Config.max_meta_object_cache_num, 1));
         // Keep table object entries on the normal manual-miss/refresh path because they do not need
         // the database-level reset callback used by catalog object caches.
-        tables = new FeMetaCacheEntry<>(
-                name + ".tables",
+        tables = FeMetaCacheEntry.sharedLookup(owner,
+                localTableName -> ScopePath.table(name, localTableName), ScopePath.database(name),
+                registrationName + ".tables",
                 localTableName -> buildTableForInit(
                         null,
                         localTableName,
@@ -196,7 +239,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 objectSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 false,
-                FeMetaCacheEntry.defaultObjectStripeCount());
+                FeMetaCacheEntry.defaultObjectStripeCount(), null);
     }
 
     private List<Pair<String, String>> listTableNames() {
@@ -472,7 +515,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public boolean isTableExist(String tableName) {
         SessionContext sessionContext = SessionContext.current();
         String remoteTblName = tableName;
-        if (extCatalog.shouldBypassTableNameCache(sessionContext) && requiresRemoteTableNameResolution()) {
+        if ((cacheEntriesReleased || extCatalog.shouldBypassTableNameCache(sessionContext))
+                && requiresRemoteTableNameResolution()) {
             Optional<Pair<String, String>> matched = findTableNamePairWithoutCache(sessionContext, tableName);
             remoteTblName = matched.map(Pair::key).orElse(null);
         } else if (this.isTableNamesCaseInsensitive()) {
@@ -525,7 +569,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
         SessionContext sessionContext = SessionContext.current();
-        if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
+        if (cacheEntriesReleased || extCatalog.shouldBypassTableNameCache(sessionContext)) {
             return Sets.newHashSet(listLocalTableNamesWithoutCache(sessionContext));
         }
         return Sets.newHashSet(listLocalTableNamesFromCache());
@@ -535,7 +579,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(String tableName) {
         makeSureInitialized();
         SessionContext sessionContext = SessionContext.current();
-        if (extCatalog.shouldBypassTableNameCache(sessionContext)) {
+        if (cacheEntriesReleased || extCatalog.shouldBypassTableNameCache(sessionContext)) {
             return getTableNullableWithoutCache(sessionContext, tableName);
         }
         String finalName = getLocalTableName(tableName, false);
@@ -756,6 +800,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
+        if (cacheEntriesReleased) {
+            return null;
+        }
         String tableName = tableIdNameIndex.getName(tableId);
         if (tableName == null) {
             return null;
@@ -789,7 +836,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             setLastUpdateTime(System.currentTimeMillis());
             localTableName = resolveTableNameForInvalidation(tableName);
             // Always clean local names/object/ID state, even when the object entry is cold or already evicted.
-            invalidateTableCache(localTableName);
+            if (!cacheEntriesReleased) {
+                invalidateTableCache(localTableName);
+            }
         } finally {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
                     extCatalog.getId(), id, getFullName(),
@@ -947,7 +996,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void resetMetaCacheNames() {
-        if (tableNames != null) {
+        if (!cacheEntriesReleased && tableNames != null) {
             tableNames.invalidateAll();
         }
     }

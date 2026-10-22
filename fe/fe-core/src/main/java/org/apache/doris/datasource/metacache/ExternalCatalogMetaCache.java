@@ -23,6 +23,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
+import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -88,8 +89,9 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
         Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
                 catalogProperties, catalogPropertyCompatibilityMap());
-        catalogEntries.computeIfAbsent(catalogId,
-                id -> buildCatalogRuntime(id, safeCatalogProperties));
+        catalogEntries.compute(catalogId, (id, current) ->
+                current != null && !current.owner().isClosed()
+                        ? current : buildCatalogRuntime(id, safeCatalogProperties));
     }
 
     @Override
@@ -156,13 +158,13 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         CatalogMetaCacheRuntime group = catalogEntries.get(catalogId);
         if (group != null) {
-            group.owner().invalidateTable(dbName, tableName);
+            group.owner().invalidateScope(ScopePath.tableMetadata(dbName, tableName));
         }
     }
 
     @Override
     public void invalidatePartitions(long catalogId, String dbName, String tableName, List<String> partitions) {
-        // FE schema entries are table-scoped: any partition metadata change can affect the table view.
+        // Partition metadata changes can also affect the table's schema/content view.
         invalidateTable(catalogId, dbName, tableName);
     }
 
@@ -274,7 +276,10 @@ public abstract class ExternalCatalogMetaCache implements ExternalMetaCache {
     }
 
     private CatalogMetaCacheRuntime buildCatalogRuntime(long catalogId, Map<String, String> catalogProperties) {
-        CatalogMetaCacheRuntime group = new CatalogMetaCacheRuntime(catalogId, engine, catalogProperties);
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        CatalogMetaCacheRuntime group = catalog instanceof ExternalCatalog
+                ? new CatalogMetaCacheRuntime(((ExternalCatalog) catalog).getFeMetaCacheOwner())
+                : new CatalogMetaCacheRuntime(catalogId, engine, catalogProperties);
         metaCacheEntryDefs.values()
                 .forEach(entryDef -> group.put(entryDef.getName(),
                         newMetaCacheEntry(group, entryDef, catalogProperties)));

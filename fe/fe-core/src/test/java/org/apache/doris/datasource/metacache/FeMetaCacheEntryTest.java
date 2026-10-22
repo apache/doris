@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.ScopePath;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -59,6 +61,31 @@ public class FeMetaCacheEntryTest {
             Assertions.assertEquals(1L, stats.getLoadSuccessCount());
             Assertions.assertTrue(stats.getRequestCount() >= 4L);
             Assertions.assertTrue(stats.getInvalidateCount() >= 1L);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRetiredReadThroughValuesAreDiscardedWithoutPublishingActions() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            AtomicInteger actions = new AtomicInteger();
+            FeMetaCacheEntry<String, AtomicBoolean> entry = FeMetaCacheEntry.sharedLookup(owner,
+                    key -> ScopePath.database(key), ScopePath.catalog(), "objects",
+                    key -> new AtomicBoolean(true), ENABLED, executor, false, 8,
+                    (key, value, cause) -> value.set(false));
+            entry.close();
+            AtomicBoolean transientValue = entry.getAndRunIfCurrent("db", (key, value) -> actions.incrementAndGet());
+            Assertions.assertFalse(transientValue.get());
+            Assertions.assertEquals(0, actions.get());
+            Assertions.assertNull(entry.getIfPresent("db"));
+            Assertions.assertNull(entry.computeWithCommitAction("db", (key, value) -> new AtomicBoolean(true),
+                    actions::incrementAndGet));
+            Assertions.assertEquals(0, actions.get());
+            entry.invalidateKeyAndRun("db", actions::incrementAndGet);
+            Assertions.assertEquals(1, actions.get());
+            Assertions.assertTrue(owner.entries().isEmpty());
         } finally {
             executor.shutdownNow();
         }

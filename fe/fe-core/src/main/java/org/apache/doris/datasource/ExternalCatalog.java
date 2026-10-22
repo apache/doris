@@ -40,7 +40,10 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.ExceptionDiagnosticUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCacheBudgetManager;
+import org.apache.doris.connector.cache.ScopePath;
+import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -82,6 +85,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -169,6 +173,12 @@ public abstract class ExternalCatalog
 
     private boolean objectCreated = false;
     protected TransactionManager transactionManager;
+    private transient CatalogMetaCache feMetaCacheOwner;
+    private transient CatalogMetaCache namingCacheOwner;
+    private transient boolean feCacheRetired;
+    private transient AtomicLong cacheEntrySequence =
+            new AtomicLong();
+
     protected FeMetaCacheEntry<String, NameCacheValue> databaseNames;
     protected FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
@@ -343,7 +353,8 @@ public abstract class ExternalCatalog
         }
         try {
             initLocalObjects();
-            if (!initialized) {
+            if (!initialized || feMetaCacheOwner == null || feMetaCacheOwner.isClosed()
+                    || namingCacheOwner != feMetaCacheOwner) {
                 buildMetaCache();
                 setLastUpdateTime(System.currentTimeMillis());
                 initialized = true;
@@ -399,8 +410,69 @@ public abstract class ExternalCatalog
         return this.initialized;
     }
 
-    private void buildMetaCache() {
-        if (databaseNames != null && databases != null) {
+    /** One FE invalidation/lifecycle owner; connector caches retain their remote-name ownership. */
+    public synchronized CatalogMetaCache getFeMetaCacheOwner() {
+        Preconditions.checkState(!feCacheRetired, "External catalog cache owner has been retired: %s", name);
+        if (feMetaCacheOwner == null || feMetaCacheOwner.isClosed()) {
+            boolean replacingClosedOwner = feMetaCacheOwner != null;
+            Map<String, String> properties = Maps.newHashMap(getProperties());
+            overlayMetaCacheConfig(properties);
+            String engine = this instanceof RemoteDorisExternalCatalog
+                    ? "doris" : "default";
+            feMetaCacheOwner = CatalogMetaCache.managed(id, engine, properties);
+            dbIdNameIndex.clear();
+            if (replacingClosedOwner) {
+                initialized = false;
+            }
+        }
+        return feMetaCacheOwner;
+    }
+
+    /** Cache retirement must also work before the first schema entry has been prepared. */
+    public void closeFeMetaCacheOwner() {
+        CatalogMetaCache owner;
+        FeMetaCacheEntry<String, NameCacheValue> names;
+        FeMetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> objects;
+        synchronized (this) {
+            owner = feMetaCacheOwner;
+            names = databaseNames;
+            objects = databases;
+            dbIdNameIndex.clear();
+            initialized = false;
+        }
+        if (names != null) {
+            names.close();
+        }
+        if (objects != null) {
+            objects.close();
+        }
+        if (owner != null) {
+            owner.close();
+        }
+    }
+
+    /** A full database refresh also fences the catalog's database-name snapshot. */
+    public void invalidateDatabaseLookup(String localDbName) {
+        if (databases != null) {
+            databases.invalidateKeyAndRun(localDbName, () -> dbIdNameIndex.removeName(localDbName));
+        } else {
+            dbIdNameIndex.removeName(localDbName);
+        }
+        // Replay must not resurrect a retired owner or initialize a remote catalog after ALTER.
+        CatalogMetaCache owner = feMetaCacheOwner;
+        if (owner != null && !owner.isClosed()) {
+            owner.invalidateDatabaseAndNames(localDbName);
+        }
+    }
+
+    /** Instance-qualified registration permits old database cleanup without touching its replacement. */
+    public String nextFeCacheEntryName(String prefix) {
+        return prefix + "." + cacheEntrySequence.getAndIncrement();
+    }
+
+    private synchronized void buildMetaCache() {
+        CatalogMetaCache owner = getFeMetaCacheOwner();
+        if (namingCacheOwner == owner && databaseNames != null && databases != null) {
             return;
         }
         if (LOG.isDebugEnabled()) {
@@ -411,26 +483,29 @@ public abstract class ExternalCatalog
                 Config.external_cache_expire_time_seconds_after_access,
                 1);
         // Build one immutable names snapshot so list and lower-case index share the same cache version.
-        databaseNames = new FeMetaCacheEntry<>(
-                name + ".database_names",
+        databaseNames = FeMetaCacheEntry.shared(owner,
+                ignored -> ScopePath.databaseCollection(), ScopePath.databaseCollection(),
+                "database_names",
                 ignored -> NameCacheValue.of(getFilteredDatabaseNames()),
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
                 true,
-                FeMetaCacheEntry.singleKeyStripeCount());
+                FeMetaCacheEntry.singleKeyStripeCount(), null);
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
                 Config.external_cache_expire_time_seconds_after_access,
                 Math.max(Config.max_meta_object_cache_num, 1));
         // Object entries keep the sync removal listener semantics and therefore do not enable auto refresh.
-        databases = FeMetaCacheEntry.withSyncRemovalListener(
-                name + ".databases",
+        databases = FeMetaCacheEntry.sharedLookup(owner,
+                ScopePath::database, ScopePath.catalog(),
+                "databases",
                 localDbName -> buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType, true),
                 objectSpec,
-                Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
+                Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(), false,
                 FeMetaCacheEntry.defaultObjectStripeCount(),
-                (key, value, cause) -> value.resetMetaToUninitialized());
+                (key, value, cause) -> value.releaseCachedEntries());
+        namingCacheOwner = owner;
     }
 
     /**
@@ -835,7 +910,11 @@ public abstract class ExternalCatalog
         String localDbName = dbNamePair.get().value();
         // checkExists=false: the pair came from the live listing, so re-listing (getDbNames) is both
         // unnecessary and would recurse back through this bypass — build the db object directly.
-        return buildDbForInit(remoteDbName, localDbName, Util.genIdByName(name, localDbName), logType, false);
+        ExternalDatabase<? extends ExternalTable> database =
+                buildDbForInit(remoteDbName, localDbName, Util.genIdByName(name, localDbName), logType, false);
+        // A per-session object has no catalog-cache lifecycle to retire its child registrations.
+        database.releaseCachedEntries();
+        return database;
     }
 
     /** Matches a live listing's LOCAL db name against a requested name, honoring the db-name case modes. */
@@ -959,9 +1038,16 @@ public abstract class ExternalCatalog
 
     @Override
     public final void onClose() {
+        synchronized (this) {
+            feCacheRetired = true;
+        }
         Runnable accessControllerCleanup = detachAccessController();
         try {
-            closeResourcesQuietly("registered catalog");
+            try {
+                closeResourcesQuietly("registered catalog");
+            } finally {
+                closeFeMetaCacheOwner();
+            }
         } finally {
             accessControllerCleanup.run();
         }
@@ -1188,6 +1274,7 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+        this.cacheEntrySequence = new AtomicLong();
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -1593,6 +1680,10 @@ public abstract class ExternalCatalog
     }
 
     private void invalidateAllDatabaseCache() {
+        if (feMetaCacheOwner != null && feMetaCacheOwner.isClosed()) {
+            dbIdNameIndex.clear();
+            return;
+        }
         if (databaseNames != null) {
             databaseNames.invalidateAll();
         }

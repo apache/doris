@@ -26,6 +26,7 @@ import org.apache.doris.connector.cache.MetaCacheRemovalReason;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 
 import java.time.Duration;
@@ -42,6 +43,7 @@ import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -84,8 +86,13 @@ public class FeMetaCacheEntry<K, V> {
     private final boolean autoRefresh;
     private final int stripeCount;
     private final AtomicReferenceArray<StripeState<K>> stripeStates;
-    private final CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+    private final CatalogMetaCache owner;
+    private final ScopePath invalidationScope;
     private final MetaCache<K, V> data;
+    private final BiConsumer<K, V> discardedValueAction;
+    private final Object lifecycleLock = new Object();
+    private volatile boolean retired;
+    private int activeUses;
 
     public FeMetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
         this(name, loader, cacheSpec, refreshExecutor, true, false, defaultObjectStripeCount(), null);
@@ -128,6 +135,39 @@ public class FeMetaCacheEntry<K, V> {
     FeMetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount,
             @Nullable RemovalListener<K, V> removalListener) {
+        this(CatalogMetaCache.unmanaged(), ignored -> ScopePath.catalog(), ScopePath.catalog(),
+                name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                stripeCount, removalListener, false, MetaCacheDefinition.BudgetPolicy.WEIGHTED_PAYLOAD);
+    }
+
+    public static <K, V> FeMetaCacheEntry<K, V> shared(CatalogMetaCache owner,
+            Function<K, ScopePath> scopeResolver, ScopePath invalidationScope,
+            String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
+            boolean autoRefresh, int stripeCount, @Nullable RemovalListener<K, V> removalListener) {
+        return new FeMetaCacheEntry<>(owner, scopeResolver, invalidationScope, name, loader, cacheSpec,
+                refreshExecutor, autoRefresh, false, stripeCount, removalListener, true,
+                MetaCacheDefinition.BudgetPolicy.WEIGHTED_PAYLOAD);
+    }
+
+    /** Lookup handles retain their existing count/TTL policy; schema payloads use the owner's byte budget. */
+    public static <K, V> FeMetaCacheEntry<K, V> sharedLookup(CatalogMetaCache owner,
+            Function<K, ScopePath> scopeResolver, ScopePath invalidationScope,
+            String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
+            boolean autoRefresh, int stripeCount, @Nullable RemovalListener<K, V> removalListener) {
+        return new FeMetaCacheEntry<>(owner, scopeResolver, invalidationScope, name, loader, cacheSpec,
+                refreshExecutor, autoRefresh, false, stripeCount, removalListener, true,
+                MetaCacheDefinition.BudgetPolicy.COUNT_ONLY);
+    }
+
+    private FeMetaCacheEntry(CatalogMetaCache owner, Function<K, ScopePath> scopeResolver,
+            ScopePath invalidationScope, String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount,
+            @Nullable RemovalListener<K, V> removalListener, boolean retireDiscardedValues,
+            MetaCacheDefinition.BudgetPolicy budgetPolicy) {
+        this.owner = Objects.requireNonNull(owner, "owner");
+        discardedValueAction = retireDiscardedValues && removalListener != null
+                ? (key, value) -> removalListener.onRemoval(key, value, RemovalCause.EXPLICIT) : null;
+        this.invalidationScope = Objects.requireNonNull(invalidationScope, "invalidationScope");
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.loader = loader;
         this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
@@ -156,14 +196,20 @@ public class FeMetaCacheEntry<K, V> {
         effectiveEnabled = CacheSpec.isCacheEnabled(
                 cacheSpec.isEnable(), cacheSpec.getTtlSecond(), cacheSpec.getCapacity());
         MetaCacheDefinition.Builder<K, V> builder = MetaCacheDefinition.<K, V>builder(
-                name, cacheSpec, ignored -> ScopePath.catalog())
-                .sizeEstimator(MetaCacheSizeEstimators.reflective());
+                name, cacheSpec, scopeResolver)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                .budgetPolicy(budgetPolicy);
         if (loader != null) {
             builder.loader(key -> loadAndPause(key, loader));
         }
         if (removalListener != null) {
             builder.removalListener((key, value, reason) ->
                     removalListener.onRemoval(key, value, toCaffeineRemovalCause(reason)));
+            // An uncached database is still returned to its caller. Retire its cache registrations too,
+            // so the caller uses the transient lookup path rather than leaking a new set of child entries.
+            if (discardedValueAction != null) {
+                builder.discardListener(discardedValueAction);
+            }
         }
         if (autoRefresh && Config.external_cache_refresh_time_minutes > 0) {
             builder.refreshAfterWrite(
@@ -181,12 +227,13 @@ public class FeMetaCacheEntry<K, V> {
             throw new UnsupportedOperationException(String.format(
                     "Entry '%s' requires a contextual miss loader.", name));
         }
-        return data.get(key);
+        return useCache(() -> data.get(key), () -> loadWithoutCaching(key, loader));
     }
 
     public V get(K key, Function<K, V> missLoader) {
         Function<K, V> nonNullLoader = Objects.requireNonNull(missLoader, "missLoader can not be null");
-        return data.get(key, loadKey -> loadAndPause(loadKey, nonNullLoader));
+        return useCache(() -> data.get(key, loadKey -> loadAndPause(loadKey, nonNullLoader)),
+                () -> loadWithoutCaching(key, nonNullLoader));
     }
 
     public V getAndRunIfCurrent(K key, BiConsumer<K, V> currentValueAction) {
@@ -198,6 +245,12 @@ public class FeMetaCacheEntry<K, V> {
         BiPredicate<K, V> required = Objects.requireNonNull(actionRequired, "actionRequired can not be null");
         BiConsumer<K, V> action = Objects.requireNonNull(currentValueAction, "currentValueAction can not be null");
         Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
+        return useCache(() -> getAndRunIfCurrentCached(key, required, action, loadFunction),
+                () -> loadWithoutCaching(key, loadFunction));
+    }
+
+    private V getAndRunIfCurrentCached(K key, BiPredicate<K, V> required,
+            BiConsumer<K, V> action, Function<K, V> loadFunction) {
         V cached = data.getIfPresent(key);
         if (cached != null && !required.test(key, cached)) {
             return cached;
@@ -255,11 +308,15 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     public V getIfPresent(K key) {
-        return data.getIfPresent(key);
+        return useCache(() -> data.getIfPresent(key), () -> null);
     }
 
     @Nullable
     public V findIfPresent(Predicate<K> keyPredicate) {
+        return useCache(() -> findIfPresentCached(keyPredicate), () -> null);
+    }
+
+    private V findIfPresentCached(Predicate<K> keyPredicate) {
         Objects.requireNonNull(keyPredicate, "keyPredicate can not be null");
         List<V> result = new ArrayList<>(1);
         data.forEach((key, value) -> {
@@ -271,6 +328,10 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     public void put(K key, V value) {
+        useCache(() -> putCached(key, value));
+    }
+
+    private void putCached(K key, V value) {
         Objects.requireNonNull(value, "value can not be null");
         StripeState<K> stripe = stripeState(key);
         synchronized (stripe) {
@@ -286,6 +347,10 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     public V computeAndRun(K key, BiFunction<K, V, V> remappingFunction, Runnable afterMutation) {
+        return useCache(() -> computeAndRunCached(key, remappingFunction, afterMutation), () -> null);
+    }
+
+    private V computeAndRunCached(K key, BiFunction<K, V, V> remappingFunction, Runnable afterMutation) {
         BiFunction<K, V, V> remapper = Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
         Runnable action = Objects.requireNonNull(afterMutation, "afterMutation can not be null");
         StripeState<K> stripe = stripeState(key);
@@ -304,6 +369,10 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     public V computeAfterValidation(K key, BiFunction<K, V, V> remappingFunction, Runnable validationAction) {
+        return useCache(() -> computeAfterValidationCached(key, remappingFunction, validationAction), () -> null);
+    }
+
+    private V computeAfterValidationCached(K key, BiFunction<K, V, V> remappingFunction, Runnable validationAction) {
         BiFunction<K, V, V> remapper = Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
         Runnable validation = Objects.requireNonNull(validationAction, "validationAction can not be null");
         StripeState<K> stripe = stripeState(key);
@@ -328,6 +397,10 @@ public class FeMetaCacheEntry<K, V> {
      * entry. If it throws, the value is not updated, but completed external side effects are not rolled back.
      */
     public V computeWithCommitAction(K key, BiFunction<K, V, V> remappingFunction, Runnable commitAction) {
+        return useCache(() -> computeWithCommitActionCached(key, remappingFunction, commitAction), () -> null);
+    }
+
+    private V computeWithCommitActionCached(K key, BiFunction<K, V, V> remappingFunction, Runnable commitAction) {
         BiFunction<K, V, V> remapper = Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
         Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
         StripeState<K> stripe = stripeState(key);
@@ -351,15 +424,25 @@ public class FeMetaCacheEntry<K, V> {
 
     public void invalidateKeyAndRun(K key, Runnable afterInvalidation) {
         Runnable action = Objects.requireNonNull(afterInvalidation, "afterInvalidation can not be null");
-        StripeState<K> stripe = stripeState(key);
-        synchronized (stripe) {
-            bumpAction(stripe, key);
-            data.invalidateKey(key);
+        useCache(() -> {
+            StripeState<K> stripe = stripeState(key);
+            synchronized (stripe) {
+                bumpAction(stripe, key);
+                data.invalidateKey(key);
+                action.run();
+            }
+            return null;
+        }, () -> {
             action.run();
-        }
+            return null;
+        });
     }
 
     public void invalidateAll() {
+        useCache(this::invalidateAllCached);
+    }
+
+    private void invalidateAllCached() {
         for (int i = 0; i < stripeCount; i++) {
             StripeState<K> stripe = stripeStates.get(i);
             if (stripe != null) {
@@ -370,11 +453,59 @@ public class FeMetaCacheEntry<K, V> {
                 }
             }
         }
-        owner.invalidateCatalog();
+        owner.invalidateScope(invalidationScope);
+    }
+
+    /**
+     * Stops accepting cached operations without waiting for a remote load. Accepted operations pin the physical
+     * entry until they finish; later reads use the loader without publishing cache values or ID side effects.
+     * Cleanup removes this exact registration, never the current database scope or a replacement instance.
+     */
+    public void close() {
+        boolean remove;
+        synchronized (lifecycleLock) {
+            retired = true;
+            remove = activeUses == 0;
+        }
+        if (remove) {
+            owner.remove(data);
+        }
     }
 
     public void forEach(BiConsumer<K, V> consumer) {
-        data.forEach(consumer);
+        useCache(() -> data.forEach(consumer));
+    }
+
+    private void useCache(Runnable operation) {
+        useCache(() -> {
+            operation.run();
+            return null;
+        }, () -> null);
+    }
+
+    private <R> R useCache(Supplier<R> operation, Supplier<R> uncached) {
+        boolean accepted;
+        synchronized (lifecycleLock) {
+            accepted = !retired;
+            if (accepted) {
+                activeUses++;
+            }
+        }
+        if (!accepted) {
+            return uncached.get();
+        }
+        try {
+            return operation.get();
+        } finally {
+            boolean remove;
+            synchronized (lifecycleLock) {
+                activeUses--;
+                remove = retired && activeUses == 0;
+            }
+            if (remove) {
+                owner.remove(data);
+            }
+        }
     }
 
     public MetaCacheEntryStats stats() {
@@ -441,6 +572,14 @@ public class FeMetaCacheEntry<K, V> {
         return loaded;
     }
 
+    private V loadWithoutCaching(K key, Function<K, V> loadFunction) {
+        V loaded = loadFunction.apply(key);
+        if (loaded != null && discardedValueAction != null) {
+            discardedValueAction.accept(key, loaded);
+        }
+        return loaded;
+    }
+
     private static com.github.benmanes.caffeine.cache.RemovalCause toCaffeineRemovalCause(
             MetaCacheRemovalReason reason) {
         return com.github.benmanes.caffeine.cache.RemovalCause.valueOf(reason.name());
@@ -470,7 +609,7 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     private boolean isCurrent(StripeState<K> stripe, ActionToken<K> token) {
-        return stripe.activeActions != null
+        return !retired && stripe.activeActions != null
                 && stripe.activeActions.get(token.key) == token.state
                 && token.state.generation == token.generation;
     }

@@ -31,10 +31,20 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class CatalogMetaCacheRuntime {
     private final CatalogMetaCache owner;
+    private final boolean ownsOwner;
     private final Map<String, MetaCache<?, ?>> entries = new ConcurrentHashMap<>();
 
     CatalogMetaCacheRuntime(long catalogId, String engine, Map<String, String> catalogProperties) {
-        owner = CatalogMetaCache.managed(catalogId, engine, catalogProperties);
+        this(CatalogMetaCache.managed(catalogId, engine, catalogProperties), true);
+    }
+
+    CatalogMetaCacheRuntime(CatalogMetaCache owner) {
+        this(owner, false);
+    }
+
+    private CatalogMetaCacheRuntime(CatalogMetaCache owner, boolean ownsOwner) {
+        this.owner = Objects.requireNonNull(owner, "owner");
+        this.ownsOwner = ownsOwner;
     }
 
     CatalogMetaCache owner() {
@@ -51,7 +61,7 @@ final class CatalogMetaCacheRuntime {
 
     Map<String, MetaCacheEntryStats> stats() {
         Map<String, MetaCacheEntryStats> result = Maps.newHashMap();
-        entries.forEach((name, entry) -> result.put(name, stats(entry)));
+        owner.entries().forEach((name, entry) -> result.put(name, stats(entry)));
         return result;
     }
 
@@ -60,7 +70,14 @@ final class CatalogMetaCacheRuntime {
     }
 
     void close() {
-        owner.close();
+        // An entry group borrows the catalog's FE owner. Reconfiguring schema entries must not close
+        // sibling naming/object adapters; only ExternalCatalog retires that shared owner.
+        if (ownsOwner) {
+            owner.close();
+        } else {
+            entries.values().forEach(owner::remove);
+        }
+        entries.clear();
     }
 
     private MetaCacheEntryStats stats(MetaCache<?, ?> entry) {

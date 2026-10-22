@@ -30,7 +30,13 @@ import java.util.Objects;
  */
 public final class ScopePath {
     private enum SyntheticPartition {
-        COLLECTION
+        COLLECTION,
+        METADATA
+    }
+
+    private enum NameCollection {
+        DATABASES,
+        TABLES
     }
 
     public enum Level {
@@ -46,12 +52,18 @@ public final class ScopePath {
     private final String database;
     private final String table;
     private final Object partition;
+    private final NameCollection nameCollection;
 
     private ScopePath(Level level, String database, String table, Object partition) {
+        this(level, database, table, partition, null);
+    }
+
+    private ScopePath(Level level, String database, String table, Object partition, NameCollection nameCollection) {
         this.level = level;
         this.database = database;
         this.table = table;
         this.partition = partition;
+        this.nameCollection = nameCollection;
     }
 
     public static ScopePath catalog() {
@@ -88,6 +100,30 @@ public final class ScopePath {
         return partition(database, table, SyntheticPartition.COLLECTION);
     }
 
+    /** The catalog's database-name snapshot, distinct from every user database. */
+    public static ScopePath databaseCollection() {
+        return new ScopePath(Level.DATABASE, null, null, null, NameCollection.DATABASES);
+    }
+
+    /** A database's table-name snapshot, distinct from every user table. */
+    public static ScopePath tableCollection(String database) {
+        return new ScopePath(Level.TABLE, Objects.requireNonNull(database, "database"),
+                null, null, NameCollection.TABLES);
+    }
+
+    /** FE schema/content entries; invalidating them preserves the FE table object and name snapshot. */
+    public static ScopePath tableMetadata(String database, String table) {
+        return partition(database, table, SyntheticPartition.METADATA);
+    }
+
+    Object databaseKey() {
+        return nameCollection == NameCollection.DATABASES ? NameCollection.DATABASES : database;
+    }
+
+    Object tableKey() {
+        return nameCollection == NameCollection.TABLES ? NameCollection.TABLES : table;
+    }
+
     public Level level() {
         return level;
     }
@@ -112,13 +148,13 @@ public final class ScopePath {
         if (level == Level.CATALOG) {
             return true;
         }
-        if (!database.equals(other.database)) {
+        if (!Objects.equals(databaseKey(), other.databaseKey())) {
             return false;
         }
         if (level == Level.DATABASE) {
             return true;
         }
-        if (!table.equals(other.table)) {
+        if (!Objects.equals(tableKey(), other.tableKey())) {
             return false;
         }
         return level == Level.TABLE || partition.equals(other.partition);
@@ -134,8 +170,8 @@ public final class ScopePath {
         }
         ScopePath other = (ScopePath) obj;
         return level == other.level
-                && Objects.equals(database, other.database)
-                && Objects.equals(table, other.table)
+                && Objects.equals(databaseKey(), other.databaseKey())
+                && Objects.equals(tableKey(), other.tableKey())
                 && Objects.equals(partition, other.partition);
     }
 
@@ -143,13 +179,17 @@ public final class ScopePath {
     public int hashCode() {
         int pathHashCode = 1;
         pathHashCode = 31 * pathHashCode + Objects.hashCode(level);
-        pathHashCode = 31 * pathHashCode + Objects.hashCode(database);
-        pathHashCode = 31 * pathHashCode + Objects.hashCode(table);
+        pathHashCode = 31 * pathHashCode + Objects.hashCode(databaseKey());
+        pathHashCode = 31 * pathHashCode + Objects.hashCode(tableKey());
         return 31 * pathHashCode + Objects.hashCode(partition);
     }
 
     @Override
     public String toString() {
+        if (nameCollection != null) {
+            return nameCollection == NameCollection.DATABASES
+                    ? "databaseCollection" : "tableCollection[" + database + "]";
+        }
         switch (level) {
             case CATALOG:
                 return "catalog";

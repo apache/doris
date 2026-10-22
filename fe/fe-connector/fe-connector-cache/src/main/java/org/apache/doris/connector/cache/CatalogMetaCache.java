@@ -97,8 +97,9 @@ public final class CatalogMetaCache implements AutoCloseable {
         }
         MetaCacheBudgetManager.EntryBudget entryBudget = null;
         try {
-            boolean weightLimited = budgetManager.hasLimit(
-                    catalogMaxWeight, nonNullDefinition.cacheSpec().getMaxWeight());
+            boolean weightLimited = nonNullDefinition.budgetPolicy()
+                    == MetaCacheDefinition.BudgetPolicy.WEIGHTED_PAYLOAD
+                    && budgetManager.hasLimit(catalogMaxWeight, nonNullDefinition.cacheSpec().getMaxWeight());
             if (weightLimited && nonNullDefinition.sizeEstimator() == null) {
                 throw new IllegalArgumentException("Weighted metadata cache requires a size estimator: "
                         + nonNullDefinition.name());
@@ -157,6 +158,25 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     public void invalidateTable(String database, String table) {
         registry.invalidate(ScopePath.table(database, table));
+    }
+
+    /** Invalidates an object and its parent membership view at one logical publication barrier. */
+    public void invalidateTableAndNames(String database, String table) {
+        registry.invalidate(java.util.Arrays.asList(
+                ScopePath.table(database, table), ScopePath.tableCollection(database)));
+    }
+
+    public void invalidateDatabaseAndNames(String database) {
+        registry.invalidate(java.util.Arrays.asList(
+                ScopePath.database(database), ScopePath.databaseCollection()));
+    }
+
+    public void invalidateScope(ScopePath scope) {
+        registry.invalidate(scope);
+    }
+
+    public boolean isClosed() {
+        return closed.get();
     }
 
     public void invalidatePartition(String database, String table, Object partition) {

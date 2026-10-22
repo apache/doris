@@ -75,8 +75,9 @@ public final class MetaCacheEntryInvalidation<K> {
             Function<K, String> dbNameExtractor, Function<K, String> tableNameExtractor) {
         Objects.requireNonNull(dbNameExtractor, "dbNameExtractor");
         Objects.requireNonNull(tableNameExtractor, "tableNameExtractor");
+        // Metadata is a child of the identity scope: ordinary writes must not evict FE lookup objects.
         return new MetaCacheEntryInvalidation<>(
-                key -> ScopePath.table(dbNameExtractor.apply(key), tableNameExtractor.apply(key)),
+                key -> ScopePath.tableMetadata(dbNameExtractor.apply(key), tableNameExtractor.apply(key)),
                 dbName -> key -> dbNameExtractor.apply(key).equals(dbName),
                 (dbName, tableName) -> key -> dbNameExtractor.apply(key).equals(dbName)
                         && tableNameExtractor.apply(key).equals(tableName),

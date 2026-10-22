@@ -115,7 +115,11 @@ public class RefreshManager {
             try {
                 invalidateAllConnectorCachesIfPresent(catalog);
             } finally {
-                cacheMgr.invalidateDb(log.getCatalogId(), dbId, localDbName);
+                try {
+                    catalog.invalidateDatabaseLookup(localDbName);
+                } finally {
+                    cacheMgr.invalidateDb(log.getCatalogId(), dbId, localDbName);
+                }
             }
             LOG.info("database object cache is cold when replaying refresh database; invalidated caches by "
                             + "local name {}: {}",
@@ -133,7 +137,11 @@ public class RefreshManager {
             }
         } finally {
             try {
-                db.resetMetaToUninitialized();
+                try {
+                    db.resetMetaToUninitialized();
+                } finally {
+                    ((ExternalCatalog) db.getCatalog()).invalidateDatabaseLookup(db.getFullName());
+                }
             } finally {
                 Env.getCurrentEnv().getExtMetaCacheMgr()
                         .invalidateDbRowCountCache(db.getCatalog().getId(), db.getId());
@@ -170,8 +178,8 @@ public class RefreshManager {
             return;
         }
         long updateTime = System.currentTimeMillis();
-        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
-        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime, true);
+        ExternalObjectLog log = ExternalObjectLog.createForExplicitRefreshTable(
                 catalog.getId(), db.getFullName(), table.getName(), updateTime);
         env.getEditLog().logRefreshExternalTable(log);
     }
@@ -225,14 +233,20 @@ public class RefreshManager {
                     ((PluginDrivenExternalCatalog) catalog).getConnector().invalidateDb(db.get().getRemoteName());
                 }
             } finally {
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
-                        log.getCatalogId(), dbId, db.get().getFullName(), tableId, localTableName);
+                try {
+                    if (log.isInvalidateTableLookup()) {
+                        db.get().invalidateTableLookup(localTableName);
+                    }
+                } finally {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
+                            log.getCatalogId(), dbId, db.get().getFullName(), tableId, localTableName);
+                }
             }
             LOG.info("table object cache is cold when replaying refresh table; invalidated caches by local name {}: {}",
                     localTableName, log.debugForRefreshTable());
             return;
         }
-        refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+        refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime(), log.isInvalidateTableLookup());
     }
 
     private void replayRenameTable(ExternalObjectLog log, ExternalCatalog catalog,
@@ -301,6 +315,11 @@ public class RefreshManager {
     }
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
+        refreshTableInternal(db, table, updateTime, false);
+    }
+
+    private void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime,
+            boolean invalidateTableLookup) {
         table.unsetObjectCreated();
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
@@ -312,7 +331,13 @@ public class RefreshManager {
                         .invalidateTable(db.getRemoteName(), table.getRemoteName());
             }
         } finally {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(table);
+            try {
+                if (invalidateTableLookup) {
+                    db.invalidateTableLookup(table.getName());
+                }
+            } finally {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(table);
+            }
         }
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);

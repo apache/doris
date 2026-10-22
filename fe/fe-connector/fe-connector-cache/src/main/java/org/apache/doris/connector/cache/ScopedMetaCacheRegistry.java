@@ -334,7 +334,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             return ScopeSnapshot.capture(path, catalogNode, null, null, null);
         }
         ScopeState catalogState = catalogNode.current.get();
-        ScopeNode dbNode = child(catalogNode, catalogState, path.database(), ScopePath.Level.DATABASE);
+        ScopeNode dbNode = child(catalogNode, catalogState, path.databaseKey(), ScopePath.Level.DATABASE);
         if (dbNode == null) {
             return null;
         }
@@ -342,7 +342,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             return ScopeSnapshot.capture(path, catalogNode, dbNode, null, null);
         }
         ScopeState dbState = dbNode.current.get();
-        ScopeNode tableNode = child(dbNode, dbState, path.table(), ScopePath.Level.TABLE);
+        ScopeNode tableNode = child(dbNode, dbState, path.tableKey(), ScopePath.Level.TABLE);
         if (tableNode == null) {
             return null;
         }
@@ -365,7 +365,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         if (path.level() == ScopePath.Level.CATALOG) {
             return nodes;
         }
-        ScopeNode dbNode = catalogNode.current.get().children.get(path.database());
+        ScopeNode dbNode = catalogNode.current.get().children.get(path.databaseKey());
         if (dbNode == null) {
             return nodes;
         }
@@ -373,7 +373,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         if (path.level() == ScopePath.Level.DATABASE) {
             return nodes;
         }
-        ScopeNode tableNode = dbNode.current.get().children.get(path.table());
+        ScopeNode tableNode = dbNode.current.get().children.get(path.tableKey());
         if (tableNode == null) {
             return nodes;
         }

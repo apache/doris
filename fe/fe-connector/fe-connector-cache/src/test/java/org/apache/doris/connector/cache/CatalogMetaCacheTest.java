@@ -24,8 +24,14 @@ import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.OptionalLong;
 import java.util.Queue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,6 +45,37 @@ class CatalogMetaCacheTest {
             Assertions.assertFalse(owner.hasEnclosingWeightLimit());
             Assertions.assertFalse(MetaCacheGovernance.catalogCaches(owner.catalogId()).contains(owner));
         }
+    }
+
+    @Test
+    void countOnlyHandlesShareInvalidationWhilePayloadsRemainWeightBounded() {
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(1024L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(manager, 1L, "test", Collections.emptyMap())) {
+            AtomicInteger loads = new AtomicInteger();
+            MetaCache<String, Runnable> handles = owner.create(MetaCacheDefinition
+                    .<String, Runnable>builder("lookup", SPEC, key -> ScopePath.table("db", key))
+                    .budgetPolicy(MetaCacheDefinition.BudgetPolicy.COUNT_ONLY)
+                    .loader(key -> {
+                        loads.incrementAndGet();
+                        return () -> { };
+                    }).build());
+            Runnable first = handles.get("a");
+            Assertions.assertSame(first, handles.get("a"));
+            Assertions.assertEquals(1, loads.get());
+            Assertions.assertFalse(handles.isWeightBounded());
+            MetaCache<String, String> payload = owner.create(MetaCacheDefinition
+                    .<String, String>builder("payload", SPEC, key -> ScopePath.table("db", key))
+                    .sizeEstimator(MetaCacheSizeEstimators.reflective()).build());
+            Assertions.assertTrue(payload.isWeightBounded());
+            payload.put("a", "x".repeat(2048));
+            Assertions.assertNull(payload.getIfPresent("a"));
+            payload.put("a", "small");
+            Assertions.assertTrue(manager.getGlobalUsedWeight() > 0L);
+            owner.invalidateTable("db", "a");
+            Assertions.assertNull(handles.getIfPresent("a"));
+            Assertions.assertNull(payload.getIfPresent("a"));
+        }
+        Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
     }
 
     @Test
@@ -101,6 +138,93 @@ class CatalogMetaCacheTest {
             Assertions.assertNull(partitions.getIfPresent("p1"));
             Assertions.assertEquals("partition-2-v1", partitions.getIfPresent("p2"));
             Assertions.assertEquals(1, catalog.metrics().getRegistrationCount());
+        }
+    }
+
+    @Test
+    void fullTableInvalidationAlsoCoversMembershipWithoutClearingSiblings() {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, String> names = catalog.create(MetaCacheDefinition
+                    .<String, String>builder("table-names", SPEC, ScopePath::tableCollection).build());
+            MetaCache<TableKey, String> objects = catalog.create(tableDefinition("objects"));
+            MetaCache<TableKey, String> schema = catalog.create(MetaCacheDefinition
+                    .<TableKey, String>builder("schema", SPEC,
+                            key -> ScopePath.tableMetadata(key.database, key.table)).build());
+            TableKey first = new TableKey("db", "a");
+            TableKey sibling = new TableKey("db", "b");
+            names.put("db", "a,b");
+            names.put("other", "unrelated");
+            objects.put(first, "object-a");
+            objects.put(sibling, "object-b");
+            schema.put(first, "schema-a");
+            schema.put(sibling, "schema-b");
+
+            catalog.invalidateScope(ScopePath.tableMetadata("db", "a"));
+            Assertions.assertEquals("a,b", names.getIfPresent("db"));
+            Assertions.assertEquals("object-a", objects.getIfPresent(first));
+            Assertions.assertNull(schema.getIfPresent(first));
+            schema.put(first, "schema-a-new");
+
+            catalog.invalidateTableAndNames("db", "a");
+            Assertions.assertNull(names.getIfPresent("db"));
+            Assertions.assertNull(objects.getIfPresent(first));
+            Assertions.assertNull(schema.getIfPresent(first));
+            Assertions.assertEquals("object-b", objects.getIfPresent(sibling));
+            Assertions.assertEquals("schema-b", schema.getIfPresent(sibling));
+            Assertions.assertEquals("unrelated", names.getIfPresent("other"));
+        }
+    }
+
+    @Test
+    void absentChildStillInvalidatesMembershipAndCollectionsCannotAliasUserNames() {
+        try (CatalogMetaCache catalog = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, String> names = catalog.create(MetaCacheDefinition
+                    .<String, String>builder("names", SPEC, ScopePath::tableCollection).build());
+            names.put("db", "cold-table");
+            catalog.invalidateTableAndNames("db", "cold-table");
+            Assertions.assertNull(names.getIfPresent("db"));
+            Assertions.assertNotEquals(ScopePath.tableCollection("db"), ScopePath.table("db", "TABLES"));
+            Assertions.assertNotEquals(ScopePath.databaseCollection(), ScopePath.database("DATABASES"));
+            Assertions.assertTrue(ScopePath.database("db").contains(ScopePath.tableCollection("db")));
+            Assertions.assertFalse(ScopePath.tableCollection("db").contains(ScopePath.table("db", "TABLES")));
+        }
+    }
+
+    @Test
+    void lateAsyncRefreshCannotReplaceRecreatedTableAfterFullInvalidation() throws Exception {
+        ExecutorService refreshes = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger loads = new AtomicInteger();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, String> schema = owner.create(MetaCacheDefinition
+                    .<String, String>builder("schema", SPEC, key -> ScopePath.tableMetadata("db", key))
+                    .loader(key -> {
+                        int load = loads.incrementAndGet();
+                        if (load == 2) {
+                            started.countDown();
+                            try {
+                                Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw new RuntimeException(e);
+                            }
+                        }
+                        return "old-schema";
+                    })
+                    .refreshAfterWrite(Duration.ofNanos(1), refreshes).build());
+            Assertions.assertEquals("old-schema", schema.get("a"));
+            Assertions.assertEquals("old-schema", schema.get("a"));
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            owner.invalidateTableAndNames("db", "a");
+            schema.put("a", "recreated-schema");
+            release.countDown();
+            refreshes.submit(() -> { }).get(10, TimeUnit.SECONDS);
+            Assertions.assertEquals("recreated-schema", schema.getIfPresent("a"));
+        } finally {
+            release.countDown();
+            refreshes.shutdownNow();
+            Assertions.assertTrue(refreshes.awaitTermination(10, TimeUnit.SECONDS));
         }
     }
 
