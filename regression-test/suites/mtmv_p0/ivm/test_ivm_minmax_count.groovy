@@ -52,7 +52,7 @@ suite("test_ivm_minmax_count") {
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         KEY(category)
         DISTRIBUTED BY HASH(category) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
+        PROPERTIES ("replication_num" = "1", "ivm_minmax_top_k" = "1")
         AS SELECT category, MIN(score) AS min_score, MAX(score) AS max_score, COUNT(*) AS row_count
         FROM ivm_mm_count_t
         GROUP BY category

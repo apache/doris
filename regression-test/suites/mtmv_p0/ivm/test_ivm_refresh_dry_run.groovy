@@ -18,7 +18,7 @@
 suite("test_ivm_refresh_dry_run") {
     // __DORIS_SEQUENCE_COL__ of the dry-run delta rows encodes the refresh version, whose base
     // value differs between cloud and shared-nothing deployments (e.g. 6145 vs 4097).
-    // ivm_dry_run_qt masks that column, so cloud and local share this suite and its .out.
+    // ivm_hidden_qt masks that column, so cloud and local share this suite and its .out.
     sql "DROP MATERIALIZED VIEW IF EXISTS test_ivm_refresh_dry_run_mv"
     sql "DROP TABLE IF EXISTS test_ivm_refresh_dry_run_base"
 
@@ -59,7 +59,7 @@ suite("test_ivm_refresh_dry_run") {
 
     order_qt_ivm_dry_run_before "SELECT k1, cnt, sum_v1 FROM test_ivm_refresh_dry_run_mv"
 
-    ivm_dry_run_qt("ivm_dry_run_full", """
+    ivm_hidden_qt("ivm_dry_run_full", """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
     """)
 
@@ -71,7 +71,7 @@ suite("test_ivm_refresh_dry_run") {
 
     order_qt_ivm_dry_run_after "SELECT k1, cnt, sum_v1 FROM test_ivm_refresh_dry_run_mv"
 
-    ivm_dry_run_qt("ivm_dry_run_repeat", """
+    ivm_hidden_qt("ivm_dry_run_repeat", """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN LIMIT 10
     """)
 
@@ -81,11 +81,11 @@ suite("test_ivm_refresh_dry_run") {
 
     // Empty delta: the delta query is a LogicalEmptyRelation and the dry run must return an
     // empty result instead of sending fragments to a placeholder backend. Every dry-run
-    // comparison goes through ivm_dry_run_qt so the sequence column is masked in all of them.
-    ivm_dry_run_qt("ivm_dry_run_empty", """
+    // comparison goes through ivm_hidden_qt so the sequence column is masked in all of them.
+    ivm_hidden_qt("ivm_dry_run_empty", """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
     """)
-    ivm_dry_run_qt("ivm_dry_run_empty_repeat", """
+    ivm_hidden_qt("ivm_dry_run_empty_repeat", """
         REFRESH MATERIALIZED VIEW test_ivm_refresh_dry_run_mv INCREMENTAL WITH DRY RUN
     """)
 }
