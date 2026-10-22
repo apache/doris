@@ -518,7 +518,8 @@ public class PaimonConnectorMetadataMvccTest {
         ConnectorMvccSnapshot snap = metadataWith(ops)
                 .resolveTimeTravel(null, handle, ConnectorTimeTravelSpec.branch("b1")).get();
 
-        // WHY: @branch must pin the BRANCH's LATEST snapshot + its schemaId, carry the branch identity
+        // WHY: @branch must pin the BRANCH's latest data snapshot while retaining its current schema,
+        // because a schema-only ALTER does not create a data snapshot. It must also carry the branch identity
         // via the CoreOptions.BRANCH sentinel (NOT scan.snapshot-id — the branch reads its own latest),
         // and validate the branch on the BASE table. Branches have no in-branch time-travel (legacy
         // reads the branch's latestSnapshot() only). MUTATION: pinning scan.snapshot-id -> the no-key
@@ -526,8 +527,8 @@ public class PaimonConnectorMetadataMvccTest {
         // base table instead of the branch -> the lastMvccTable assertion red.
         Assertions.assertEquals(7L, snap.getSnapshotId(),
                 "@branch must pin the BRANCH's latest snapshot id");
-        Assertions.assertEquals(3L, snap.getSchemaId(),
-                "@branch must stamp the BRANCH's latest snapshot schemaId");
+        Assertions.assertEquals(-1L, snap.getSchemaId(),
+                "@branch must use the current-schema sentinel independently of its latest data snapshot");
         Assertions.assertEquals("b1", snap.getProperties().get(CoreOptions.BRANCH.key()),
                 "@branch must carry the branch name under the CoreOptions.BRANCH sentinel key");
         Assertions.assertNull(snap.getProperties().get("scan.snapshot-id"),
@@ -541,10 +542,11 @@ public class PaimonConnectorMetadataMvccTest {
                 "the branch table must be loaded via a 3-arg branch Identifier");
         Assertions.assertNull(ops.lastGetTableId.getSystemTableName(),
                 "a branch load must NOT carry a system-table name");
-        // The latest-snapshot / schemaId lookups ran against the BRANCH table, not the base. (The last
-        // seam call before this assertion is snapshotSchemaId, which captured lastMvccTable.)
+        // The latest-snapshot lookup ran against the BRANCH table, not the base.
         Assertions.assertSame(branch, ops.lastMvccTable,
-                "latestSnapshotId/snapshotSchemaId must run against the BRANCH table");
+                "latestSnapshotId must run against the BRANCH table");
+        Assertions.assertFalse(ops.log.contains("snapshotSchemaId:7"),
+                "a branch schema-only ALTER must not be hidden by the data snapshot's old schema id");
         // branchExists validation ran against the BASE table (legacy resolvePaimonBranch).
         Assertions.assertEquals("b1", ops.lastBranchExistsArg,
                 "branchExists must be asked about the requested branch name");
@@ -880,7 +882,8 @@ public class PaimonConnectorMetadataMvccTest {
                 rowType("id", "dt").getFields(), Arrays.asList("dt"), Collections.emptyList());
         ops1.schemaAt = atSchema;
         ops2.schemaAt = atSchema;
-        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L).build();
+        ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(2L)
+                .property("scan.snapshot-id", "7").build();
 
         ConnectorTableSchema schema1 = metadataWith(ops1, memo).getTableSchema(null, handle, snapshot);
         ConnectorTableSchema schema2 = metadataWith(ops2, memo).getTableSchema(null, handle, snapshot);
@@ -1080,8 +1083,11 @@ public class PaimonConnectorMetadataMvccTest {
         // assertions red.
         Assertions.assertEquals("b1", pinned.getBranchName(),
                 "the branch sentinel must route to withBranch (handle identity), not a scan option");
-        Assertions.assertTrue(pinned.getScanOptions().isEmpty(),
+        Assertions.assertFalse(pinned.getScanOptions().containsKey(CoreOptions.BRANCH.key()),
                 "a branch pin must NOT thread the sentinel as a scan-copy option");
+        Assertions.assertEquals("7", pinned.getScanOptions().get(CoreOptions.SCAN_SNAPSHOT_ID.key()),
+                "a branch pin must retain its resolved data fence after switching identity");
+        Assertions.assertTrue(PaimonScanParams.preservesBoundSchema(pinned.getScanOptions()));
         Assertions.assertNull(pinned.getPaimonTable(),
                 "withBranch must clear the transient base Table so the branch reloads");
     }
@@ -1223,5 +1229,23 @@ public class PaimonConnectorMetadataMvccTest {
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL),
                 "paimon must declare SUPPORTS_SHOW_CREATE_DDL so SHOW CREATE TABLE keeps rendering "
                         + "LOCATION/PROPERTIES");
+    }
+
+    @Test
+    public void connectorDeclaresNestedColumnPruneButNotFieldIdAccessPath() {
+        ConnectorContext ctx = new RecordingConnectorContext();
+        Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
+
+        // WHY: fe-core prunes nested types and plans Variant sub-path access paths for a table only when its
+        // connector declares SUPPORTS_NESTED_COLUMN_PRUNE. The paimon JNI scanner turns them into a paimon read
+        // type and Variant projections, and the native parquet/orc path resolves them by name. MUTATION:
+        // dropping SUPPORTS_NESTED_COLUMN_PRUNE -> paimon scans read whole nested and Variant columns -> red.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                "paimon must declare SUPPORTS_NESTED_COLUMN_PRUNE");
+        // Paimon carries no field id on the Doris column tree, so rewriting the access paths to ids would make
+        // every segment "-1", which BE matches neither as an id nor as a name, and the pruned leaves would read
+        // back NULL. MUTATION: declaring SUPPORTS_FIELD_ID_ACCESS_PATH on paimon -> this assertion red.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH),
+                "paimon must NOT declare SUPPORTS_FIELD_ID_ACCESS_PATH (its access paths are by name)");
     }
 }

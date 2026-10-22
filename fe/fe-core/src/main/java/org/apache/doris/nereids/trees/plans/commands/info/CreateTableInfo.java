@@ -24,7 +24,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -56,6 +56,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -66,7 +67,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
@@ -80,6 +80,7 @@ import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -324,12 +325,12 @@ public class CreateTableInfo {
         return sortOrderFields;
     }
 
-    private boolean isEffectiveRowBinlogEnabled() {
+    private boolean isEffectiveChangelogEnabled() throws org.apache.doris.common.AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
-        BinlogConfig binlogConfig = db == null
-                ? BinlogConfig.fromProperties(properties)
-                : db.getBinlogConfigsForCreateTable(properties).second;
-        return binlogConfig.isEnableForStreaming();
+        ChangelogConfig changelogConfig = db == null
+                ? ChangelogConfig.fromProperties(properties)
+                : db.getChangelogConfigForCreateTable(properties);
+        return changelogConfig.isEnable();
     }
 
     public void setRollups(List<RollupDefinition> rollups) {
@@ -485,13 +486,6 @@ public class CreateTableInfo {
             if (columnDef.getType().isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             }
-            if (columnDef.getType().isVariantType()) {
-                if (columnNameUpperCase.indexOf('.') != -1) {
-                    throw new AnalysisException(
-                        "Disable to create table of `VARIANT` type column named with a `.` character: "
-                                + columnNameUpperCase);
-                }
-            }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -599,7 +593,7 @@ public class CreateTableInfo {
 
             try {
                 if (Config.random_add_order_by_keys_for_mow && isEnableMergeOnWrite && sortOrderFields.isEmpty()
-                        && !isEffectiveRowBinlogEnabled()
+                        && !isEffectiveChangelogEnabled()
                         && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
                     // exclude columns whose data type can not be order key, see {@link ColumnDefinition#validate}
                     List<ColumnDefinition> orderKeysCandidates = columns.stream().filter(c -> {
@@ -725,8 +719,10 @@ public class CreateTableInfo {
         keysSet.addAll(keys);
         Set<String> orderKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
+        // Internal statistics tables need state columns. The internal-query flag can also be set by user SHOWs.
+        boolean isSystemGeneratedTable = targetIsInternalCatalog && FeConstants.INTERNAL_DB_NAME.equals(dbName);
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
-                keysType));
+                keysType, isSystemGeneratedTable));
 
         try {
             invertedIndexFileStorageFormat =
@@ -1140,24 +1136,27 @@ public class CreateTableInfo {
             if (!info.isPresent()) {
                 continue;
             }
-            Expression parsedExpression = info.get().getExpression();
-            checkParsedExpressionInGeneratedColumn(parsedExpression);
-            Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
-            Scope scope = new Scope(slots);
-            ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-            Expression expr;
-            try {
-                expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
-            } catch (AnalysisException e) {
-                throw new AnalysisException("In generated column '" + column.getName() + "', "
-                        + Utils.convertFirstChar(e.getMessage()));
+            try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx,
+                    info.get().getSessionVariables().orElse(null))) {
+                Expression parsedExpression = info.get().getExpression();
+                checkParsedExpressionInGeneratedColumn(parsedExpression);
+                Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
+                Scope scope = new Scope(slots);
+                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+                Expression expr;
+                try {
+                    expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+                } catch (AnalysisException e) {
+                    throw new AnalysisException("In generated column '" + column.getName() + "', "
+                            + Utils.convertFirstChar(e.getMessage()));
+                }
+                checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
+                TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
+                ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
+                Expr e = expr.accept(translator, planTranslatorContext);
+                info.get().setExpr(e);
+                exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
             }
-            checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
-            TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
-            ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
-            Expr e = expr.accept(translator, planTranslatorContext);
-            info.get().setExpr(e);
-            exprAndNames.add(new ExprAndName(e.clone(), column.getName()));
         }
 
         // for alter drop column
@@ -1209,6 +1208,8 @@ public class CreateTableInfo {
                 throw new AnalysisException("Generated column does not support subquery.");
             } else if (e instanceof Lambda) {
                 throw new AnalysisException("Generated column does not support lambda.");
+            } else if (e instanceof UnboundVariable) {
+                throw new AnalysisException("Generated column expression cannot contain variable.");
             }
         });
     }
@@ -1216,9 +1217,7 @@ public class CreateTableInfo {
     void checkExpressionInGeneratedColumn(Expression expr, ColumnDefinition column,
             Map<String, ColumnDefinition> nameToColumnDefinition) {
         expr.foreach(e -> {
-            if (e instanceof Variable) {
-                throw new AnalysisException("Generated column expression cannot contain variable.");
-            } else if (e instanceof Slot && nameToColumnDefinition.containsKey(((Slot) e).getName())) {
+            if (e instanceof Slot && nameToColumnDefinition.containsKey(((Slot) e).getName())) {
                 ColumnDefinition columnDefinition = nameToColumnDefinition.get(((Slot) e).getName());
                 if (columnDefinition.getAutoIncInitValue() != -1) {
                     throw new AnalysisException(
@@ -1643,17 +1642,37 @@ public class CreateTableInfo {
     }
 
     /**
-     * Add hidden columns required by row binlog.
+     * Add hidden columns required by changelog.
      */
-    public void createRowBinlogHiddenColumnsIfNecessary(BinlogConfig binlogConfig) {
-        if (!binlogConfig.isRowFormat()) {
+    public void createChangelogHiddenColumnsIfNecessary(ChangelogConfig changelogConfig) {
+        addChangelogHiddenColumns(columns, keysType, isEnableMergeOnWrite, changelogConfig);
+    }
+
+    /**
+     * Append the hidden columns a changelog table carries. Callers that build the column list
+     * outside the create-table flow (an analyzed MTMV schema) go through here as well, so both
+     * sides of {@code MTMVPlanUtil#checkColumnIfChange} agree on the physical layout.
+     *
+     * <p>Idempotent: a column that is already present is kept once.
+     */
+    public static void addChangelogHiddenColumns(List<ColumnDefinition> columns, KeysType keysType,
+            boolean isEnableMergeOnWrite, ChangelogConfig changelogConfig) {
+        if (!changelogConfig.isEnable()) {
             return;
         }
         if (keysType.equals(KeysType.DUP_KEYS)) {
-            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-            columns.add(ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newRowLsnColumnDefinition(AggregateType.NONE));
         } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-            columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+            addIfAbsent(columns, ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
+        }
+    }
+
+    private static void addIfAbsent(List<ColumnDefinition> columns, ColumnDefinition columnDefinition) {
+        boolean present = columns.stream()
+                .anyMatch(column -> column.getName().equalsIgnoreCase(columnDefinition.getName()));
+        if (!present) {
+            columns.add(columnDefinition);
         }
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.tls.server;
 
+import org.apache.doris.arrowflight.DorisFlightSqlService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThriftServer;
 import org.apache.doris.metric.MetricRepo;
@@ -25,7 +26,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
-import org.apache.doris.service.arrowflight.DorisFlightSqlService;
 import org.apache.doris.thrift.FrontendService;
 
 import org.apache.logging.log4j.LogManager;

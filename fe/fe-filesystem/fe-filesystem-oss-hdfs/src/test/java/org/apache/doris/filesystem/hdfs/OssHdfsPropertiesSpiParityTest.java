@@ -108,9 +108,15 @@ class OssHdfsPropertiesSpiParityTest {
     }
 
     @Test
-    void testValidateUriOssSchemeOnly() {
+    void testValidateUriQualifiesBucketWithEndpointAndRejectsOtherSchemes() {
         OssHdfsProperties p = PROVIDER.bind(baseProps());
-        Assertions.assertEquals("oss://mybucket/x", p.validateAndNormalizeUri("oss://mybucket/x"));
+        // A bare bucket authority is qualified with the bound OSS-HDFS endpoint host so JindoFS
+        // resolves it as the oss-dls bucket rather than a native OSS one (#67545); the path is kept.
+        Assertions.assertEquals("oss://mybucket.cn-hangzhou.oss-dls.aliyuncs.com/x",
+                p.validateAndNormalizeUri("oss://mybucket/x"));
+        // An already-qualified authority is idempotent under the same endpoint.
+        Assertions.assertEquals("oss://mybucket.cn-hangzhou.oss-dls.aliyuncs.com/x",
+                p.validateAndNormalizeUri("oss://mybucket.cn-hangzhou.oss-dls.aliyuncs.com/x"));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> p.validateAndNormalizeUri("hdfs://ns1/x"));
     }

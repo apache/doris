@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_ivm_fallback_stream_multi_batch", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     def forcedFallbackDebugPoint = "IvmIncrRefreshManager.doRefresh.force_fallback_reason"
 
     GetDebugPoint().disableDebugPointForAllFEs(forcedFallbackDebugPoint)
@@ -45,9 +41,8 @@ suite("test_ivm_fallback_stream_multi_batch", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         );
     """
 
@@ -66,9 +61,8 @@ suite("test_ivm_fallback_stream_multi_batch", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         );
     """
 

@@ -397,32 +397,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 -------------------------------------------------------------------------------
 
-be/src/util/utf8_check.cpp: MIT license
-
-  MIT License
-
-  Copyright (c) 2019 Yibo Cai
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-
---------------------------------------------------------------------------------
-
 be/src/util/condition_variable* : BSD-style license
 
 Copyright (c) 2011 The Chromium Authors. All rights reserved.
@@ -1301,6 +1275,8 @@ Common Development and Distribution License (CDDL) v1.0 -- licenses/LICENSE-CDDL
         - org.mortbay.jetty:servlet-api-2.5:6.1.14 (http://jetty.mortbay.org/project/modules/servlet-api-2.5)
     * servlet-api:
         - javax.servlet:servlet-api:2.5 (no url defined)
+    * jsr311-api:
+        - javax.ws.rs:jsr311-api:1.1.1 (https://jsr311.java.net)
     ### The following components use multiple licenses and we choose CDDL
     * Activation Framework:
         - javax.activation:activation:1.1.1 (http://java.sun.com/javase/technologies/desktop/javabeans/jaf/index.jsp)
@@ -1314,19 +1290,21 @@ Common Development and Distribution License (CDDL) v1.1 -- licenses/LICENSE-CDDL
     * javax.ws.rs-api:
         - javax.ws.rs:javax.ws.rs-api:2.0.1 (http://jax-rs-spec.java.net)
     * jersey-server:
-        - com.sun.jersey:jersey-server:1.9 (https://jersey.java.net/jersey-server/)
+        - com.sun.jersey:jersey-server:1.19.4 (https://jersey.java.net/jersey-server/)
     * jersey-guice:
-        - com.sun.jersey.contribs:jersey-guice:1.9 (https://jersey.java.net/jersey-contribs/jersey-guice/)
+        - com.sun.jersey.contribs:jersey-guice:1.19.4 (https://jersey.java.net/jersey-contribs/jersey-guice/)
     * jersey-json:
-        - com.sun.jersey:jersey-json:1.9 (https://jersey.java.net/jersey-json/)
+        - com.sun.jersey:jersey-json:1.22.0 (https://jersey.java.net/jersey-json/)
+    * jersey-servlet:
+        - com.sun.jersey:jersey-servlet:1.19.4 (https://jersey.java.net/jersey-servlet/)
     * JAXB API bundle for GlassFish V3:
         - javax.xml.bind:jaxb-api:2.2.2 (https://jaxb.dev.java.net/)
     * jersey-core:
-        - com.sun.jersey:jersey-core:1.9 (https://jersey.java.net/jersey-core/)
+        - com.sun.jersey:jersey-core:1.19.4 (https://jersey.java.net/jersey-core/)
     * JAXB RI:
         - com.sun.xml.bind:jaxb-impl:2.2.3-1 (http://jaxb.java.net/)
     * jersey-client:
-        - com.sun.jersey:jersey-client:1.9 (https://jersey.java.net/jersey-client/)
+        - com.sun.jersey:jersey-client:1.19.4 (https://jersey.java.net/jersey-client/)
 
 Creative Commons Zero -- licenses/LICENSE-CC0.txt
     * reactive-streams:
@@ -1477,6 +1455,9 @@ The Apache Software License, Version 2.0
     * aws sdk: 1.9.211
     * benchmark: 1.8.0
     * simdjson: 3.0.1
+    * simdutf: 9.2.0
+        - includes BSD-3-Clause code: simdutf/internal/isadetection.h
+        - additional license: licenses/LICENSE-simdutf-isadetection.txt
     * libhdfs3: 2.3.8
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0

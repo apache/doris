@@ -17,13 +17,16 @@
 
 #pragma once
 
+#include "exprs/function/geo/ByteOrderValues.h"
+
 namespace doris {
 /**
  * Check endianness of current machine.
  * @return 0 for big_endian | xdr; 1 == little_endian | ndr
  */
-inline int getMachineByteOrder() {
+inline ByteOrderValues::EndianType getMachineByteOrder() {
     static int endian_check = 1; // don't modify !!
-    return *((char*)&endian_check);
+    return *((char*)&endian_check) == 0 ? ByteOrderValues::EndianType::ENDIAN_BIG
+                                        : ByteOrderValues::EndianType::ENDIAN_LITTLE;
 }
 } // namespace doris

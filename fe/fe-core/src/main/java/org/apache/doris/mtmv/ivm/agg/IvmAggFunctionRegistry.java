@@ -40,7 +40,7 @@ import java.util.Set;
  *
  * <p>Data flow:
  * <ol>
- *   <li>{@code IvmNormalizeMTMV}: {@link #buildTargetSpec} records visible output, hidden state outputs, and
+ *   <li>{@code IvmNormalizeUniqKeysMTMV}: {@link #buildTargetSpec} records visible output, hidden state outputs, and
  *       original aggregate arguments into {@link IvmAggTargetSpec}. After normalize resolves final aggregate output
  *       slots, the spec becomes the stable {@link IvmAggTarget} stored in {@link IvmAggMeta}.</li>
  *   <li>{@code IvmAggDeltaHandler#buildDeltaSubPlan}: {@link #appendDeltaAggregateOutputs} creates the signed delta
@@ -64,7 +64,9 @@ public class IvmAggFunctionRegistry {
                 new IvmAggMinProcessor(),
                 new IvmAggMaxProcessor(),
                 new IvmAggBitmapUnionProcessor(),
-                new IvmAggBitmapUnionCountProcessor());
+                new IvmAggBitmapUnionCountProcessor(),
+                new IvmAggArrayAggProcessor(),
+                new IvmAggCollectListProcessor());
         processorByKind = new EnumMap<>(IvmAggFunctionKind.class);
         for (IvmAggFunctionProcessor processor : processors) {
             processorByKind.put(processor.handledFunctionKind(), processor);
@@ -98,6 +100,15 @@ public class IvmAggFunctionRegistry {
     }
 
     /**
+     * Appends processor-owned derived (non-aggregate) columns to the delta top project, computed
+     * over the delta aggregate's own output slots.
+     */
+    public void appendDeltaTopProjectOutputs(IvmAggTarget target, Map<String, Slot> deltaAggOutputByName,
+            List<NamedExpression> topOutputs, IvmAggExpressionBuilder ctx) {
+        processorFor(target).appendDeltaTopProjectOutputs(target, deltaAggOutputByName, topOutputs, ctx);
+    }
+
+    /**
      * Maps the delta plan output slots to stable logical keys consumed by the apply expressions.
      */
     public void mapApplyDeltaSlots(IvmAggTarget target, Map<String, Slot> outputByName,
@@ -118,6 +129,14 @@ public class IvmAggFunctionRegistry {
      */
     public void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext ctx) {
         processorFor(target).appendApplyExpressions(target, ctx);
+    }
+
+    /**
+     * Returns true when this target's own value state is carried by the visible MV column, so normalize
+     * must keep that column alive (materializing a hidden carrier column when an upper expression drops it).
+     */
+    public boolean visibleColumnHoldsValueState(IvmAggTarget target) {
+        return processorFor(target).visibleColumnHoldsValueState(target);
     }
 
     private IvmAggFunctionProcessor processorFor(IvmAggTarget target) {

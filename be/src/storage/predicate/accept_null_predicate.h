@@ -23,7 +23,7 @@
 #include "common/factory_creator.h"
 #include "core/column/column_dictionary.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
-#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
 

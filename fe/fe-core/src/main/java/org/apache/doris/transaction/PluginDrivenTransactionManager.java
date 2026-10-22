@@ -138,6 +138,7 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     private static class PluginDrivenTransaction implements Transaction {
         private final long id;
         protected final ConnectorTransaction connectorTx;
+        private boolean active = true;
 
         PluginDrivenTransaction(long id, ConnectorTransaction connectorTx) {
             this.id = id;
@@ -145,7 +146,9 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         }
 
         @Override
-        public void commit() {
+        public synchronized void commit() {
+            requireActive();
+            active = false;
             if (connectorTx == null) {
                 return;
             }
@@ -157,7 +160,9 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         }
 
         @Override
-        public void rollback() {
+        public synchronized void rollback() {
+            requireActive();
+            active = false;
             if (connectorTx == null) {
                 return;
             }
@@ -169,7 +174,8 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         }
 
         @Override
-        public void addCommitData(byte[] commitFragment) {
+        public synchronized void addCommitData(byte[] commitFragment) {
+            requireActive();
             if (connectorTx != null) {
                 connectorTx.addCommitData(commitFragment);
             }
@@ -177,8 +183,14 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         }
 
         @Override
-        public long getUpdateCnt() {
+        public synchronized long getUpdateCnt() {
             return connectorTx == null ? 0 : connectorTx.getUpdateCnt();
+        }
+
+        protected synchronized void requireActive() {
+            if (!active) {
+                throw new IllegalStateException("Plugin-driven transaction is already finished: " + id);
+            }
         }
 
         private void closeQuietly() {
@@ -205,7 +217,8 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         }
 
         @Override
-        public long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
+        public synchronized long allocateWriteBlockRange(String writeSessionId, long count) throws UserException {
+            requireActive();
             return ((WriteBlockAllocatingConnectorTransaction) connectorTx)
                     .allocateWriteBlockRange(writeSessionId, count);
         }

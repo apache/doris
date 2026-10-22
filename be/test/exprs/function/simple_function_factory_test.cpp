@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_variant.h"
 
 namespace doris {
 
@@ -217,6 +218,18 @@ TEST_F(SimpleFunctionFactoryTest, test_nested_timestamp_ns_return_type_check) {
     EXPECT_THROW(SimpleFunctionFactory::instance().get_function(
                          FunctionNestedStructTimeStampNsBeTestMock::name, {}, mismatched_struct),
                  doris::Exception);
+}
+
+TEST_F(SimpleFunctionFactoryTest, VariantIntegerElementUsesVariantOverload) {
+    ColumnsWithTypeAndName arguments = {{nullptr, std::make_shared<DataTypeVariant>(), "variant"},
+                                        {nullptr, std::make_shared<DataTypeInt64>(), "index"}};
+    auto expected_return_type = make_nullable(std::make_shared<DataTypeVariant>());
+
+    FunctionBasePtr function;
+    ASSERT_NO_THROW(function = SimpleFunctionFactory::instance().get_function(
+                            "element_at", arguments, expected_return_type));
+    ASSERT_NE(function, nullptr);
+    EXPECT_TRUE(function->get_return_type()->equals(*expected_return_type));
 }
 
 TEST_F(SimpleFunctionFactoryTest, test_return_all) {

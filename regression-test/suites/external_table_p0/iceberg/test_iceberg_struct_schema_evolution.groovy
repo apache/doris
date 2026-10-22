@@ -89,6 +89,15 @@ suite("test_iceberg_struct_schema_evolution", "p0,external") {
     qt_struct_predicate_3 """SELECT id FROM ${table_name} WHERE element_at(a_struct, 'added') IS NULL ORDER BY id"""
     qt_struct_predicate_4 """SELECT id FROM ${table_name} WHERE element_at(a_struct, 'added') IS NOT NULL ORDER BY id"""
 
+    // A missing predicate child widens the physical scan back to the full struct. The projected
+    // sibling fields must keep their Iceberg field-id mapping instead of shifting by file ordinal.
+    qt_struct_projected_siblings_with_missing_predicate """
+        SELECT element_at(a_struct, 'renamed'), element_at(a_struct, 'keep')
+        FROM ${table_name}
+        WHERE element_at(a_struct, 'added') IS NULL
+        ORDER BY id
+    """
+
     // Test 7: Multiple struct fields in one query
     qt_struct_multi """SELECT element_at(a_struct, 'renamed'), element_at(a_struct, 'keep'), element_at(a_struct, 'drop_and_add'), element_at(a_struct, 'added') FROM ${table_name} ORDER BY id"""
 

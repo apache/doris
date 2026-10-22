@@ -1,0 +1,313 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "format/arrow/arrow_row_batch.h"
+
+#include <arrow/api.h>
+#include <arrow/io/api.h>
+#include <arrow/ipc/api.h>
+#include <gtest/gtest.h>
+
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
+#include "format/arrow/arrow_block_convertor.h"
+
+namespace doris {
+namespace {
+
+void expect_logical_type(const std::shared_ptr<arrow::Field>& field, const std::string& name) {
+    ASSERT_NE(nullptr, field->metadata()) << field->ToString();
+    auto value = field->metadata()->Get("doris_type");
+    ASSERT_TRUE(value.ok()) << value.status();
+    EXPECT_EQ(name, *value);
+}
+
+void expect_legacy_batch(const Block& block, const std::shared_ptr<arrow::RecordBatch>& extended) {
+    VExprContextSPtrs expressions;
+    for (size_t i = 0; i < block.columns(); ++i) {
+        const auto& column = block.get_by_position(i);
+        expressions.push_back(VExprContext::create_shared(
+                VSlotRef::create_shared(i, i, -1, column.type, column.name)));
+    }
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(LegacyArrowFlightSchemaConvertor("UTC")
+                        .get_arrow_schema_from_expr_ctxs(expressions, &schema)
+                        .ok());
+    // Synthetic slot references have no expression labels; compare batches using the same names.
+    schema = schema->WithNames(extended->schema()->field_names()).ValueOrDie();
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = ArrowFlightArrowBlockConvertor(schema, cctz::utc_time_zone())
+                          .convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    EXPECT_TRUE(extended->Equals(*batch, false));
+    EXPECT_FALSE(extended->schema()->Equals(*schema, true));
+    std::string serialized;
+    ASSERT_TRUE(serialize_record_batch(*batch, &serialized).ok());
+    auto source = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::FromString(serialized));
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(source).ValueOrDie();
+    ASSERT_TRUE(reader->ReadNext(&batch).ok());
+    EXPECT_TRUE(schema->Equals(*batch->schema(), true));
+    EXPECT_TRUE(extended->Equals(*batch, false));
+}
+
+TEST(ArrowSchemaConvertorTest, ProtocolsKeepNestedTimestampAndMetadataPoliciesSeparate) {
+    const auto datetime =
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    const auto largeint = std::make_shared<DataTypeInt128>();
+    const auto nested = std::make_shared<DataTypeStruct>(DataTypes {datetime, largeint},
+                                                         Strings {"time", "number"});
+    Block block;
+    block.insert({nested->create_column(), nested, "value"});
+    std::vector<std::unique_ptr<ArrowSchemaConvertor>> convertors;
+    convertors.push_back(std::make_unique<DorisArrowSchemaConvertor>(block, "Asia/Shanghai"));
+    convertors.push_back(std::make_unique<ArrowFlightSchemaConvertor>(block, "Asia/Shanghai"));
+    convertors.push_back(
+            std::make_unique<LegacyArrowFlightSchemaConvertor>(block, "Asia/Shanghai"));
+    for (size_t i = 0; i < convertors.size(); ++i) {
+        std::shared_ptr<arrow::Schema> schema;
+        ASSERT_TRUE(convertors[i]->get_arrow_schema(&schema).ok());
+        const auto& fields = schema->field(0)->type()->fields();
+        const auto& timestamp = static_cast<const arrow::TimestampType&>(*fields[0]->type());
+        EXPECT_EQ(i == 0 ? "Asia/Shanghai" : "", timestamp.timezone());
+        if (i == 2) {
+            EXPECT_EQ(nullptr, fields[1]->metadata());
+        } else {
+            expect_logical_type(fields[1], "LARGEINT");
+        }
+    }
+}
+
+class ArrowLogicalTypeMetadataTest
+        : public testing::TestWithParam<std::pair<PrimitiveType, const char*>> {};
+
+TEST_P(ArrowLogicalTypeMetadataTest, PreservesTopLevelAndNestedFields) {
+    const auto [primitive, name] = GetParam();
+    auto type =
+            make_nullable(primitive == TYPE_VARIANT
+                                  ? DataTypePtr(std::make_shared<DataTypeVariantV2>())
+                                  : DataTypeFactory::instance().create_data_type(primitive, false));
+    auto string_type = std::make_shared<DataTypeString>();
+    DataTypes types {type, std::make_shared<DataTypeArray>(type),
+                     std::make_shared<DataTypeStruct>(DataTypes {type, string_type},
+                                                      Strings {"typed", "text"}),
+                     std::make_shared<DataTypeMap>(string_type, type)};
+    Block block;
+    for (size_t i = 0; i < types.size(); ++i) {
+        block.insert({types[i]->create_column(), types[i], std::to_string(i)});
+    }
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
+    expect_logical_type(schema->field(0), name);
+    expect_logical_type(schema->field(1)->type()->field(0), name);
+    expect_logical_type(schema->field(2)->type()->field(0), name);
+    EXPECT_EQ(nullptr, schema->field(2)->type()->field(1)->metadata());
+    const auto& map = static_cast<const arrow::MapType&>(*schema->field(3)->type());
+    expect_logical_type(map.item_field(), name);
+    EXPECT_FALSE(map.key_field()->nullable());
+    EXPECT_TRUE(map.item_field()->nullable());
+    EXPECT_EQ(nullptr, map.key_field()->metadata());
+}
+
+TEST_P(ArrowLogicalTypeMetadataTest, OldFeReceivesLegacySchema) {
+    const auto [primitive, name] = GetParam();
+    auto type =
+            make_nullable(primitive == TYPE_VARIANT
+                                  ? DataTypePtr(std::make_shared<DataTypeVariantV2>())
+                                  : DataTypeFactory::instance().create_data_type(primitive, false));
+    auto string_type = std::make_shared<DataTypeString>();
+    DataTypes types {
+            type, std::make_shared<DataTypeArray>(type),
+            std::make_shared<DataTypeStruct>(DataTypes {type}, Strings {"typed"}),
+            std::make_shared<DataTypeMap>(primitive == TYPE_LARGEINT ? type : string_type, type)};
+    VExprContextSPtrs expressions;
+    for (size_t i = 0; i < types.size(); ++i) {
+        expressions.push_back(VExprContext::create_shared(
+                VSlotRef::create_shared(i, i, -1, types[i], std::to_string(i))));
+    }
+    std::shared_ptr<arrow::Schema> legacy;
+    std::shared_ptr<arrow::Schema> extended;
+    ASSERT_TRUE(LegacyArrowFlightSchemaConvertor("UTC")
+                        .get_arrow_schema_from_expr_ctxs(expressions, &legacy)
+                        .ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC")
+                        .get_arrow_schema_from_expr_ctxs(expressions, &extended)
+                        .ok());
+    std::shared_ptr<arrow::DataType> storage;
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").convert_to_arrow_type(type, &storage).ok());
+    auto scalar = arrow::field(legacy->field(0)->name(), storage, type->is_nullable());
+    if (primitive != TYPE_JSONB && primitive != TYPE_VARIANT) {
+        scalar = scalar->WithMetadata(arrow::key_value_metadata({"doris_type"}, {name}));
+    }
+    auto expected = arrow::schema(
+            {scalar,
+             arrow::field(legacy->field(1)->name(), arrow::list(storage), types[1]->is_nullable()),
+             arrow::field(legacy->field(2)->name(),
+                          arrow::struct_({arrow::field("typed", storage, true)}),
+                          types[2]->is_nullable()),
+             arrow::field(legacy->field(3)->name(), arrow::map(arrow::utf8(), storage),
+                          types[3]->is_nullable())});
+    EXPECT_TRUE(expected->Equals(*legacy, true));
+    EXPECT_TRUE(legacy->Equals(*extended, false));
+    EXPECT_FALSE(legacy->Equals(*extended, true));
+    expect_logical_type(extended->field(0), name);
+    expect_logical_type(extended->field(1)->type()->field(0), name);
+    std::string serialized;
+    ASSERT_TRUE(serialize_arrow_schema(&legacy, &serialized).ok());
+    auto source = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::FromString(serialized));
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(source).ValueOrDie();
+    EXPECT_TRUE(expected->Equals(*reader->schema(), true));
+}
+
+INSTANTIATE_TEST_SUITE_P(LogicalTypes, ArrowLogicalTypeMetadataTest,
+                         testing::Values(std::make_pair(TYPE_LARGEINT, "LARGEINT"),
+                                         std::make_pair(TYPE_IPV4, "IPV4"),
+                                         std::make_pair(TYPE_IPV6, "IPV6"),
+                                         std::make_pair(TYPE_JSONB, "JSON"),
+                                         std::make_pair(TYPE_UUID, "UUID"),
+                                         std::make_pair(TYPE_VARIANT, "VARIANT")));
+
+TEST(ArrowRowBatchMetadataTest, PreservesMapKeysAndDeepNestingThroughIpc) {
+    auto integer = std::make_shared<DataTypeInt128>();
+    auto structure = std::make_shared<DataTypeStruct>(DataTypes {integer}, Strings {"number"});
+    auto array = std::make_shared<DataTypeArray>(structure);
+    auto type = std::make_shared<DataTypeMap>(integer, array);
+    Block block;
+    block.insert({type->create_column(), type, "m"});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
+    std::string serialized;
+    ASSERT_TRUE(serialize_arrow_schema(&schema, &serialized).ok());
+    auto source = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::FromString(serialized));
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(source).ValueOrDie();
+    EXPECT_TRUE(schema->Equals(*reader->schema(), true));
+    const auto& map = static_cast<const arrow::MapType&>(*reader->schema()->field(0)->type());
+    expect_logical_type(map.key_field(), "LARGEINT");
+    EXPECT_EQ("key", map.key_field()->name());
+    EXPECT_FALSE(map.key_field()->nullable());
+    EXPECT_EQ("value", map.item_field()->name());
+    auto item = map.item_type()->field(0);
+    EXPECT_EQ("item", item->name());
+    EXPECT_TRUE(item->nullable());
+    expect_logical_type(item->type()->field(0), "LARGEINT");
+    EXPECT_FALSE(item->type()->field(0)->nullable());
+    auto physical =
+            arrow::map(arrow::utf8(),
+                       arrow::list(arrow::struct_({arrow::field("number", arrow::utf8(), false)})));
+    EXPECT_TRUE(map.Equals(physical));
+    EXPECT_FALSE(map.Equals(physical, true));
+}
+
+TEST(ArrowRowBatchMetadataTest, KeepsNativeTypesUnannotated) {
+    auto type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()},
+            Strings {"number", "text"});
+    std::shared_ptr<arrow::DataType> arrow_type;
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").convert_to_arrow_type(type, &arrow_type).ok());
+    for (const auto& field : arrow_type->fields()) {
+        EXPECT_EQ(nullptr, field->metadata());
+        EXPECT_FALSE(field->nullable());
+    }
+}
+
+TEST(ArrowRowBatchMetadataTest, PreservesLargeintExtremesAndNullsInRecordBatches) {
+    auto integer = make_nullable(std::make_shared<DataTypeInt128>());
+    auto array_type = std::make_shared<DataTypeArray>(integer);
+    auto column = array_type->create_column();
+    column->insert(Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_LARGEINT>(MAX_INT128),
+                   Field::create_field<TYPE_LARGEINT>(MIN_INT128), Field()}));
+    column->insert(Field::create_field<TYPE_ARRAY>(Array {}));
+    Block block;
+    block.insert({std::move(column), array_type, "numbers"});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
+    ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    std::string serialized;
+    ASSERT_TRUE(serialize_record_batch(*batch, &serialized).ok());
+    auto source = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::FromString(serialized));
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(source).ValueOrDie();
+    ASSERT_TRUE(reader->ReadNext(&batch).ok());
+    EXPECT_TRUE(batch->schema()->Equals(*schema, true));
+    expect_logical_type(batch->schema()->field(0)->type()->field(0), "LARGEINT");
+    const auto& lists = static_cast<const arrow::ListArray&>(*batch->column(0));
+    EXPECT_EQ(0, lists.value_length(1));
+    const auto& values = static_cast<const arrow::StringArray&>(*lists.values());
+    EXPECT_EQ("170141183460469231731687303715884105727", values.GetString(0));
+    EXPECT_EQ("-170141183460469231731687303715884105728", values.GetString(1));
+    EXPECT_TRUE(values.IsNull(2));
+    expect_legacy_batch(block, batch);
+}
+
+TEST(ArrowRowBatchMetadataTest, PreservesNestedMapMetadataAndValuesInRecordBatches) {
+    auto integer = make_nullable(std::make_shared<DataTypeInt128>());
+    auto map_type = make_nullable(std::make_shared<DataTypeMap>(integer, integer));
+    auto type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {map_type, std::make_shared<DataTypeString>()}, Strings {"mapping", "text"}));
+    Map map;
+    map.push_back(Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_LARGEINT>(MAX_INT128)}));
+    map.push_back(Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_LARGEINT>(MIN_INT128)}));
+    auto column = type->create_column();
+    column->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_MAP>(map), Field::create_field<TYPE_STRING>("17")}));
+    column->insert_default();
+    Block block;
+    block.insert({std::move(column), type, "nested"});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
+    ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    std::string serialized;
+    ASSERT_TRUE(serialize_record_batch(*batch, &serialized).ok());
+    auto source = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::FromString(serialized));
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(source).ValueOrDie();
+    ASSERT_TRUE(reader->ReadNext(&batch).ok());
+    const auto& structure = static_cast<const arrow::StructArray&>(*batch->column(0));
+    EXPECT_TRUE(structure.IsNull(1));
+    const auto& maps = static_cast<const arrow::MapArray&>(*structure.field(0));
+    const auto& arrow_map_type = static_cast<const arrow::MapType&>(*maps.type());
+    expect_logical_type(arrow_map_type.key_field(), "LARGEINT");
+    expect_logical_type(arrow_map_type.item_field(), "LARGEINT");
+    EXPECT_FALSE(arrow_map_type.key_field()->nullable());
+    EXPECT_EQ("170141183460469231731687303715884105727",
+              static_cast<const arrow::StringArray&>(*maps.keys()).GetString(0));
+    EXPECT_EQ("-170141183460469231731687303715884105728",
+              static_cast<const arrow::StringArray&>(*maps.items()).GetString(0));
+    EXPECT_EQ("17", static_cast<const arrow::StringArray&>(*structure.field(1)).GetString(0));
+    EXPECT_EQ(nullptr, structure.type()->field(1)->metadata());
+    expect_legacy_batch(block, batch);
+}
+
+} // namespace
+} // namespace doris

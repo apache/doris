@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AuditLogHelper;
@@ -91,8 +92,8 @@ public abstract class BaseAnalysisTask {
     public static final String ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER = "ANALYZE_SKIP_LONG_STRING_COLUMN";
 
     protected static final String FULL_ANALYZE_TEMPLATE = "WITH cte1 AS ("
-            +     "SELECT `${colName}`${lengthAssert} "
-            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}), "
+            +     "SELECT ${colName}${lengthAssert} "
+            +     "FROM ${catalogName}.${dbName}.${tblName} ${index}), "
             + "cte2 AS ("
             +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             +     "${catalogId} AS `catalog_id`, "
@@ -102,10 +103,10 @@ public abstract class BaseAnalysisTask {
             +     "'${colId}' AS `col_id`, "
             +     "NULL AS `part_id`, "
             +     "COUNT(1) AS `row_count`, "
-            +     "NDV(`${colName}`) AS `ndv`, "
-            +     "COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
-            +     "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
-            +     "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
+            +     "NDV(${colName}) AS `ndv`, "
+            +     "COUNT(1) - COUNT(${colName}) AS `null_count`, "
+            +     "SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) AS `min`, "
+            +     "SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) AS `max`, "
             +     "${dataSizeFunction} AS `data_size`, "
             +     "NOW() "
             + "FROM cte1), "
@@ -116,9 +117,9 @@ public abstract class BaseAnalysisTask {
             +         "as `hot_value` "
             +     "FROM ("
             +         "SELECT ${subStringColName} as `hash_value`, "
-            +         "MAX(`${colName}`) as `column_key`, "
+            +         "MAX(${colName}) as `column_key`, "
             +         "COUNT(1) AS `count` "
-            +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
+            +         "FROM cte1 WHERE ${colName} IS NOT NULL "
             +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
             + "SELECT * FROM cte2 CROSS JOIN cte3";
 
@@ -131,19 +132,27 @@ public abstract class BaseAnalysisTask {
             +     "'${colId}' AS `col_id`, "
             +     "NULL AS `part_id`, "
             +     "COUNT(1) AS `row_count`, "
-            +     "NDV(`${colName}`) AS `ndv`, "
-            +     "COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
-            +     "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
-            +     "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
+            +     "NDV(${colName}) AS `ndv`, "
+            +     "COUNT(1) - COUNT(${colName}) AS `null_count`, "
+            +     "SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) AS `min`, "
+            +     "SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) AS `max`, "
             +     "${dataSizeFunction} AS `data_size`, "
             +     "NOW() AS `update_time`, "
             +     "null as `hot_value` "
-            + "FROM (SELECT `${colName}`${lengthAssert} "
-            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}) __lc_t";
+            + "FROM (SELECT ${colName}${lengthAssert} "
+            +     "FROM ${catalogName}.${dbName}.${tblName} ${index}) __lc_t";
 
+    // Hot values are intentionally NOT collected by the linear estimator. The extra
+    // GROUP BY over the sampled column re-reads the whole sample and is the dominant cost
+    // of this template, which is used for every single distribution / single key column
+    // sample analyze. `hot_value` keeps its position in the result set and is reported as
+    // NULL, which every reader treats as "not collected" (see ColumnStatistic#hotValues),
+    // so the row layout stays identical to that of the other templates. Hot values are
+    // still collected by DUJ1_ANALYZE_TEMPLATE, which derives them from the grouped sample
+    // it already builds for the NDV estimate.
     protected static final String LINEAR_ANALYZE_TEMPLATE = "WITH cte1 AS ("
-            +     "SELECT `${colName}`${lengthAssert} "
-            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit} ${preAggHint}), "
+            +     "SELECT ${colName}${lengthAssert} "
+            +     "FROM ${catalogName}.${dbName}.${tblName} ${index} ${sampleHints} ${limit} ${preAggHint}), "
             + "cte2 AS ("
             +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             +     "${catalogId} AS `catalog_id`, "
@@ -154,32 +163,23 @@ public abstract class BaseAnalysisTask {
             +     "NULL AS `part_id`, "
             +     "${rowCount} AS `row_count`, "
             +     "${ndvFunction} as `ndv`, "
-            +     "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
+            +     "ROUND(SUM(CASE WHEN ${colName} IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
             +     "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
             +     "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             +     "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            +     "NOW() FROM cte1), "
-            + "cte3 AS ("
-            +     "SELECT IFNULL(GROUP_CONCAT(CONCAT("
-            +         "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-            +         "\" :\", ROUND(t.`count` / ${rowCount2}, 2)), \" ;\"), '') "
-            +         "as `hot_value` "
-            +     "FROM ("
-            +         "SELECT ${subStringColName} as `hash_value`, "
-            +         "MAX(`${colName}`) as `column_key`, "
-            +         "COUNT(1) AS `count` "
-            +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
-            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
-            + "SELECT * FROM cte2 CROSS JOIN cte3";
+            +     "NOW() AS `update_time`, "
+            +     "null as `hot_value` "
+            +     "FROM cte1) "
+            + "SELECT * FROM cte2";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "WITH cte1 AS ("
             + "SELECT MAX(t0.`col_value`) as `col_value`, COUNT(1) as `count`, SUM(`len`) as `column_length` "
             + "FROM "
             +     "(SELECT "
             +     "${subStringColName} AS `hash_value`, "
-            +     "`${colName}` AS `col_value`, "
-            +     "LENGTH(`${colName}`) as `len`${lengthAssert} "
-            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}) as `t0` "
+            +     "${colName} AS `col_value`, "
+            +     "LENGTH(${colName}) as `len`${lengthAssert} "
+            +     "FROM ${catalogName}.${dbName}.${tblName} ${index} ${sampleHints} ${limit}) as `t0` "
             +     "${preAggHint} GROUP BY `t0`.`hash_value`), "
             + "cte2 AS ( "
             +     "SELECT CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
@@ -241,13 +241,13 @@ public abstract class BaseAnalysisTask {
             + "${partId} AS `part_id`, "
             + "'${colId}' AS `col_id`, "
             + "COUNT(1) AS `row_count`, "
-            + "HLL_UNION(HLL_HASH(`${colName}`)) as ndv, "
-            + "COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
-            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
-            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
+            + "HLL_UNION(HLL_HASH(${colName})) as ndv, "
+            + "COUNT(1) - COUNT(${colName}) AS `null_count`, "
+            + "SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} AS `data_size`, "
             + "NOW() AS `update_time` "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${partitionInfo}";
+            + "FROM ${catalogName}.${dbName}.${tblName} ${index} ${partitionInfo}";
 
     protected static final String MERGE_PARTITION_TEMPLATE =
             "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -418,7 +418,7 @@ public abstract class BaseAnalysisTask {
             }
         } else {
             if (column.getType().isStringType()) {
-                return "SUM(LENGTH(`${colName}`))";
+                return "SUM(LENGTH(${colName}))";
             } else {
                 return "COUNT(1) * " + column.getType().getSlotSize();
             }
@@ -427,15 +427,15 @@ public abstract class BaseAnalysisTask {
 
     protected String getStringTypeColName(Column column) {
         if (column.getType().isStringType()) {
-            return "xxhash_64(SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024))";
+            return "xxhash_64(SUBSTRING(CAST(${colName} AS STRING), 1, 1024))";
         } else {
-            return "`${colName}`";
+            return "${colName}";
         }
     }
 
     protected String getMinFunction() {
         if (tableSample == null) {
-            return "CAST(MIN(`${colName}`) as ${type}) ";
+            return "CAST(MIN(${colName}) as ${type}) ";
         } else {
             // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
             return "NULL";
@@ -456,7 +456,7 @@ public abstract class BaseAnalysisTask {
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMaxFunction() {
         if (tableSample == null) {
-            return "CAST(MAX(`${colName}`) as ${type}) ";
+            return "CAST(MAX(${colName}) as ${type}) ";
         } else {
             return "NULL";
         }
@@ -562,7 +562,7 @@ public abstract class BaseAnalysisTask {
                     }
                 }
             }
-            params.put("partName", "'" + StatisticsUtil.escapeColumnName(part) + "'");
+            params.put("partName", StatisticsUtil.quote(StatisticsUtil.escapeSQL(part)));
             params.put("partitionInfo", getPartitionInfo(part));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
@@ -620,6 +620,12 @@ public abstract class BaseAnalysisTask {
 
     protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
 
+    /**
+     * Whether this task may collect hot values. It only decides which template a full analyze uses
+     * (with or without the hot value CTE). A sample analyze collects hot values only when the
+     * estimator it picked provides them, i.e. {@code DUJ1_ANALYZE_TEMPLATE}; the linear estimator
+     * never does, even though a sample job sets {@code collectHotValue} to true.
+     */
     protected boolean shouldCollectHotValue() {
         return Boolean.TRUE.equals(info.collectHotValue);
     }
@@ -646,11 +652,11 @@ public abstract class BaseAnalysisTask {
     protected void addLengthAssertParam(Map<String, String> params) {
         long maxLen = org.apache.doris.common.Config.statistics_max_string_column_length;
         if (col != null && col.getType().isStringType() && maxLen > 0) {
-            String escapedColName = StatisticsUtil.escapeColumnName(String.valueOf(info.colName));
+            String quotedColName = SqlUtils.getIdentSql(String.valueOf(info.colName));
             // The StringSubstitutor used by callers already has ${colName} populated,
-            // so we inline the escaped column name directly here.
+            // so we inline the quoted column name directly here.
             params.put("lengthAssert",
-                    ", assert_true(`" + escapedColName + "` IS NULL OR LENGTH(`" + escapedColName + "`) <= "
+                    ", assert_true(" + quotedColName + " IS NULL OR LENGTH(" + quotedColName + ") <= "
                             + maxLen + ", '" + ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER + "') AS `__lc`");
         } else {
             params.put("lengthAssert", "");

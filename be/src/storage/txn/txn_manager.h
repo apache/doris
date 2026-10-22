@@ -42,7 +42,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/time.h"
@@ -62,11 +62,11 @@ enum class TxnState {
 };
 enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 
-// The row binlog rowset and its independent binlog tablet, carried through commit and publish.
-struct RowBinlogTxnInfo {
+// The changelog rowset and its independent changelog tablet, carried through commit and publish.
+struct ChangelogTxnInfo {
     RowsetSharedPtr rowset;
     BaseTabletSPtr tablet;
-    // Delete bitmap deltas that should be applied to the independent binlog tablet.
+    // Delete bitmap deltas that should be applied to the independent changelog tablet.
     DeleteBitmapPtr delete_bitmap;
 };
 
@@ -80,8 +80,8 @@ struct TxnPublishInfo {
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
-    // The row-binlog tablet is attached while PREPARED; its rowset is filled at commit.
-    RowBinlogTxnInfo attach_row_binlog;
+    // The changelog tablet is attached while PREPARED; its rowset is filled at commit.
+    ChangelogTxnInfo attach_changelog;
     PendingRowsetGuard pending_rs_guard;
     bool unique_key_merge_on_write {false};
     DeleteBitmapPtr delete_bitmap;
@@ -172,17 +172,17 @@ public:
                        TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                        bool is_ingest = false);
 
-    // Internal: attach the independent row-binlog tablet to an existing base-tablet transaction
+    // Internal: attach the independent changelog tablet to an existing base-tablet transaction
     // before commit, so tablet lifecycle operations can drain the whole group transaction.
-    Status attach_row_binlog_tablet_to_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                                           const TabletInfo& base_tablet_info,
-                                           const BaseTabletSPtr& row_binlog_tablet);
+    Status attach_changelog_tablet_to_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                                          const TabletInfo& base_tablet_info,
+                                          const BaseTabletSPtr& changelog_tablet);
 
     Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
-                      const RowBinlogTxnInfo& attach_row_binlog = {});
+                      const ChangelogTxnInfo& attach_changelog = {});
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -201,7 +201,7 @@ public:
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
-                      const RowBinlogTxnInfo& attach_row_binlog = {});
+                      const ChangelogTxnInfo& attach_changelog = {});
 
     // remove a txn from txn manager
     // not persist rowset meta because
@@ -226,7 +226,7 @@ public:
                       TTabletId tablet_id, TabletUid tablet_uid);
 
     // Includes transactions keyed by this tablet and base-tablet transactions that attach this
-    // tablet as their independent row-binlog tablet.
+    // tablet as their independent changelog tablet.
     void get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_uid, int64_t* partition_id,
                                  std::set<int64_t>* transaction_ids);
 

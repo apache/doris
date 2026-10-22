@@ -22,9 +22,12 @@ import org.apache.doris.connector.cache.ScopedMetaCache.BulkLoadHandle;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,7 +35,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class ScopedMetaCacheConcurrencyTest {
     private static final long TIMEOUT_SECONDS = 10L;
@@ -40,6 +45,53 @@ public class ScopedMetaCacheConcurrencyTest {
             CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 1_000L);
     private static final ScopePath TABLE = ScopePath.table("db", "tbl");
     private static final ScopePath PARTITION = ScopePath.partition("db", "tbl", "p=1");
+
+    @Test
+    public void maintenanceRemovalRunsAfterCaffeineReleasesItsLock() throws Exception {
+        for (String operation : new String[] {"cleanup", "read", "iterate", "close"}) {
+            AtomicLong ticker = new AtomicLong();
+            AtomicReference<ReentrantLock> maintenanceLock = new AtomicReference<>();
+            AtomicBoolean callbackHeldMaintenanceLock = new AtomicBoolean();
+            AtomicInteger removals = new AtomicInteger();
+            try (ScopedMetaCacheRegistry registry = new ScopedMetaCacheRegistry()) {
+                ScopedMetaCache<String, Integer> cache = registry.createCache("test",
+                        CacheSpec.of(true, 1L, 100L), ticker::get, (key, value) -> {
+                            callbackHeldMaintenanceLock.set(maintenanceLock.get().isHeldByCurrentThread());
+                            removals.incrementAndGet();
+                        });
+                Field dataField = ScopedMetaCache.class.getDeclaredField("data");
+                dataField.setAccessible(true);
+                Object caffeine = dataField.get(cache);
+                Field cacheField = caffeine.getClass().getDeclaredField("cache");
+                cacheField.setAccessible(true);
+                Object bounded = cacheField.get(caffeine);
+                Field lockField = Class.forName("com.github.benmanes.caffeine.cache.BoundedLocalCache")
+                        .getDeclaredField("evictionLock");
+                lockField.setAccessible(true);
+                maintenanceLock.set((ReentrantLock) lockField.get(bounded));
+                cache.put("key", TABLE, 1);
+                cache.cleanUp();
+                ticker.set(TimeUnit.SECONDS.toNanos(2L));
+                switch (operation) {
+                    case "cleanup":
+                        cache.cleanUp();
+                        break;
+                    case "read":
+                        cache.getIfPresent("key", TABLE);
+                        break;
+                    case "iterate":
+                        cache.forEach((key, value) -> { });
+                        break;
+                    default:
+                        registry.close();
+                        break;
+                }
+                Assertions.assertEquals(1, removals.get(), operation);
+                Assertions.assertFalse(callbackHeldMaintenanceLock.get(),
+                        operation + " must not acquire KeyNode monitors under Caffeine's maintenance lock");
+            }
+        }
+    }
 
     @Test
     public void concurrentMissesForTheSameKeyRunOneLoader() throws Exception {
@@ -1183,6 +1235,47 @@ public class ScopedMetaCacheConcurrencyTest {
             assertEmpty(registry, cache);
         } finally {
             registry.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void concurrentWeightedReplacementsDoNotEvictAcrossKeyLocks() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch replacementsEstimating = new CountDownLatch(2);
+        MetaCacheBudgetManager manager = new MetaCacheBudgetManager(OptionalLong.of(2048L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                manager, 41L, "iceberg", Collections.emptyMap())) {
+            MetaCache<String, String> cache = owner.create(MetaCacheDefinition
+                    .<String, String>builder("table", CacheSpec.of(true, -1L, 100L),
+                            ignored -> ScopePath.catalog())
+                    .sizeEstimator((key, value) -> {
+                        if (value.startsWith("new")) {
+                            replacementsEstimating.countDown();
+                            await(replacementsEstimating);
+                            return MetaCacheSizeEstimate.complete(1024L);
+                        }
+                        return MetaCacheSizeEstimate.complete(512L);
+                    })
+                    .build());
+            cache.put("a", "old-a");
+            cache.put("b", "old-b");
+
+            Future<?> first = executor.submit(() -> {
+                await(start);
+                cache.put("a", "new-a");
+            });
+            Future<?> second = executor.submit(() -> {
+                await(start);
+                cache.put("b", "new-b");
+            });
+            start.countDown();
+
+            first.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            second.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Assertions.assertTrue(manager.getGlobalUsedWeight() <= 2048L);
+        } finally {
             executor.shutdownNow();
         }
     }

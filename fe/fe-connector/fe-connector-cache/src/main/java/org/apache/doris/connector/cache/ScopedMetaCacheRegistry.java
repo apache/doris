@@ -19,6 +19,8 @@ package org.apache.doris.connector.cache;
 
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -46,6 +48,7 @@ import java.util.function.BooleanSupplier;
  * live values and in-flight loads rather than by every name ever observed.
  */
 public final class ScopedMetaCacheRegistry implements AutoCloseable {
+    private static final Logger LOG = LogManager.getLogger(ScopedMetaCacheRegistry.class);
     private static final Runnable NO_OP = () -> {
     };
     private static final BiConsumer<ScopePath.Level, Object> NO_OP_SCOPE = (level, key) -> {
@@ -81,19 +84,23 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             String name, CacheSpec cacheSpec, RemovalListener<K, V> removalListener,
             Duration refreshAfterWrite, Executor refreshExecutor) {
         return createCacheWithRemovalListener(name, cacheSpec, null, removalListener,
-                null, refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP);
+                null, refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP,
+                null, null);
     }
 
     <K, V> ScopedMetaCache<K, V> createCacheWithMetaRemovalListener(
             String name, CacheSpec cacheSpec, MetaCacheRemovalListener<K, V> removalListener,
             BiConsumer<K, V> discardListener,
-            Duration refreshAfterWrite, Executor refreshExecutor) {
+            Duration refreshAfterWrite, Executor refreshExecutor,
+            MetaCacheSizeEstimator<K, V> sizeEstimator,
+            MetaCacheBudgetManager.EntryBudget entryBudget) {
         RemovalListener<K, V> caffeineListener = removalListener == null ? null
                 : (key, value, cause) -> removalListener.onRemoval(
                         key, value, MetaCacheRemovalReason.valueOf(cause.name()));
         return createCacheWithRemovalListener(
                 name, cacheSpec, null, caffeineListener, discardListener,
-                refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP);
+                refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP,
+                sizeEstimator, entryBudget);
     }
 
     <K, V> ScopedMetaCache<K, V> createCache(
@@ -125,7 +132,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                 : (key, value, cause) -> beforeRemoval.accept(key, value);
         return createCacheWithRemovalListener(
                 name, cacheSpec, ticker, listener, null, null, null,
-                afterLoadElection, afterBulkStage, NO_OP);
+                afterLoadElection, afterBulkStage, NO_OP, null, null);
     }
 
     <K, V> ScopedMetaCache<K, V> createCacheWithRefresh(
@@ -136,7 +143,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             Runnable afterRefreshRegistration) {
         return createCacheWithRemovalListener(
                 name, cacheSpec, null, null, null, refreshAfterWrite, refreshExecutor,
-                NO_OP, NO_OP, afterRefreshRegistration);
+                NO_OP, NO_OP, afterRefreshRegistration, null, null);
     }
 
     private <K, V> ScopedMetaCache<K, V> createCacheWithRemovalListener(
@@ -149,7 +156,9 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             Executor refreshExecutor,
             Runnable afterLoadElection,
             Runnable afterBulkStage,
-            Runnable afterRefreshRegistration) {
+            Runnable afterRefreshRegistration,
+            MetaCacheSizeEstimator<K, V> sizeEstimator,
+            MetaCacheBudgetManager.EntryBudget entryBudget) {
         checkOpen();
         ScopedMetaCache<K, V> cache = new ScopedMetaCache<>(
                 this,
@@ -162,7 +171,9 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                 refreshExecutor,
                 afterLoadElection,
                 afterBulkStage,
-                afterRefreshRegistration);
+                afterRefreshRegistration,
+                sizeEstimator,
+                entryBudget);
         caches.add(cache);
         if (closed.get()) {
             caches.remove(cache);
@@ -252,7 +263,25 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         cleanDetachedState(oldState);
         List<ScopedMetaCache<?, ?>> snapshot = new ArrayList<>(caches);
         caches.clear();
-        snapshot.forEach(ScopedMetaCache::closeFromRegistry);
+        Throwable failure = null;
+        for (ScopedMetaCache<?, ?> cache : snapshot) {
+            try {
+                cache.closeFromRegistry();
+            } catch (RuntimeException | Error throwable) {
+                LOG.error("Failed to close scoped metadata cache", throwable);
+                if (failure == null) {
+                    failure = throwable;
+                } else {
+                    failure.addSuppressed(throwable);
+                }
+            }
+        }
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure != null) {
+            throw (Error) failure;
+        }
     }
 
     ScopeLease acquire(ScopePath path) {
@@ -280,12 +309,12 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         caches.remove(cache);
     }
 
-    void register(CacheAddress address, Object versionedValue, ScopeSnapshot snapshot) {
-        snapshot.leafState().entries.put(address, versionedValue);
+    void register(CacheAddress address, Object ownershipToken, ScopeSnapshot snapshot) {
+        snapshot.leafState().entries.put(address, ownershipToken);
     }
 
-    void unregister(CacheAddress address, Object versionedValue, ScopeSnapshot snapshot) {
-        snapshot.leafState().entries.remove(address, versionedValue);
+    void unregister(CacheAddress address, Object ownershipToken, ScopeSnapshot snapshot) {
+        snapshot.leafState().entries.remove(address, ownershipToken);
         tryPrune(snapshot);
     }
 
@@ -404,9 +433,9 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     private void cleanDetachedState(ScopeState state) {
-        state.entries.forEach((address, value) -> {
-            if (state.entries.remove(address, value)) {
-                address.removeExpected(value);
+        state.entries.forEach((address, ownershipToken) -> {
+            if (state.entries.remove(address, ownershipToken)) {
+                address.removeExpected(ownershipToken);
             }
         });
         state.children.values().forEach(child -> cleanDetachedState(child.current.get()));
@@ -859,6 +888,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     private static final class ScopeState {
         private final long generation;
         private final ConcurrentMap<Object, ScopeNode> children = new ConcurrentHashMap<>();
+        // Ownership tokens contain no cached value, so the registry does not become a second value owner.
         private final ConcurrentMap<CacheAddress, Object> entries = new ConcurrentHashMap<>();
         private volatile ScopeSnapshot scopeSnapshot;
 

@@ -17,7 +17,7 @@
 
 // Test set operations (EXCEPT/INTERSECT) with large string data that exceeds 4GB total.
 // This exercises the convert_column_if_overflow path in SetSinkOperatorX::_process_build_block.
-suite("test_set_operation_large_string") {
+suite("test_set_operation_large_string", "p2,nonConcurrent") {
     def totalRows = 4210
     sql """ DROP TABLE IF EXISTS test_set_op_large_string """
     sql """

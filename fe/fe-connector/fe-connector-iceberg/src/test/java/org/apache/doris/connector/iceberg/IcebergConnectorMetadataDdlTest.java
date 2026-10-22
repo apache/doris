@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -42,7 +43,7 @@ import java.util.Optional;
 /**
  * Behavior tests for the B1 DDL overrides on {@link IcebergConnectorMetadata} — driven entirely through the
  * {@link RecordingIcebergCatalogOps} seam + {@link RecordingConnectorContext} (no live catalog, no Mockito).
- * Asserts: every remote op runs INSIDE the auth context, the HMS-only properties gate, the force-drop
+ * Asserts: every remote op runs INSIDE the auth context, the per-catalog-type properties gate, the force-drop
  * cascade, and that the managed-location cleanup hook is invoked (HMS only) with the location captured
  * BEFORE the drop.
  */
@@ -75,7 +76,7 @@ public class IcebergConnectorMetadataDdlTest {
     }
 
     @Test
-    public void testCreateDatabaseNonHmsWithPropertiesFailsLoud() {
+    public void testCreateDatabaseRestWithPropertiesFailsLoud() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         IcebergConnectorMetadata md = metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST);
@@ -85,6 +86,64 @@ public class IcebergConnectorMetadataDdlTest {
         // The gate runs BEFORE the auth context — the seam must not be touched.
         Assertions.assertTrue(ops.log.isEmpty(), ops.log.toString());
         Assertions.assertEquals(0, ctx.authCount);
+    }
+
+    @Test
+    public void testCreateDatabaseWithPropertiesForSupportedCatalogs() {
+        // HMS, JDBC and Glue store namespace properties; the map is forwarded unchanged.
+        Map<String, String> dbProps = Collections.singletonMap("owner", "doris");
+        for (String catalogType : Arrays.asList(IcebergCatalogProperties.TYPE_HMS,
+                IcebergCatalogProperties.TYPE_JDBC, IcebergCatalogProperties.TYPE_GLUE)) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            metadata(ops, ctx, catalogType).createDatabase(null, "db1", dbProps);
+            Assertions.assertEquals("db1", ops.lastCreateDb, catalogType);
+            Assertions.assertEquals(dbProps, ops.lastCreateDbProps, catalogType);
+            Assertions.assertEquals(1, ctx.authCount, catalogType);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForSupportedCatalogs() {
+        // Only HMS and Glue place new tables under the namespace location.
+        Map<String, String> dbProps = Collections.singletonMap("location", "s3://wh/db1");
+        for (String catalogType : Arrays.asList(IcebergCatalogProperties.TYPE_HMS,
+                IcebergCatalogProperties.TYPE_GLUE)) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            metadata(ops, ctx, catalogType).createDatabase(null, "db1", dbProps);
+            Assertions.assertEquals(dbProps, ops.lastCreateDbProps, catalogType);
+        }
+    }
+
+    @Test
+    public void testCreateDatabaseWithLocationForJdbcCatalogIsRejected() {
+        // A JDBC catalog would store the location without placing later tables under it.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergCatalogProperties.TYPE_JDBC);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.createDatabase(null, "db1", Collections.singletonMap("location", "s3://wh/db1")));
+        Assertions.assertTrue(ex.getMessage().contains("database property 'location' for iceberg catalog type: jdbc"),
+                ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), ops.log.toString());
+        Assertions.assertEquals(0, ctx.authCount);
+    }
+
+    @Test
+    public void testCreateDatabaseWithPropertiesForUnsupportedCatalogs() {
+        for (String catalogType : Arrays.asList(IcebergCatalogProperties.TYPE_HADOOP,
+                IcebergCatalogProperties.TYPE_REST, IcebergCatalogProperties.TYPE_DLF,
+                IcebergCatalogProperties.TYPE_S3_TABLES)) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            IcebergConnectorMetadata md = metadata(ops, ctx, catalogType);
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> md.createDatabase(null, "db1", Collections.singletonMap("owner", "doris")));
+            Assertions.assertTrue(ex.getMessage().contains("iceberg catalog type: " + catalogType), ex.getMessage());
+            Assertions.assertTrue(ops.log.isEmpty(), catalogType + " " + ops.log);
+            Assertions.assertEquals(0, ctx.authCount, catalogType);
+        }
     }
 
     @Test
@@ -245,6 +304,23 @@ public class IcebergConnectorMetadataDdlTest {
     }
 
     @Test
+    public void testCreateTableDlfFailsBeforeRemote() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_DLF).createTable(null, request));
+        Assertions.assertTrue(exception.getMessage().contains("not supported"));
+        Assertions.assertTrue(ops.log.isEmpty(), "DLF create rejection must not access the remote catalog");
+        Assertions.assertEquals(0, ctx.authCount);
+    }
+
+    @Test
     public void testCreateTableUnsupportedTypeFailsBeforeRemote() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
@@ -385,6 +461,52 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertEquals(0, ctx.authCount);
     }
 
+    @Test
+    public void testCreateTableWithVariantNeedsFormatThreeParquet() {
+        // A VARIANT column needs a format-version 3 table that writes Parquet data files, whether the table request
+        // or the catalog's table-default / table-override sets them; the check runs before the remote seam.
+        Map<String, String> v3Orc = new HashMap<>();
+        v3Orc.put(TableProperties.FORMAT_VERSION, "3");
+        v3Orc.put(TableProperties.DEFAULT_FILE_FORMAT, "orc");
+        assertVariantCreateRejected(Collections.emptyMap(), Collections.emptyMap(),
+                "Iceberg VARIANT writes require table format-version 3, but found 2");
+        assertVariantCreateRejected(v3Orc, Collections.emptyMap(),
+                "Iceberg VARIANT writes require Parquet data files, but found ORC");
+        assertVariantCreateRejected(Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"),
+                Collections.singletonMap("table-override." + TableProperties.DEFAULT_FILE_FORMAT, "orc"),
+                "Iceberg VARIANT writes require Parquet data files, but found ORC");
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> catalogProps = props(IcebergCatalogProperties.TYPE_REST);
+        catalogProps.put("table-default.format-version", "3");
+        new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(catalogProps), new RecordingConnectorContext())
+                .createTable(null, variantTable(Collections.emptyMap()));
+        Assertions.assertEquals(Types.VariantType.get(), ops.lastCreateSchema.findField("payload").type());
+    }
+
+    private static ConnectorCreateTableRequest variantTable(Map<String, String> properties) {
+        return ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Arrays.asList(
+                        new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false),
+                        new ConnectorColumn("payload", ConnectorType.of("VARIANT"), "", true, null, false)))
+                .properties(properties)
+                .build();
+    }
+
+    private static void assertVariantCreateRejected(Map<String, String> properties,
+            Map<String, String> catalogProperties, String message) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Map<String, String> catalogProps = props(IcebergCatalogProperties.TYPE_REST);
+        catalogProps.putAll(catalogProperties);
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(
+                ops, IcebergCatalogProperties.of(catalogProps), new RecordingConnectorContext());
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.createTable(null, variantTable(properties)));
+        Assertions.assertEquals(message, ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), "reject must run before the remote seam");
+    }
+
     // ---------- dropTable ----------
 
     @Test
@@ -466,6 +588,36 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                         .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    // ---------- setTableProperties ----------
+
+    @Test
+    public void testSetTablePropertiesRoutesWholeMapByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728");
+        properties.put(TableProperties.MANIFEST_MIN_MERGE_COUNT, "50");
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
+                .setTableProperties(null, new IcebergTableHandle("db1", "t1"), properties);
+        Assertions.assertEquals(1, ops.log.size(), ops.log.toString());
+        Assertions.assertEquals("db1", ops.lastSetPropertiesDb);
+        Assertions.assertEquals("t1", ops.lastSetPropertiesTable);
+        Assertions.assertEquals(properties, ops.lastSetProperties);
+        Assertions.assertEquals(1, ctx.authCount, "setTableProperties must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testSetTablePropertiesAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).setTableProperties(null,
+                        new IcebergTableHandle("db1", "t1"),
+                        Collections.singletonMap(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728")));
         Assertions.assertTrue(ops.log.isEmpty());
     }
 

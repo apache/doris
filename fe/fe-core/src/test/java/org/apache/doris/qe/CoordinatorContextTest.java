@@ -17,8 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.doris.thrift.TQueryOptions;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -59,6 +61,39 @@ class CoordinatorContextTest {
         Assertions.assertEquals(statementStart.getNano(), queryGlobals.getNanoSeconds());
     }
 
+    // A job of a frontend daemon has no session: its query globals must still be what a backend
+    // can decode (now_string is a required field) and carry a time zone.
+    @Test
+    void testQueryGlobalsWithoutSessionAreComplete() {
+        TQueryGlobals queryGlobals = CoordinatorContext.createQueryGlobalsWithoutSession();
+
+        Assertions.assertTrue(queryGlobals.isSetNowString());
+        Assertions.assertTrue(queryGlobals.isSetTimestampMs());
+        Assertions.assertTrue(queryGlobals.isSetTimeZone());
+        Assertions.assertNotEquals("CST", queryGlobals.getTimeZone());
+        Assertions.assertFalse(queryGlobals.isLoadZeroTolerance());
+    }
+
+    // A backend resolves the time zone against its tz database, which has no Java short IDs: it ran a query or a
+    // load under JST in the wrong zone, and a Java writer failed on ZoneId.of("JST"). MUTATION: setting the name
+    // as the session or the load gives it -> red.
+    @Test
+    void testQueryGlobalsCarryCanonicalTimeZones() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("JST");
+        TQueryGlobals queryGlobals = new TQueryGlobals();
+        CoordinatorContext.refreshQueryGlobals(queryGlobals, context);
+        Assertions.assertEquals("Asia/Tokyo", queryGlobals.getTimeZone());
+
+        context.getSessionVariable().setTimeZone("CST");
+        CoordinatorContext.refreshQueryGlobals(queryGlobals, context);
+        Assertions.assertEquals("Asia/Shanghai", queryGlobals.getTimeZone());
+
+        TQueryGlobals loadGlobals = new TQueryGlobals();
+        CoordinatorContext.setQueryGlobalsForLoad(loadGlobals, "PST", false);
+        Assertions.assertEquals("America/Los_Angeles", loadGlobals.getTimeZone());
+    }
+
     @Test
     void testLoadQueryGlobalsSetNanoseconds() {
         TQueryGlobals queryGlobals = new TQueryGlobals();
@@ -68,5 +103,21 @@ class CoordinatorContextTest {
         Assertions.assertTrue(queryGlobals.isSetNanoSeconds());
         Assertions.assertEquals("UTC", queryGlobals.getTimeZone());
         Assertions.assertTrue(queryGlobals.isLoadZeroTolerance());
+    }
+
+    @Test
+    void testQueryOptionsKeepPlanningBeExecVersion() {
+        int planningBeExecVersion = Config.ALIGNED_EXTERNAL_TABLE_SINK_THRIFT_MIN_BE_EXEC_VERSION;
+        int originalBeExecVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = planningBeExecVersion - 1;
+
+            TQueryOptions queryOptions = CoordinatorContext.initQueryOptions(
+                    new ConnectContext(), planningBeExecVersion);
+
+            Assertions.assertEquals(planningBeExecVersion, queryOptions.getBeExecVersion());
+        } finally {
+            Config.be_exec_version = originalBeExecVersion;
+        }
     }
 }

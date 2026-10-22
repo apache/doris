@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 public class SqlModeHelper {
     private static final Logger LOG = LogManager.getLogger(SqlModeHelper.class);
@@ -40,7 +41,8 @@ public class SqlModeHelper {
     //  of how they works and to be compatible with MySQL, so for now they are not
     //  really meaningful.
     /* Bits for different SQL MODE modes, you can add custom SQL MODE here */
-    /* When a new session is created, its sql mode is set to MODE_DEFAULT */
+    /* The mode a session carries when nothing has said otherwise. Not what a new session starts with:
+     * SessionVariable initialises sql_mode to MODE_ONLY_FULL_GROUP_BY. */
     public static final long MODE_DEFAULT = 1L;
     public static final long MODE_PIPES_AS_CONCAT = 2L;
     public static final long MODE_ANSI_QUOTES = 4L;
@@ -209,28 +211,86 @@ public class SqlModeHelper {
         return combineModeSet;
     }
 
-    public static boolean hasNoBackSlashEscapes() {
+    /**
+     * The SQL mode text that is not the caller's own is parsed under.
+     *
+     * <p>A security policy's predicate - a row filter or a column mask, whether an administrator wrote it in
+     * {@code CREATE ROW POLICY} or an authorization source handed it over - is parsed while planning the
+     * query it applies to, on the thread of the very user it restricts. {@code sql_mode} is a session
+     * variable any user may set with no privilege at all, and two of its bits change what SQL text means:
+     * {@code NO_BACKSLASH_ESCAPES} changes how a string literal decodes and {@code PIPES_AS_CONCAT} turns
+     * {@code ||} from OR into concatenation. Reading the mode off the caller would therefore let the
+     * restricted user decide what their own restriction says. So policy text is parsed under a fixed mode
+     * instead - {@link #MODE_DEFAULT}, the mode a session carries when nothing has said otherwise. It is
+     * not the mode a fresh session starts with: {@code SessionVariable.sqlMode} is initialised to
+     * {@code MODE_ONLY_FULL_GROUP_BY}, a bit that changes nothing about what SQL text means.
+     */
+    public static final long MODE_FOR_POLICY_TEXT = MODE_DEFAULT;
+
+    /**
+     * The mode {@link #withSqlMode} is currently running under, or null outside such a window.
+     *
+     * <p>An override held beside the session rather than written into it: the parse it wraps may itself set
+     * {@code sql_mode}, and a {@code SET_VAR} hint in the text does exactly that. Writing the fixed mode into
+     * the live {@code SessionVariable} let such a hint snapshot the swapped-in value as the caller's own and
+     * restore it as permanent when the statement ended, silently dropping the caller's {@code sql_mode} for
+     * the rest of the connection. Holding it here instead makes the window immune to anything that writes the
+     * session variable, and gives it effect on threads that have no connection at all - the ones that replay
+     * a journal or load an image and have to recover a stored policy under the same mode that will execute it.
+     */
+    private static final ThreadLocal<Long> MODE_OVERRIDE = new ThreadLocal<>();
+
+    /**
+     * Runs {@code parse} with this session's {@code sql_mode} temporarily replaced, and restores it after.
+     *
+     * <p>An override rather than a parameter because the mode is not threaded through the parser: the lexer
+     * reads it when it is built and the plan builder reads it again when it reaches a {@code ||}, both
+     * through {@link #hasNoBackSlashEscapes} and {@link #hasPipeAsConcat}. Those readers take the override
+     * ahead of any session, so the window holds whatever the parse does to the session variable - a
+     * {@code SET_VAR} hint in the text included - and holds on threads that have no connection.
+     *
+     * <p>Windows nest: an inner one restores the outer mode rather than dropping back to the session.
+     */
+    public static <T> T withSqlMode(long sqlMode, Supplier<T> parse) {
+        Long enclosing = MODE_OVERRIDE.get();
+        MODE_OVERRIDE.set(sqlMode);
+        try {
+            return parse.get();
+        } finally {
+            if (enclosing == null) {
+                MODE_OVERRIDE.remove();
+            } else {
+                MODE_OVERRIDE.set(enclosing);
+            }
+        }
+    }
+
+    /**
+     * The {@code sql_mode} that decides what the text being read right now means: the mode
+     * {@link #withSqlMode} put in force if one is, this session's otherwise, and the global one when there is
+     * no session on the thread.
+     */
+    private static long readingMode() {
+        Long override = MODE_OVERRIDE.get();
+        if (override != null) {
+            return override;
+        }
         SessionVariable sessionVariable = ConnectContext.get() == null
                 ? VariableMgr.newSessionVariable()
                 : ConnectContext.get().getSessionVariable();
-        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
-                & MODE_NO_BACKSLASH_ESCAPES) != 0;
+        return sessionVariable.getSqlMode();
+    }
+
+    public static boolean hasNoBackSlashEscapes() {
+        return ((readingMode() & MODE_ALLOWED_MASK) & MODE_NO_BACKSLASH_ESCAPES) != 0;
     }
 
     public static boolean hasPipeAsConcat() {
-        SessionVariable sessionVariable = ConnectContext.get() == null
-                ? VariableMgr.newSessionVariable()
-                : ConnectContext.get().getSessionVariable();
-        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
-                & MODE_PIPES_AS_CONCAT) != 0;
+        return ((readingMode() & MODE_ALLOWED_MASK) & MODE_PIPES_AS_CONCAT) != 0;
     }
 
     public static boolean hasOnlyFullGroupBy() {
-        SessionVariable sessionVariable = ConnectContext.get() == null
-                ? VariableMgr.newSessionVariable()
-                : ConnectContext.get().getSessionVariable();
-        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
-                & MODE_ONLY_FULL_GROUP_BY) != 0;
+        return ((readingMode() & MODE_ALLOWED_MASK) & MODE_ONLY_FULL_GROUP_BY) != 0;
     }
 
 }

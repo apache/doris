@@ -43,6 +43,7 @@ import io.trino.spi.type.VarcharType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Map;
 
@@ -160,6 +161,36 @@ public class TrinoPredicateConverterTest {
         Assertions.assertEquals(
                 expect("c_str", singleValue("c_str", Slices.utf8Slice("hello"))),
                 CONVERTER.convert(cmp));
+    }
+
+    @Test
+    public void testVarcharDatetimeComparisonDegradesToAll() {
+        // PluginDrivenScanNode normally keeps CAST predicates local for Trino. Exercise this converter
+        // directly as defense in depth: encoding a DATETIME literal as a VARCHAR domain would change
+        // datetime comparison into lexicographic comparison and can lose rows.
+        ConnectorComparison cmp = new ConnectorComparison(
+                ConnectorComparison.Operator.GE, col("c_str"),
+                ConnectorLiteral.ofDatetime(LocalDateTime.of(2026, 8, 24, 0, 0)));
+        Assertions.assertEquals(TupleDomain.<ColumnHandle>all(), CONVERTER.convert(cmp));
+    }
+
+    @Test
+    public void testAndSkipsIncompatibleVarcharDatetimeComparison() {
+        // An incompatible conjunct widens the pushed predicate by being omitted, while compatible conjuncts
+        // remain useful. Doris keeps and re-evaluates the original filter after the source scan.
+        ConnectorAnd and = new ConnectorAnd(Arrays.asList(
+                new ConnectorComparison(ConnectorComparison.Operator.EQ, col("c_int"), ConnectorLiteral.ofInt(5)),
+                new ConnectorComparison(ConnectorComparison.Operator.GE, col("c_str"),
+                        ConnectorLiteral.ofDatetime(LocalDateTime.of(2026, 8, 24, 0, 0)))));
+        Assertions.assertEquals(expect("c_int", singleValue("c_int", 5L)), CONVERTER.convert(and));
+    }
+
+    @Test
+    public void testVarcharNullSafeEqualityKeepsOnlyNullDomain() {
+        ConnectorComparison cmp = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ_FOR_NULL, col("c_str"),
+                ConnectorLiteral.ofNull(ConnectorType.of("VARCHAR")));
+        Assertions.assertEquals(expect("c_str", Domain.onlyNull(type("c_str"))), CONVERTER.convert(cmp));
     }
 
     @Test

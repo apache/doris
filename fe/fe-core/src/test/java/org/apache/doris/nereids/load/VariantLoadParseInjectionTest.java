@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.Config;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo.NereidsImportColumnDescs;
@@ -29,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
@@ -102,15 +102,7 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
 
     private void assertParseInjectionInBothModes(LoadFixtureSupplier fixtureSupplier, InputShape shape)
             throws Exception {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            assertParseInjection(fixtureSupplier.get(), shape, false);
-            Config.enable_variant_v2 = true;
-            assertParseInjection(fixtureSupplier.get(), shape, true);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        assertParseInjection(fixtureSupplier.get(), shape, true);
     }
 
     private void assertParseInjection(LoadFixture fixture, InputShape shape, boolean enableVariantV2) {
@@ -274,6 +266,18 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
         private String evidence() {
             return entrance + "\n" + plan.treeString();
         }
+    }
+
+    @Test
+    public void testTargetVariantTypeParticipatesInTryParseEquality() {
+        StringLiteral json = new StringLiteral("{\"a\":1}");
+        VariantType firstTarget = new VariantType(1);
+        VariantType secondTarget = new VariantType(2);
+
+        TryParseToVariant firstTryParse = new TryParseToVariant(json, firstTarget);
+        TryParseToVariant secondTryParse = new TryParseToVariant(json, secondTarget);
+        Assertions.assertNotEquals(firstTryParse, secondTryParse);
+        Assertions.assertEquals(firstTryParse, new TryParseToVariant(json, new VariantType(1)));
     }
 
     @FunctionalInterface

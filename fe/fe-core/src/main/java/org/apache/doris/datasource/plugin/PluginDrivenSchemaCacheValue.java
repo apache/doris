@@ -46,6 +46,12 @@ import java.util.Set;
  *       the raw-keyed partition-value maps returned by the connector SPI
  *       ({@code ConnectorPartitionInfo.getPartitionValues()}).</li>
  * </ul>
+ *
+ * <p>It also caches the DISPLAY view of the schema next to the read schema
+ * ({@link #getDisplayColumns()}): the same columns with the nullability the source
+ * declares rather than the nullability the engine reads them with. Metadata statements
+ * use it; everything that executes uses {@link #getSchema()}. See the field comment for
+ * why both views are projected together, once per generation.</p>
  */
 public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
@@ -61,6 +67,15 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
     // carrier. Empty for every connector that does not refine per table.
     private final Set<ConnectorCapability> tableCapabilities;
     private final String writeMetadataIdentity;
+    // The same columns with the nullability the SOURCE declares (ConnectorColumn.isSourceNullable()) instead
+    // of the read nullability, index-aligned with the full schema above. Metadata statements (DESC, SHOW
+    // CREATE TABLE, SHOW [FULL] COLUMNS, information_schema.columns, COM_FIELD_LIST) serve THIS view;
+    // scans, the optimizer, write binding and the BE descriptor keep serving getSchema(), which stays as
+    // nullable as the connector declared it to be read. Projected once per schema generation from the same
+    // ConnectorTableSchema, so the two views can never straddle a refresh; entries are shared with the read
+    // schema (same Column instance) whenever the connector declares no divergence, and are full copies
+    // otherwise. Identical to the read schema for every connector that does not opt in.
+    private final List<Column> displayColumns;
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames) {
@@ -82,12 +97,21 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
             Set<ConnectorCapability> tableCapabilities, String writeMetadataIdentity) {
+        this(schema, partitionColumns, partitionColumnRemoteNames, tableProperties, tableCapabilities,
+                writeMetadataIdentity, schema);
+    }
+
+    public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
+            List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
+            Set<ConnectorCapability> tableCapabilities, String writeMetadataIdentity,
+            List<Column> displayColumns) {
         super(schema);
         this.partitionColumns = partitionColumns;
         this.partitionColumnRemoteNames = partitionColumnRemoteNames;
         this.tableProperties = tableProperties == null ? Collections.emptyMap() : tableProperties;
         this.tableCapabilities = tableCapabilities == null ? Collections.emptySet() : tableCapabilities;
         this.writeMetadataIdentity = writeMetadataIdentity;
+        this.displayColumns = displayColumns == null ? schema : displayColumns;
     }
 
     public List<Column> getPartitionColumns() {
@@ -108,5 +132,13 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     public String getWriteMetadataIdentity() {
         return writeMetadataIdentity;
+    }
+
+    /**
+     * The columns as the source declares them, index-aligned with {@link #getSchema()}. Only metadata
+     * statements read this; see the field comment for why the two views must come from one generation.
+     */
+    public List<Column> getDisplayColumns() {
+        return displayColumns;
     }
 }

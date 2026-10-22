@@ -27,6 +27,8 @@ import java.net.URLDecoder
 
 suite("test_http_tvf", "p0") {
     def dataRoot = Paths.get(context.config.dataPath).toAbsolutePath().normalize()
+    // Served under mutable/: files whose content a case replaces between two queries.
+    def mutableRoot = Files.createTempDirectory("test_http_tvf_mutable").toAbsolutePath().normalize()
     HttpServer httpServer = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0)
 
     def writeResponse = { HttpExchange exchange, int status, byte[] body ->
@@ -77,8 +79,13 @@ suite("test_http_tvf", "p0") {
 
         def requestPath = URLDecoder.decode(exchange.requestURI.path, "UTF-8")
         def relativePath = requestPath.startsWith("/") ? requestPath.substring(1) : requestPath
-        def filePath = dataRoot.resolve(relativePath).normalize()
-        if (!filePath.startsWith(dataRoot)) {
+        def root = dataRoot
+        if (relativePath.startsWith("mutable/")) {
+            root = mutableRoot
+            relativePath = relativePath.substring("mutable/".length())
+        }
+        def filePath = root.resolve(relativePath).normalize()
+        if (!filePath.startsWith(root)) {
             writeResponse(exchange, 403, "Forbidden".getBytes("UTF-8"))
             return
         }
@@ -232,12 +239,14 @@ suite("test_http_tvf", "p0") {
         );
     """
 
-    // parquet/orc
+    // The Spark INT96 fixture stores timestamps normalized to UTC; the golden uses Asia/Shanghai.
+    // Specify the INT96 timezone explicitly instead of relying on the reader's default semantics.
     qt_sql08 """
         select * from
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
-            "format" = "parquet"
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "Asia/Shanghai"
         ) order by id limit 10;
     """
 
@@ -245,7 +254,8 @@ suite("test_http_tvf", "p0") {
         select arr_map, id from
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
-            "format" = "parquet"
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "Asia/Shanghai"
         ) order by id limit 10;
     """
 
@@ -253,7 +263,8 @@ suite("test_http_tvf", "p0") {
         desc function
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
-            "format" = "parquet"
+            "format" = "parquet",
+            "hive.parquet.time-zone" = "Asia/Shanghai"
         );
     """
 
@@ -315,6 +326,27 @@ suite("test_http_tvf", "p0") {
             "http.enable.range.request" = "true",
             "http.max.request.size.bytes" = "2000"
         ) order by id;
+    """
+
+    // The same URL serving new content of the same length: an HTTP response has no modification
+    // time for the file cache key, so the second query must not read blocks cached by the first.
+    sql """ set enable_file_cache = true """
+    def mutableCsv = mutableRoot.resolve("replaced.csv")
+    Files.write(mutableCsv, "1,aaaa\n".getBytes("UTF-8"))
+    order_qt_replaced_before """
+        select * from http(
+            "uri" = "${httpUrl("mutable/replaced.csv")}",
+            "format" = "csv",
+            "column_separator" = ","
+        );
+    """
+    Files.write(mutableCsv, "2,bbbb\n".getBytes("UTF-8"))
+    order_qt_replaced_after """
+        select * from http(
+            "uri" = "${httpUrl("mutable/replaced.csv")}",
+            "format" = "csv",
+            "column_separator" = ","
+        );
     """
 
     // hf

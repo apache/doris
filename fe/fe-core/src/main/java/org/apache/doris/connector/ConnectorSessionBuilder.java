@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
@@ -74,7 +75,7 @@ public final class ConnectorSessionBuilder {
         ConnectorSessionBuilder b = new ConnectorSessionBuilder();
         b.queryId = ctx.queryId() != null ? DebugUtil.printId(ctx.queryId()) : "";
         b.user = ctx.getQualifiedUser();
-        b.timeZone = ctx.getSessionVariable().getTimeZone();
+        b.timeZone = TimeUtils.getCanonicalTimeZone(ctx.getSessionVariable().getTimeZone());
         b.locale = "en_US";  // Doris doesn't have per-session locale yet
         b.sessionProperties = extractSessionProperties(ctx);
         b.connectContext = ctx;  // read for the delegated credential at build() time, gated by capability
@@ -175,7 +176,25 @@ public final class ConnectorSessionBuilder {
         }
         return new ConnectorSessionImpl(queryId, user, timeZone, locale,
                 catalogId, catalogName, catalogProperties, sessionProperties, sid, cred,
-                captureStatementScope());
+                captureStatementScope(), captureBeExecVersion());
+    }
+
+    /**
+     * Captures the backend execution version that NereidsPlanner pinned for the current statement, which the
+     * query options sent to the backends and the write handle carry too. It is read off the same statement
+     * context as {@link #captureStatementScope()}. Without a statement context, or before the planner pins the
+     * version (offline planning, commands that plan no query, tests), it is {@code Config.be_exec_version}.
+     */
+    private int captureBeExecVersion() {
+        ConnectContext ctx = connectContext != null ? connectContext : ConnectContext.get();
+        if (ctx == null) {
+            return Config.be_exec_version;
+        }
+        StatementContext sc = ctx.getStatementContext();
+        if (sc == null || !sc.hasBeExecVersion()) {
+            return Config.be_exec_version;
+        }
+        return sc.getBeExecVersion();
     }
 
     /**

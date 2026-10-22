@@ -68,6 +68,15 @@ import java.util.stream.Collectors;
 public class TableSchemaAction extends RestBaseController {
 
     /**
+     * The columns {@code /_schema} reports: the display view, so its {@code is_nullable} agrees with DESC /
+     * SHOW COLUMNS. Split out so the choice of view is pinned by a unit test.
+     */
+    @VisibleForTesting
+    static List<Column> schemaColumns(TableIf table) {
+        return table.getBaseSchemaForDisplay();
+    }
+
+    /**
      * Build column information map for a given column
      * @param column the column to build info for
      * @return map containing column information
@@ -111,6 +120,10 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
+        return getSchema(catalogName, dbName, tblName, PrivPredicate.SELECT);
+    }
+
+    Object getSchema(String catalogName, String dbName, String tblName, PrivPredicate privilege) {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
@@ -119,9 +132,8 @@ public class TableSchemaAction extends RestBaseController {
         }
 
         try {
-            // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, dbName, tblName,
-                    PrivPredicate.SELECT);
+                    privilege);
             TableIf table;
             try {
                 CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()
@@ -134,7 +146,10 @@ public class TableSchemaAction extends RestBaseController {
             table.readLock();
             try {
                 try {
-                    List<Column> columns = table.getBaseSchema();
+                    // The public schema REST response is a metadata view: report the nullability the source
+                    // declares (same as DESC / SHOW COLUMNS), not the nullability the engine reads with.
+                    // Internal tables keep read == display (TableIf's default implementation).
+                    List<Column> columns = schemaColumns(table);
                     List<Map<String, Object>> propList = new ArrayList<>(columns.size());
                     for (Column column : columns) {
                         Map<String, Object> baseInfo = buildColumnInfo(column);

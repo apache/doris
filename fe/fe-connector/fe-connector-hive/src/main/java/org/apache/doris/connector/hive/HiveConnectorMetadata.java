@@ -25,6 +25,7 @@ import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
+import org.apache.doris.connector.hms.HmsPartitionBatchResult;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
@@ -37,6 +38,7 @@ import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
@@ -93,6 +95,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -118,6 +121,7 @@ import java.util.stream.Collectors;
 public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
+    static final String TABLE_INFO_NAMESPACE = "hms.table-info";
 
     /**
      * The HMS table parameter iceberg writes its table comment into (mirrored from the iceberg table property
@@ -435,10 +439,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
-        if (!hmsClient.tableExists(dbName, tableName)) {
+        // Cache raw metadata, deriving handles outside the loader so sibling resolution can use
+        // its own statement memos without nesting inside this computeIfAbsent.
+        HmsTableInfo tableInfo = ConnectorStatementScopes.resolveInStatement(
+                session, TABLE_INFO_NAMESPACE, dbName, tableName, () -> {
+                    if (!hmsClient.tableExists(dbName, tableName)) {
+                        // ConcurrentHashMap does not retain null: CTAS must resolve a target after creating it.
+                        return null;
+                    }
+                    return Objects.requireNonNull(hmsClient.getTable(dbName, tableName));
+                });
+        if (tableInfo == null) {
             return Optional.empty();
         }
-        HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
         HiveTableType tableType = HiveTableFormatDetector.detect(tableInfo);
         // Foreign-handle divert: an iceberg-on-HMS or hudi-on-HMS table registered in this HMS catalog is served by
         // the embedded iceberg / hudi SIBLING connector, not by hive. Return the sibling's OWN table handle (the
@@ -610,6 +623,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     ConnectorCapability.SUPPORTS_SAMPLE_ANALYZE,
                     ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                    ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
                     ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                     ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE));
 
@@ -1106,7 +1120,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (partNames.isEmpty()) {
             return Collections.emptyList();
         }
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
                 handle.getDbName(), handle.getTableName(), partNames);
         List<PartitionRef> refs = new ArrayList<>(partitions.size());
         for (HmsPartitionInfo partition : partitions) {
@@ -1185,10 +1199,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
 
-        List<HmsPartitionInfo> prunedPartitions = matchedPartNames.isEmpty()
-                ? Collections.emptyList()
-                : hmsClient.getPartitions(hiveHandle.getDbName(),
-                        hiveHandle.getTableName(), matchedPartNames);
+        HmsPartitionBatchResult pruningResult;
+        try {
+            pruningResult = matchedPartNames.isEmpty()
+                    ? null : hmsClient.getExistingPartitionsWithStats(
+                            hiveHandle.getDbName(), hiveHandle.getTableName(), matchedPartNames);
+        } catch (HmsClientException e) {
+            if (e.getPartitionBatchStats() != null) {
+                HiveScanPlanProvider.recordPruningFailure(
+                        session, hiveHandle.getDbName(), hiveHandle.getTableName(), e.getPartitionBatchStats());
+            }
+            throw e;
+        }
+        List<HmsPartitionInfo> prunedPartitions = pruningResult == null
+                ? Collections.emptyList() : pruningResult.getPartitions();
 
         LOG.info("Partition pruning: {}.{} all={} pruned={}",
                 hiveHandle.getDbName(), hiveHandle.getTableName(),
@@ -1196,6 +1220,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
         HiveTableHandle newHandle = hiveHandle.toBuilder()
                 .prunedPartitions(prunedPartitions)
+                .pruningBatchStats(pruningResult == null ? null : pruningResult.getStats())
                 .build();
         return Optional.of(new FilterApplicationResult<>(
                 newHandle, constraint.getExpression(), false));
@@ -1396,8 +1421,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             // Parity: an empty partition list yields MTMVMaxTimestampSnapshot(tableName, 0).
             return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));
         }
-        List<HmsPartitionInfo> partitions =
-                hmsClient.getPartitions(hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
         String maxName = hiveHandle.getTableName();
         long maxMillis = 0L;
         for (HmsPartitionInfo partition : partitions) {
@@ -1426,12 +1451,36 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return siblingMetadata(session, handle).getPartitionFreshnessMillis(session, handle, partitionName);
         }
         HiveTableHandle hiveHandle = (HiveTableHandle) handle;
-        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(hiveHandle.getDbName(),
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(hiveHandle.getDbName(),
                 hiveHandle.getTableName(), Collections.singletonList(partitionName));
         if (partitions.isEmpty()) {
             return OptionalLong.empty();
         }
         return OptionalLong.of(lastDdlMillis(partitions.get(0).getParameters()));
+    }
+
+    @Override
+    public Map<String, Long> getPartitionsFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle)
+                    .getPartitionsFreshnessMillis(session, handle, partitionNames);
+        }
+        if (partitionNames.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        Map<List<String>, String> namesByValues = new HashMap<>();
+        for (String partitionName : partitionNames) {
+            namesByValues.put(HiveWriteUtils.toPartitionValues(partitionName), partitionName);
+        }
+        Map<String, Long> freshness = new LinkedHashMap<>();
+        for (HmsPartitionInfo partition : partitions) {
+            freshness.put(namesByValues.get(partition.getValues()), lastDdlMillis(partition.getParameters()));
+        }
+        return freshness;
     }
 
     /**
@@ -1492,6 +1541,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         // Hive's empty pin carries no scan options; the SPI default returns the handle unchanged.
         return handle;
+    }
+
+    @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        if (!(handle instanceof HiveTableHandle)) {
+            // Route a foreign (hudi) handle to its owning sibling: this answer decides whether fe-core pins the
+            // real partition set for a FOR TIME/VERSION AS OF query or an empty one, and only the sibling knows
+            // whether its listPartitions reads the pin. Answering for it would report the gateway's own
+            // snapshot-blindness and leave every time-travel query with partition=0/0.
+            return siblingMetadata(session, handle).listsPartitionsAtSnapshot(session, handle);
+        }
+        // Hive has no time travel at all (resolveTimeTravel above returns empty), so nothing ever asks this of
+        // a hive handle; false is the honest answer either way.
+        return false;
     }
 
     @Override
@@ -1882,6 +1945,16 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         // hive does not support ALTER TABLE RENAME (legacy HMSCachedClient has no rename).
         throw new DorisConnectorException("RENAME TABLE not supported");
+    }
+
+    @Override
+    public void setTableProperties(ConnectorSession session, ConnectorTableHandle handle,
+            Map<String, String> properties) {
+        if (!(handle instanceof HiveTableHandle)) {
+            siblingMetadata(session, handle).setTableProperties(session, handle, properties);
+            return;
+        }
+        throw new DorisConnectorException("SET TABLE PROPERTIES not supported");
     }
 
     @Override

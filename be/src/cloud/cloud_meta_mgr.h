@@ -117,12 +117,12 @@ public:
 
     Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id, int64_t table_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr,
-                         RowsetMeta* attach_row_binlog = nullptr,
-                         std::shared_ptr<RowsetMeta>* existed_attach_row_binlog = nullptr);
+                         RowsetMeta* attach_changelog = nullptr,
+                         std::shared_ptr<RowsetMeta>* existed_attach_changelog = nullptr);
     void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta, int64_t table_id,
-                             const RowsetMeta* attach_row_binlog = nullptr);
+                             const RowsetMeta* attach_changelog = nullptr);
 
     Status update_packed_file_info(const std::string& packed_file_path,
                                    const cloud::PackedFileInfoPB& packed_file_info,
@@ -185,8 +185,10 @@ public:
 
     Status cloud_update_delete_bitmap_without_lock(
             const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
-            std::map<std::string, int64_t>& rowset_to_versions, int64_t table_id,
-            int64_t pre_rowset_agg_start_version = 0, int64_t pre_rowset_agg_end_version = 0);
+            std::map<std::string, int64_t>& rowset_to_versions,
+            const CloudTablet::PreRowsetDeleteBitmapStats* pre_rowset_delete_bitmap_stats,
+            int64_t table_id, int64_t pre_rowset_agg_start_version = 0,
+            int64_t pre_rowset_agg_end_version = 0);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);

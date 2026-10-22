@@ -21,6 +21,7 @@
 
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
+#include "io/fs/local_file_system.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -32,9 +33,17 @@ namespace {
 class FakeFileFormatTransformer final : public VFileFormatTransformer {
 public:
     explicit FakeFileFormatTransformer(const VExprContextSPtrs& output_exprs,
-                                       Status close_status = Status::OK())
+                                       Status close_status = Status::OK(),
+                                       bool* destroyed = nullptr)
             : VFileFormatTransformer(nullptr, output_exprs, false),
-              _close_status(std::move(close_status)) {}
+              _close_status(std::move(close_status)),
+              _destroyed(destroyed) {}
+
+    ~FakeFileFormatTransformer() override {
+        if (_destroyed != nullptr) {
+            *_destroyed = true;
+        }
+    }
 
     Status open() override { return Status::OK(); }
     Status write(const Block&) override { return Status::OK(); }
@@ -43,6 +52,7 @@ public:
 
 private:
     Status _close_status;
+    bool* _destroyed;
 };
 
 TDataSink make_table_sink(std::optional<bool> collect_column_stats) {
@@ -74,9 +84,10 @@ protected:
 
     static void install_fake_transformer(VIcebergPartitionWriter* writer,
                                          const VExprContextSPtrs& output_exprs,
-                                         Status close_status = Status::OK()) {
-        writer->_file_format_transformer =
-                std::make_unique<FakeFileFormatTransformer>(output_exprs, std::move(close_status));
+                                         Status close_status = Status::OK(),
+                                         bool* destroyed = nullptr) {
+        writer->_file_format_transformer = std::make_unique<FakeFileFormatTransformer>(
+                output_exprs, std::move(close_status), destroyed);
     }
 
     static Status build_commit_data(VIcebergPartitionWriter* writer,
@@ -131,6 +142,59 @@ TEST_F(VIcebergPartitionWriterTest, SortWriterPropagatesUnderlyingCloseFailure) 
 
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("injected close failure"), std::string::npos);
+}
+
+TEST_F(VIcebergPartitionWriterTest, FailedCloseDefersFileCleanupToOuterCallback) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    auto writer = std::shared_ptr<VIcebergPartitionWriter>(
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+    bool transformer_destroyed = false;
+    install_fake_transformer(writer.get(), output_exprs, Status::OK(), &transformer_destroyed);
+    writer->_fs = io::global_local_filesystem();
+    writer->_path = "/tmp/doris-iceberg-failed-close.orc";
+    int cleanup_calls = 0;
+    writer->_closed_file_callback = [&](std::shared_ptr<io::FileSystem> fs,
+                                        const std::string& path) {
+        EXPECT_EQ(writer->_fs, fs);
+        EXPECT_EQ(writer->_path, path);
+        EXPECT_TRUE(transformer_destroyed);
+        ++cleanup_calls;
+    };
+
+    EXPECT_TRUE(writer->close(Status::Cancelled("injected write failure")).ok());
+    EXPECT_EQ(1, cleanup_calls);
+    EXPECT_EQ(0, writer->written_len());
+
+    EXPECT_TRUE(writer->close(Status::Cancelled("injected write failure")).ok());
+    EXPECT_EQ(1, cleanup_calls);
+}
+
+TEST_F(VIcebergPartitionWriterTest, RepeatedClosePreservesTerminalError) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    auto writer = std::shared_ptr<VIcebergPartitionWriter>(
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf));
+    install_fake_transformer(writer.get(), output_exprs, Status::IOError("injected close failure"));
+    writer->_fs = io::global_local_filesystem();
+    writer->_path = "/tmp/doris-iceberg-close-failure.orc";
+    int cleanup_calls = 0;
+    writer->_closed_file_callback = [&](std::shared_ptr<io::FileSystem>, const std::string&) {
+        ++cleanup_calls;
+    };
+
+    Status first_status = writer->close(Status::OK());
+    Status second_status = writer->close(Status::OK());
+
+    EXPECT_FALSE(first_status.ok());
+    EXPECT_FALSE(second_status.ok());
+    EXPECT_NE(first_status.to_string().find("injected close failure"), std::string::npos);
+    EXPECT_EQ(first_status, second_status);
+    EXPECT_EQ(1, cleanup_calls);
 }
 
 TEST_F(VIcebergPartitionWriterTest, EosReservationIncludesActualSpillFanIn) {

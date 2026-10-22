@@ -26,6 +26,18 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
+namespace {
+// Nothing other than the merger can read the wrapper `merge_from` is about to receive: either no
+// plain local consumer of `state` exists at all (`_send_to_local_targets(state, this, false)` is
+// then a no-op), or `merger` expects only this one producer, so `merge_from` becomes ready on
+// this very call and never merges another producer into the wrapper it adopts here, even though
+// a plain local consumer also reads it.
+bool wrapper_has_no_other_reader(RuntimeState* state, int filter_id, RuntimeFilterMerger* merger) {
+    return state->local_runtime_filter_mgr()->get_consume_filters(filter_id).empty() ||
+           merger->get_expected_producer_num() == 1;
+}
+} // namespace
+
 Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state,
                                                       RuntimeFilter* merger_filter) {
     TNetworkAddress addr;
@@ -44,11 +56,21 @@ Status RuntimeFilterProducer::_send_to_local_targets(RuntimeState* state, Runtim
     return Status::OK();
 };
 
+// Pre-existing complexity debt from the target/broadcast/remote branching below, already over
+// threshold before this change; the ownership refinement above is factored out to keep the
+// increase small, but not addressed further here to keep this diff focused.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     _check_state({State::READY_TO_PUBLISH});
 
-    auto do_merge = [&]() {
+    // `allow_relaxed_ownership` is only meaningful when `other_wrapper_exclusively_owned` is
+    // false: it lets this call refine that decision using the local-merge context it fetches
+    // below, instead of the caller guessing it without the context. It must stay false for the
+    // remote-target call site, whose `true` already holds unconditionally for a different
+    // reason (see its call below), and for the broadcast case, whose producers alias one shared
+    // wrapper (see `RuntimeFilterProducerTest.publish_mixed_targets_shared_wrapper`).
+    auto do_merge = [&](bool other_wrapper_exclusively_owned, bool allow_relaxed_ownership) {
         if (!_need_do_merge(state)) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
@@ -60,8 +82,12 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             // Filter was removed during a recursive CTE stage reset; this producer is stale.
             return Status::OK();
         }
+        if (!other_wrapper_exclusively_owned && allow_relaxed_ownership) {
+            other_wrapper_exclusively_owned = wrapper_has_no_other_reader(
+                    state, _wrapper->filter_id(), context->merger.get());
+        }
         bool ready = false;
-        RETURN_IF_ERROR(context->merger->merge_from(this, &ready));
+        RETURN_IF_ERROR(context->merger->merge_from(this, &ready, other_wrapper_exclusively_owned));
         if (ready) {
             if (_has_remote_target) {
                 RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
@@ -75,13 +101,30 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
     if (!_has_remote_target) {
         // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
-        RETURN_IF_ERROR(do_merge());
+        // The merger never writes this wrapper while a plain local consumer may still read it
+        // (see `RuntimeFilterMerger::merge_from`), so by default the consumers in local RF mgr
+        // can use it right away while the merge of the other producers goes on. `do_merge` may
+        // still find no such consumer exists (or this is the only producer) and adopt the
+        // wrapper directly. Broadcast producers alias one shared wrapper across instances (see
+        // `publish_mixed_targets_shared_wrapper`), so relaxing ownership is unsound for them;
+        // `build_bf_by_runtime_size` is excluded too, to keep this call's precondition the same
+        // simple "nothing else can reach this wrapper" rule as the remote-target call below,
+        // without re-deriving it for a filter whose size-sync step this branch never exercises.
+        RETURN_IF_ERROR(do_merge(/*other_wrapper_exclusively_owned=*/false,
+                                 /*allow_relaxed_ownership=*/!_is_broadcast_join &&
+                                         !_wrapper->build_bf_by_runtime_size()));
         RETURN_IF_ERROR(_send_to_local_targets(state, this, false));
     } else if (build_hash_table) {
         if (_is_broadcast_join) {
             RETURN_IF_ERROR(_send_to_remote_targets(state, this));
         } else {
-            RETURN_IF_ERROR(do_merge());
+            // This path never hands `_wrapper` to a plain local consumer (that only happens in
+            // the `!_has_remote_target` branch above), and the shared-wrapper broadcast-join
+            // case is the other arm of this `if`, so no other producer aliases it either. The
+            // only remaining reference after this call is the one `_wrapper.reset()` below
+            // drops, so the merger may take `_wrapper` over directly instead of cloning it.
+            RETURN_IF_ERROR(do_merge(/*other_wrapper_exclusively_owned=*/true,
+                                     /*allow_relaxed_ownership=*/false));
         }
     } else {
         if (!_is_broadcast_join) {

@@ -287,7 +287,8 @@ public class MaxComputeConnectorProviderTest {
         // PR testCheckWhenCreatingSkipsValidationByDefault: MaxCompute leaves test_connection off by
         // default, so PluginDrivenExternalCatalog.checkWhenCreating skips testConnection entirely.
         Assertions.assertFalse(
-                new MaxComputeDorisConnector(connectivityProps(true), null).defaultTestConnection());
+                new MaxComputeDorisConnector(connectivityProps(true), MCTestProperties.context())
+                        .defaultTestConnection());
     }
 
     @Test
@@ -365,7 +366,7 @@ public class MaxComputeConnectorProviderTest {
         private String checkedNamespaceSchemaProjectName;
 
         private TestMaxComputeDorisConnector(Map<String, String> props) {
-            super(props, null);
+            super(props, MCTestProperties.context());
         }
 
         @Override

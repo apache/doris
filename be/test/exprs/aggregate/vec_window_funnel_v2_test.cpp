@@ -118,6 +118,167 @@ TEST_F(VWindowFunnelV2Test, testEmpty) {
     agg_function->destroy(place2);
 }
 
+namespace {
+void check_legacy_eventless_configuration(int64_t window, WindowFunnelMode mode) {
+    ColumnString buffer;
+    VectorBufferWriter writer(buffer);
+    // Original V2 header: event count, window, mode, sorted, payload size.
+    write_var_int(2, writer);
+    write_var_int(window, writer);
+    write_var_int(static_cast<Int64>(mode), writer);
+    write_var_int(1, writer);
+    write_var_int(0, writer);
+    writer.commit();
+
+    VectorBufferReader reader(buffer.get_data_at(0));
+    WindowFunnelStateV2<TYPE_DATETIMEV2> state;
+    state.read(reader);
+    EXPECT_EQ(state.window, window);
+    EXPECT_EQ(state.window_funnel_mode, mode);
+    EXPECT_EQ(state.event_count, 2);
+    EXPECT_TRUE(state.events_list.empty());
+
+    WindowFunnelStateV2<TYPE_DATETIMEV2> destination;
+    destination.merge(state);
+    EXPECT_EQ(destination.window, WindowFunnelStateV2<TYPE_DATETIMEV2>::WINDOW_UNSET);
+    EXPECT_EQ(destination.window_funnel_mode, WindowFunnelMode::INVALID);
+
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    WindowFunnelStateV2<TYPE_DATETIMEV2> populated(2);
+    populated.window = 10;
+    populated.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    populated.events_list.push_back({time.to_date_int_val(), 1});
+    EXPECT_NO_THROW(state.merge(populated));
+    EXPECT_EQ(state.window, populated.window);
+    EXPECT_EQ(state.window_funnel_mode, populated.window_funnel_mode);
+    EXPECT_EQ(state.get(), 1);
+    state.reset();
+    EXPECT_NO_THROW(populated.merge(state));
+    EXPECT_EQ(populated.get(), 1);
+}
+
+void check_configured_eventless_encoding(bool reset) {
+    auto timestamp = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> time;
+    time.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    timestamp->insert_value(time);
+    auto event = ColumnUInt8::create();
+    event->insert_value(0);
+    const IColumn* columns[] = {nullptr, nullptr, timestamp.get(), event.get()};
+
+    WindowFunnelStateV2<TYPE_DATETIMEV2> state(1);
+    // Empty payloads use the original boolean sorted field without an initialization tag.
+    state.add(columns, 0, -1, WindowFunnelMode::INVALID);
+    if (reset) {
+        state.reset();
+    }
+    ColumnString buffer;
+    VectorBufferWriter writer(buffer);
+    state.write(writer);
+    write_var_int(42, writer);
+    writer.commit();
+
+    VectorBufferReader legacy_reader(buffer.get_data_at(0));
+    Int64 value;
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 1);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, -1);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, static_cast<Int64>(WindowFunnelMode::INVALID));
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 1);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 0);
+    read_var_int(value, legacy_reader);
+    EXPECT_EQ(value, 42);
+
+    VectorBufferReader reader(buffer.get_data_at(0));
+    WindowFunnelStateV2<TYPE_DATETIMEV2> restored;
+    restored.read(reader);
+    EXPECT_TRUE(restored.events_list.empty());
+    EXPECT_TRUE(restored.sorted);
+    read_var_int(value, reader);
+    EXPECT_EQ(value, 42);
+}
+} // namespace
+
+TEST(VWindowFunnelV2SerializationTest, IgnoreEventlessConfiguration) {
+    for (int64_t window : {-1, 0, 3}) {
+        for (auto mode : {WindowFunnelMode::INVALID, WindowFunnelMode::DEFAULT}) {
+            check_legacy_eventless_configuration(window, mode);
+        }
+    }
+}
+
+TEST(VWindowFunnelV2SerializationTest, EventlessEncodingUsesBooleanSortedFlag) {
+    check_configured_eventless_encoding(false);
+    check_configured_eventless_encoding(true);
+}
+
+TEST_F(VWindowFunnelV2Test, testWindowOverflow) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeDateTimeV2>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    auto overflow_agg_function = factory.get("window_funnel_v2", data_types, nullptr, false,
+                                             BeExecVersionManager::get_newest_version());
+    ASSERT_NE(overflow_agg_function, nullptr);
+
+    auto column_mode = ColumnString::create();
+    column_mode->insert(Field::create_field<TYPE_STRING>("default"));
+    column_mode->insert(Field::create_field<TYPE_STRING>("default"));
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (const auto& second : {58, 59}) {
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(9999, 12, 31, 23, 59, second);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
+    }
+
+    auto column_window = ColumnInt64::create();
+    column_window->insert(Field::create_field<TYPE_BIGINT>(10));
+    column_window->insert(Field::create_field<TYPE_BIGINT>(10));
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    std::unique_ptr<char[]> memory(new char[overflow_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    overflow_agg_function->create(place);
+    const IColumn* columns[] = {column_window.get(), column_mode.get(), column_timestamp.get(),
+                                column_event1.get(), column_event2.get()};
+    for (int row = 0; row < 2; ++row) {
+        overflow_agg_function->add(place, columns, row, arena);
+    }
+
+    ColumnInt32 result;
+    overflow_agg_function->insert_result_into(place, result);
+    EXPECT_EQ(result.get_element(0), 2);
+    overflow_agg_function->destroy(place);
+}
+
+TEST(VWindowFunnelV2DateTimeV2Test, PreservesMicrosecondWindowBoundary) {
+    WindowFunnelStateV2<TYPE_DATETIMEV2> state(2);
+    state.window = 1;
+    state.window_funnel_mode = WindowFunnelMode::DEFAULT;
+    DateV2Value<DateTimeV2ValueType> base;
+    DateV2Value<DateTimeV2ValueType> exact;
+    DateV2Value<DateTimeV2ValueType> outside;
+    base.unchecked_set_time(9999, 12, 31, 23, 59, 58, 0);
+    exact.unchecked_set_time(9999, 12, 31, 23, 59, 59, 0);
+    outside.unchecked_set_time(9999, 12, 31, 23, 59, 59, 1);
+    EXPECT_TRUE(state._within_window(base.to_date_int_val(), exact.to_date_int_val()));
+    EXPECT_FALSE(state._within_window(base.to_date_int_val(), outside.to_date_int_val()));
+    state.window = std::numeric_limits<int64_t>::max();
+    EXPECT_TRUE(state._within_window(base.to_date_int_val(), outside.to_date_int_val()));
+}
+
 TEST_F(VWindowFunnelV2Test, testSerialize) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();

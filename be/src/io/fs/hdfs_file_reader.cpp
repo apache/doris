@@ -25,7 +25,6 @@
 #include "bvar/latency_recorder.h"
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
@@ -34,6 +33,7 @@
 #include "runtime/workload_management/io_throttle.h"
 #include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
+#include "util/bvar_helper.h"
 
 namespace doris::io {
 
@@ -74,9 +74,6 @@ HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::
           _accessor(std::move(accessor)),
           _mtime(mtime) {
     _handle = _accessor.get();
-
-    DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
-    DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
 }
 
 HdfsFileReader::~HdfsFileReader() {
@@ -84,15 +81,20 @@ HdfsFileReader::~HdfsFileReader() {
 }
 
 Status HdfsFileReader::close() {
-    bool expected = false;
-    if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
-    }
+    _closed = true;
     return Status::OK();
 }
 
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("read closed file: {}", _path.native());
+    }
+    if (_handle == nullptr) [[unlikely]] {
+        return Status::InternalError("cached hdfs file handle has been destroyed: {}",
+                                     _path.native());
+    }
+    RETURN_IF_ERROR(_handle->ensure_open());
     auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
         _handle = nullptr;
@@ -101,18 +103,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     return st;
 }
 
-#ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                        const IOContext* /*io_ctx*/) {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: {}", _path.native());
-    }
-
-    if (_handle == nullptr) [[unlikely]] {
-        return Status::InternalError("cached hdfs file handle has been destroyed: {}",
-                                     _path.native());
-    }
-
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _handle->file_size(), _path.native());
@@ -133,8 +125,12 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
         int64_t max_to_read = bytes_req - has_read;
         tSize to_read = static_cast<tSize>(
                 std::min(max_to_read, static_cast<int64_t>(std::numeric_limits<tSize>::max())));
-        tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
-                                    to + has_read, to_read);
+        tSize loop_read;
+        {
+            SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_read_latency);
+            loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read, to + has_read,
+                                  to_read);
+        }
         {
             [[maybe_unused]] Status error_ret;
             TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileReader:read_error", error_ret);
@@ -160,68 +156,5 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
     hdfs_bytes_per_read << *bytes_read;
     return Status::OK();
 }
-
-#else
-// The hedged read only support hdfsPread().
-// TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
-Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                       const IOContext* /*io_ctx*/) {
-    if (closed()) [[unlikely]] {
-        return Status::InternalError("read closed file: ", _path.native());
-    }
-
-    if (offset > _handle->file_size()) {
-        return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
-                               offset, _handle->file_size(), _path.native());
-    }
-
-    int res = hdfsSeek(_handle->fs(), _handle->file(), offset);
-    if (res != 0) {
-        // invoker maybe just skip Status.NotFound and continue
-        // so we need distinguish between it and other kinds of errors
-        std::string _err_msg = hdfs_error();
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
-            return Status::NotFound(_err_msg);
-        }
-        return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
-                                     BackendOptions::get_localhost(), offset, _err_msg);
-    }
-
-    size_t bytes_req = result.size;
-    char* to = result.data;
-    bytes_req = std::min(bytes_req, (size_t)(_handle->file_size() - offset));
-    *bytes_read = 0;
-    if (UNLIKELY(bytes_req == 0)) {
-        return Status::OK();
-    }
-
-    LIMIT_REMOTE_SCAN_IO(bytes_read);
-
-    size_t has_read = 0;
-    while (has_read < bytes_req) {
-        int64_t loop_read = hdfsRead(_handle->fs(), _handle->file(), to + has_read,
-                                     static_cast<int32_t>(bytes_req - has_read));
-        if (loop_read < 0) {
-            // invoker maybe just skip Status.NotFound and continue
-            // so we need distinguish between it and other kinds of errors
-            std::string _err_msg = hdfs_error();
-            if (_err_msg.find("No such file or directory") != std::string::npos) {
-                return Status::NotFound(_err_msg);
-            }
-            return Status::InternalError(
-                    "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _fs_name, _path.string(), _err_msg);
-        }
-        if (loop_read == 0) {
-            break;
-        }
-        has_read += loop_read;
-    }
-    *bytes_read = has_read;
-    hdfs_bytes_read_total << *bytes_read;
-    hdfs_bytes_per_read << *bytes_read;
-    return Status::OK();
-}
-#endif
 
 } // namespace doris::io

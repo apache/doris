@@ -19,20 +19,27 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
@@ -62,12 +69,12 @@ import java.util.Optional;
  */
 public class MysqlConnectProcessor extends ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(MysqlConnectProcessor.class);
+    private static final int CURSOR_TYPE_READ_ONLY = 0x01;
 
     private ByteBuffer packetBuf;
 
     public MysqlConnectProcessor(ConnectContext context) {
         super(context);
-        connectType = ConnectType.MYSQL;
     }
 
     // COM_INIT_DB: change current database of this session.
@@ -86,6 +93,27 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         int stmtId = packetBuf.getInt();
         handleStmtResetById(stmtId);
+    }
+
+    private void handleSendLongData() {
+        // This command never has a response, including when the upload fails. Report a known
+        // statement's upload error on EXECUTE instead, otherwise the connection gets out of sync.
+        ctx.getState().setNoop();
+        packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        if (packetBuf.remaining() < Integer.BYTES) {
+            return;
+        }
+        int stmtId = packetBuf.getInt();
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
+            return;
+        }
+        if (packetBuf.remaining() < Short.BYTES) {
+            prepared.setLongDataError("Missing parameter index in COM_STMT_SEND_LONG_DATA");
+            return;
+        }
+        int parameter = Short.toUnsignedInt(packetBuf.getShort());
+        prepared.appendLongData(parameter, packetBuf, ctx.getSessionVariable().getMaxAllowedPacket());
     }
 
     private String getPacket() {
@@ -121,23 +149,31 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     @Override
     protected void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx,
             ByteBuffer packetBuf, TUniqueId queryId) {
+        MysqlProtocolAdapter.of(ctx).beginPreparedExecute(prepCtx);
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
         String stmtStr = "";
         try {
+            if (prepCtx.getLongDataError() != null) {
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, prepCtx.getLongDataError());
+                return;
+            }
+            ctx.getProtocolAdapter().beforeStatement(ctx);
             StatementContext statementContext = prepCtx.getStatementContext();
+            if (!ctx.isProxy()) {
+                // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
+                ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+            }
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
                 }
-                if (!ctx.isProxy()) {
-                    ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
-                }
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
                 // new_params_bind_flag
-                if ((int) packetBuf.get() != 0) {
+                boolean hasNewParameterTypes = packetBuf.get() != 0;
+                if (hasNewParameterTypes) {
                     List<Placeholder> typedPlaceholders = new ArrayList<>();
                     // parse params's types
                     for (int i = 0; i < paramCount; ++i) {
@@ -151,6 +187,22 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
                     prepareCommand = (PrepareCommand) prepCtx.command;
                 }
+                // The master prepares each forwarded EXECUTE again without connection-local state.
+                // Include cached parameter types and inline uploaded values so it can bind independently.
+                MysqlSerializer forwarded = prepCtx.hasLongData() || !hasNewParameterTypes
+                        ? MysqlSerializer.newInstance() : null;
+                if (forwarded != null) {
+                    for (int i = 0; i < paramCount; ++i) {
+                        if (prepCtx.hasLongData(i)) {
+                            nullbitmapData[i / 8] &= ~(1 << (i & 7));
+                        }
+                    }
+                    forwarded.writeBytes(nullbitmapData);
+                    forwarded.writeInt1(1);
+                    for (Placeholder placeholder : prepareCommand.getPlaceholders()) {
+                        forwarded.writeInt2(placeholder.getMysqlTypeCode());
+                    }
+                }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
                     PlaceholderId exprId = prepareCommand.getPlaceholders().get(i).getPlaceholderId();
@@ -161,8 +213,37 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     }
                     MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
                     boolean isUnsigned = prepareCommand.getPlaceholders().get(i).isUnsigned();
-                    Literal l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                    byte[] longData = prepCtx.getLongData(i);
+                    Literal l;
+                    if (longData != null) {
+                        switch (type) {
+                            case MYSQL_TYPE_STRING:
+                            case MYSQL_TYPE_VARSTRING:
+                            case MYSQL_TYPE_VARCHAR:
+                            case MYSQL_TYPE_TINY_BLOB:
+                            case MYSQL_TYPE_MEDIUM_BLOB:
+                            case MYSQL_TYPE_LONG_BLOB:
+                            case MYSQL_TYPE_BLOB:
+                                break;
+                            default:
+                                throw new AnalysisException("Invalid MySQL type for long data: " + type);
+                        }
+                        MysqlSerializer value = MysqlSerializer.newInstance();
+                        value.writeLenEncodedBytes(longData);
+                        l = Literal.getLiteralByMysqlType(type, isUnsigned, value.toByteBuffer());
+                        forwarded.writeBytes(value.toArray());
+                    } else {
+                        int start = packetBuf.position();
+                        l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                        if (forwarded != null) {
+                            forwarded.writeBytes(packetBuf.array(), packetBuf.arrayOffset() + start,
+                                    packetBuf.position() - start);
+                        }
+                    }
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
+                }
+                if (forwarded != null && !ctx.isProxy()) {
+                    ctx.setPrepareExecuteBuffer(forwarded.toByteBuffer());
                 }
             }
             ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareCommand, statementContext);
@@ -189,8 +270,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        } finally {
+            prepCtx.clearLongData();
         }
-        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog() && executor != null) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         } else {
             // When audit log is disabled for prepared statements, still update QPS metrics.
@@ -207,8 +290,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
-        // flag
-        packetBuf.get();
+        int flags = Byte.toUnsignedInt(packetBuf.get());
+        ctx.setCursorFetchRequested((flags & CURSOR_TYPE_READ_ONLY) != 0);
         // iteration_count always 1,
         packetBuf.getInt();
         if (LOG.isDebugEnabled()) {
@@ -225,6 +308,23 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);
+    }
+
+    protected void handleStmtFetch(int stmtId) {
+        PreparedStatementContext prepared = ctx.getPreparedStementContext(String.valueOf(stmtId));
+        if (prepared == null) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_STMT_HANDLER,
+                    String.format("Unknown prepared statement handler (%s) given to mysqld_stmt_fetch", stmtId));
+            return;
+        }
+        if (!prepared.isEmptyCursorOpen()) {
+            ctx.getState().setError(ErrorCode.ERR_STMT_HAS_NO_OPEN_CURSOR,
+                    String.format("The statement (%d) has no open cursor.", stmtId));
+            return;
+        }
+        prepared.setEmptyCursorOpen(false);
+        ctx.getState().setEof();
+        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_STATUS_LAST_ROW_SENT;
     }
 
     // Process COM_QUERY statement,
@@ -271,6 +371,15 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             case COM_STMT_EXECUTE:
                 handleExecute();
                 break;
+            case COM_STMT_FETCH:
+                packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+                int fetchStmtId = packetBuf.getInt();
+                packetBuf.getInt(); // Requested row count; an empty cursor has no rows to return.
+                handleStmtFetch(fetchStmtId);
+                break;
+            case COM_STMT_SEND_LONG_DATA:
+                handleSendLongData();
+                break;
             case COM_FIELD_LIST:
                 handleFieldList();
                 break;
@@ -314,6 +423,42 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         handleFieldList(tableName);
     }
 
+    // COM_FIELD_LIST: the column definitions of a table
+    @SuppressWarnings("rawtypes")
+    protected void handleFieldList(String tableName) throws ConnectionException {
+        // Already get command code.
+        if (Strings.isNullOrEmpty(tableName)) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
+            return;
+        }
+        try {
+            // Metadata lookup can fail before a table is locked; return an ERR packet instead of losing the session.
+            DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
+            if (db == null) {
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
+                return;
+            }
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
+                return;
+            }
+
+            table.readLock();
+            try {
+                MysqlProtocolAdapter.of(ctx).resultSender(ctx)
+                        // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
+                        // the display schema (the nullability the source declares), not the read schema.
+                        .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
+            } finally {
+                table.readUnlock();
+            }
+            ctx.getState().setEof();
+        } catch (Throwable throwable) {
+            handleQueryException(throwable, "", null, null);
+        }
+    }
+
     private void handleChangeUser() throws IOException {
         // Random bytes generated when creating connection.
         byte[] authPluginData = getConnectContext().getAuthPluginData();
@@ -328,18 +473,36 @@ public class MysqlConnectProcessor extends ConnectProcessor {
 
         // Send Protocol::AuthSwitchRequest to client if auth plugin name is not mysql_native_password
         if (!MysqlHandshakePacket.AUTH_PLUGIN_NAME.equals(authPluginName)) {
-            MysqlChannel channel = ctx.mysqlChannel;
+            MysqlChannel channel = ctx.getMysqlChannel();
             MysqlSerializer serializer = MysqlSerializer.newInstance();
-            serializer.writeInt1((byte) 0xfe);
-            serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
-            serializer.writeBytes(authPluginData);
-            serializer.writeInt1(0);
-            channel.sendAndFlush(serializer.toByteBuffer());
-            // Server receive auth switch response packet from client.
-            ByteBuffer authSwitchResponse = channel.fetchOnePacket();
-            int length = authSwitchResponse.limit();
-            password = new byte[length];
-            System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+            if (CachingSha2PasswordExchange.serves(authPluginName, ctx.getConnectAttributes())) {
+                // Same client class as at login (see NativePasswordResolver): full authentication,
+                // then the plaintext is checked the native way below.
+                String plainPassword;
+                try {
+                    plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
+                            authPluginData, channel.isSslMode());
+                } catch (CachingSha2PasswordExchange.Rejected e) {
+                    LOG.warn("caching_sha2_password exchange rejected on COM_CHANGE_USER: {}", e.getMessage());
+                    plainPassword = null;
+                }
+                if (plainPassword == null) {
+                    ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                    return;
+                }
+                password = NativePasswordResolver.nativeScramble(plainPassword, authPluginData);
+            } else {
+                serializer.writeInt1((byte) 0xfe);
+                serializer.writeNulTerminateString(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+                serializer.writeBytes(authPluginData);
+                serializer.writeInt1(0);
+                channel.sendAndFlush(serializer.toByteBuffer());
+                // Server receive auth switch response packet from client.
+                ByteBuffer authSwitchResponse = channel.fetchOnePacket();
+                int length = authSwitchResponse.limit();
+                password = new byte[length];
+                System.arraycopy(authSwitchResponse.array(), 0, password, 0, length);
+            }
         }
 
         // For safety, not allowed to change to root or admin.
@@ -417,6 +580,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.clear();
         executor = null;
+    }
+
+    // When any request is completed, it will generally need to send a response packet to the client
+    // This method is used to send a response packet to the client
+    public void finalizeCommand() throws IOException {
+        MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
     }
 
     public void loop() {

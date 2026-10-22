@@ -20,6 +20,7 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -44,10 +45,10 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    ${idxId} AS idx_id, "
             + "    '${colId}' AS col_id, "
             + "    ${sampleRate} AS sample_rate, "
-            + "    HISTOGRAM(`${colName}`, ${maxBucketNum}) AS buckets, "
+            + "    HISTOGRAM(${colName}, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
-            + "    `${dbName}`.`${tblName}`";
+            + "    ${dbName}.${tblName}";
 
     public HistogramTask(AnalysisInfo info) {
         super(info);
@@ -56,16 +57,16 @@ public class HistogramTask extends BaseAnalysisTask {
     @Override
     public void doExecute() throws Exception {
         Map<String, String> params = new HashMap<>();
-        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("histogramStatTbl", StatisticConstants.HISTOGRAM_TBL_NAME);
+        params.put("internalDB", SqlUtils.getIdentSql(FeConstants.INTERNAL_DB_NAME));
+        params.put("histogramStatTbl", SqlUtils.getIdentSql(StatisticConstants.HISTOGRAM_TBL_NAME));
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
-        params.put("colId", String.valueOf(info.colName));
-        params.put("dbName", db.getFullName());
-        params.put("tblName", tbl.getName());
-        params.put("colName", String.valueOf(info.colName));
+        params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
+        params.put("dbName", SqlUtils.getIdentSql(db.getFullName()));
+        params.put("tblName", SqlUtils.getIdentSql(tbl.getName()));
+        params.put("colName", SqlUtils.getIdentSql(String.valueOf(info.colName)));
         params.put("sampleRate", getSampleRateFunction());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
 

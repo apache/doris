@@ -64,6 +64,8 @@ bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point en
 
 namespace doris::io {
 
+extern bvar::Adder<uint64_t> peer_cache_reader_read_counter;
+
 namespace {
 
 constexpr size_t kPeerTestBlockSize = 4;
@@ -140,10 +142,12 @@ fs::path create_peer_test_file(const std::string& name, std::string_view content
 }
 
 void populate_cache_block_with_content(BlockFileCache* cache, const fs::path& file_path,
-                                       size_t offset, size_t size, std::string_view content) {
+                                       size_t offset, size_t size, std::string_view content,
+                                       int64_t tablet_id = 0) {
     ReadStatistics stats;
     CacheContext context;
     context.stats = &stats;
+    context.tablet_id = tablet_id;
     auto hash = BlockFileCache::hash(file_path.filename().native());
     auto holder = cache->get_or_set(hash, offset, size, context);
     auto blocks = fromHolder(holder);
@@ -548,6 +552,9 @@ private:
     BrpcClientCache<PBackendService_Stub>* _old_internal_client_cache = nullptr;
     bool _owned_internal_client_cache = false;
 };
+
+class PeerFileCacheLazyRestoreTest : public CachedRemoteFileReaderPeerTest,
+                                     public testing::WithParamInterface<bool> {};
 
 } // namespace
 
@@ -1002,6 +1009,83 @@ TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_allows_cached_blo
     EXPECT_EQ(response.datas(0).block_offset(), 0);
     EXPECT_EQ(response.datas(0).data(), content.substr(0, kPeerTestBlockSize));
 }
+
+TEST_P(PeerFileCacheLazyRestoreTest, RestoreBlocksDuringStartup) {
+    const bool has_rowset_meta = GetParam();
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path = "peer_lazy_restore.dat";
+    const auto hash = BlockFileCache::hash(file_path.filename().native());
+    const fs::path cache_path = caches_dir / "peer_lazy_restore_cache";
+    clear_cached_remote_reader_factory();
+    Defer cleanup_cache {[&]() {
+        clear_cached_remote_reader_factory();
+        fs::remove_all(cache_path);
+    }};
+    auto* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    const int64_t tablet_id = has_rowset_meta ? kPeerTestTabletId : 0;
+    populate_cache_block_with_content(cache, file_path, kPeerTestBlockSize, kPeerTestBlockSize,
+                                      content, tablet_id);
+    populate_cache_block_with_content(cache, file_path, 2 * kPeerTestBlockSize, kPeerTestBlockSize,
+                                      content, tablet_id);
+    // Closing the cache drains metadata writes before the restarted instance opens it.
+    clear_cached_remote_reader_factory();
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool background_paused = false;
+    bool resume_background = false;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "BlockFileCache::TmpFile1",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                background_paused = true;
+                cv.notify_all();
+                cv.wait(lock, [&] { return resume_background; });
+            },
+            &guard);
+    Defer resume_and_close {[&]() {
+        {
+            std::lock_guard lock(mutex);
+            resume_background = true;
+        }
+        cv.notify_all();
+        clear_cached_remote_reader_factory();
+        sync_point->disable_processing();
+    }};
+    sync_point->enable_processing();
+    ASSERT_TRUE(FileCacheFactory::instance()
+                        ->create_file_cache(cache_path.string(),
+                                            create_peer_test_settings(kPeerTestBlockSize))
+                        .ok());
+    cache = FileCacheFactory::instance()->get_by_path(hash);
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(10), [&] { return background_paused; }));
+    }
+    ASSERT_FALSE(cache->get_async_open_success());
+    ASSERT_FALSE(cache->_files.contains(hash));
+
+    auto request = create_peer_cache_block_request(file_path, kPeerTestBlockSize,
+                                                   kPeerTestBlockSize, content.size());
+    if (has_rowset_meta) {
+        request.mutable_rowset_meta()->set_rowset_id(0);
+        request.mutable_rowset_meta()->set_tablet_id(kPeerTestTabletId);
+    }
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+    const auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(response.datas_size(), 1);
+    EXPECT_EQ(response.datas(0).data(), content.substr(kPeerTestBlockSize, kPeerTestBlockSize));
+    // A request for one block must also restore the other persisted offset of this file.
+    ASSERT_EQ(cache->_files.at(hash).size(), 2);
+    EXPECT_EQ(cache->_files.at(hash).at(2 * kPeerTestBlockSize).file_block->state(),
+              FileBlock::State::DOWNLOADED);
+}
+
+INSTANTIATE_TEST_SUITE_P(Startup, PeerFileCacheLazyRestoreTest, testing::Bool());
 
 TEST_F(CachedRemoteFileReaderPeerTest, peer_fetch_queue_timeout_rejects_expired_request) {
     const int32_t old_peer_fetch_queue_timeout_ms = config::peer_fetch_queue_timeout_ms;
@@ -3489,6 +3573,27 @@ TEST_F(CrossCGWinnerRaceTest, cross_cg_peer_wins_race_records_timer_metrics) {
     EXPECT_GT(cache_stats.peer_io_timer, 0) << "peer_io_timer should be non-zero after peer win";
     EXPECT_GT(cache_stats.cross_cg_peer_io_timer, 0)
             << "cross_cg_peer_io_timer should be non-zero after cross-CG peer win";
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_connection_failures_open_address_circuit) {
+    MockPeerCacheService service("abcd");
+    brpc::Server server;
+    const auto addr = start_peer_test_server(&server, &service);
+    stop_peer_test_server(&server);
+
+    const std::vector<FileBlockSPtr> blocks {
+            create_manual_peer_test_block("peer_connection_failure", 0, kPeerTestBlockSize)};
+    const uint64_t rpc_count_before = peer_cache_reader_read_counter.get_value();
+
+    for (int i = 0; i < 4; ++i) {
+        PeerFileCacheReader peer_reader(Path("peer_connection_failure"), true, "127.0.0.1",
+                                        addr.port);
+        PeerFetchResult result;
+        const auto st = peer_reader.fetch_blocks(blocks, &result, kPeerTestBlockSize, nullptr);
+        EXPECT_TRUE(st.is<ErrorCode::THRIFT_RPC_ERROR>()) << st;
+    }
+
+    EXPECT_EQ(peer_cache_reader_read_counter.get_value() - rpc_count_before, 3);
 }
 
 } // namespace doris::io

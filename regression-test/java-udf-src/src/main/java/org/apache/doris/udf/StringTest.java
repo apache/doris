@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.ql.exec.UDF;
 
 public class StringTest extends UDF {
@@ -25,6 +24,17 @@ public class StringTest extends UDF {
         if (field == null || a == null || b == null) {
             return null;
         }
-        return field.substring(0, a) + StringUtils.repeat("*", field.length() - a -b) + field.substring(field.length()-b);
+        return field.substring(0, a) + stars(field.length() - a - b) + field.substring(field.length() - b);
+    }
+
+    // Was commons-lang3's StringUtils.repeat, which this jar never bundled: it resolved against
+    // whatever happened to be on BE's class path. A user function sees only the JDK, the jar it
+    // was created from, and the Hive UDF and joda classes Doris publishes.
+    private static String stars(int count) {
+        StringBuilder stars = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            stars.append('*');
+        }
+        return stars.toString();
     }
 }

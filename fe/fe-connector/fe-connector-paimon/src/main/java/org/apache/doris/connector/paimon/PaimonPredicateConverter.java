@@ -38,11 +38,11 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -61,9 +61,15 @@ public class PaimonPredicateConverter {
     private final PredicateBuilder builder;
     private final List<String> fieldNames;
     private final List<DataType> fieldTypes;
+    private final boolean dropTimestampPredicates;
 
     public PaimonPredicateConverter(RowType rowType) {
+        this(rowType, false);
+    }
+
+    public PaimonPredicateConverter(RowType rowType, boolean dropTimestampPredicates) {
         this.builder = new PredicateBuilder(rowType);
+        this.dropTimestampPredicates = dropTimestampPredicates;
         this.fieldNames = rowType.getFields().stream()
                 .map(f -> f.name().toLowerCase())
                 .collect(Collectors.toList());
@@ -148,6 +154,9 @@ public class PaimonPredicateConverter {
             return null;
         }
         ConnectorColumnRef colRef = (ConnectorColumnRef) left;
+        if (dropTimestampPredicates && isTimestampColumn(colRef)) {
+            return null;
+        }
         ConnectorLiteral literal = (ConnectorLiteral) right;
         int idx = fieldNames.indexOf(colRef.getColumnName().toLowerCase());
         if (idx < 0) {
@@ -195,6 +204,9 @@ public class PaimonPredicateConverter {
             return null;
         }
         ConnectorColumnRef colRef = (ConnectorColumnRef) valueExpr;
+        if (dropTimestampPredicates && isTimestampColumn(colRef)) {
+            return null;
+        }
         int idx = fieldNames.indexOf(colRef.getColumnName().toLowerCase());
         if (idx < 0) {
             return null;
@@ -219,8 +231,11 @@ public class PaimonPredicateConverter {
         if (!(operand instanceof ConnectorColumnRef)) {
             return null;
         }
-        int idx = fieldNames.indexOf(
-                ((ConnectorColumnRef) operand).getColumnName().toLowerCase());
+        ConnectorColumnRef colRef = (ConnectorColumnRef) operand;
+        if (dropTimestampPredicates && isTimestampColumn(colRef)) {
+            return null;
+        }
+        int idx = fieldNames.indexOf(colRef.getColumnName().toLowerCase());
         if (idx < 0) {
             return null;
         }
@@ -237,6 +252,9 @@ public class PaimonPredicateConverter {
                 || !(patternExpr instanceof ConnectorLiteral)) {
             return null;
         }
+        if (dropTimestampPredicates && isTimestampColumn((ConnectorColumnRef) valueExpr)) {
+            return null;
+        }
         int idx = fieldNames.indexOf(
                 ((ConnectorColumnRef) valueExpr).getColumnName().toLowerCase());
         if (idx < 0) {
@@ -248,6 +266,16 @@ public class PaimonPredicateConverter {
             return null;
         }
         return builder.startsWith(idx, BinaryString.fromString(prefix));
+    }
+
+    private boolean isTimestampColumn(ConnectorColumnRef column) {
+        int idx = fieldNames.indexOf(column.getColumnName().toLowerCase());
+        if (idx < 0) {
+            return false;
+        }
+        DataTypeRoot root = fieldTypes.get(idx).getTypeRoot();
+        return root == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
+                || root == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
     }
 
     /**
@@ -329,15 +357,15 @@ public class PaimonPredicateConverter {
                 }
                 return null;
             case TIMESTAMP_WITHOUT_TIME_ZONE:
-                // Zone-free type: interpret the literal's wall-clock in UTC to match paimon's
-                // stored min/max file/partition stats (computed by reading the wall clock as UTC).
-                // Mirrors legacy PaimonValueConverter#visit(TimestampType), which uses a fixed
-                // GMT Calendar. Using the session zone here would shift the epoch-millis vs the
-                // stored stats and risk false file/partition pruning = silent data loss.
+                // Doris truncates source nanoseconds to DATETIMEV2(6). Exact source comparisons
+                // would reject rows that become equal after that truncation, so keep them residual.
+                if (((TimestampType) paimonType).getPrecision() > 6) {
+                    return null;
+                }
+                // Preserve the complete wall-clock value: narrowing it to epoch milliseconds can
+                // make Paimon prune every file matching a non-millisecond-aligned predicate.
                 if (value instanceof LocalDateTime) {
-                    LocalDateTime dt = (LocalDateTime) value;
-                    long millis = dt.toInstant(ZoneOffset.UTC).toEpochMilli();
-                    return Timestamp.fromEpochMillis(millis);
+                    return Timestamp.fromLocalDateTime((LocalDateTime) value);
                 }
                 return null;
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
