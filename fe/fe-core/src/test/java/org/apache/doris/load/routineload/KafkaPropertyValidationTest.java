@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
@@ -168,6 +169,7 @@ public class KafkaPropertyValidationTest {
     @Test
     public void testRecoverMigratedCertificateProperties() throws Exception {
         Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         Table table = Mockito.mock(Table.class);
@@ -179,10 +181,15 @@ public class KafkaPropertyValidationTest {
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
             Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
             Mockito.when(env.getSmallFileMgr()).thenReturn(smallFileMgr);
+            Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
             Mockito.doReturn(Optional.of(db)).when(catalog).getDb(1L);
+            Mockito.doReturn(Optional.of(db)).when(catalog).getDb("test_db");
             Mockito.doReturn(db).when(catalog).getDbOrAnalysisException("test_db");
+            Mockito.when(db.getId()).thenReturn(1L);
             Mockito.when(db.getName()).thenReturn("test_db");
             Mockito.doReturn(Optional.of(table)).when(db).getTable(2L);
             Mockito.doReturn(table).when(db).getTableOrAnalysisException("test_table");
