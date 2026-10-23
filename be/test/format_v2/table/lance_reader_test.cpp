@@ -4365,6 +4365,25 @@ TEST(LanceTableReaderLocalPathTest, ScansRelativeDatasetInsideSecureRoot) {
     auto range = make_latest_lance_range("all_types.lance");
     range.__set_file_type(TFileType::FILE_LOCAL);
     ASSERT_TRUE(prepare_range(&reader, range).ok());
+
+    // Exercise data reads through the validated relative LOCAL range.
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& values =
+                assert_cast<const ColumnInt64&>(*block.get_by_position(0).column).get_data();
+        for (size_t row = 0; row < block.rows(); ++row) {
+            row_ids.push_back(values[row]);
+        }
+    }
+    std::sort(row_ids.begin(), row_ids.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
     ASSERT_TRUE(reader.close().ok());
 }
 
