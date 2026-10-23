@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
-import org.apache.doris.nereids.trees.expressions.functions.table.ListFile;
+import org.apache.doris.nereids.trees.expressions.functions.table.ListFiles;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -113,8 +113,8 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(local, context);
     }
 
-    default R visitListFile(ListFile listFile, C context) {
-        return visitTableValuedFunction(listFile, context);
+    default R visitListFiles(ListFiles listFiles, C context) {
+        return visitTableValuedFunction(listFiles, context);
     }
 
     default R visitNumbers(Numbers numbers, C context) {

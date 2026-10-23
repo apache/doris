@@ -36,11 +36,13 @@
 #include "exprs/function/array/function_array_element.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/simple_function_factory.h"
-#include "exprs/mock_vexpr.h"
 #include "exprs/table_function/table_function_factory.h"
 #include "exprs/table_function/vexplode_file.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
+#include "runtime/runtime_state.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
 
@@ -94,16 +96,7 @@ protected:
         expression._open_finished = true;
         expression._original_cast_return_is_nullable = true;
         expression._fn_context_index = 0;
-        auto child = std::make_shared<MockVExpr>();
-        child->_data_type = input.type;
-        EXPECT_CALL(*child, expr_name()).WillRepeatedly(testing::ReturnRef(input.name));
-        EXPECT_CALL(*child,
-                    execute_column(testing::_, testing::_, testing::_, testing::_, testing::_))
-                .WillRepeatedly(testing::Invoke([](VExprContext*, const Block* block,
-                                                   const Selector*, size_t, ColumnPtr& result) {
-                    result = block->get_by_position(0).column;
-                    return Status::OK();
-                }));
+        auto child = std::make_shared<VSlotRef>(0, 0, -1, input.type, input.name);
         expression.add_child(child);
         auto context = std::make_shared<VExprContext>(child);
         context->_fn_contexts.push_back(
@@ -166,54 +159,115 @@ protected:
         auto input =
                 make_nullable(file_type)->create_column_const(4, parent_null ? Field() : value);
         Block block {{input, make_nullable(file_type), "file"},
-                     {selector("inline", 4), text, "field"},
                      {nullptr, make_nullable(binary), "output"}};
-        FunctionArrayElement function;
-        ASSERT_TRUE(function.execute_impl(nullptr, block, {0, 1}, 2, 4).ok());
-        const auto& output = block.get_by_position(2).column;
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "fl_get_binary", {block.get_by_position(0)}, make_nullable(binary));
+        ASSERT_NE(function, nullptr);
+        ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 4).ok());
+        const auto& output = block.get_by_position(1).column;
         ASSERT_EQ(output->size(), 4);
+        ASSERT_TRUE(is_column_const(*output));
         for (size_t row = 0; row < 4; ++row) {
             check_constant_inline_row(*output, row, payload, parent_null);
         }
     }
 };
 
-TEST_F(FileExprTest, InlineGetterAndSixFieldStructRoundTripPreserveBinary) {
+TEST_F(FileExprTest, InlineGetterAndStructToFileCastPreserveBinary) {
     const std::string bytes("\0\xff\x80", 3);
-    auto value = file_value();
-    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
-    auto empty = file_value();
-    empty.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
-    const auto input = column(make_nullable(file_type), {value, empty, file_value(), Field()});
-    const auto& schema = assert_cast<const DataTypeFile&>(*file_type);
-    const auto structure_type = make_nullable(
-            std::make_shared<DataTypeStruct>(schema.get_elements(), schema.get_element_names()));
-    ColumnPtr projected;
-    ASSERT_TRUE(cast(input, structure_type, true, projected).ok());
-    ASSERT_EQ((*projected)[0].get<TYPE_STRUCT>().size(), 6);
-    EXPECT_EQ((*projected)[0].get<TYPE_STRUCT>()[5].get<TYPE_VARBINARY>().str(), bytes);
+    auto value = public_value("urn:binary");
+    value.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto empty = public_value("urn:empty");
+    empty.get<TYPE_STRUCT>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+    const auto source = column(make_nullable(public_struct()),
+                               {value, empty, public_value("urn:missing"), Field()});
     ColumnPtr restored;
-    ASSERT_TRUE(
-            cast({projected, structure_type, "struct"}, make_nullable(file_type), true, restored)
-                    .ok());
+    ASSERT_TRUE(cast(source, make_nullable(file_type), true, restored).ok());
     EXPECT_EQ((*restored)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
     EXPECT_FALSE((*restored)[1].get<TYPE_FILE>()[5].is_null());
     EXPECT_EQ((*restored)[1].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(), 0);
     EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[5].is_null());
     EXPECT_TRUE(restored->is_null_at(3));
-    ColumnsWithTypeAndName args {input, {selector("InLiNe", 4), text, "field"}};
-    auto function = SimpleFunctionFactory::instance().get_function("element_at", args,
-                                                                   schema.get_element(5));
+    const ColumnWithTypeAndName input {restored, make_nullable(file_type), "file"};
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
     ASSERT_NE(function, nullptr);
     EXPECT_EQ(remove_nullable(function->get_return_type())->get_primitive_type(), TYPE_VARBINARY);
-    Block block {args[0], args[1], {nullptr, schema.get_element(5), "output"}};
-    ASSERT_TRUE(function->execute(nullptr, block, {0, 1}, 2, 4).ok());
-    const auto& output = block.get_by_position(2).column;
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 4).ok());
+    const auto& output = block.get_by_position(1).column;
     EXPECT_EQ((*output)[0].get<TYPE_VARBINARY>().str(), bytes);
     EXPECT_FALSE(output->is_null_at(1));
     EXPECT_EQ((*output)[1].get<TYPE_VARBINARY>().size(), 0);
     EXPECT_TRUE(output->is_null_at(2));
     EXPECT_TRUE(output->is_null_at(3));
+}
+
+TEST_F(FileExprTest, BinaryGetterPreservesParentNullsAndSharesPayload) {
+    std::string bytes(1 << 20, '\xff');
+    bytes[0] = '\0';
+    auto value = file_value();
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto values = make_nullable(file_type)->create_column();
+    values->insert(value);
+    values->insert(value);
+    values->insert(value);
+    auto& source = assert_cast<ColumnNullable&>(*values);
+    source.get_null_map_data()[0] = 1;
+    ColumnWithTypeAndName input {std::move(values), make_nullable(file_type), "input"};
+    const auto& inline_column = assert_cast<const ColumnNullable&>(
+            assert_cast<const ColumnFile&>(source.get_nested_column()).get_column(5));
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 3).ok());
+    const auto& output = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(output.is_null_at(0));
+    EXPECT_FALSE(output.is_null_at(1));
+    EXPECT_FALSE(output.is_null_at(2));
+    EXPECT_EQ(output[1].get<TYPE_VARBINARY>().str(), bytes);
+    EXPECT_EQ(output.get_nested_column_ptr(), inline_column.get_nested_column_ptr());
+    EXPECT_FALSE(inline_column.is_null_at(0));
+    EXPECT_FALSE(source.is_null_at(1));
+}
+
+TEST_F(FileExprTest, BinaryGetterInsertsNullForMissingInline) {
+    const std::string bytes("\0\xff\x80", 3);
+    auto value = file_value();
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto empty = file_value();
+    empty.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+    auto values = file_type->create_column();
+    values->insert(value);
+    values->insert(value);
+    values->insert(empty);
+    auto& inline_column = assert_cast<ColumnNullable&>(
+            assert_cast<ColumnFile&>(*values).get_column(DataTypeFile::INLINE_FIELD_INDEX));
+    inline_column.get_null_map_data()[1] = 1;
+    ColumnWithTypeAndName input {std::move(values), file_type, "input"};
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 3).ok());
+    const auto& output = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ(output[0].get<TYPE_VARBINARY>().str(), bytes);
+    EXPECT_TRUE(output.is_null_at(1));
+    EXPECT_TRUE(output.get_nested_column()[1].get<TYPE_VARBINARY>().empty());
+    EXPECT_FALSE(output.is_null_at(2));
+    EXPECT_TRUE(output[2].get<TYPE_VARBINARY>().empty());
+    EXPECT_EQ(inline_column.get_nested_column()[1].get<TYPE_VARBINARY>().str(), bytes);
+}
+
+TEST_F(FileExprTest, BinaryGetterHandlesEmptyColumns) {
+    const auto input = column(file_type, {});
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "output"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 0).ok());
+    EXPECT_EQ(block.get_by_position(1).column->size(), 0);
 }
 
 TEST_F(FileExprTest, StructCastMatchesReorderedPublicNamesAndStringFamily) {
@@ -359,6 +413,10 @@ TEST_F(FileExprTest, CastRejectsScalarInputsAndFileToString) {
         ColumnPtr output;
         EXPECT_FALSE(
                 cast(column(file_type, {file_value()}), make_nullable(text), strict, output).ok());
+        const auto array_type = std::make_shared<DataTypeArray>(make_nullable(file_type));
+        EXPECT_FALSE(
+                cast(column(array_type, {Field::create_field<TYPE_ARRAY>(Array {file_value()})}),
+                     make_nullable(text), strict, output).ok());
     }
 }
 
@@ -378,7 +436,7 @@ TEST_F(FileExprTest, StructCastAcceptsUntypedNullPublicChildren) {
     for (size_t i = 1; i < 6; ++i) EXPECT_TRUE(value.get<TYPE_FILE>()[i].is_null());
 }
 
-TEST_F(FileExprTest, VariantRoundTripExposesSixFieldsAndPreservesBinaryAndNulls) {
+TEST_F(FileExprTest, VariantCastsAreUnsupported) {
     for (const auto& variant_type :
          DataTypes {make_nullable(std::make_shared<DataTypeVariant>()),
                     make_nullable(std::make_shared<DataTypeVariantV2>())}) {
@@ -392,43 +450,20 @@ TEST_F(FileExprTest, VariantRoundTripExposesSixFieldsAndPreservesBinaryAndNulls)
         value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
         const auto input = column(make_nullable(file_type), {value, Field()});
         ColumnPtr variant;
-        ASSERT_TRUE(cast(input, variant_type, true, variant).ok());
-        ASSERT_EQ(variant->size(), 2);
-        EXPECT_TRUE(variant->is_null_at(1));
-        ColumnPtr encoded;
-        ASSERT_TRUE(cast({variant, variant_type, "variant"}, json_type, true, encoded).ok());
-        const auto data =
-                assert_cast<const ColumnNullable&>(*encoded).get_nested_column().get_data_at(0);
-        const auto* root = JsonbDocument::createValue(data.data, data.size);
-        ASSERT_NE(root, nullptr);
-        ASSERT_TRUE(root->isObject());
-        const auto* object = root->unpack<ObjectVal>();
-        EXPECT_EQ(object->numElem(), 6);
-        for (const auto* name : {"uri", "offset", "size", "content_type", "checksum", "inline"}) {
-            EXPECT_NE(object->find(name), nullptr) << name;
+        const auto json_input = column(json_type,
+                {json(R"({"uri":"s3://b/variant","offset":0,"size":3,"content_type":null,"checksum":null,"inline":null})")});
+        ASSERT_TRUE(cast(json_input, variant_type, true, variant).ok());
+        for (bool strict : {false, true}) {
+            ColumnPtr output;
+            EXPECT_FALSE(cast(input, variant_type, strict, output).ok());
+            EXPECT_FALSE(cast({variant, variant_type, "variant"}, make_nullable(file_type),
+                              strict, output).ok());
         }
-        ASSERT_TRUE(object->find("inline")->isString());
-        EXPECT_EQ(std::string(object->find("inline")->unpack<JsonbStringVal>()->getBlob(),
-                              object->find("inline")->unpack<JsonbStringVal>()->getBlobLen()),
-                  "YQD/");
-        EXPECT_TRUE(encoded->is_null_at(1));
-        ColumnPtr restored;
-        ASSERT_TRUE(
-                cast({variant, variant_type, "variant"}, make_nullable(file_type), true, restored)
-                        .ok());
-        const auto roundtrip = (*restored)[0];
-        EXPECT_EQ(roundtrip.get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://b/variant");
-        EXPECT_EQ(roundtrip.get<TYPE_FILE>()[1].get<TYPE_BIGINT>(), 0);
-        EXPECT_EQ(roundtrip.get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 3);
-        EXPECT_EQ(roundtrip.get<TYPE_FILE>()[3].get<TYPE_STRING>(), "application/octet-stream");
-        EXPECT_EQ(roundtrip.get<TYPE_FILE>()[4].get<TYPE_STRING>(), "ETAG:opaque");
-        EXPECT_EQ(roundtrip.get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
-        EXPECT_TRUE(restored->is_null_at(1));
         EXPECT_EQ((*input.column)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
     }
 }
 
-TEST_F(FileExprTest, VariantCastRequiresCompleteObjectAndValidPublicChildren) {
+TEST_F(FileExprTest, VariantCastsRejectAllInputValues) {
     const auto json_type = make_nullable(std::make_shared<DataTypeJsonb>());
     const auto variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
     const auto input = column(
@@ -449,26 +484,15 @@ TEST_F(FileExprTest, VariantCastRequiresCompleteObjectAndValidPublicChildren) {
     ColumnWithTypeAndName source {variant, variant_type, "variant"};
     ColumnPtr output;
     EXPECT_FALSE(cast(source, make_nullable(file_type), false, output).ok());
-    ASSERT_TRUE(try_cast(source, make_nullable(file_type), false, output).ok());
-    ASSERT_EQ(output->size(), input.column->size());
-    ASSERT_FALSE(output->is_null_at(0));
-    const auto valid = (*output)[0];
-    EXPECT_EQ(valid.get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 4);
-    for (size_t row = 1; row < output->size(); ++row) EXPECT_TRUE(output->is_null_at(row)) << row;
     for (bool strict : {false, true}) {
-        ASSERT_TRUE(try_cast(source, make_nullable(file_type), strict, output).ok());
-        EXPECT_FALSE(output->is_null_at(0));
-        for (size_t row = 1; row < output->size(); ++row)
-            EXPECT_TRUE(output->is_null_at(row)) << row;
-    }
-    for (size_t row = 0; row < variant->size(); ++row) {
-        const auto status = cast({variant->cut(row, 1), variant_type, "variant"},
-                                 make_nullable(file_type), true, output);
-        EXPECT_EQ(status.ok(), row < 3) << row << ": " << status;
+        for (size_t row = 0; row < variant->size(); ++row) {
+            EXPECT_FALSE(cast({variant->cut(row, 1), variant_type, "variant"},
+                              make_nullable(file_type), strict, output).ok());
+        }
     }
 }
 
-TEST_F(FileExprTest, JsonCastUsesPublicSchemaAndRejectsInvalidValuesAtomically) {
+TEST_F(FileExprTest, JsonCastsAreUnsupported) {
     const auto json_type = std::make_shared<DataTypeJsonb>();
     auto input = column(
             json_type,
@@ -479,44 +503,33 @@ TEST_F(FileExprTest, JsonCastUsesPublicSchemaAndRejectsInvalidValuesAtomically) 
              json(R"({"uri":"s3://b/key","offset":null,"size":1.5,"content_type":null,"checksum":null,"inline":null})"),
              json(R"({"uri":"s3://b/key","offset":null,"size":null,"content_type":null,"checksum":"MD5:ABCDEF0123456789ABCDEF0123456789","inline":null})")});
     ColumnPtr output;
-    EXPECT_FALSE(cast(input, make_nullable(file_type), false, output).ok());
-    ASSERT_TRUE(try_cast(input, make_nullable(file_type), false, output).ok());
-    ASSERT_EQ(output->size(), 6);
-    EXPECT_FALSE(output->is_null_at(0));
-    const auto value = (*output)[0];
-    EXPECT_EQ(value.get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 0);
-    EXPECT_TRUE(value.get<TYPE_FILE>()[5].is_null());
-    const auto& nested = assert_cast<const ColumnNullable&>(*output).get_nested_column();
-    const auto invalid = nested[2];
-    for (const auto& field : invalid.get<TYPE_FILE>()) EXPECT_TRUE(field.is_null());
-    for (size_t row = 1; row < 6; ++row) EXPECT_TRUE(output->is_null_at(row));
-    EXPECT_FALSE(cast(input, make_nullable(file_type), true, output).ok());
-    ASSERT_TRUE(
-            cast(column(json_type, {json("null")}), make_nullable(file_type), true, output).ok());
-    EXPECT_TRUE(output->is_null_at(0));
-    ASSERT_TRUE(cast(column(make_nullable(json_type), {Field()}), make_nullable(file_type), true,
-                     output)
-                        .ok());
-    EXPECT_TRUE(output->is_null_at(0));
+    for (bool strict : {false, true}) {
+        for (size_t row = 0; row < input.column->size(); ++row) {
+            EXPECT_FALSE(cast({input.column->cut(row, 1), json_type, "input"},
+                              make_nullable(file_type), strict, output).ok());
+        }
+        EXPECT_FALSE(cast(column(file_type, {file_value()}), json_type, strict, output).ok());
+    }
 }
 
-TEST_F(FileExprTest, ReverseCastsExposeExactlySixFields) {
+TEST_F(FileExprTest, ToJsonExposesExactlySixFields) {
     const std::string bytes("\0\xff", 2);
     auto value = file_value("s3://b/key");
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(
             StringView(bytes.data(), cast_set<uint32_t>(bytes.size())));
     const auto input = column(make_nullable(file_type), {value, Field()});
     ColumnPtr output;
-    ASSERT_TRUE(cast(input, make_nullable(public_struct()), true, output).ok());
-    EXPECT_TRUE(output->is_null_at(1));
-    const auto public_value = (*output)[0];
-    ASSERT_EQ(public_value.get_type(), TYPE_STRUCT);
-    EXPECT_EQ(public_value.get<TYPE_STRUCT>().size(), 6);
-    EXPECT_EQ(public_value.get<TYPE_STRUCT>()[0].get<TYPE_STRING>(), "s3://b/key");
 
     const auto expected =
             R"({"uri":"s3://b/key","offset":null,"size":null,"content_type":null,"checksum":null,"inline":"AP8="})";
-    ASSERT_TRUE(cast(input, make_nullable(std::make_shared<DataTypeJsonb>()), true, output).ok());
+    const auto json_type = make_nullable(std::make_shared<DataTypeJsonb>());
+    RuntimeState runtime;
+    auto context = FunctionContext::create_context(&runtime, json_type, {input.type});
+    auto function = SimpleFunctionFactory::instance().get_function("to_json", {input}, json_type);
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, json_type, "json"}};
+    ASSERT_TRUE(function->execute(context.get(), block, {0}, 1, input.column->size()).ok());
+    output = block.get_by_position(1).column;
     const auto& json_column = assert_cast<const ColumnNullable&>(*output).get_nested_column();
     const auto encoded = json_column.get_data_at(0);
     EXPECT_EQ(JsonbToJson::jsonb_to_json_string(encoded.data, encoded.size), expected);
@@ -525,7 +538,7 @@ TEST_F(FileExprTest, ReverseCastsExposeExactlySixFields) {
     EXPECT_EQ((*input.column)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(), bytes.size());
 }
 
-TEST_F(FileExprTest, ReverseStructMatchesPublicNamesAndRequiresNullableChildren) {
+TEST_F(FileExprTest, FileToStructCastIsUnsupported) {
     const auto& file = assert_cast<const DataTypeFile&>(*file_type);
     ColumnPtr output;
     auto source_value = file_value("s3://b/key");
@@ -535,17 +548,13 @@ TEST_F(FileExprTest, ReverseStructMatchesPublicNamesAndRequiresNullableChildren)
     source_value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
     const auto input = column(file_type, {source_value});
     auto six = std::make_shared<DataTypeStruct>(file.get_elements(), file.get_element_names());
-    EXPECT_TRUE(cast(input, six, true, output).ok());
+    EXPECT_FALSE(cast(input, six, true, output).ok());
+    EXPECT_FALSE(cast(input, six, false, output).ok());
     auto reordered = std::make_shared<DataTypeStruct>(
             DataTypes {make_nullable(bigint), make_nullable(text), make_nullable(bigint),
                        make_nullable(text), make_nullable(text), make_nullable(binary)},
             Strings {"SIZE", "UrI", "offset", "content_type", "checksum", "inline"});
-    ASSERT_TRUE(cast(input, reordered, true, output).ok());
-    const auto value = (*output)[0];
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[0].get<TYPE_BIGINT>(), 12);
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[1].get<TYPE_STRING>(), "s3://b/key");
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[2].get<TYPE_BIGINT>(), 3);
-    EXPECT_EQ(value.get<TYPE_STRUCT>()[5].get<TYPE_VARBINARY>().str(), bytes);
+    EXPECT_FALSE(cast(input, reordered, true, output).ok());
     auto nonnullable = std::make_shared<DataTypeStruct>(
             DataTypes {text, make_nullable(bigint), make_nullable(bigint), make_nullable(text),
                        make_nullable(text), make_nullable(binary)},
@@ -637,9 +646,6 @@ TEST_F(FileExprTest, JsonCastRejectsMissingDuplicateUnknownWrongTypeAndOutOfRang
              json("[]"), json("1")});
     ColumnPtr output;
     EXPECT_FALSE(cast(input, make_nullable(file_type), false, output).ok());
-    ASSERT_TRUE(try_cast(input, make_nullable(file_type), false, output).ok());
-    for (size_t row = 0; row < input.column->size(); ++row)
-        EXPECT_TRUE(output->is_null_at(row)) << row;
     for (size_t row = 0; row < input.column->size(); ++row) {
         EXPECT_FALSE(cast({input.column->cut(row, 1), type, "input"}, make_nullable(file_type),
                           true, output)
@@ -758,6 +764,57 @@ TEST_F(FileExprTest, ConstantInlineGetterPreservesBinaryAndNulls) {
     }
 }
 
+TEST_F(FileExprTest, BinaryGetterSharesStoredPayloadAndDetachesBeforeMutation) {
+    const std::string bytes(128 * 1024, '\xff');
+    auto value = file_value("urn:binary");
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
+    auto input = column(file_type, {value, value});
+    const auto& source = assert_cast<const ColumnFile&>(*input.column);
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "fl_get_binary", {input}, make_nullable(binary));
+    ASSERT_NE(function, nullptr);
+    Block block {input, {nullptr, make_nullable(binary), "binary"}};
+    ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 2).ok());
+    const auto output = block.get_by_position(1).column;
+    EXPECT_EQ(output.get(), source.get_column_ptr(DataTypeFile::INLINE_FIELD_INDEX).get());
+    auto changed = IColumn::mutate(output);
+    changed->clear();
+    EXPECT_EQ(source.size(), 2);
+    EXPECT_EQ(source.get_column(5)[1].get<TYPE_VARBINARY>().str(), bytes);
+    block.clear();
+    input.column = nullptr;
+    EXPECT_EQ((*output)[0].get<TYPE_VARBINARY>().str(), bytes);
+}
+
+TEST_F(FileExprTest, ToJsonPreservesConstantFileAndNull) {
+    const auto type = make_nullable(file_type);
+    const auto json_type = make_nullable(std::make_shared<DataTypeJsonb>());
+    auto value = file_value("urn:constant");
+    value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView());
+    for (bool is_null : {false, true}) {
+        const ColumnWithTypeAndName input {type->create_column_const(3, is_null ? Field() : value),
+                                           type, "input"};
+        RuntimeState runtime;
+        auto context = FunctionContext::create_context(&runtime, json_type, {type});
+        auto function =
+                SimpleFunctionFactory::instance().get_function("to_json", {input}, json_type);
+        ASSERT_NE(function, nullptr);
+        Block block {input, {nullptr, json_type, "json"}};
+        ASSERT_TRUE(function->execute(context.get(), block, {0}, 1, 3).ok());
+        const auto& output = block.get_by_position(1).column;
+        ASSERT_EQ(output->size(), 3);
+        for (size_t row = 0; row < 3; ++row) {
+            EXPECT_EQ(output->is_null_at(row), is_null);
+            if (!is_null) {
+                const auto encoded = output->get_data_at(row);
+                EXPECT_EQ(
+                        JsonbToJson::jsonb_to_json_string(encoded.data, encoded.size),
+                        R"({"uri":"urn:constant","offset":null,"size":null,"content_type":null,"checksum":null,"inline":""})");
+            }
+        }
+    }
+}
+
 TEST_F(FileExprTest, ConstantContainersKeepSingleFileResultAndMetadataProjection) {
     constexpr size_t rows = 4096;
     const std::string bytes(1 << 20, '\xff');
@@ -846,7 +903,7 @@ TEST_F(FileExprTest, StructCastSharesPayloadAndDetachesBeforeMutation) {
     EXPECT_EQ(source.get_column(5)[0].get<TYPE_VARBINARY>().str(), bytes);
 }
 
-TEST_F(FileExprTest, ReverseCastsRecurseAndIdentityPreservesInline) {
+TEST_F(FileExprTest, NestedFileToStructCastIsUnsupportedAndIdentityPreservesInline) {
     auto value = file_value("s3://b/key");
     const std::string bytes("a\0b", 3);
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
@@ -857,11 +914,8 @@ TEST_F(FileExprTest, ReverseCastsRecurseAndIdentityPreservesInline) {
     ASSERT_TRUE(cast(input, input_type, true, output).ok());
     EXPECT_EQ((*output)[0].get<TYPE_ARRAY>()[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(),
               3);
-    ASSERT_TRUE(cast(input, std::make_shared<DataTypeArray>(make_nullable(public_struct())), true,
-                     output)
-                        .ok());
-    EXPECT_EQ((*output)[0].get<TYPE_ARRAY>()[0].get<TYPE_STRUCT>().size(), 6);
-    EXPECT_TRUE((*output)[0].get<TYPE_ARRAY>()[1].is_null());
+    EXPECT_FALSE(cast(input, std::make_shared<DataTypeArray>(make_nullable(public_struct())), true,
+                      output).ok());
 }
 
 TEST_F(FileExprTest, ExplodeFilePublicFieldsNullAndOuterRows) {
@@ -870,14 +924,8 @@ TEST_F(FileExprTest, ExplodeFilePublicFieldsNullAndOuterRows) {
     const std::string bytes("\0\xff\x80", 3);
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
     Block block {column(make_nullable(file_type), {value, Field(), file_value("s3://b/last")})};
-    auto root = std::make_shared<MockVExpr>();
-    auto child = std::make_shared<MockVExpr>();
-    EXPECT_CALL(*child, execute_column(testing::_, testing::_, testing::_, testing::_, testing::_))
-            .WillRepeatedly(testing::Invoke([](VExprContext*, const Block* input, const Selector*,
-                                               size_t, ColumnPtr& result) {
-                result = input->get_by_position(0).column;
-                return Status::OK();
-            }));
+    auto root = std::make_shared<VectorizedFnCall>();
+    auto child = std::make_shared<VSlotRef>(0, 0, -1, make_nullable(file_type), "file");
     root->add_child(child);
     auto context = std::make_shared<VExprContext>(root);
     for (bool outer : {false, true}) {
@@ -936,19 +984,12 @@ TEST_F(FileExprTest, TryCastMakesInvalidFileNullInBothSessionModes) {
 }
 
 TEST_F(FileExprTest, NestedTryCastUsesGenericFailureHandling) {
-    for (bool from_json : {false, true}) {
-        DataTypePtr leaf =
-                from_json ? DataTypePtr(std::make_shared<DataTypeJsonb>()) : public_struct();
+    {
+        DataTypePtr leaf = public_struct();
         leaf = make_nullable(leaf);
         const auto target_leaf = make_nullable(file_type);
-        const auto good =
-                from_json
-                        ? json(R"({"uri":"s3://b/good","offset":null,"size":4,"content_type":null,"checksum":null,"inline":null})")
-                        : public_value("s3://b/good", integer(4));
-        const auto bad =
-                from_json
-                        ? json(R"({"uri":"s3://b/bad","offset":null,"size":-1,"content_type":null,"checksum":null,"inline":null})")
-                        : public_value("s3://b/bad", integer(-1));
+        const auto good = public_value("s3://b/good", integer(4));
+        const auto bad = public_value("s3://b/bad", integer(-1));
         const auto array_source = make_nullable(std::make_shared<DataTypeArray>(leaf));
         const auto array_target = make_nullable(std::make_shared<DataTypeArray>(target_leaf));
         const auto mixed_array = Field::create_field<TYPE_ARRAY>(Array {good, bad, Field()});
@@ -1007,7 +1048,7 @@ TEST_F(FileExprTest, NestedTryCastUsesGenericFailureHandling) {
     }
 }
 
-TEST_F(FileExprTest, JsonTryCastUsesGenericFailureHandling) {
+TEST_F(FileExprTest, JsonCastsRejectNestedFileTypes) {
     const auto source = std::make_shared<DataTypeJsonb>();
     const auto arrays = column(
             source,
@@ -1025,47 +1066,27 @@ TEST_F(FileExprTest, JsonTryCastUsesGenericFailureHandling) {
     for (bool strict : {false, true}) {
         SCOPED_TRACE(strict ? "strict" : "non-strict");
         ColumnPtr output;
-        ASSERT_TRUE(try_cast(arrays, array_target, strict, output).ok());
-        if (strict) {
-            EXPECT_TRUE(output->is_null_at(0));
-        } else {
-            ASSERT_FALSE(output->is_null_at(0));
-            EXPECT_EQ((*output)[0].get<TYPE_ARRAY>()[0].get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 4);
-            EXPECT_TRUE((*output)[0].get<TYPE_ARRAY>()[1].is_null());
-            EXPECT_TRUE((*output)[0].get<TYPE_ARRAY>()[2].is_null());
-        }
-        EXPECT_TRUE((*output)[1].get<TYPE_ARRAY>().empty());
-        EXPECT_TRUE(output->is_null_at(2));
-        ASSERT_TRUE(try_cast(structs, struct_target, strict, output).ok());
-        if (strict) {
-            EXPECT_TRUE(output->is_null_at(0));
-        } else {
-            ASSERT_FALSE(output->is_null_at(0));
-            EXPECT_TRUE((*output)[0].get<TYPE_STRUCT>()[0].is_null());
-            EXPECT_EQ((*output)[0].get<TYPE_STRUCT>()[1].get<TYPE_STRING>(), "kept");
-        }
-        EXPECT_EQ((*output)[1].get<TYPE_STRUCT>()[0].get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 4);
+        EXPECT_FALSE(cast(arrays, array_target, strict, output).ok());
+        EXPECT_FALSE(cast(structs, struct_target, strict, output).ok());
+        const auto files =
+                column(array_target, {Field::create_field<TYPE_ARRAY>(Array {file_value()})});
+        EXPECT_FALSE(cast(files, make_nullable(source), strict, output).ok());
     }
 }
 
-TEST_F(FileExprTest, JsonTryCastKeepsExistingNonFileFailureBehavior) {
+TEST_F(FileExprTest, JsonCastsKeepExistingNonFileBehavior) {
     const auto source = std::make_shared<DataTypeJsonb>();
     const auto target = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {make_nullable(file_type), make_nullable(bigint)},
-            Strings {"file", "number"}));
-    const auto input = column(
-            source,
-            {json(R"({"file":{"uri":"s3://b/bad","offset":null,"size":-1,"content_type":null,"checksum":null,"inline":null},"number":7})"),
-             json(R"({"file":{"uri":"s3://b/good","offset":null,"size":4,"content_type":null,"checksum":null,"inline":null},"number":{}})"),
-             json(R"({"file":{"uri":"s3://b/good","offset":null,"size":4,"content_type":null,"checksum":null,"inline":null},"number":8})")});
+            DataTypes {make_nullable(text), make_nullable(bigint)}, Strings {"label", "number"}));
+    const auto input = column(source, {json(R"({"label":"first","number":7})"),
+                                       json(R"({"label":"second","number":8})")});
     ColumnPtr output;
-    ASSERT_TRUE(try_cast(input, target, true, output).ok());
-    ASSERT_EQ(output->size(), 3);
-    EXPECT_TRUE(output->is_null_at(0));
-    EXPECT_TRUE(output->is_null_at(1));
-    ASSERT_FALSE(output->is_null_at(2));
-    EXPECT_EQ((*output)[2].get<TYPE_STRUCT>()[0].get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 4);
-    EXPECT_EQ((*output)[2].get<TYPE_STRUCT>()[1].get<TYPE_BIGINT>(), 8);
+    ASSERT_TRUE(cast(input, target, true, output).ok());
+    ASSERT_EQ(output->size(), 2);
+    EXPECT_EQ((*output)[0].get<TYPE_STRUCT>()[0].get<TYPE_STRING>(), "first");
+    EXPECT_EQ((*output)[0].get<TYPE_STRUCT>()[1].get<TYPE_BIGINT>(), 7);
+    EXPECT_EQ((*output)[1].get<TYPE_STRUCT>()[0].get<TYPE_STRING>(), "second");
+    EXPECT_EQ((*output)[1].get<TYPE_STRUCT>()[1].get<TYPE_BIGINT>(), 8);
 }
 
 TEST_F(FileExprTest, NestedTryCastKeepsExistingNonFileFailureBehavior) {

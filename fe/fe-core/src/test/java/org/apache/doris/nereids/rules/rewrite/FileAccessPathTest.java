@@ -30,19 +30,19 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDataAccessPath;
@@ -61,9 +61,9 @@ import java.util.TreeSet;
 
 public class FileAccessPathTest {
     @Test
-    public void testJsonCastNeedsAllSixChildren() {
+    public void testToJsonNeedsAllSixChildren() {
         SlotReference file = slot("f", FileType.INSTANCE, true);
-        AccessPathInfo info = prune(file, new Cast(file, JsonType.INSTANCE), field(file, "size"));
+        AccessPathInfo info = prune(file, new ToJson(file), field(file, "size"));
         Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
         Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
         Assertions.assertEquals(6, ((FileType) info.getPrunedType()).getFields().size());
@@ -72,7 +72,7 @@ public class FileAccessPathTest {
     @Test
     public void testCanonicalChildrenAndGetterPaths() {
         SlotReference file = slot("f", FileType.INSTANCE, false);
-        for (String name : ImmutableList.of("uri", "offset", "size", "content_type", "checksum", "inline")) {
+        for (String name : ImmutableList.of("uri", "offset", "size", "content_type", "checksum")) {
             AccessPathInfo info = prune(file, field(file, name));
             Assertions.assertEquals(ImmutableList.of(data("f", name)), info.getAllAccessPaths());
             Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
@@ -122,12 +122,6 @@ public class FileAccessPathTest {
         Assertions.assertEquals(ImmutableList.of(data("f", "uri")),
                 prune(file, new IsNull(identityField)).getAllAccessPaths());
 
-        Expression structField = field(new Cast(file, FileType.INSTANCE.publicStructType(), true), "uri");
-        for (Expression expression : ImmutableList.of(new Length(structField), new IsNull(structField))) {
-            AccessPathInfo info = prune(file, expression);
-            Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
-            Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
-        }
         SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
         Expression fileField = field(new Cast(struct, FileType.INSTANCE, true), "uri");
         for (Expression expression : ImmutableList.of(new Length(fileField), new IsNull(fileField))) {
@@ -206,20 +200,16 @@ public class FileAccessPathTest {
         SlotReference file = slot("f", FileType.INSTANCE, true);
         Assertions.assertEquals(ImmutableList.of(data("f", "size")),
                 prune(file, field(new Cast(file, FileType.INSTANCE), "size")).getAllAccessPaths());
-        Assertions.assertEquals(ImmutableList.of(data("f")),
-                prune(file, field(new Cast(file, FileType.INSTANCE.publicStructType(), true), "size"))
-                        .getAllAccessPaths());
-        for (Expression selector : ImmutableList.of(new StringLiteral("size"), new IntegerLiteral(3))) {
-            Expression accessed = TypeCoercionUtils.processBoundFunction(new ElementAt(
-                    new Cast(file, FileType.INSTANCE.publicStructType(), true), selector));
-            Assertions.assertTrue(accessed.child(0) instanceof Cast);
-            Assertions.assertEquals(ImmutableList.of(data("f")), prune(file, accessed).getAllAccessPaths());
-            Assertions.assertEquals(ImmutableList.of(data("f")),
-                    prune(file, new IsNull(accessed)).getAllAccessPaths());
-        }
         SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
         Assertions.assertEquals(ImmutableList.of(data("s")),
                 prune(struct, field(new Cast(struct, FileType.INSTANCE, true), "size")).getAllAccessPaths());
+    }
+
+    @Test
+    public void testBinaryAccessNeedsCompleteFile() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        Assertions.assertEquals(ImmutableList.of(data("f")),
+                prune(file, new FlGetBinary(file)).getAllAccessPaths());
     }
 
     private static ElementAt field(Expression value, String name) {

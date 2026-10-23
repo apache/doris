@@ -29,6 +29,7 @@
 
 #include "core/column/column_file.h"
 #include "core/data_type/data_type_file.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exec/operator/datagen_operator.h"
@@ -82,7 +83,7 @@ protected:
     void SetUp() override {
         descriptor = std::make_unique<MockRowDescriptor>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeString>(),
-                                          std::make_shared<DataTypeFile>()},
+                                          make_nullable(std::make_shared<DataTypeFile>())},
                 &pool);
         const std::array<std::string, 2> names {"path", "file"};
         for (size_t i = 0; i < names.size(); ++i) {
@@ -206,7 +207,7 @@ TEST_F(ListFileTVFTest, EmitsCompleteFilesAndSkipsDirectoryMarkers) {
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     ASSERT_EQ(block.rows(), 3);
     EXPECT_TRUE(eos);
-    EXPECT_FALSE(block.get_by_position(1).type->is_nullable());
+    EXPECT_TRUE(block.get_by_position(1).type->is_nullable());
     EXPECT_EQ((*block.get_by_position(0).column)[0].get<TYPE_STRING>(),
               "s3://bucket/dir/empty.txt");
     const auto empty = row(block, 0);
@@ -299,7 +300,7 @@ TEST_F(ListFileTVFTest, SplitsPagesIntoBatchesWithoutPrefetching) {
 }
 
 TEST_F(ListFileTVFTest, ContinuesPastEmptyAndMarkerOnlyIntermediatePages) {
-    ASSERT_TRUE(function->set_scan_ranges(ranges()).ok());
+    ASSERT_TRUE(function->set_scan_ranges(ranges("s3://bucket/dir/", true)).ok());
     testing::InSequence sequence;
     EXPECT_CALL(*s3, ListObjectsV2(testing::_))
             .WillOnce(testing::Return(ListObjectsV2Outcome(page({}, "empty"))));
@@ -483,7 +484,7 @@ TEST_F(ListFileTVFTest, EmptyListingReturnsEmptyFileColumn) {
     EXPECT_EQ(block.rows(), 0);
     ASSERT_EQ(block.columns(), 2);
     EXPECT_EQ(block.get_by_position(0).type->get_name(), "String");
-    EXPECT_EQ(block.get_by_position(1).type->get_name(), "File");
+    EXPECT_EQ(block.get_by_position(1).type->get_name(), "Nullable(File)");
     EXPECT_TRUE(eos);
 }
 

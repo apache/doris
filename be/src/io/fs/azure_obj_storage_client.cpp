@@ -347,7 +347,9 @@ ObjectStorageListPageResponse AzureObjStorageClient::list_objects_page(
                 if (opts.delimiter.empty()) {
                     make_page(_client->ListBlobs(request));
                 } else {
-                    make_page(_client->ListBlobsByHierarchy(opts.delimiter, request));
+                    auto response = _client->ListBlobsByHierarchy(opts.delimiter, request);
+                    page.common_prefixes = std::move(response.BlobPrefixes);
+                    make_page(std::move(response));
                 }
             },
             opts, _tls_debug_context);

@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.LanceIndexEntries;
-import org.apache.doris.nereids.trees.expressions.functions.table.ListFile;
+import org.apache.doris.nereids.trees.expressions.functions.table.ListFiles;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -65,7 +65,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(HudiMeta.class, "hudi_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
-            tableValued(ListFile.class, "list_file"),
+            tableValued(ListFiles.class, "list_files"),
             tableValued(Numbers.class, "numbers"),
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
