@@ -19,13 +19,19 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.Lists;
@@ -118,6 +124,36 @@ public class DistributionDescriptorTest {
         AnalysisException ex3 = Assertions.assertThrows(AnalysisException.class,
                 () -> desc3.validate(columnMap, KeysType.DUP_KEYS));
         Assertions.assertTrue(ex3.getMessage().contains("greater than zero"));
+    }
+
+    @Test
+    public void testStateDistributionColumns() throws DdlException {
+        // CREATE rejects AGG_STATE with NONE aggregation earlier, so test distribution conversion directly.
+        for (DataType type : new DataType[] {BitmapType.INSTANCE, HllType.INSTANCE, QuantileStateType.INSTANCE,
+                new AggStateType("sum", Lists.newArrayList(IntegerType.INSTANCE), Lists.newArrayList(false), true)}) {
+            Column stateColumn = new Column("state_col", type.toCatalogDataType());
+            HashDistributionDesc catalogDesc = new HashDistributionDesc(1, Lists.newArrayList("state_col"));
+            DdlException catalogException = Assertions.assertThrows(DdlException.class,
+                    () -> catalogDesc.toDistributionInfo(Lists.newArrayList(stateColumn)));
+            Assertions.assertEquals(stateColumn.getType().toSql()
+                            + " type should not be used in distribution column[state_col].",
+                    catalogException.getDetailMessage());
+
+            Map<String, ColumnDefinition> columnMap = createColumnMap();
+            columnMap.put("state_col", new ColumnDefinition("state_col", type, false));
+            DistributionDescriptor desc = new DistributionDescriptor(true, false, 1, Lists.newArrayList("state_col"));
+            desc.validate(columnMap, KeysType.DUP_KEYS);
+            DdlException translatedException = Assertions.assertThrows(DdlException.class,
+                    () -> desc.translateToCatalogStyle().toDistributionInfo(Lists.newArrayList(stateColumn)));
+            Assertions.assertEquals(catalogException.getDetailMessage(), translatedException.getDetailMessage());
+
+            // State value columns remain valid when the table distributes on an ordinary column.
+            DistributionDescriptor ordinaryDesc = new DistributionDescriptor(true, false, 1, Lists.newArrayList("col1"));
+            ordinaryDesc.validate(columnMap, KeysType.DUP_KEYS);
+            HashDistributionInfo info = (HashDistributionInfo) ordinaryDesc.translateToCatalogStyle()
+                    .toDistributionInfo(Lists.newArrayList(new Column("col1", Type.INT), stateColumn));
+            Assertions.assertEquals("col1", info.getDistributionColumns().get(0).getName());
+        }
     }
 
     @Test
