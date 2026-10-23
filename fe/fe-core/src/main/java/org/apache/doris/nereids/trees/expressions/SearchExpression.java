@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -72,13 +71,8 @@ public class SearchExpression extends Expression {
 
     @Override
     public SearchExpression withChildren(List<Expression> children) {
-        // Validate that all children are SlotReference or ElementAt (for variant subcolumns)
-        for (Expression child : children) {
-            if (!(child instanceof SlotReference || child instanceof ElementAt)) {
-                throw new IllegalArgumentException(
-                        "SearchExpression children must be SlotReference or ElementAt instances");
-            }
-        }
+        // Rewrites such as null-rejection inference temporarily replace slots with literals.
+        // CheckAfterRewrite validates the children that actually reach execution.
         return new SearchExpression(dslString, qsPlan, children);
     }
 
