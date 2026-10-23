@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.thrift.TGcpCredential;
@@ -705,6 +706,68 @@ public class S3ResourceTest {
             Assertions.assertFalse(thrift.isSetCredential());
             Assertions.assertFalse(thrift.isSetCredProviderType());
             Assertions.assertEquals(2000, thrift.getConnTimeoutMs());
+        }
+    }
+
+    @Test
+    public void testLegacyGcpStaticKeysSurviveReplayAndBatchedPolicyPush() throws Exception {
+        for (String key : new String[] {"s3.credentials_provider_type", "AWS_CREDENTIALS_PROVIDER_TYPE"}) {
+            Map<String, String> properties = new HashMap<>(s3Properties);
+            properties.put("provider", "GCP");
+            S3Resource resource = new S3Resource("legacy_gcp_static_keys");
+            resource.id = 1L;
+            resource.version = 1L;
+            resource.setProperties(ImmutableMap.copyOf(properties));
+            // Recreate metadata accepted by older FEs without invoking current CREATE validation.
+            Map<String, String> legacyProperties = resource.getCopiedProperties();
+            legacyProperties.put(key, "ANONYMOUS");
+            Field field = S3Resource.class.getDeclaredField("properties");
+            field.setAccessible(true);
+            field.set(resource, legacyProperties);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream output = new DataOutputStream(bytes)) {
+                resource.write(output);
+            }
+            S3Resource restored;
+            try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                restored = (S3Resource) Resource.read(input);
+            }
+            ResourceMgr resourceMgr = new ResourceMgr();
+            resourceMgr.replayCreateResource(restored);
+            Assertions.assertEquals(legacyProperties, restored.getCopiedProperties());
+            Assertions.assertSame(restored, resourceMgr.getResource(restored.getName()));
+
+            S3Resource unrelated = new S3Resource("unrelated_resource");
+            unrelated.id = 2L;
+            unrelated.version = 1L;
+            unrelated.setProperties(ImmutableMap.copyOf(s3Properties));
+            resourceMgr.replayCreateResource(unrelated);
+            StoragePolicy policy = Mockito.mock(StoragePolicy.class);
+            Mockito.when(policy.getId()).thenReturn(3L);
+            Mockito.when(policy.getPolicyName()).thenReturn("unrelated_policy");
+            Mockito.when(policy.getStorageResource()).thenReturn(unrelated.getName());
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                Env env = Mockito.mock(Env.class);
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+                PushStoragePolicyTask task = new PushStoragePolicyTask(1L, List.of(policy),
+                        List.of(restored, unrelated), List.of(9L));
+                TPushStoragePolicyReq request = task.toThrift();
+                Assertions.assertEquals(2, request.getResourceSize());
+                Assertions.assertEquals(1L, request.getResource().get(0).getId());
+                Assertions.assertEquals(2L, request.getResource().get(1).getId());
+                Assertions.assertEquals(1, request.getStoragePolicySize());
+                Assertions.assertEquals(3L, request.getStoragePolicy().get(0).getId());
+                Assertions.assertEquals(2L, request.getStoragePolicy().get(0).getResourceId());
+                Assertions.assertEquals(List.of(9L), request.getDroppedStoragePolicy());
+                TS3StorageParam thrift = request.getResource().get(0).getS3StorageParam();
+                Assertions.assertEquals(TObjStorageType.GCP, thrift.getProvider());
+                Assertions.assertEquals(s3AccessKey, thrift.getAk());
+                Assertions.assertEquals(s3SecretKey, thrift.getSk());
+                Assertions.assertFalse(thrift.isSetCredential());
+                Assertions.assertFalse(thrift.isSetCredProviderType());
+                Assertions.assertEquals(s3AccessKey, request.getResource().get(1).getS3StorageParam().getAk());
+            }
         }
     }
 

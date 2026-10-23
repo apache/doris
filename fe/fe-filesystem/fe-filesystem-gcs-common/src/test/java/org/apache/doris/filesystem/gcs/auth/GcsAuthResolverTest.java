@@ -125,6 +125,41 @@ public class GcsAuthResolverTest {
     }
 
     @Test
+    public void testLegacyStaticKeysTakePrecedenceOverAnonymous() {
+        for (String selector : new String[] {"s3.credentials_provider_type", "AWS_CREDENTIALS_PROVIDER_TYPE"}) {
+            for (String[] keys : new String[][] {{"gs.access_key", "gs.secret_key"},
+                    {"s3.access_key", "s3.secret_key"}, {"AWS_ACCESS_KEY", "AWS_SECRET_KEY"},
+                    {"ACCESS_KEY", "SECRET_KEY"}}) {
+                Map<String, String> props = new HashMap<>();
+                props.put("provider", "GCP");
+                props.put(selector, " anonymous ");
+                props.put(keys[0], "ak");
+                props.put(keys[1], "sk");
+                GcsAuth auth = GcsAuthResolver.resolve(props).orElseThrow();
+                Assertions.assertEquals(GcsAuth.Mode.HMAC, auth.getMode());
+                Assertions.assertFalse(auth.isAnonymous());
+                Assertions.assertTrue(auth.getNativeCredential().isEmpty());
+                for (String mode : new String[] {"DEFAULT", "COMPUTE_ENGINE", "ANONYMOUS"}) {
+                    props.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, mode);
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(props));
+                }
+                props.remove(GcpCredential.CREDENTIAL_PROVIDER_TYPE);
+                props.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT, "target@test.iam.gserviceaccount.com");
+                Assertions.assertThrows(IllegalArgumentException.class, () -> GcsAuthResolver.resolve(props));
+                props.remove(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT);
+                // Partial vault patches must also retain HMAC authentication.
+                props.remove(keys[1]);
+                Assertions.assertEquals(GcsAuth.Mode.HMAC, GcsAuthResolver.resolve(props).orElseThrow().getMode());
+                props.remove(keys[0]);
+                props.put(keys[1], "sk");
+                Assertions.assertEquals(GcsAuth.Mode.HMAC, GcsAuthResolver.resolve(props).orElseThrow().getMode());
+                props.remove(keys[1]);
+                Assertions.assertTrue(GcsAuthResolver.resolve(props).orElseThrow().isAnonymous());
+            }
+        }
+    }
+
+    @Test
     public void testOtherProvidersAndConflictingNativeProperties() {
         for (String provider : new String[] {"S3", "AZURE", "OSS"}) {
             Map<String, String> props = new HashMap<>();

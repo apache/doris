@@ -71,9 +71,12 @@ public final class GcsAuthResolver {
                     : GcpCredentialProviderType.fromString(CREDENTIAL_PROVIDER_TYPE, providerType);
             mode = type == GcpCredentialProviderType.ANONYMOUS ? GcsAuth.Mode.ANONYMOUS
                     : type == GcpCredentialProviderType.COMPUTE_ENGINE ? GcsAuth.Mode.COMPUTE_ENGINE : GcsAuth.Mode.ADC;
+        } else if (hasAccessKey || hasSecretKey) {
+            // Legacy static credentials take precedence over a dormant anonymous selector.
+            mode = GcsAuth.Mode.HMAC;
         } else if (hasLegacyAnonymous) {
             mode = GcsAuth.Mode.ANONYMOUS;
-        } else if (hasAccessKey || hasSecretKey || hasLegacyProvider(properties, "DEFAULT")) {
+        } else if (hasLegacyProvider(properties, "DEFAULT")) {
             // Explicit legacy DEFAULT uses ambient HMAC credentials through the AWS default chain.
             mode = GcsAuth.Mode.HMAC;
         } else {
