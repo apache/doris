@@ -71,7 +71,7 @@ TEST(VIcebergTableWriterTest, RejectsRequiredNullBeforeWriterCreation) {
     TIcebergTableSink sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = schema;
 
     auto type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -102,7 +102,7 @@ TEST(VIcebergTableWriterTest, RejectsNestedRequiredNullBeforeWriterCreation) {
     TIcebergTableSink sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = schema;
 
     auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -370,7 +370,7 @@ TEST(VIcebergTableWriterTest, VoidPartitionFieldNeedsNoSourceColumn) {
     TIcebergTableSink iceberg_sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(iceberg_sink);
-    VIcebergTableWriter writer(data_sink, output_exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, output_exprs);
     writer._schema = schema;
     writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
     writer._iceberg_partition_columns = writer._to_iceberg_partition_columns();
