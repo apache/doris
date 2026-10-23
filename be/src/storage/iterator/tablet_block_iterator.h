@@ -23,14 +23,14 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "core/column/column.h"
+#include "storage/iterator/output_block_limits.h"
 
 namespace doris {
 
-class VCollectIterator;
+class RowwiseIterator;
 
-// The one read mode of a BlockReader: turns the rows VCollectIterator yields into the Blocks
-// handed to the caller of TabletReader::next_block_with_aggregation.
+// The one read mode of a BlockReader: turns the rows of the read, a RowwiseIterator over all
+// its rowsets, into the Blocks handed to the caller of TabletReader::next_block_with_aggregation.
 //
 // There is exactly one implementation per (table model, read mode) pair, and every
 // implementation owns only the state its own read needs:
@@ -40,55 +40,36 @@ class VCollectIterator;
 //   AggKeyBlockIterator            AGG_KEYS
 //   ChangelogMinDeltaBlockIterator changelog MIN_DELTA scans
 //   ChangelogDetailBlockIterator   changelog DETAIL scans
+//   TopNBlockIterator              ORDER BY key LIMIT n pushed down to the storage layer
 // BlockReader::_init_block_iterator chooses one of them for a read.
 class TabletBlockIterator {
 public:
     virtual ~TabletBlockIterator() = default;
 
-    // Called once, after VCollectIterator has been built.
+    // Called once, after the rows of the read have been initialized.
     virtual Status init() = 0;
 
     // Read the next output Block.
-    // Return OK and set `*eof` to false when a Block was read.
-    // Return OK and set `*eof` to true when no more rows can be read; `block` may still carry
-    // the last rows.
+    // Return OK and set `*eof` to false when at least one row was appended to `block`.
+    // Return OK and set `*eof` to true when no more rows can be read; `block` is then empty,
+    // so a caller can stop as soon as `*eof` is set.
     // Return others when an unexpected error happens.
     virtual Status next_block(Block* block, bool* eof) = 0;
 };
 
-// Size limits of one output Block, shared by every TabletBlockIterator.
-struct OutputBlockLimits {
-    // Row ceiling of an output Block.
-    size_t max_rows = 0;
-    // Byte budget of an output Block. The budget is only consulted every
-    // BYTE_BUDGET_CHECK_INTERVAL_ROWS rows because measuring the columns costs a full walk.
-    size_t preferred_bytes = 0;
-
-    static constexpr size_t BYTE_BUDGET_CHECK_INTERVAL_ROWS = 64;
-
-    // Whether `columns` holds at least `preferred_bytes`. Always false when adaptive batch
-    // sizing is disabled or no budget is configured.
-    bool reached_byte_budget(const MutableColumns& columns) const;
-
-    // reached_byte_budget() at the row-count checkpoints only, so the callers all agree on
-    // the measuring cadence.
-    bool reached_byte_budget_at(size_t rows, const MutableColumns& columns) const {
-        return rows % BYTE_BUDGET_CHECK_INTERVAL_ROWS == 0 && reached_byte_budget(columns);
-    }
-};
-
-// Row-at-a-time view of VCollectIterator for the iterators that merge rows.
+// Row-at-a-time view of the rows of the read for the iterators that fold rows.
 //
-// It always holds the one merged row that has been fetched but not consumed yet, so an
-// iterator can stop in the middle of a key group at an output Block boundary and continue
-// with exactly that row on the next call. Example with batch size 2 over the merged rows
-// k1, k1, k2, k2: the first next_block() copies k1 and k2 and stops with the cursor on the
-// second k2; the second call starts from it.
+// It always holds the one row that has been fetched but not consumed yet, so an iterator can
+// stop in the middle of a key group at an output Block boundary and continue with exactly
+// that row on the next call. Example with batch size 2 over the rows k1, k1, k2, k2: the
+// first next_block() copies k1 and k2 and stops with the cursor on the second k2; the second
+// call starts from it. The row is a reference into the iterator's Blocks and stays valid
+// until the next advance(), see RowwiseIterator::next_row().
 class MergedRowCursor {
 public:
-    explicit MergedRowCursor(VCollectIterator* collect_iter) : _collect_iter(collect_iter) {}
+    explicit MergedRowCursor(RowwiseIterator* rows) : _rows(rows) {}
 
-    // Position the cursor on the first merged row; eof() when the merge is empty.
+    // Position the cursor on the first row; eof() when there is none.
     Status init();
 
     bool eof() const { return _eof; }
@@ -99,11 +80,11 @@ public:
         return _row;
     }
 
-    // Move to the next merged row. Running out of rows sets eof() and is not an error.
+    // Move to the next row. Running out of rows sets eof() and is not an error.
     Status advance();
 
 private:
-    VCollectIterator* _collect_iter;
+    RowwiseIterator* _rows;
     IteratorRowRef _row {{}, -1, false};
     bool _eof = false;
 };

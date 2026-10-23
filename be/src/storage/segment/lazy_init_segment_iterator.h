@@ -50,14 +50,6 @@ public:
 
     const ReadSchema& schema() const override { return *_schema; }
 
-    // The segment merge orders the rows of one key (and one sequence value) by data_id, so that
-    // the segment flushed later supplies the newer row (VMergeIteratorContext::compare). Answer
-    // with the id of the segment this iterator reads, the value SegmentIterator::data_id()
-    // reports, whether or not init() has loaded the segment yet. Without this every segment
-    // answered 0 and the tie fell to the heap order: with key 1 in segment 0 (v = 10) and in
-    // segment 1 (v = 11) of one rowset, a read could keep v = 10.
-    uint64_t data_id() const override { return static_cast<uint64_t>(_segment.id); }
-
     void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {
             _inner_iterator->update_profile(profile);

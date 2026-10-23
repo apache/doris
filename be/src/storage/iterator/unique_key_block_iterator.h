@@ -23,19 +23,19 @@
 namespace doris {
 
 class Block;
-class VCollectIterator;
+class RowwiseIterator;
 
 // Merge-on-read UNIQUE_KEYS tables without a sequence map: queries, compactions and the
 // checksum task.
 //
-// VCollectIterator yields the rows in key order, the newest version of a key first, and it
+// The rows of the read arrive in key order, the newest version of a key first, and it
 // drops the older versions of the same key itself (skip_same). So every row the cursor
 // yields is the final row of its key and is copied as is; the cursor only has to stop at
 // the Block limits. The reads that may apply the delete sign drop the deleted rows in
 // BlockReader::next_block_with_aggregation, after the merge.
 class UniqueKeyBlockIterator final : public TabletBlockIterator {
 public:
-    UniqueKeyBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits);
+    UniqueKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits);
 
     Status init() override { return _cursor.init(); }
 

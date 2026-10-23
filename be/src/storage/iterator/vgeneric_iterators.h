@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include <list>
 #include <memory>
-#include <queue>
-#include <utility>
 #include <vector>
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/block/block.h"
+#include "storage/iterator/output_block_limits.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 class RuntimeProfile;
+class RuntimeState;
 
 namespace segment_v2 {
 class Segment;
@@ -68,258 +69,141 @@ private:
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
 };
 
-// Used to store merge state for a VMergeIterator input.
-// This class will iterate all data from internal iterator
-// through client call advance().
-// Usage:
-//      VMergeIteratorContext ctx(iter);
-//      RETURN_IF_ERROR(ctx.init());
-//      while (ctx.valid()) {
-//          visit(ctx.current_row());
-//          RETURN_IF_ERROR(ctx.advance());
-//      }
-class VMergeIteratorContext {
+// Merges the key-ordered rows of several iterators into one key-ordered stream.
+//
+// The children are the segment iterators of a read in (rowset version, segment) order, the
+// oldest first: every segment of a rowset whose segments overlap on keys, and one
+// VUnionIterator for a rowset whose segments do not. Two rows of the same key are ordered by
+// the sequence column when there is one (the larger value first, or the smaller one with
+// `small_sequence_first`, which changelog TSO merges use), then by child order: a later child
+// holds the newer row and goes first, unless `use_insert_order_when_same` asks for the older
+// one first. Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands
+// out v = 11 and then v = 10 with is_same set, and skip_same drops v = 10.
+//
+// There are two ways to consume the merge; a consumer uses one of them:
+//   next_batch(Block*)        copies runs of rows into the caller's Block (DUP_KEYS tables,
+//                             schema changes, TopN); with `skip_same` only the first row of
+//                             every key is copied.
+//   next_row(IteratorRowRef*) hands out one row at a time with is_same set when its key
+//                             equals the key of the row handed out before it; with
+//                             `skip_same` those rows are not handed out at all. The reference
+//                             stays valid until the next next_row() call.
+//
+// A run is a stretch of rows of the top child that all sort before the best row of every
+// other child, which is one of the two children of the heap's root. Only the end of a run
+// touches the heap, so N children interleaving their keys every row cost log N per row, and
+// a rowset whose keys are far from the others costs one comparison per row.
+class VMergeIterator final : public RowwiseIterator {
 public:
-    VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
-                          bool is_reverse, bool use_insert_order_when_same,
-                          std::vector<uint32_t>* read_orderby_key_columns,
-                          ReadSchemaSPtr read_schema, bool small_seq_first = false)
-            : _iter(std::move(iter)),
-              _sequence_id_idx(sequence_id_idx),
-              _is_unique(is_unique),
-              _is_reverse(is_reverse),
-              _use_insert_order_when_same(use_insert_order_when_same),
-              _small_seq_first(small_seq_first),
-              _read_schema(std::move(read_schema)),
-              _num_key_columns(cast_set<int>(_read_schema->num_key_columns())),
-              _compare_columns(read_orderby_key_columns) {}
-
-    VMergeIteratorContext(const VMergeIteratorContext&) = delete;
-    VMergeIteratorContext(VMergeIteratorContext&&) = delete;
-    VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
-    VMergeIteratorContext& operator=(VMergeIteratorContext&&) = delete;
-
-    ~VMergeIteratorContext() = default;
-
-    // Reset (or initialize) the internal block with the visible slot prefix.
-    Status block_reset(const std::shared_ptr<Block>& block);
-
-    // Initialize this context and will prepare data for current_row()
-    Status init(const StorageReadOptions& opts);
-
-    bool compare(const VMergeIteratorContext& rhs) const;
-
-    // Copy rows from internal _block to the destination block.
-    // Both blocks have _read_schema->num_block_columns() columns, all of which are copied.
-    //
-    // `advanced = false` when current block finished
-    // when input argument type is block, we do not process same_bit,
-    // this case we only need merge and return ordered data (VCollectIterator::_topn_next), data mode is dup/mow can guarantee all rows are different
-    // todo: we can reduce same_bit processing in this case to improve performance
-    Status copy_rows(Block* block, bool advanced = true);
-    Status copy_rows(BlockWithSameBit* block, bool advanced = true);
-    Status copy_rows(BlockView* view, bool advanced = true);
-
-    // Advance internal row index to next valid row
-    // Return error if error happens
-    // Don't call this when valid() is false, action is undefined
-    Status advance();
-
-    // Return if it has remaining data in this context.
-    // Only when this function return true, current_row()
-    // will return a valid row
-    bool valid() const { return _valid; }
-
-    uint64_t data_id() const { return _iter->data_id(); }
-
-    bool need_skip() const { return _skip; }
-
-    void set_skip(bool skip) const { _skip = skip; }
-
-    bool is_same() const { return _same; }
-
-    void set_same(bool same) const { _same = same; }
-
-    const std::vector<bool>& get_pre_ctx_same() const { return _pre_ctx_same_bit; }
-
-    void set_pre_ctx_same(VMergeIteratorContext* ctx) const {
-        int64_t index = ctx->get_cur_batch() - 1;
-        DCHECK(index >= 0);
-        DCHECK_LT(index, _pre_ctx_same_bit.size());
-        _pre_ctx_same_bit[index] = ctx->is_same();
-    }
-
-    size_t get_cur_batch() const { return _cur_batch_num; }
-
-    void add_cur_batch() { _cur_batch_num++; }
-
-    bool is_cur_block_finished() { return _index_in_block == _block->rows() - 1; }
-
-private:
-    // Load next block into _block
-    Status _load_next_block();
-
-    Status _validate_compare_contract(const StorageReadOptions& opts) const;
-
-    RowwiseIteratorUPtr _iter;
-
-    int _sequence_id_idx = -1;
-    bool _is_unique = false;
-    bool _is_reverse = false;
-    bool _use_insert_order_when_same = false;
-    // Tie-break direction on the sequence column when keys are equal:
-    // false = larger value sorts first (UNIQUE_KEYS sequence column);
-    // true  = smaller value sorts first (changelog TSO column).
-    bool _small_seq_first = false;
-    bool _valid = false;
-    mutable bool _skip = false;
-    mutable bool _same = false;
-    size_t _index_in_block = -1;
-    // 4096 minus 16 + 16 bytes padding that in padding pod array
-    int _block_row_max = 4064;
-    // ReadSchema whose visible slot prefix is shared by every child block and the caller.
-    const ReadSchemaSPtr _read_schema;
-    int _num_key_columns;
-    std::vector<uint32_t>* _compare_columns;
-    size_t _cur_batch_num = 0;
-
-    // used to store data load from iterator->next_batch(Block*)
-    std::shared_ptr<Block> _block;
-    // used to store data still on block view
-    std::list<std::shared_ptr<Block>> _block_list;
-    mutable std::vector<bool> _pre_ctx_same_bit;
-};
-
-class VMergeIterator : public RowwiseIterator {
-public:
-    // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
-                   bool is_reverse, uint64_t* merged_rows, ReadSchemaSPtr read_schema,
-                   bool small_seq_first = false)
-            : _origin_iters(std::move(iters)),
-              _read_schema(std::move(read_schema)),
-              _sequence_id_idx(sequence_id_idx),
-              _is_unique(is_unique),
-              _is_reverse(is_reverse),
-              _small_seq_first(small_seq_first),
-              _merged_rows(merged_rows) {}
+    // `sequence_ordinal` is the read-schema ordinal of the sequence column, -1 without one.
+    // `is_reverse` orders the keys descending. `skip_same` drops every row whose key equals
+    // the key of the row before it, i.e. every version of a key but the newest.
+    VMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
+                   int sequence_ordinal, bool small_sequence_first, bool is_reverse,
+                   bool skip_same);
 
     ~VMergeIterator() override = default;
 
+    // Reads the first Block of every child. `opts` supplies the output Block limits, the
+    // tie-break direction (use_insert_order_when_same), the columns to compare by
+    // (read_orderby_key_columns, the key columns otherwise) and the runtime state.
     Status init(const StorageReadOptions& opts) override;
 
-    Status next_batch(Block* block) override { return _next_batch(block); }
-    Status next_batch(BlockWithSameBit* block_with_same_bit) override {
-        return _next_batch(block_with_same_bit);
-    }
-    Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
+    Status next_batch(Block* block) override;
+
+    Status next_row(IteratorRowRef* ref) override;
 
     const ReadSchema& schema() const override { return *_read_schema; }
 
-    void update_profile(RuntimeProfile* profile) override {
-        if (!_origin_iters.empty()) {
-            _origin_iters[0]->update_profile(profile);
-        }
-    }
+    void update_profile(RuntimeProfile* profile) override;
+
+    // Rows dropped by skip_same.
+    uint64_t merged_rows() const override { return _merged_rows; }
 
 private:
-    int _get_size(const BlockWithSameBit* block_with_same_bit) {
-        return cast_set<int>(block_with_same_bit->block->rows());
-    }
-    int _get_size(BlockView* block_view) { return cast_set<int>(block_view->size()); }
-    int _get_size(Block* block) { return cast_set<int>(block->rows()); }
-
-    template <typename T>
-    Status _next_batch(T* block) {
-        size_t row_idx = 0;
-        std::shared_ptr<VMergeIteratorContext> pre_ctx;
-        while (_get_size(block) < _block_row_max) {
-            if (_merge_heap.empty()) {
-                break;
-            }
-
-            auto ctx = _merge_heap.top();
-            _merge_heap.pop();
-
-            if (!ctx->need_skip()) {
-                ctx->add_cur_batch();
-                if (pre_ctx != ctx) {
-                    if (pre_ctx) {
-                        RETURN_IF_ERROR(pre_ctx->copy_rows(block));
-                    }
-                    pre_ctx = ctx;
-                }
-                pre_ctx->set_pre_ctx_same(ctx.get());
-                row_idx++;
-                if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
-                    // current block finished, ctx not advance
-                    // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
-                    RETURN_IF_ERROR(ctx->copy_rows(block, false));
-                    pre_ctx = nullptr;
-                }
-            } else if (_merged_rows != nullptr) {
-                (*_merged_rows)++;
-                // need skip cur row, so flush rows in pre_ctx
-                if (pre_ctx) {
-                    RETURN_IF_ERROR(pre_ctx->copy_rows(block));
-                    pre_ctx = nullptr;
-                }
-            }
-
-            RETURN_IF_ERROR(ctx->advance());
-            if (ctx->valid()) {
-                _merge_heap.push(ctx);
-            }
-        }
-        if (!_merge_heap.empty()) {
-            return Status::OK();
-        }
-        return Status::EndOfFile("no more data in segment");
-    }
-
-    // It will be released after '_merge_heap' has been built.
-    std::vector<RowwiseIteratorUPtr> _origin_iters;
-
-    // ReadSchema whose visible slot prefix is shared by every input and the output.
-    const ReadSchemaSPtr _read_schema;
-
-    struct VMergeContextComparator {
-        bool operator()(const std::shared_ptr<VMergeIteratorContext>& lhs,
-                        const std::shared_ptr<VMergeIteratorContext>& rhs) const {
-            return lhs->compare(*rhs);
-        }
+    // One input of the merge and the Block it is positioned in.
+    struct Child {
+        RowwiseIteratorUPtr iter;
+        // The current Block, refilled in place by _fill(); the rows handed out by next_row()
+        // reference it, which is why a reference lives until the child reads on.
+        std::shared_ptr<Block> block;
+        // The current row of `block`, and its row count.
+        size_t pos = 0;
+        size_t rows = 0;
     };
 
-    using VMergeHeap = std::priority_queue<std::shared_ptr<VMergeIteratorContext>,
-                                           std::vector<std::shared_ptr<VMergeIteratorContext>>,
-                                           VMergeContextComparator>;
+    Status _validate_compare_contract(const Block& block) const;
+    // Read the next Block of `child`; `*exhausted` when it has no more rows.
+    Status _fill(Child& child, bool* exhausted);
 
-    VMergeHeap _merge_heap;
+    int _compare_keys(const Block& a, size_t a_pos, const Block& b, size_t b_pos) const;
+    // Whether row `a_pos` of child `a` goes before row `b_pos` of child `b`.
+    bool _less(uint32_t a, size_t a_pos, uint32_t b, size_t b_pos) const;
+    bool _less_current(uint32_t a, uint32_t b) const {
+        return _less(a, _children[a].pos, b, _children[b].pos);
+    }
 
-    int _block_row_max = 0;
-    int _sequence_id_idx = -1;
-    bool _is_unique = false;
-    bool _is_reverse = false;
-    // See VMergeIteratorContext::_small_seq_first; forwarded to every context on init().
-    bool _small_seq_first = false;
-    uint64_t* _merged_rows = nullptr;
+    // `_heap` holds the indexes of the children that still have rows as a binary min-heap by
+    // _less_current(); `_heap[0]` is the top child.
+    void _sift_down(size_t index);
+    void _pop_top();
+    // Recompute `_second`, the child with the best row among all but the top child.
+    void _update_second();
+
+    // Keep the key of row `pos` of `block` in `_last_key`, which outlives a refill of `block`.
+    void _remember_key(const Block& block, size_t pos);
+    bool _key_equals_remembered(const Block& block, size_t pos) const;
+
+    // Move the top child past its current row and restore the heap; `*same` tells whether the
+    // new top row has the key of the row left behind. The heap is empty afterwards when the
+    // last row has been consumed.
+    Status _advance_top(bool* same);
+    // The top child has moved past the row it was at: refill its Block when it ran out, drop
+    // the child when it has no more rows, and restore the heap for its new row.
+    Status _top_moved();
+
+    // The end (exclusive) of the run of the top child: its rows from its current row on that
+    // sort before the best row of every other child, `cap` at most.
+    size_t _run_end(uint32_t top_index, size_t cap) const;
+    // Copy the run of the top child into `columns`, at most `max_rows` rows, and move the
+    // heap on; `*rows` grows by the rows copied. With skip_same the first row of the run is
+    // dropped when it repeats the key copied out last.
+    Status _copy_run(MutableColumns& columns, size_t max_rows, size_t* rows);
+
+    std::vector<Child> _children;
+    const ReadSchemaSPtr _read_schema;
+    const int _sequence_ordinal;
+    const bool _small_sequence_first;
+    const bool _is_reverse;
+    const bool _skip_same;
+
+    // From init():
+    // Read-schema ordinals two rows are compared by.
+    std::vector<uint32_t> _key_ordinals;
+    // Whether `_key_ordinals` is the key prefix of the read schema (validated to be keys)
+    // rather than caller-given compare columns.
+    bool _compare_by_key_prefix = true;
+    bool _use_insert_order_when_same = false;
+    OutputBlockLimits _limits;
+    RuntimeState* _runtime_state = nullptr;
+    int64_t _tablet_id = 0;
+
+    std::vector<uint32_t> _heap;
+    uint32_t _second = 0;
+    // One row: the key columns of the last row handed out or copied out. Empty until the
+    // first run ends.
+    MutableColumns _last_key;
+    // next_row(): whether a row has been handed out, so the next call advances first.
+    bool _row_handed_out = false;
+    bool _eof = false;
+    uint64_t _merged_rows = 0;
 };
 
-// Create a merge iterator for input iterators. Merge iterator will merge
-// ordered input iterator to one ordered iterator. So client should ensure
-// that every input iterator is ordered, otherwise result is undefined.
-//
-// Inputs iterators' ownership is taken by created merge iterator. And client
-// should delete returned iterator after usage.
-RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
-                                       int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows, ReadSchemaSPtr read_schema,
-                                       bool small_seq_first = false);
+RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
+                                       ReadSchemaSPtr read_schema, int sequence_ordinal,
+                                       bool small_sequence_first, bool is_reverse, bool skip_same);
 
-// Create a union iterator for input iterators. Union iterator will read
-// input iterators one by one.
-//
-// Inputs iterators' ownership is taken by created union iterator.
+// The rows of `inputs` one input after another. Every input is initialized when it is reached.
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        ReadSchemaSPtr read_schema);
 

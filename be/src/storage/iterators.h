@@ -183,13 +183,6 @@ struct CompactionSampleInfo {
     int64_t null_count = 0; // Number of NULL cells in this column group
 };
 
-struct BlockWithSameBit {
-    Block* block;
-    std::vector<bool>& same_bit;
-
-    bool empty() const { return block->rows() == 0; }
-};
-
 class RowwiseIterator;
 using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
@@ -212,25 +205,23 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    // If there is any valid data, this function will load data
-    // into input batch with Status::OK() returned
-    // If there is no data to read, will return Status::EndOfFile.
-    // If other error happens, other error code will be returned.
+    // Read the next rows into `block`, which has the layout of schema().
+    // Return OK with at least one row in `block`, or EndOfFile with an empty `block` once
+    // every row has been read. A caller never calls next_batch() again after EndOfFile.
+    // Example: a segment whose last batch is filtered out completely by a predicate reads
+    // on to the end and returns EndOfFile instead of an empty OK batch.
     virtual Status next_batch(Block* block) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
 
-    virtual Status next_batch(BlockWithSameBit* block_with_same_bit) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
-
-    virtual Status next_batch(BlockView* block_view) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
-
+    // Hand out the next row as a reference into one of this iterator's Blocks, in the same
+    // order next_batch() would copy the rows. Return OK, or EndOfFile once every row has
+    // been handed out; a caller never calls next_row() again after EndOfFile.
+    // The reference stays valid until the next next_row() call, so a caller copies the row
+    // it needs before asking for the next one. `ref->is_same` is set when the row's key
+    // equals the key of the row handed out before it (see VMergeIterator); an iterator
+    // without a notion of key leaves it false.
     virtual Status next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
@@ -240,21 +231,12 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    virtual bool is_merge_iterator() const { return false; }
-
     // return schema for this Iterator
     virtual const ReadSchema& schema() const = 0;
-
-    // Return the data id such as segment id, used for keep the insert order when do
-    // merge sort in priority queue
-    virtual uint64_t data_id() const { return 0; }
 
     virtual void update_profile(RuntimeProfile* profile) {}
     // return rows merged count by iterator
     virtual uint64_t merged_rows() const { return 0; }
-
-    // return if it's an empty iterator
-    virtual bool empty() const { return false; }
 };
 
 } // namespace doris

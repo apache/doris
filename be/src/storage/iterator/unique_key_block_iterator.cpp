@@ -19,19 +19,19 @@
 
 #include "common/exception.h"
 #include "core/block/block.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 
 namespace doris {
 
-UniqueKeyBlockIterator::UniqueKeyBlockIterator(VCollectIterator* collect_iter,
-                                               OutputBlockLimits limits)
-        : _cursor(collect_iter), _limits(limits) {}
+UniqueKeyBlockIterator::UniqueKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits)
+        : _cursor(rows), _limits(limits) {}
 
 Status UniqueKeyBlockIterator::next_block(Block* block, bool* eof) {
     if (UNLIKELY(_cursor.eof())) {
         *eof = true;
         return Status::OK();
     }
+    *eof = false;
 
     size_t rows = 0;
     {
@@ -51,7 +51,6 @@ Status UniqueKeyBlockIterator::next_block(Block* block, bool* eof) {
             // with an unread row.
             RETURN_IF_ERROR(_cursor.advance());
             if (_cursor.eof()) {
-                *eof = true;
                 break;
             }
         } while (rows < _limits.max_rows && !_limits.reached_byte_budget_at(rows, target_columns));

@@ -18,7 +18,7 @@
 // One load that flushes several memtables writes a rowset whose segments overlap on keys, so the
 // same key can sit in two segments of one rowset. Reading such a rowset takes two merges: the
 // rowset reader merges its segments (VMergeIterator over LazyInitSegmentIterators) and marks
-// every row whose key repeats the row before it, then VCollectIterator merges the rowsets and
+// every row whose key repeats the row before it, then the rowsets are merged and
 // hands every row with its same-key bit to the BlockReader fold. These tests write such rowsets
 // for AGG_KEYS, merge-on-read UNIQUE_KEYS and sequence-map UNIQUE_KEYS tables, read them through
 // BlockReader as a query and as a compaction, with Block sizes that cut key groups in two, and
@@ -57,7 +57,6 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
-#include "storage/segment/lazy_init_segment_iterator.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet.h"
@@ -357,33 +356,6 @@ protected:
     std::string _absolute_dir;
     bool _saved_adaptive_batch_size = false;
 };
-
-// The segment merge orders the rows of one key (and one sequence value) by the data_id of their
-// iterators: the row of the segment flushed later is the newer one. The merge may ask before the
-// lazy iterator has loaded its segment, so data_id must name the segment without loading it, and
-// keep naming it once the segment is loaded.
-TEST_F(BlockReaderOverlappingSegmentsTest, LazySegmentIteratorDataIdIsTheSegmentId) {
-    auto schema = make_schema(KeysType::UNIQUE_KEYS,
-                              {{"k", "INT", true}, {"v", "INT"}, {DELETE_SIGN, "TINYINT"}});
-    auto rowset = std::static_pointer_cast<BetaRowset>(
-            write_rowset(schema, {{{1, 10, 0}, {2, 20, 0}}, {{1, 11, 0}}}, /*version=*/2));
-    auto read_schema = std::make_shared<ReadSchema>(schema->columns());
-    OlapReaderStatistics stats;
-    StorageReadOptions opts(stats);
-
-    for (int64_t pos = 0; pos < rowset->num_segments(); ++pos) {
-        SCOPED_TRACE("segment pos=" + std::to_string(pos));
-        const RowsetSegmentRef segment = rowset->segment(static_cast<size_t>(pos)).ref();
-        segment_v2::LazyInitSegmentIterator iter(rowset, segment, /*should_use_cache=*/false,
-                                                 read_schema, opts);
-        EXPECT_EQ(iter.data_id(), static_cast<uint64_t>(segment.id));
-
-        ASSERT_TRUE(iter.init(opts).ok());
-        Block block = read_schema->create_read_block();
-        ASSERT_TRUE(iter.next_batch(&block).ok());
-        EXPECT_EQ(iter.data_id(), static_cast<uint64_t>(segment.id));
-    }
-}
 
 // Merge-on-read UNIQUE_KEYS without a sequence column: keys 1 and 3 sit in both overlapping
 // segments of one rowset, and the rows of segment 1 are the newer ones that a read keeps.

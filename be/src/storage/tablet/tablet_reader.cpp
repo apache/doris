@@ -181,12 +181,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.use_page_cache = read_params.use_page_cache;
     // With is_unique the segment merge keeps only the newest row of a key. A table with a sequence
     // map needs every row of a key: BlockReader takes each column group from the row with that
-    // group's largest sequence value, which is why VCollectIterator does not skip same-key rows of
+    // group's largest sequence value, which is why the rowset merge does not skip same-key rows of
     // such a table either. Example: segment 0 holds (k = 1, s1 = 5, s2 = 1) and segment 1, the
     // newer one, (k = 1, s1 = 3, s2 = 7); keeping only segment 1 lost the s1 group of segment 0.
     _reader_context.is_unique =
             tablet()->keys_type() == UNIQUE_KEYS && !_tablet_schema->has_seq_map();
-    _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.enable_mor_value_predicate_pushdown =
@@ -396,7 +395,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     }
 
     // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
-    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    // them up. Without them, fail the scan here instead of aborting later in the TopN read.
     if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "storage TopN needs order-by key columns, but none are set up: keys_type={}, "

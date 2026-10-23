@@ -29,7 +29,7 @@
 
 namespace doris {
 
-class VCollectIterator;
+class RowwiseIterator;
 
 // Parks one output row across an output Block boundary.
 //
@@ -65,7 +65,7 @@ private:
 //   UPDATE(1->2) DELETE      -> DELETE with the before image v=1
 class ChangelogMinDeltaBlockIterator final : public TabletBlockIterator {
 public:
-    ChangelogMinDeltaBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits,
+    ChangelogMinDeltaBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                                    ReadSchemaSPtr read_schema);
 
     Status init() override { return _cursor.init(); }
@@ -119,7 +119,7 @@ private:
 // an UPDATE_BEFORE + UPDATE_AFTER pair.
 class ChangelogDetailBlockIterator final : public TabletBlockIterator {
 public:
-    ChangelogDetailBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits,
+    ChangelogDetailBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                                  ReadSchemaSPtr read_schema);
 
     Status init() override { return _cursor.init(); }

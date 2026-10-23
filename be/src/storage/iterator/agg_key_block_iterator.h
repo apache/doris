@@ -33,7 +33,7 @@
 
 namespace doris {
 
-class VCollectIterator;
+class RowwiseIterator;
 
 // Folds the value columns of consecutive same-key rows with the storage aggregate function
 // of each column (the `_reader` variant of the column's aggregation, e.g. sum_reader).
@@ -114,14 +114,14 @@ private:
 // AGG_KEYS tables: queries that did not push their aggregation down, compactions and the
 // checksum task.
 //
-// VCollectIterator yields the rows in key order and flags every row that repeats the key of
+// The rows of the read arrive in key order and flags every row that repeats the key of
 // the previous one with is_same. Each key group becomes one output row: the key columns are
 // copied from the group's first row and the value columns are folded by AggValueAggregator.
 // An output Block only ends in front of a new key, so it never splits a key group.
 class AggKeyBlockIterator final : public TabletBlockIterator {
 public:
-    AggKeyBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits,
-                        ReadSchemaSPtr read_schema, int be_exec_version, uint64_t* merged_rows);
+    AggKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits, ReadSchemaSPtr read_schema,
+                        int be_exec_version, uint64_t* merged_rows);
 
     Status init() override;
 
