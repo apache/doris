@@ -29,6 +29,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TUniqueId;
@@ -53,6 +54,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -235,6 +237,38 @@ public class TransactionStateTest {
         }
         subTxnChecker.join(TimeUnit.SECONDS.toMillis(30));
         Assertions.assertTrue(subTxnState.getSubTxnIds().isEmpty());
+    }
+
+    // A publish executor finishes a transaction while it holds the monitor to serialize the state for the edit log.
+    // The next round of PublishVersionDaemon must skip that transaction instead of waiting for the monitor to set
+    // its delta rows again, which would hold up the publish of every other transaction.
+    @Test
+    public void testPublishDaemonSkipsTransactionBeingFinished() throws Exception {
+        PublishVersionDaemon daemon = new PublishVersionDaemon();
+        TransactionState transactionState = newTransactionState();
+        Map<Long, Map<Long, Long>> deltaRows = Maps.newHashMap();
+        deltaRows.put(20000L, Maps.newHashMap());
+        deltaRows.get(20000L).put(30000L, 10L);
+        transactionState.setTableIdToTabletDeltaRows(deltaRows);
+        Set<Long> publishingTxnIds = Deencapsulation.getField(daemon, "publishingTxnIds");
+        publishingTxnIds.add(transactionState.getTransactionId());
+        Method tryFinish = PublishVersionDaemon.class.getDeclaredMethod("tryFinishOneTxn", TransactionState.class,
+                SystemInfoService.class, GlobalTransactionMgrIface.class);
+        tryFinish.setAccessible(true);
+
+        Thread round = new Thread(() -> invoke(tryFinish, daemon, transactionState,
+                Mockito.mock(SystemInfoService.class), Mockito.mock(GlobalTransactionMgrIface.class)));
+        synchronized (transactionState) {
+            round.start();
+            long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(30);
+            while (round.getState() != Thread.State.TERMINATED) {
+                Assertions.assertNotEquals(Thread.State.BLOCKED, round.getState(),
+                        "the daemon waited for the monitor of a transaction that is being finished");
+                Assertions.assertTrue(System.currentTimeMillis() < deadline, "thread state: " + round.getState());
+                Thread.sleep(10);
+            }
+        }
+        Assertions.assertEquals(deltaRows, transactionState.getTableIdToTabletDeltaRows());
     }
 
     private static TransactionState newTransactionState() {
