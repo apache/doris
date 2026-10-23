@@ -68,8 +68,10 @@ private:
     };
 
     void _append_partitions(lucene::index::IndexReader* reader, uint32_t begin);
-    // The field's encoded norms, one per document, or null when it has none.
-    const uint8_t* _norms() const;
+    // The partitions whose norms make up the field's, the whole reader when it has no others.
+    std::vector<ReaderPartition> _norm_partitions() const;
+    // A partition's encoded norms of the field, one per document, or null when it has none.
+    const uint8_t* _norms_of(lucene::index::IndexReader* reader) const;
 
     std::shared_ptr<lucene::index::IndexReader> _reader;
     std::wstring _field;
