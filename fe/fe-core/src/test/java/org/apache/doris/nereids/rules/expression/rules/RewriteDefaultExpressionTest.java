@@ -27,8 +27,10 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -62,18 +64,32 @@ public class RewriteDefaultExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void writeOnlyDefaultTakesTheTypeOfThePinnedWriterColumn() {
+    public void writeOnlyDefaultOfAWriterColumnOfAnotherTypeIsRejected() {
         // The read schema can still hold the INT column after it was promoted to BIGINT outside Doris, while the
         // writer schema pinned for the statement has the BIGINT column and its new default, which an INT cannot hold.
         SlotReference score = scoreSlot(true);
         pinWriterColumn(PrimitiveType.BIGINT, "4900000001");
 
-        Expression rewritten = executor.rewrite(new Default(score), context);
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> executor.rewrite(new Default(score), context));
 
-        Assertions.assertEquals(
-                TypeCoercionUtils.castIfNotSameType(PARSER.parseExpression("4900000001"), BigIntType.INSTANCE),
-                rewritten);
-        Assertions.assertEquals(BigIntType.INSTANCE, rewritten.getDataType());
+        Assertions.assertTrue(e.getMessage().contains("DEFAULT(score) reads the column as INT but the table now writes"
+                + " it as BIGINT; the table changed outside Doris, refresh it and retry"), e.getMessage());
+    }
+
+    @Test
+    public void writeOnlyDefaultOfAnotherTypeIsRejectedInsideAnExpressionBoundToTheReadType() {
+        // UPDATE t ... WHERE IF(TRUE, DEFAULT(score), 0) = 4900000001: IF was bound with the INT of the read column,
+        // so substituting the BIGINT default would later fold into CAST(4900000001 AS INT), NULL in non-strict mode.
+        SlotReference score = scoreSlot(true);
+        pinWriterColumn(PrimitiveType.BIGINT, "4900000001");
+        If ifExpr = new If(BooleanLiteral.TRUE, new Default(score), new IntegerLiteral(0));
+        Assertions.assertEquals(IntegerType.INSTANCE, ifExpr.getDataType());
+
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> executor.rewrite(ifExpr, context));
+
+        Assertions.assertTrue(e.getMessage().contains("refresh it and retry"), e.getMessage());
     }
 
     @Test
