@@ -226,16 +226,16 @@ public:
 
         // The merged element may come from a non-nullable lambda body (for example COALESCE),
         // while array elements are always nullable; normalize before inserting.
-        auto append_element = [&](const IColumn& source, size_t source_row) {
+        auto append_element = [&](const IColumn& source, size_t element_row) {
             if (auto* nullable_target = check_and_get_column<ColumnNullable>(result_nested.get())) {
                 if (const auto* nullable_source = check_and_get_column<ColumnNullable>(&source)) {
-                    nullable_target->insert_from(*nullable_source, source_row);
+                    nullable_target->insert_from(*nullable_source, element_row);
                 } else {
-                    nullable_target->get_nested_column().insert_from(source, source_row);
+                    nullable_target->get_nested_column().insert_from(source, element_row);
                     nullable_target->get_null_map_data().push_back(0);
                 }
             } else {
-                result_nested->insert_from(source, source_row);
+                result_nested->insert_from(source, element_row);
             }
         };
 
@@ -252,8 +252,11 @@ public:
                         "array_sorted_merge requires a non-null ascending flag");
             }
             const bool ascending = flags[row] != 0;
+            // A short-circuit branch receives a selector and only the selected rows, so the row
+            // index is compacted: read the captured column at its original row, like the arrays.
+            const auto source_row = expr_selector == nullptr ? row : (*expr_selector)[row];
             for (const auto& [id, column] : captured_columns) {
-                lambda_block.get_by_position(id).column = column->cut(row, 1);
+                lambda_block.get_by_position(id).column = column->cut(source_row, 1);
             }
 
             size_t left = row == 0 ? 0 : offsets0[row - 1];
