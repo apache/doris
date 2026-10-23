@@ -27,9 +27,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMinCount;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 
 import com.google.common.collect.ImmutableList;
@@ -191,9 +191,9 @@ public abstract class IvmAggFunctionProcessor {
             case BITMAP_UNION:
                 return new BitmapUnion(function.child(0));
             case MIN_TOPK:
-                return new TopKMinCount(function.child(0), new BigIntLiteral(minMaxTopK));
+                return new MinTopK(function.child(0), new BigIntLiteral(minMaxTopK));
             case MAX_TOPK:
-                return new TopKMaxCount(function.child(0), new BigIntLiteral(minMaxTopK));
+                return new MaxTopK(function.child(0), new BigIntLiteral(minMaxTopK));
             default:
                 throw new IllegalArgumentException("Unsupported IVM aggregate state: " + stateKey);
         }

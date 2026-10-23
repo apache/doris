@@ -35,7 +35,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKCountFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
@@ -228,12 +228,12 @@ class MTMVPropertyUtilTest {
                 MTMVPropertyUtil.getIvmMinMaxTopK(ImmutableMap.of(topK, "16")).get());
 
         MTMVPropertyUtil.analyzeProperty(topK, "0");
-        MTMVPropertyUtil.analyzeProperty(topK, String.valueOf(TopKCountFunction.MAX_TOPK_K));
+        MTMVPropertyUtil.analyzeProperty(topK, String.valueOf(TopKFunction.MAX_TOPK_K));
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> MTMVPropertyUtil.analyzeProperty(topK, "-1"));
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> MTMVPropertyUtil.analyzeProperty(topK,
-                        String.valueOf(TopKCountFunction.MAX_TOPK_K + 1)));
+                        String.valueOf(TopKFunction.MAX_TOPK_K + 1)));
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> MTMVPropertyUtil.analyzeProperty(topK, "abc"));
     }

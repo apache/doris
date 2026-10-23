@@ -21,7 +21,7 @@ import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.TopKMaxCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 
@@ -41,7 +41,7 @@ class IvmAggMaxProcessor extends IvmAggExtremalProcessor {
 
     @Override
     protected AggregateFunction buildTopKAggregate(Expression input, long topK) {
-        return new TopKMaxCount(input, new BigIntLiteral(topK));
+        return new MaxTopK(input, new BigIntLiteral(topK));
     }
 
     @Override
