@@ -203,18 +203,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             return Boolean.FALSE;
         }
 
-        // Prune decoupled RF targeting small scans: the RF cannot arrive before
-        // a small scan completes, so generating it wastes resources.
-        if (ctx.exprOrder < 0) {
-            org.apache.doris.statistics.Statistics scanStats = ((AbstractPhysicalPlan) scan).getStats();
-            if (scanStats != null && ConnectContext.get() != null) {
-                long minRows = ConnectContext.get().getSessionVariable().minDecoupledRfTargetRows;
-                if (scanStats.getRowCount() < minRows) {
-                    return false;
-                }
-            }
-        }
-
         TRuntimeFilterType type = ctx.type;
         RuntimeFilter filter = ctx.rfContext.getRuntimeFilterBySrcAndType(ctx.srcExpr, type, ctx.builderNode);
         if (filter != null) {
@@ -255,9 +243,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         }
         boolean pushed = false;
 
-        // NullSafeEqual cannot be pushed through outer joins
-        // Skip for decoupled RF (exprOrder < 0): the predicate comes from a parent join, not builderNode
-        if (ctx.exprOrder >= 0 && ctx.builderNode instanceof PhysicalHashJoin) {
+        if (ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
                 +---->left outer Join(t1.B=T3.B)
@@ -334,9 +320,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (!join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
-        // NullSafeEqual cannot be pushed through outer joins
-        // Skip for decoupled RF (exprOrder < 0): the predicate comes from a parent join, not builderNode
-        if (ctx.exprOrder >= 0 && ctx.builderNode instanceof PhysicalHashJoin) {
+        if (ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
                 +---->left outer Join(t1.B=T3.B)

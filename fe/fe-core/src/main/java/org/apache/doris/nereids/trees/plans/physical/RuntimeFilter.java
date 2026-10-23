@@ -51,8 +51,6 @@ public class RuntimeFilter {
 
     private final boolean bloomFilterSizeCalculatedByNdv;
 
-    private boolean nonBlocking;
-
     /**
      * constructor
      */
@@ -159,14 +157,6 @@ public class RuntimeFilter {
                                 .sorted().collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
-    }
-
-    public boolean isNonBlocking() {
-        return nonBlocking;
-    }
-
-    public void setNonBlocking(boolean nonBlocking) {
-        this.nonBlocking = nonBlocking;
     }
 
     public boolean isBloomFilterSizeCalculatedByNdv() {
