@@ -361,9 +361,13 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
                         new WhenClause(sameValue, new Add(oldCount, insertedCount)),
                         new WhenClause(new EqualTo(value, oldValue), oldCount)),
                 insertedCount);
-        Expression pair = new CreateNamedStruct(
-                new StringLiteral("value"), nonNullField(value),
-                new StringLiteral("count"), nonNullField(count));
+        // The state's pair fields are nullable in the type (a lambda reading them through
+        // element_at yields nullable fields), while the coalesced values above are not.
+        Expression pair = TypeCoercionUtils.castIfNotMatchType(
+                new CreateNamedStruct(
+                        new StringLiteral("value"), nonNullField(value),
+                        new StringLiteral("count"), nonNullField(count)),
+                valuesType.getItemType());
         return new If(new GreaterThan(newCount, new BigIntLiteral(0L)), new Array(pair),
                 new ArrayLiteral(ImmutableList.of(), valuesType));
     }
@@ -438,10 +442,15 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
         Slot left = leftRef.toSlot();
         Slot right = rightRef.toSlot();
         Expression sameValue = new EqualTo(elementAt(left, "value"), elementAt(right, "value"));
-        Expression combined = new CreateNamedStruct(
-                new StringLiteral("value"), nonNullField(elementAt(left, "value")),
-                new StringLiteral("count"), new Add(nonNullField(elementAt(left, "count")),
-                        nonNullField(elementAt(right, "count"))));
+        // The state's pair fields are nullable in the type (a lambda reading them through
+        // element_at yields nullable fields), while the coalesced values above are not.
+        Expression combined = TypeCoercionUtils.castIfNotMatchType(
+                new CreateNamedStruct(
+                        new StringLiteral("value"), nonNullField(elementAt(left, "value")),
+                        new StringLiteral("count"),
+                        new Add(nonNullField(elementAt(left, "count")),
+                                nonNullField(elementAt(right, "count")))),
+                pairType);
         Expression different = TypeCoercionUtils.castIfNotMatchType(
                 new NullLiteral(pairType), pairType);
         return new Lambda(ImmutableList.of(leftRef.getName(), rightRef.getName()),
