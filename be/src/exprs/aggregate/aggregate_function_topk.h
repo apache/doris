@@ -43,7 +43,7 @@
 
 namespace doris {
 
-/// Upper bound of k, shared with FE TopKCountFunction.MAX_TOPK_K.
+/// Upper bound of k, shared with FE TopKFunction.MAX_TOPK_K.
 constexpr int64_t MAX_TOPK_K = 65536;
 
 /**
@@ -75,10 +75,11 @@ struct AggregateTopKCountData {
 /**
  * min_topk(x, k) / max_topk(x, k).
  *
- * Result: ARRAY<STRUCT<value T, count BIGINT>>. NULL inputs are ignored (the nullable-argument
- * wrapper never calls add for them). The array is ordered by value (ascending for MIN), holds at
- * most k distinct values with count > 0, and carries no truncation flag: the caller infers it
- * from the length (a list of exactly k entries is treated as possibly truncated).
+ * Result: ARRAY<STRUCT<value T, count BIGINT>>. NULL inputs are ignored: add validates k for
+ * every row and then skips a NULL x, so the aggregate deliberately does not use the
+ * nullable-argument wrapper. The array is ordered by value (ascending for MIN), holds at most k
+ * distinct values with count > 0, and carries no truncation flag: the caller infers it from the
+ * length (a list of exactly k entries is treated as possibly truncated).
  *
  * With k = 0 the array holds at most the extreme value and its row count, which lets the
  * append-only IVM path compute MIN/MAX from the delta extreme alone.
@@ -123,7 +124,7 @@ public:
                Arena&) const override {
         auto& state = Base::data(place);
         const auto& other = Base::data(rhs);
-        // A partial state without has_k never saw a non-NULL row, so it carries no information.
+        // A partial state without has_k never saw any row, so it carries no information.
         if (!other.has_k) {
             return;
         }

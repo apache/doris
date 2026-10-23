@@ -51,7 +51,7 @@ struct TopKCountCreator {
     }
 };
 
-// Keep in sync with TopKCountFunction.isSupportedValueType on the FE side.
+// Keep in sync with TopKFunction.isSupportedValueType on the FE side.
 template <template <PrimitiveType> class FunctionTemplate>
 using TopKCount = TopKCountCreator<FunctionTemplate, TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT,
                                    TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE,
