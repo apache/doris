@@ -72,12 +72,13 @@ public class HboJoinConditions {
     /**
      * Canonical string of the conditions of a join, empty when the join has no expansion key at all.
      *
-     * <p>An expansion entry replaces the output of a join for every query which matches it, and its
-     * fingerprint carries no data state to guard it - so the operands have to name the columns of the
-     * tables themselves. An operand which is not a direct slot of a catalog table (a computed column, an
-     * aggregate output, a cast) cannot name its table; such a join has no key, so it is skipped instead
-     * of being given a key which two different table pairs with the same aliases would share. A null safe
-     * equality ({@code <=>}) is a hash conjunct as well and takes part like a plain equality.
+     * <p>The key describes the <b>equality</b> conditions only: the factor is the fan out of the equi
+     * join, and the non equality conditions are applied by the estimator on top of it (see
+     * {@code JoinEstimation}), so a join with a residual predicate uses the factor of its equality pair
+     * and the residual keeps its own selectivity. The operands have to name the columns of the tables
+     * themselves: an operand which is not a direct slot of a catalog table (a computed column, an
+     * aggregate output, a cast) cannot name its table, so such a join has no key. A null safe equality
+     * ({@code <=>}) is a hash conjunct as well and takes part like a plain equality.
      */
     public static Optional<String> canonicalOf(Join join) {
         return keyParts(join).map(parts -> PREFIX + String.join(SEP, parts) + "}");
@@ -155,26 +156,9 @@ public class HboJoinConditions {
         if (pairs.isEmpty()) {
             return Optional.empty();
         }
-        pairs.sort(String::compareTo);
-        List<String> residuals = new ArrayList<>();
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            // a residual decides how many partner rows a row finds (`b > u.b + 1` is not `u.b + 2`), so
-            // its literals are part of the key and are never folded - and every slot it reads has to name
-            // its table like the equality operands do
-            Set<String> residualOperands = new TreeSet<>();
-            boolean supported = supportsResidual(conjunct, residualOperands);
-            if (!supported) {
-                return Optional.empty();
-            }
-            operands.addAll(residualOperands);
-            residuals.add(GroupStructInfo.normalizeExpression(conjunct,
-                    GroupStructInfo.LiteralMode.WITH_LITERAL));
-        }
-        residuals.sort(String::compareTo);
-        List<String> parts = new ArrayList<>(1 + pairs.size() + residuals.size() + 1);
+        List<String> parts = new ArrayList<>(2 + pairs.size());
         parts.add(String.valueOf(join.getJoinType()));
         parts.addAll(pairs);
-        parts.addAll(residuals);
         parts.add("operands:[" + String.join(",", operands) + "]");
         if (join.getJoinType() != JoinType.INNER_JOIN) {
             // an outer join preserves one side, so the side a relation is on is part of the key: it names
@@ -217,23 +201,6 @@ public class HboJoinConditions {
             }
         }
         return null;
-    }
-
-    /** Whether every slot of a residual condition names its table (collecting those identities). */
-    private static boolean supportsResidual(Expression residual, Set<String> operands) {
-        boolean[] supported = {true};
-        residual.foreachUp(child -> {
-            if (!(child instanceof SlotReference)) {
-                return;
-            }
-            Optional<String> identity = operandIdentity((Expression) child);
-            if (!identity.isPresent()) {
-                supported[0] = false;
-            } else {
-                operands.add(identity.get());
-            }
-        });
-        return supported[0];
     }
 
     /**
