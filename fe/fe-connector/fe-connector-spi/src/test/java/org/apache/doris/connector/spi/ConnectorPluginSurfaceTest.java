@@ -89,8 +89,8 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Major 19 adds ConnectorColumn#isSourceNullable()/withSourceNullable(boolean); major 20 adds
-        // deleteUsingMetadata to the connector write surface and the scan task scheduler.
-        Assertions.assertEquals("20.0", version.getProperty("api.version"));
+        // deleteUsingMetadata to the connector write surface; major 21 adds the scan task scheduler.
+        Assertions.assertEquals("21.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
