@@ -2619,6 +2619,10 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_java_udf = true;
 
+    @ConfField(description = "Whether to enable LOCAL TVF. Disabled by default. "
+            + "Set this in fe.conf and restart every FE to enable it. Existing access checks still apply.")
+    public static boolean enable_local_tvf = false;
+
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
                     + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
