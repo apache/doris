@@ -81,7 +81,7 @@ suite("test_ivm_agg_minmax_topk_2") {
     sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mv")
     order_qt_initial """SELECT category, min_score, max_score FROM ivm_topk_2_mv ORDER BY category"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_2_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_2_mv""")
 
     // Appends stay incremental; only the extreme moves.
     sql """INSERT INTO ivm_topk_2_t VALUES (3, 'a', 5)"""
@@ -89,7 +89,16 @@ suite("test_ivm_agg_minmax_topk_2") {
     def afterInsert = latestTask("ivm_topk_2_mv")
     assertEquals("SUCCESS", afterInsert.Status.toString())
     order_qt_after_insert """SELECT category, min_score, max_score FROM ivm_topk_2_mv ORDER BY category"""
-    ivm_hidden_qt("state_after_insert", """SELECT * FROM ivm_topk_2_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_insert", """SELECT * FROM ivm_topk_2_mv""")
+
+    // A batch whose insert-side extreme is better and appears more than once must take the
+    // inserted side's count, not the pre-image's.
+    sql """INSERT INTO ivm_topk_2_t VALUES (4, 'a', 1), (5, 'a', 1)"""
+    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv INCREMENTAL"""
+    def afterMultiInsert = latestTask("ivm_topk_2_mv")
+    assertEquals("SUCCESS", afterMultiInsert.Status.toString())
+    order_qt_after_multi_insert """SELECT category, min_score, max_score FROM ivm_topk_2_mv ORDER BY category"""
+    ivm_hidden_qt("state_after_multi_insert", """SELECT * FROM ivm_topk_2_mv""")
 
     // ---- explicit K = 0 on a merge-on-write table: a retraction must fall back ----
     sql """
