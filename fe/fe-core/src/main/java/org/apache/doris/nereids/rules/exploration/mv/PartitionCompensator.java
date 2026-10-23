@@ -17,9 +17,16 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -253,11 +260,20 @@ public class PartitionCompensator {
                 || (narrowedTables > 0 && pctInputsInQuery > narrowedTables);
         if (!takeMvPartitionsOut) {
             // The MV partitions stay, and the uncovered partitions are added to the base branch beside them.
-            // An MV partition's keys and an uncovered partition's can meet in the query's group-by columns:
-            // the repro is a merged LIST component {kept (2020,1), bridge (2038,2)} whose MV partition holds
-            // d=2020, read beside an uncovered old (2020,2). The union then has two rows for d=2020.
-            for (Set<String> uncovered : uncoveredByTable.values()) {
-                uncoveredNarrowedBasePartitions.addAll(uncovered);
+            // Such an uncovered partition can answer a group an MV partition also answers when its keys
+            // meet, in the MV's partition columns, the keys of the base partitions that MV partition is
+            // recorded with: a merged LIST component {kept (2020,1), bridge (2038,2)} projected onto d
+            // holds 2020 and 2038, and an uncovered old (2020,2) is read beside it, so the union would
+            // answer d=2020 twice. A RANGE partition whose range no retained MV partition covers answers
+            // its own groups and is not recorded here.
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry : uncoveredByTable.entrySet()) {
+                BaseColInfo pctInfo = pctInfoMap.get(new BaseTableInfo(entry.getKey()));
+                if (pctInfo == null) {
+                    continue;
+                }
+                uncoveredNarrowedBasePartitions.addAll(overlappingUncoveredListPartitions(
+                        entry.getKey(), pctInfo, entry.getValue(), rewrittenPlanUsePartitionNameSet,
+                        mtmvRelatedTableIfMapMap));
             }
         }
         if (!uncoveredByTable.isEmpty()) {
@@ -301,6 +317,70 @@ public class PartitionCompensator {
         // supplies their rows, so the answer would count them twice.
 
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
+    }
+
+    /**
+     * The uncovered partitions of this table whose keys meet, in the MV's partition columns, the keys of the
+     * base partitions a retained MV partition is recorded with. Only a LIST partitioned table can have them:
+     * a merged component's MV partition holds several keys of the MV's partition column, and an uncovered
+     * partition can carry one of them. A RANGE base partition is either covered by a retained MV partition
+     * -- then it is not uncovered -- or outside its range, where it answers groups of its own.
+     */
+    private static Set<String> overlappingUncoveredListPartitions(
+            MTMVRelatedTableIf table, BaseColInfo pctInfo, Set<String> uncovered,
+            Set<String> retainedMvPartitions,
+            Map<MTMVRelatedTableIf, Map<String, Set<String>>> tableMappings) {
+        if (!(table instanceof OlapTable)
+                || !(((OlapTable) table).getPartitionInfo() instanceof ListPartitionInfo)) {
+            return Sets.newHashSet();
+        }
+        OlapTable olapTable = (OlapTable) table;
+        List<Column> partitionColumns = olapTable.getPartitionColumns();
+        int keyPosition = -1;
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(pctInfo.getColName())) {
+                keyPosition = i;
+                break;
+            }
+        }
+        if (keyPosition < 0) {
+            return Sets.newHashSet();
+        }
+        Set<LiteralExpr> retainedValues = Sets.newHashSet();
+        Map<String, Set<String>> mvToBasePartitions = tableMappings.get(table);
+        if (mvToBasePartitions != null) {
+            for (String mvPartition : retainedMvPartitions) {
+                for (String basePartition : mvToBasePartitions.getOrDefault(mvPartition, Sets.newHashSet())) {
+                    addProjectedListKeys(olapTable, basePartition, keyPosition, retainedValues);
+                }
+            }
+        }
+        Set<String> res = Sets.newHashSet();
+        for (String partition : uncovered) {
+            Set<LiteralExpr> values = Sets.newHashSet();
+            addProjectedListKeys(olapTable, partition, keyPosition, values);
+            if (values.stream().anyMatch(retainedValues::contains)) {
+                res.add(partition);
+            }
+        }
+        return res;
+    }
+
+    private static void addProjectedListKeys(OlapTable table, String partitionName, int keyPosition,
+            Set<LiteralExpr> out) {
+        Partition partition = table.getPartition(partitionName);
+        if (partition == null) {
+            return;
+        }
+        PartitionItem item = table.getPartitionInfo().getItem(partition.getId());
+        if (!(item instanceof ListPartitionItem)) {
+            return;
+        }
+        for (PartitionKey key : ((ListPartitionItem) item).getItems()) {
+            if (keyPosition < key.getKeys().size()) {
+                out.add(key.getKeys().get(keyPosition));
+            }
+        }
     }
 
     private static Pair<Pair<BaseTableInfo, Set<String>>, Pair<BaseColInfo, Set<String>>> getNeedCompensatePartitions(
