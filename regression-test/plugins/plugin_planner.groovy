@@ -19,8 +19,6 @@ import org.apache.doris.regression.suite.Suite
 
 import org.awaitility.Awaitility
 
-import java.util.concurrent.TimeUnit
-
 import static java.util.concurrent.TimeUnit.SECONDS
 
 def anlyzedPlanShowFields = [
