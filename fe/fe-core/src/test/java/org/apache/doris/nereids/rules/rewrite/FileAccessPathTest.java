@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FlGetBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -42,7 +43,6 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDataAccessPath;
@@ -84,6 +84,16 @@ public class FileAccessPathTest {
                 new ArrayList<>(tree.getChildren().keySet()));
         Assertions.assertEquals(6, ((FileType) tree.getType()).getFields().size());
         Assertions.assertTrue(FileType.INSTANCE.getFields().stream().allMatch(StructField::isNullable));
+    }
+
+    @Test
+    public void testBinaryReadKeepsFullFileAccessAlongsideMetadataProjection() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        AccessPathInfo info = prune(file, new FlGetBinary(file), field(file, "size"));
+        Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
+        Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+        Assertions.assertEquals(ImmutableList.of(data("f")),
+                prune(file, new IsNull(new FlGetBinary(file))).getAllAccessPaths());
     }
 
     @Test

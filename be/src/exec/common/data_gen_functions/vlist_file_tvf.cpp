@@ -82,7 +82,7 @@ Status VListFileTVF::_fetch_next_page(RuntimeState* state) {
     }
     _objects = std::move(page.objects);
     for (auto& prefix : page.common_prefixes) {
-        _objects.emplace_back(ObjectMeta {.key = std::move(prefix)});
+        _objects.emplace_back(io::ObjectMeta {.key = std::move(prefix)});
     }
     _next_index = 0;
     _continuation_token = std::move(page.continuation_token);

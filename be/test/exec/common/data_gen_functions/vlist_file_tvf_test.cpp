@@ -30,6 +30,7 @@
 #include "core/column/column_file.h"
 #include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "exec/operator/datagen_operator.h"
@@ -83,9 +84,10 @@ protected:
     void SetUp() override {
         descriptor = std::make_unique<MockRowDescriptor>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeString>(),
+                                          std::make_shared<DataTypeInt64>(),
                                           make_nullable(std::make_shared<DataTypeFile>())},
                 &pool);
-        const std::array<std::string, 2> names {"path", "file"};
+        const std::array<std::string, 3> names {"path", "size", "file"};
         for (size_t i = 0; i < names.size(); ++i) {
             descriptor->tuple_desc_map[0]->slots()[i]->_col_name = names[i];
         }
@@ -101,7 +103,7 @@ protected:
     }
 
     File row(const Block& block, size_t index) {
-        return (*block.get_by_position(1).column)[index].get<TYPE_FILE>();
+        return (*block.get_by_position(2).column)[index].get<TYPE_FILE>();
     }
 
     void check_projection(const std::vector<size_t>& positions) {
@@ -132,6 +134,9 @@ protected:
                 EXPECT_EQ(value.get<TYPE_STRING>(), "s3://bucket/dir/a.txt");
                 break;
             case 1:
+                EXPECT_EQ(value.get<TYPE_BIGINT>(), 7);
+                break;
+            case 2:
                 EXPECT_EQ(value.get<TYPE_FILE>()[0].get<TYPE_STRING>(), "s3://bucket/dir/a.txt");
                 EXPECT_EQ(value.get<TYPE_FILE>()[2].get<TYPE_BIGINT>(), 7);
                 break;
@@ -207,7 +212,7 @@ TEST_F(ListFileTVFTest, EmitsCompleteFilesAndSkipsDirectoryMarkers) {
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     ASSERT_EQ(block.rows(), 3);
     EXPECT_TRUE(eos);
-    EXPECT_TRUE(block.get_by_position(1).type->is_nullable());
+    EXPECT_TRUE(block.get_by_position(2).type->is_nullable());
     EXPECT_EQ((*block.get_by_position(0).column)[0].get<TYPE_STRING>(),
               "s3://bucket/dir/empty.txt");
     const auto empty = row(block, 0);
@@ -219,6 +224,27 @@ TEST_F(ListFileTVFTest, EmitsCompleteFilesAndSkipsDirectoryMarkers) {
     EXPECT_TRUE(empty[5].is_null());
     EXPECT_EQ(row(block, 1)[3].get<TYPE_STRING>(), "image/png");
     EXPECT_EQ(row(block, 2)[3].get<TYPE_STRING>(), "application/octet-stream");
+}
+
+TEST_F(ListFileTVFTest, NonRecursiveListingIncludesNativeDirectoryPrefixes) {
+    ASSERT_TRUE(function->set_scan_ranges(ranges()).ok());
+    EXPECT_CALL(*s3, ListObjectsV2(testing::_)).WillOnce([](const auto& request) {
+        EXPECT_EQ(request.GetDelimiter(), "/");
+        auto result = page({{"dir/a.txt", 7}});
+        CommonPrefix prefix;
+        prefix.SetPrefix("dir/sub/");
+        result.AddCommonPrefixes(prefix);
+        return ListObjectsV2Outcome(result);
+    });
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(row(block, 0)[2].get<TYPE_BIGINT>(), 7);
+    EXPECT_EQ((*block.get_by_position(0).column)[1].get<TYPE_STRING>(), "s3://bucket/dir/sub/");
+    EXPECT_EQ((*block.get_by_position(1).column)[1].get<TYPE_BIGINT>(), 0);
+    EXPECT_TRUE(block.get_by_position(2).column->is_null_at(1));
+    EXPECT_TRUE(eos);
 }
 
 TEST_F(ListFileTVFTest, EmitsListingEtagsWithoutHeadRequests) {
@@ -282,7 +308,7 @@ TEST_F(ListFileTVFTest, SplitsPagesIntoBatchesWithoutPrefetching) {
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     ASSERT_EQ(block.rows(), 2);
     EXPECT_FALSE(eos);
-    auto previous = block.get_by_position(1).column;
+    auto previous = block.get_by_position(2).column;
     block.clear_column_data();
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     ASSERT_EQ(block.rows(), 1);
@@ -329,11 +355,11 @@ TEST_F(ListFileTVFTest, ReusesOutputColumnsAcrossPages) {
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     ASSERT_FALSE(eos);
     const auto* path_column = block.get_by_position(0).column.get();
-    const auto* file_column = block.get_by_position(1).column.get();
+    const auto* file_column = block.get_by_position(2).column.get();
     block.clear_column_data();
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     EXPECT_EQ(block.get_by_position(0).column.get(), path_column);
-    EXPECT_EQ(block.get_by_position(1).column.get(), file_column);
+    EXPECT_EQ(block.get_by_position(2).column.get(), file_column);
     ASSERT_EQ(block.rows(), 1);
     EXPECT_EQ(row(block, 0)[0].get<TYPE_STRING>(), "s3://bucket/dir/b.txt");
     EXPECT_TRUE(eos);
@@ -352,13 +378,13 @@ TEST_F(ListFileTVFTest, RestoresReusedColumnsAfterListingError) {
     bool eos = false;
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     const auto* path_column = block.get_by_position(0).column.get();
-    const auto* file_column = block.get_by_position(1).column.get();
+    const auto* file_column = block.get_by_position(2).column.get();
     block.clear_column_data();
     EXPECT_FALSE(function->get_next(&state, &block, &eos).ok());
     ASSERT_NE(block.get_by_position(0).column.get(), nullptr);
-    ASSERT_NE(block.get_by_position(1).column.get(), nullptr);
+    ASSERT_NE(block.get_by_position(2).column.get(), nullptr);
     EXPECT_EQ(block.get_by_position(0).column.get(), path_column);
-    EXPECT_EQ(block.get_by_position(1).column.get(), file_column);
+    EXPECT_EQ(block.get_by_position(2).column.get(), file_column);
     EXPECT_EQ(block.rows(), 0);
 }
 
@@ -482,9 +508,9 @@ TEST_F(ListFileTVFTest, EmptyListingReturnsEmptyFileColumn) {
     bool eos = false;
     ASSERT_TRUE(function->get_next(&state, &block, &eos).ok());
     EXPECT_EQ(block.rows(), 0);
-    ASSERT_EQ(block.columns(), 2);
+    ASSERT_EQ(block.columns(), 3);
     EXPECT_EQ(block.get_by_position(0).type->get_name(), "String");
-    EXPECT_EQ(block.get_by_position(1).type->get_name(), "File");
+    EXPECT_EQ(block.get_by_position(2).type->get_name(), "Nullable(File)");
     EXPECT_TRUE(eos);
 }
 
@@ -620,7 +646,7 @@ TEST_F(ListFileTVFTest, ZeroLimitDoesNotFetchAnyPage) {
     bool eos = false;
     ASSERT_TRUE(op.get_block(&context.state, &block, &eos).ok());
     EXPECT_EQ(block.rows(), 0);
-    EXPECT_EQ(block.columns(), 2);
+    EXPECT_EQ(block.columns(), 3);
     EXPECT_TRUE(eos);
 }
 
@@ -648,12 +674,16 @@ TEST_F(ListFileTVFTest, PrunedPathProjection) {
     check_projection({0});
 }
 
-TEST_F(ListFileTVFTest, PrunedFileProjection) {
+TEST_F(ListFileTVFTest, PrunedSizeProjection) {
     check_projection({1});
 }
 
+TEST_F(ListFileTVFTest, PrunedFileProjection) {
+    check_projection({2});
+}
+
 TEST_F(ListFileTVFTest, ReorderedPrunedProjection) {
-    check_projection({1, 0});
+    check_projection({2, 1, 0});
 }
 
 } // namespace

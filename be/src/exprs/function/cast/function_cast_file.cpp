@@ -23,7 +23,6 @@
 #include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/value/file_value.h"
-#include "exprs/function/cast/cast_to_variant.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
 
 namespace doris::CastWrapper {

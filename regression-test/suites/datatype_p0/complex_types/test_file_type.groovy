@@ -95,7 +95,7 @@ suite("test_file_type") {
             sql "SET short_circuit_evaluation = ${shortCircuit}"
             def selected = sql """
                 SELECT number, ELEMENT_AT(chosen, 'uri'),
-                       FROM_BINARY(ELEMENT_AT(chosen, 'inline')), CAST(chosen IS NULL AS INT)
+                       FROM_BINARY(fl_get_binary(chosen)), CAST(chosen IS NULL AS INT)
                 FROM (
                     SELECT number,
                            CASE WHEN number % 3 = 0 THEN f

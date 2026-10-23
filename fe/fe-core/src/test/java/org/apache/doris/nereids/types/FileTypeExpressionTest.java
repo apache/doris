@@ -466,13 +466,12 @@ public class FileTypeExpressionTest {
     }
 
     @Test
-    public void testInPredicateRejectsOrdinaryStruct() {
+    public void testInPredicatePreservesOrdinaryStructAdmission() {
         for (String sqlType : Arrays.asList("STRUCT<n:BIGINT>", "STRUCT<m:MAP<STRING,INT>>",
                 "STRUCT<j:JSON>", "STRUCT<a:ARRAY<JSON>>")) {
             Expression value = new SlotReference("s", type(sqlType));
             InPredicate predicate = new InPredicate(value, Collections.singletonList(value));
-            assertAnalysisError("in predicate could not contains complex type",
-                    () -> TypeCoercionUtils.processInPredicate(predicate), sqlType);
+            Assertions.assertSame(predicate, TypeCoercionUtils.processInPredicate(predicate), sqlType);
         }
     }
 

@@ -125,25 +125,25 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
         // Inline output: NULL, empty, binary and UTF-8 payloads, with metadata children left NULL.
         qt_basic_lengths """
             select id, case_name, image is null,
-                   length(element_at(image, 'inline')),
-                   md5(cast(element_at(image, 'inline') as string))
+                   length(fl_get_binary(image)),
+                   md5(cast(fl_get_binary(image) as string))
             from blob_basic order by id
         """
         qt_basic_bytes """
-            select id, hex(cast(element_at(image, 'inline') as string))
+            select id, hex(cast(fl_get_binary(image) as string))
             from blob_basic where id in (3, 4, 5, 6, 7, 8, 16) order by id
         """
         qt_text_payloads """
-            select id, cast(element_at(image, 'inline') as string)
+            select id, cast(fl_get_binary(image) as string)
             from blob_basic where id in (9, 10, 14, 15, 17) order by id
         """
         // Full-payload checks use independent Spark-written ordinary columns as the oracle.
         // Inline output must leave every metadata child NULL, including size.
         qt_basic_integrity """
             select count(*), sum(image is null),
-                   sum(image is not null and length(element_at(image, 'inline')) = 0),
-                   sum(not (length(element_at(image, 'inline')) <=> expected_size)),
-                   sum(not (hex(cast(element_at(image, 'inline') as string)) <=> expected_hex)),
+                   sum(image is not null and length(fl_get_binary(image)) = 0),
+                   sum(not (length(fl_get_binary(image)) <=> expected_size)),
+                   sum(not (hex(cast(fl_get_binary(image) as string)) <=> expected_hex)),
                    sum(element_at(image, 'uri') is not null
                        or element_at(image, 'offset') is not null
                        or element_at(image, 'size') is not null
@@ -153,76 +153,76 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
         """
         qt_blob_predicate """
             select id from blob_basic
-            where cast(element_at(image, 'inline') as string) = 'hello world' order by id
+            where cast(fl_get_binary(image) as string) = 'hello world' order by id
         """
         qt_and_predicate """
             select id from blob_basic
-            where id > 10 and cast(element_at(image, 'inline') as string) = 'hello world' order by id
+            where id > 10 and cast(fl_get_binary(image) as string) = 'hello world' order by id
         """
         qt_or_predicate """
-            select id, hex(cast(element_at(image, 'inline') as string)) from blob_basic
-            where id = 1 or cast(element_at(image, 'inline') as string) = 'hello world' order by id
+            select id, hex(cast(fl_get_binary(image) as string)) from blob_basic
+            where id = 1 or cast(fl_get_binary(image) as string) = 'hello world' order by id
         """
 
         qt_empty_count "select count(*) from blob_empty"
         qt_empty_projection """
-            select id, length(element_at(image, 'inline')) from blob_empty order by id
+            select id, length(fl_get_binary(image)) from blob_empty order by id
         """
         qt_all_null """
-            select id, image is null, element_at(image, 'inline') is null
+            select id, image is null, fl_get_binary(image) is null
             from blob_all_null order by id
         """
         // Two BLOB columns: independent values, projection order and filters on the other column.
         qt_multi_columns """
-            select id, note, hex(cast(element_at(thumbnail, 'inline') as string)),
-                   length(element_at(image, 'inline')),
-                   md5(cast(element_at(image, 'inline') as string))
+            select id, note, hex(cast(fl_get_binary(thumbnail) as string)),
+                   length(fl_get_binary(image)),
+                   md5(cast(fl_get_binary(image) as string))
             from blob_multi_columns order by id
         """
         qt_multi_integrity """
             select count(*),
-                   sum(not (length(element_at(image, 'inline')) <=> expected_size)
-                       or not (hex(cast(element_at(image, 'inline') as string)) <=> expected_hex)),
-                   sum(not (length(element_at(thumbnail, 'inline')) <=> expected_thumbnail_size)
-                       or not (hex(cast(element_at(thumbnail, 'inline') as string))
+                   sum(not (length(fl_get_binary(image)) <=> expected_size)
+                       or not (hex(cast(fl_get_binary(image) as string)) <=> expected_hex)),
+                   sum(not (length(fl_get_binary(thumbnail)) <=> expected_thumbnail_size)
+                       or not (hex(cast(fl_get_binary(thumbnail) as string))
                                <=> expected_thumbnail_hex))
             from blob_multi_columns
         """
         // Filter on one BLOB but output only the other, including NULL and empty values.
         qt_only_thumbnail """
-            select id, hex(cast(element_at(thumbnail, 'inline') as string))
+            select id, hex(cast(fl_get_binary(thumbnail) as string))
             from blob_multi_columns
-            where image is null or length(element_at(image, 'inline')) = 0 order by id
+            where image is null or length(fl_get_binary(image)) = 0 order by id
         """
         // Partition pruning, later snapshots, compaction and schema changes must preserve row mapping.
         qt_partition_summary """
             select region, count(*), sum(id),
-                   sum(not (hex(cast(element_at(image, 'inline') as string)) <=> expected_hex))
+                   sum(not (hex(cast(fl_get_binary(image) as string)) <=> expected_hex))
             from blob_partitioned group by region order by region nulls first
         """
         qt_partition_filter """
-            select id, hex(cast(element_at(image, 'inline') as string))
+            select id, hex(cast(fl_get_binary(image) as string))
             from blob_partitioned where region = 'b' and id in (7, 9, 12) order by id
         """
         qt_null_partition """
-            select id, length(element_at(image, 'inline'))
+            select id, length(fl_get_binary(image))
             from blob_partitioned where region is null order by id
         """
         qt_multi_snapshot """
-            select id, case_name, hex(cast(element_at(image, 'inline') as string))
+            select id, case_name, hex(cast(fl_get_binary(image) as string))
             from blob_multi_snapshot order by id, case_name
         """
         qt_compacted """
-            select id, hex(cast(element_at(image, 'inline') as string))
+            select id, hex(cast(fl_get_binary(image) as string))
             from blob_compacted order by id
         """
         qt_schema_evolution """
-            select id, label, extra, length(element_at(image, 'inline')),
-                   hex(cast(element_at(image, 'inline') as string))
+            select id, label, extra, length(fl_get_binary(image)),
+                   hex(cast(fl_get_binary(image) as string))
             from blob_schema_evolution order by id
         """
         qt_orc_fallback """
-            select id, hex(cast(element_at(image, 'inline') as string))
+            select id, hex(cast(fl_get_binary(image) as string))
             from blob_orc_fallback order by id
         """
 
@@ -230,18 +230,18 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
         // MD5/HEX samples below check bytes; descriptor cases check rollover across all files.
         qt_rollover_integrity """
             select count(*) as row_count, sum(id) as id_sum,
-                   sum(not (length(element_at(image, 'inline')) <=> expected_size))
+                   sum(not (length(fl_get_binary(image)) <=> expected_size))
                        as invalid_image_length_count,
-                   sum(not (length(element_at(thumbnail, 'inline')) <=> expected_thumbnail_size))
+                   sum(not (length(fl_get_binary(thumbnail)) <=> expected_thumbnail_size))
                        as invalid_thumbnail_length_count
             from blob_rollover
             where id between 0 and 1024
         """
         qt_rollover_sample """
-            select id, length(element_at(image, 'inline')),
-                   md5(cast(element_at(image, 'inline') as string)),
-                   length(element_at(thumbnail, 'inline')),
-                   hex(cast(element_at(thumbnail, 'inline') as string))
+            select id, length(fl_get_binary(image)),
+                   md5(cast(fl_get_binary(image) as string)),
+                   length(fl_get_binary(thumbnail)),
+                   hex(cast(fl_get_binary(thumbnail) as string))
             from blob_rollover
             where id in (0, 1, 2, 16, 17, 18, 999, 1000, 1001, 1023, 1024, 1025,
                          1999, 2000, 2047, 2048, 2049, 2999, 3000, 3071, 3072,
@@ -250,17 +250,17 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
         """
         // Explicit sparse IDs let Paimon apply the filter; keep descending order and LIMIT coverage.
         qt_rollover_sparse """
-            select id, md5(cast(element_at(image, 'inline') as string)),
-                   md5(cast(element_at(thumbnail, 'inline') as string))
+            select id, md5(cast(fl_get_binary(image) as string)),
+                   md5(cast(fl_get_binary(thumbnail) as string))
             from blob_rollover
             where id in (0, 997, 1994, 2991, 3988)
             order by id desc limit 3
         """
         qt_rollover_cross_predicate """
-            select id, hex(cast(element_at(thumbnail, 'inline') as string))
+            select id, hex(cast(fl_get_binary(thumbnail) as string))
             from blob_rollover
             where id in (16, 17, 18, 999, 1000, 1001)
-              and cast(element_at(image, 'inline') as string) like 'row-%'
+              and cast(fl_get_binary(image) as string) like 'row-%'
             order by id
         """
 
@@ -270,7 +270,7 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
                    case when image is null then null
                         else right(element_at(image, 'uri'), 5) = '.blob'
                              and element_at(image, 'offset') >= 4 end,
-                   element_at(image, 'size'), element_at(image, 'inline') is null,
+                   element_at(image, 'size'), fl_get_binary(image) is null,
                    element_at(image, 'content_type') is null, element_at(image, 'checksum') is null
             from blob_basic@options('blob-as-descriptor'='true')
             where id in (1, 2, 3, 7, 8, 9, 10, 13, 33, 34, 35, 36, 37, 38, 39)
@@ -281,7 +281,7 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
                    sum(not (element_at(image, 'size') <=> expected_size)
                        or not ((element_at(image, 'uri') is null) <=> (expected_size is null))
                        or not ((element_at(image, 'offset') is null) <=> (expected_size is null))
-                       or element_at(image, 'inline') is not null
+                       or fl_get_binary(image) is not null
                        or element_at(image, 'content_type') is not null
                        or element_at(image, 'checksum') is not null)
             from blob_basic@options('blob-as-descriptor'='true')
@@ -295,7 +295,7 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
                        element_at(image, 'offset') as payload_offset,
                        element_at(image, 'size') as payload_size,
                        expected_size as expected_payload_size,
-                       element_at(image, 'inline') is not null as has_inline,
+                       fl_get_binary(image) is not null as has_inline,
                        element_at(image, 'content_type') is not null as has_content_type,
                        element_at(image, 'checksum') is not null as has_checksum
                 from blob_rollover@options('blob-as-descriptor'='true')
@@ -303,7 +303,7 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
                 select 'thumbnail', thumbnail is null,
                        element_at(thumbnail, 'uri'), element_at(thumbnail, 'offset'),
                        element_at(thumbnail, 'size'), expected_thumbnail_size,
-                       element_at(thumbnail, 'inline') is not null,
+                       fl_get_binary(thumbnail) is not null,
                        element_at(thumbnail, 'content_type') is not null,
                        element_at(thumbnail, 'checksum') is not null
                 from blob_rollover@options('blob-as-descriptor'='true')
@@ -362,62 +362,62 @@ suite("test_paimon_blob_native", "p0,external,doris,external_docker,external_doc
         // Query-level overrides must not change the table's default descriptor output
         // when queries alternate between representations.
         qt_table_default_descriptor """
-            select id, element_at(image, 'size'), element_at(image, 'inline') is null
+            select id, element_at(image, 'size'), fl_get_binary(image) is null
             from blob_descriptor_default order by id
         """
         qt_table_override_inline """
-            select id, hex(cast(element_at(image, 'inline') as string))
+            select id, hex(cast(fl_get_binary(image) as string))
             from blob_descriptor_default@options('blob-as-descriptor'='false') order by id
         """
         qt_table_default_again """
-            select id, element_at(image, 'size'), element_at(image, 'inline') is null
+            select id, element_at(image, 'size'), fl_get_binary(image) is null
             from blob_descriptor_default order by id
         """
 
         // Small payloads exercise the limit: do not allocate 10 MiB just to test an error.
         sql "set paimon_blob_max_size = 8"
         qt_limit_allowed """
-            select id, length(element_at(image, 'inline')),
-                   hex(cast(element_at(image, 'inline') as string))
+            select id, length(fl_get_binary(image)),
+                   hex(cast(fl_get_binary(image) as string))
             from blob_size_limit where id in (1, 2, 11, 12) order by id
         """
         test {
-            sql "select cast(element_at(image, 'inline') as string) from blob_size_limit where id = 13"
+            sql "select cast(fl_get_binary(image) as string) from blob_size_limit where id = 13"
             exception "paimon_blob_max_size=8"
         }
         test {
             // BLOB-dependent filters run after materialization, so they cannot bypass the limit.
-            sql "select id from blob_size_limit where length(element_at(image, 'inline')) <= 8"
+            sql "select id from blob_size_limit where length(fl_get_binary(image)) <= 8"
             exception "paimon_blob_max_size=8"
         }
         qt_limit_without_blob "select id from blob_size_limit where id = 13"
         qt_limit_count "select count(*) from blob_size_limit"
         qt_limit_only_thumbnail """
-            select id, hex(cast(element_at(thumbnail, 'inline') as string))
+            select id, hex(cast(fl_get_binary(thumbnail) as string))
             from blob_multi_columns where id = 8
         """
         test {
-            sql "select cast(element_at(image, 'inline') as string) from blob_multi_columns where id = 8"
+            sql "select cast(fl_get_binary(image) as string) from blob_multi_columns where id = 8"
             exception "paimon_blob_max_size=8"
         }
         qt_limit_descriptor """
-            select id, element_at(image, 'size'), element_at(image, 'inline') is null
+            select id, element_at(image, 'size'), fl_get_binary(image) is null
             from blob_size_limit@options('blob-as-descriptor'='true') where id = 13
         """
         sql "set paimon_blob_max_size = 9"
         qt_limit_raised """
-            select id, length(element_at(image, 'inline')),
-                   hex(cast(element_at(image, 'inline') as string))
+            select id, length(fl_get_binary(image)),
+                   hex(cast(fl_get_binary(image) as string))
             from blob_size_limit where id = 13
         """
         sql "set paimon_blob_max_size = 1"
         qt_table_default_with_limit """
-            select id, element_at(image, 'size'), element_at(image, 'inline') is null
+            select id, element_at(image, 'size'), fl_get_binary(image) is null
             from blob_descriptor_default order by id
         """
         test {
             sql """
-                select cast(element_at(image, 'inline') as string)
+                select cast(fl_get_binary(image) as string)
                 from blob_descriptor_default@options('blob-as-descriptor'='false') where id = 10
             """
             exception "paimon_blob_max_size=1"

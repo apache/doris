@@ -92,6 +92,7 @@ enum TExprNodeType {
   PREDICATE = 43,
   // Normal literal
   LITERAL = 44,
+  // 46 is reserved for the removed FILE_LITERAL; never reuse it.
 }
 
 //enum TAggregationOp {

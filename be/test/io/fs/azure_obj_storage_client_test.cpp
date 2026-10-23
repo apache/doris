@@ -112,6 +112,11 @@ TEST(AzureObjStorageClientListTest, NativeHierarchyListingKeepsOnlyDirectBlobsAn
             auto page =
                     client->list_objects_page({.prefix = "tree/", .delimiter = delimiter}, token);
             ASSERT_TRUE(page.resp.ok()) << page.resp.status.msg;
+            if (!delimiter.empty() && token.empty()) {
+                EXPECT_EQ(page.common_prefixes, std::vector<std::string> {"tree/sub/"});
+            } else {
+                EXPECT_TRUE(page.common_prefixes.empty());
+            }
             objects.insert(objects.end(), page.objects.begin(), page.objects.end());
             token = page.has_more ? page.continuation_token : std::string();
         } while (!token.empty());
