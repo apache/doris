@@ -204,10 +204,12 @@ TEST_F(CloudSnapshotMgrTest, ConvertRowsetsMapsFilesToTargetLayout) {
         rowset_meta->set_rowset_id(0);
         rowset_meta->set_rowset_id_v2(*src_rowset_id);
         rowset_meta->set_tablet_id(1000);
+        rowset_meta->set_txn_id(2000);
         rowset_meta->set_num_segments(2);
         rowset_meta->set_start_version(2);
         rowset_meta->set_end_version(2);
         rowset_meta->set_rowset_state(RowsetStatePB::VISIBLE);
+        rowset_meta->set_newest_write_timestamp(1678901234567890);
         rowset_meta->mutable_tablet_schema()->CopyFrom(*schema);
 
         auto tablet_meta = std::make_shared<TabletMeta>();
