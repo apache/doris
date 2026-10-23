@@ -119,11 +119,19 @@ public abstract class TopKFunction extends NotNullableAggregateFunction
         return dataType;
     }
 
-    /** The pair element shared by the state column and the aggregate result. */
+    /**
+     * The pair element shared by the state column and the aggregate result.
+     *
+     * <p>Both fields are nullable in the type even though the aggregate never produces a NULL
+     * field: an array element is always nullable, so a lambda that reads a field through
+     * {@code element_at} gets a nullable value and {@code named_struct} records it as such. A
+     * required field here would make the natural merge lambda over the aggregate output fail the
+     * {@code array_sorted_merge} element-type check.
+     */
     public static StructType pairType(DataType valueType) {
         return new StructType(ImmutableList.of(
-                new StructField("value", valueType, false, ""),
-                new StructField("count", BigIntType.INSTANCE, false, "")));
+                new StructField("value", valueType, true, ""),
+                new StructField("count", BigIntType.INSTANCE, true, "")));
     }
 
     /** The aggregate returns the sorted list itself; truncation is inferred by the caller. */
