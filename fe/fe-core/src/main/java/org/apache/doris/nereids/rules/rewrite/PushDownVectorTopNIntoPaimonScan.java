@@ -59,6 +59,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.ArrayType;
@@ -340,12 +341,15 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
                     && filterHasDataConjunct(optionalFilter.get(), table)
                     && !PaimonScanNode.vectorSearchSupportsDataPredicate(table))
                     || table.rowType().getFieldNames().stream().anyMatch(
-                            name -> name.equalsIgnoreCase(PaimonVectorSearch.SEARCH_DISTANCE_COLUMN))
-                    || !complexColumnsRideAsWholeColumns(project, orderKeyAlias)
+                            name -> name.equalsIgnoreCase(PaimonVectorSearch.SEARCH_DISTANCE_COLUMN)
+                                    || name.equalsIgnoreCase("__paimon_search_score")
+                                    || name.equalsIgnoreCase("_PKEY_VECTOR_POSITION"))
+                    || !complexColumnsRideAsWholeColumns(project, orderKeyAlias, orderKeyExpr)
                     || projectContainsNonMovableExpression(project, orderKeyAlias)
                     || (table instanceof FileStoreTable
                             && PaimonVectorSearch.hasRustIncompatibleSchemaHistory(
-                                    (FileStoreTable) table))) {
+                                    (FileStoreTable) table))
+                    || projectionNeedsNanosecondReader(project, optionalFilter)) {
                 return null;
             }
         } catch (Throwable t) {
@@ -527,6 +531,32 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
     }
 
     /**
+     * Mirror of the scan node's nanosecond-reader gate: a slot whose type
+     * recursively contains a TIMESTAMP_NS column stays on JNI (the reader
+     * family that preserves INT96/ORC nanos, nested values included), and a
+     * rewritten vector split has no JNI fallback — so a projection or filter
+     * referencing one must decline the rewrite. The scan node checks the desc
+     * slots; here the same slots are the ones the Project and Filter reference.
+     * The schema-history gate does not subsume this: a table can carry
+     * TIMESTAMP(9) columns in its CURRENT schema with no evolution history.
+     */
+    private static boolean projectionNeedsNanosecondReader(
+            LogicalProject<?> project, Optional<LogicalFilter<?>> optionalFilter) {
+        Set<SlotReference> slots = new HashSet<>();
+        project.getProjects().forEach(
+                p -> slots.addAll(p.collect(SlotReference.class::isInstance)));
+        optionalFilter.ifPresent(filter -> filter.getConjuncts().forEach(
+                conjunct -> slots.addAll(conjunct.collect(SlotReference.class::isInstance))));
+        for (SlotReference slot : slots) {
+            if (slot.getOriginalColumn().isPresent()
+                    && PaimonUtil.containsTimestampNs(slot.getOriginalColumn().get().getType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Whether the filter carries a conjunct on a non-partition column — the DATA
      * half of the predicate, the half the paimon-rust vector search applies per
      * candidate row. Every conjunct already passed the riding whitelist, so each
@@ -610,7 +640,7 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
      * whitelist admits only scalar columns.
      */
     private static boolean complexColumnsRideAsWholeColumns(LogicalProject<?> project,
-            Alias orderKeyAlias) {
+            Alias orderKeyAlias, Expression orderKeyExpr) {
         for (NamedExpression projection : project.getProjects()) {
             if (!(projection instanceof Alias)) {
                 // A bare passthrough slot output: whole unless already pruned.
@@ -633,8 +663,14 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
             Set<SlotReference> replacedSlots = new HashSet<>();
             Set<Expression> distanceCalls = alias.child().collect(e ->
                     e instanceof L2DistanceApproximate || e instanceof InnerProductApproximate);
+            // Only the call the rewrite actually replaces (the one equal to the
+            // order-key expression) may exempt its slots: a distinct distance call
+            // over a complex column stays in the projection after the rewrite, so
+            // its complex slots must keep the whole-column guard.
             for (Expression call : distanceCalls) {
-                replacedSlots.addAll(call.collect(SlotReference.class::isInstance));
+                if (call.equals(orderKeyExpr)) {
+                    replacedSlots.addAll(call.collect(SlotReference.class::isInstance));
+                }
             }
             Set<SlotReference> slots = alias.child().collect(SlotReference.class::isInstance);
             for (SlotReference slot : slots) {
@@ -705,6 +741,12 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
      * TIMESTAMP_LTZ decoding is not equivalent to Doris semantics yet, and a vector
      * split would materialize rows through that decoder with no fallback. Snapshot
      * selection is irrelevant here -- this is a physical-file property.
+     *
+     * <p>The check is per PHYSICAL FILE, not per current format: a table written
+     * as ORC with TIMESTAMP_LTZ and later switched to Parquet (retaining the ORC
+     * rows) still exposes those rows to setPaimonParams' ORC detection, so a
+     * currently-Parquet table declines when any schema era declared ORC and any
+     * schema era (its own fields, or the current ones) carried LTZ columns.
      */
     private static boolean orcSchemaContainsTimestampLtz(Table boundTable) {
         try {
@@ -713,12 +755,33 @@ public class PushDownVectorTopNIntoPaimonScan implements RewriteRuleFactory {
                 return false;
             }
             FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
-            // Paimon's default file format is ORC; only a PARQUET table is known to
-            // be free of the orc-ltz shape (an unset key falls to the default).
+            // Paimon's default file format is ORC; only a PARQUET declaration is
+            // known to be free of the orc shape (an unset key falls to the default).
             String fileFormat = CoreOptions.fromMap(fileStoreTable.options()).fileFormatString();
-            if (!CoreOptions.FILE_FORMAT_PARQUET.equalsIgnoreCase(String.valueOf(fileFormat))) {
+            boolean currentOrc = !CoreOptions.FILE_FORMAT_PARQUET.equalsIgnoreCase(
+                    String.valueOf(fileFormat));
+            if (currentOrc) {
                 return fileStoreTable.schema().fields().stream()
                         .anyMatch(field -> containsTimestampLtz(field.type()));
+            }
+            // Currently Parquet: files are shaped by the schema era that wrote
+            // them, so an ORC era's retained files still reach the reader. Any
+            // historical schema that declared ORC AND carried LTZ columns (in its
+            // own fields or in the current schema, which those rows must also
+            // decode under) forces the decline.
+            for (TableSchema historical : fileStoreTable.schemaManager().listAll()) {
+                if (historical == null || historical.id() == fileStoreTable.schema().id()) {
+                    continue;
+                }
+                String eraFormat = CoreOptions.fromMap(historical.options()).fileFormatString();
+                if (CoreOptions.FILE_FORMAT_PARQUET.equalsIgnoreCase(String.valueOf(eraFormat))) {
+                    continue;
+                }
+                if (historical.fields().stream().anyMatch(field -> containsTimestampLtz(field.type()))
+                        || fileStoreTable.schema().fields().stream()
+                                .anyMatch(field -> containsTimestampLtz(field.type()))) {
+                    return true;
+                }
             }
             return false;
         } catch (Throwable t) {

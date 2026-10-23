@@ -21,6 +21,8 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogProperty;
@@ -78,6 +80,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.TimestampType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -1022,6 +1025,76 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         }
     }
 
+    @Test
+    public void testReservedMaterializerNamesNotPushedDown() {
+        // __paimon_search_score and _PKEY_VECTOR_POSITION are reserved by the rust
+        // materializer: a user column named either makes the rust table open fail
+        // after the one-way rewrite, so the pre-flight declines for both.
+        for (String reserved : ImmutableList.of("__paimon_search_score", "_PKEY_VECTOR_POSITION")) {
+            LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                    "pk-vector.index.columns", "vec",
+                    "fields.vec.pk-vector.distance.metric", "l2"),
+                    Optional.empty(),
+                    ImmutableList.of("id", "vec", reserved));
+            Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+            assertNotPushedDown(topN(
+                    new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+        }
+    }
+
+    @Test
+    public void testNanosecondColumnNotPushedDown() {
+        // A TIMESTAMP_NS column in the projection keeps the reader family that
+        // preserves nanoseconds (JNI); a vector split has no fallback, so the
+        // rewrite declines. The schema-history gate does not subsume this —
+        // the table carries the column in its CURRENT schema, no evolution.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference tsns = (SlotReference) scan.getOutput().get(7);
+        Assertions.assertEquals("tsns", tsns.getName());
+        Assertions.assertTrue(tsns.getOriginalColumn().get().getType().isTimeStampNs());
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(new LogicalProject<>(
+                ImmutableList.of(idSlot(scan), new Alias(tsns, "t"), dis), scan), dis, true));
+    }
+
+    @Test
+    public void testDistinctDistanceCallNotExempted() {
+        // extra := inner_product(vec2, q): only the order-key call is replaced by
+        // the synthetic slot; a DISTINCT distance call stays in the projection and
+        // keeps its complex (ARRAY<FLOAT>) slot, so the whole-column guard applies
+        // to it — the rewrite declines instead of shipping a vector split whose
+        // projection rust cannot materialize.
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2"));
+        SlotReference vec2 = (SlotReference) scan.getOutput().get(2);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        Alias extra = new Alias(new InnerProductApproximate(vec2, queryVector()), "extra");
+        assertNotPushedDown(topN(new LogicalProject<>(
+                ImmutableList.of(idSlot(scan), extra, dis), scan), dis, true));
+    }
+
+    @Test
+    public void testOrcEraRetainedFilesNotPushedDown() {
+        // The table is Parquet NOW, but an ORC schema era with TIMESTAMP_LTZ left
+        // retained files: setPaimonParams still detects ORC files, so the rewrite
+        // must decline even though the current format is Parquet.
+        TableSchema orcEra = new TableSchema(4,
+                Collections.singletonList(new DataField(0, "t", new LocalZonedTimestampType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                ImmutableMap.of("file.format", "orc"), null);
+        LogicalFileScan scan = paimonScan(ImmutableMap.of(
+                "pk-vector.index.columns", "vec",
+                "fields.vec.pk-vector.distance.metric", "l2",
+                "file.format", "parquet"), Optional.empty(), null, false,
+                ImmutableList.of(orcEra), null);
+        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
+        assertNotPushedDown(topN(
+                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private Plan applyRule(int ruleIndex, LogicalTopN<Plan> topN) {
@@ -1100,7 +1173,10 @@ public class PushDownVectorTopNIntoPaimonScanTest {
                 // ElementAt (the former struct_element): only the isComplexType()
                 // verdict matters to the pre-flight, so a Doris MAP stands in for
                 // a STRUCT this fixture cannot express through catalog types.
-                new Column("pmap", new org.apache.doris.catalog.MapType(), true));
+                new Column("pmap", new org.apache.doris.catalog.MapType(), true),
+                // A nanosecond TIMESTAMP column: the scan node's nanosecond-reader
+                // gate (JNI-only family) must be pre-flighted by the rewrite too.
+                new Column("tsns", ScalarType.createType(PrimitiveType.TIMESTAMP_NS), true));
         if (paimonFieldNames == null) {
             paimonFieldNames = schema.stream().map(Column::getName).collect(Collectors.toList());
         }
