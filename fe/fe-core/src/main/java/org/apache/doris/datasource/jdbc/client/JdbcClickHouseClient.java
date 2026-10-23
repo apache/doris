@@ -223,7 +223,8 @@ public class JdbcClickHouseClient extends JdbcClient {
             throw new JdbcClientException("Driver version cannot be null");
         }
         try {
-            String[] versionParts = driverVersion.split("\\.");
+            // Legacy drivers include the artifact name before the numeric version.
+            String[] versionParts = driverVersion.trim().replaceFirst("^clickhouse-jdbc\\s+", "").split("\\.");
             int majorVersion = Integer.parseInt(versionParts[0]);
             int minorVersion = Integer.parseInt(versionParts[1]);
             // Determine whether it is greater than or equal to 0.5.x

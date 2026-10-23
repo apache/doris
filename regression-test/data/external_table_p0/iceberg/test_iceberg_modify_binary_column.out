@@ -2,7 +2,7 @@
 -- !desc_before --
 id	int	Yes	true	\N		
 payload	varbinary(2147483647)	Yes	true	\N		
-digest	varbinary(16)	Yes	true	\N		sha
+digest	varbinary(16)	No	true	\N		sha
 s	struct<a:varbinary(2147483647) comment "raw",b:int>	Yes	true	\N		
 arr	array<varbinary(4)>	Yes	true	\N		
 m	map<text,varbinary(2147483647)>	Yes	true	\N		
