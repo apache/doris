@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -68,6 +69,11 @@ public class StructLiteral extends Literal {
 
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        return uncheckedCastTo(targetType, SessionVariable.enableStrictCast());
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType, boolean strictCast) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
             return this;
         } else if (targetType instanceof StructType) {
@@ -78,7 +84,8 @@ public class StructLiteral extends Literal {
             ImmutableList.Builder<Literal> newLiterals = ImmutableList.builder();
             for (int i = 0; i < fields.size(); i++) {
                 newLiterals.add((Literal) fields.get(i)
-                        .checkedCastWithFallback(((StructType) targetType).getFields().get(i).getDataType()));
+                        .checkedCastWithFallback(
+                                ((StructType) targetType).getFields().get(i).getDataType(), strictCast));
             }
             return new StructLiteral(newLiterals.build(), targetType);
         } else {

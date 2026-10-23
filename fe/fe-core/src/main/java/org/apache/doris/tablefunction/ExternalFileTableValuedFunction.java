@@ -544,18 +544,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
         // add fetched file columns
         Set<String> columnLowerNames = new HashSet<>();
+        boolean preserveColumnCase = isLanceFormat()
+                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON;
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String originalColName = result.getColumnNames(idx);
-            String colName = originalColName.toLowerCase();
+            String colLowerName = originalColName.toLowerCase();
             // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
             // query ambiguity, two columns with the same name but different capitalization are not allowed.
-            if (columnLowerNames.contains(colName)) {
-                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            if (columnLowerNames.contains(colLowerName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colLowerName);
             } else {
-                columnLowerNames.add(colName);
-                columns.add(new Column(isLanceFormat() ? originalColName : colName,
-                        getColumnType(type.getTypesList(), 0).key(), true));
+                columnLowerNames.add(colLowerName);
+                String colName = preserveColumnCase ? originalColName : colLowerName;
+                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
             }
         }
         // add path columns

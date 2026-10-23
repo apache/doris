@@ -34,7 +34,7 @@ suite("test_uuid_schema_change", "p0") {
     """
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE TableName='uuid_schema_change'
-                 ORDER BY CreateTime DESC LIMIT 1"""
+                 ORDER BY JobId DESC LIMIT 1"""
         time 600
     }
     for (String functionName : ["UUID_V4", "UUID_V7", "GENERATE_UUID_V4", "GENERATE_UUID_V7"]) {
@@ -62,14 +62,15 @@ suite("test_uuid_schema_change", "p0") {
     sql """ALTER TABLE uuid_storage_schema ADD COLUMN added UUID NOT NULL
            DEFAULT '00112233-4455-6677-8899-aabbccddeeff'"""
     waitForSchemaChangeDone {
-        sql "SHOW ALTER TABLE COLUMN WHERE TableName='uuid_storage_schema' ORDER BY CreateTime DESC LIMIT 1"
+        sql "SHOW ALTER TABLE COLUMN WHERE TableName='uuid_storage_schema' ORDER BY JobId DESC LIMIT 1"
         time 120
     }
     sql "INSERT INTO uuid_storage_schema(id,u) VALUES (3, 'ffffffff-ffff-ffff-ffff-ffffffffffff')"
     order_qt_schema_backfill "SELECT * FROM uuid_storage_schema ORDER BY id"
     sql "ALTER TABLE uuid_storage_schema DROP COLUMN added"
+    // ADD and DROP can share a CreateTime; JobId identifies the newest job unambiguously.
     waitForSchemaChangeDone {
-        sql "SHOW ALTER TABLE COLUMN WHERE TableName='uuid_storage_schema' ORDER BY CreateTime DESC LIMIT 1"
+        sql "SHOW ALTER TABLE COLUMN WHERE TableName='uuid_storage_schema' ORDER BY JobId DESC LIMIT 1"
         time 120
     }
     order_qt_schema_drop "SELECT * FROM uuid_storage_schema ORDER BY id"

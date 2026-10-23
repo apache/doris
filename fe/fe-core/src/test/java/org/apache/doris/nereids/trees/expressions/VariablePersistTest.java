@@ -27,6 +27,8 @@ import org.apache.doris.nereids.rules.expression.MergeGuardExpr;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -179,7 +181,6 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(rewritten, new And(slotA, slotB));
     }
 
-
     // guard1(guard2(child)) -> exception
     @Test
     public void testMergeGuardExprException() {
@@ -211,5 +212,213 @@ public class VariablePersistTest extends ExpressionRewriteTestHelper {
         SessionVarGuardExpr resultGuard = (SessionVarGuardExpr) rewritten;
         Assertions.assertEquals(child, resultGuard.child());
         Assertions.assertEquals(sessionVars, resultGuard.getSessionVars());
+    }
+
+    private static Map<String, String> syncMvSessionVars(long sqlMode, boolean enableDecimal256) {
+        return ImmutableMap.of(
+                SessionVariable.SQL_MODE, Long.toString(sqlMode),
+                "enable_decimal256", Boolean.toString(enableDecimal256));
+    }
+
+    @Test
+    public void testSyncMvMatchingSqlModes() {
+        long mode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        Map<String, String> current = syncMvSessionVars(mode, false);
+        Map<String, String> persisted = syncMvSessionVars(mode, false);
+
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, persisted));
+    }
+
+    @Test
+    public void testSyncMvStrictTransTablesDifferenceInBothDirections() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictMode = baseMode | SqlModeHelper.MODE_STRICT_TRANS_TABLES;
+        Map<String, String> withoutStrict = syncMvSessionVars(baseMode, false);
+        Map<String, String> withStrict = syncMvSessionVars(strictMode, false);
+
+        // Rollup created without strict mode, queried with strict mode.
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(withStrict, withoutStrict));
+
+        // Rollup created with strict mode, queried without strict mode.
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(withoutStrict, withStrict));
+
+        // Identical strict-mode configurations must also match.
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(withStrict, withStrict));
+
+        // Compatibility also applies when SQL_MODE is the only persisted variable.
+        Map<String, String> persistedSqlModeOnly =
+                ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(baseMode));
+        Map<String, String> currentSqlModeOnly =
+                ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(strictMode));
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                        currentSqlModeOnly, persistedSqlModeOnly));
+    }
+
+    @Test
+    public void testSyncMvOtherSqlModeDifferencesRemainIncompatible() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        Map<String, String> persisted = syncMvSessionVars(baseMode, false);
+        long[] otherModes = {
+                SqlModeHelper.MODE_PIPES_AS_CONCAT,
+                SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+        };
+
+        for (long otherMode : otherModes) {
+            Map<String, String> current = syncMvSessionVars(baseMode | otherMode, false);
+            Assertions.assertFalse(
+                    SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, persisted),
+                    "Unexpectedly accepted SQL-mode bit: " + otherMode);
+        }
+
+        // The exception must not allow other mode changes with SQL_MODE-only state, either.
+        Map<String, String> persistedSqlModeOnly =
+                ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(baseMode));
+        Map<String, String> currentSqlModeOnly = ImmutableMap.of(
+                SessionVariable.SQL_MODE,
+                Long.toString(baseMode | SqlModeHelper.MODE_PIPES_AS_CONCAT));
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                        currentSqlModeOnly, persistedSqlModeOnly));
+    }
+
+    @Test
+    public void testSyncMvStrictTableModesDoNotHideOtherModeDifferences() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictModes = SqlModeHelper.MODE_STRICT_TRANS_TABLES
+                | SqlModeHelper.MODE_STRICT_ALL_TABLES;
+
+        Map<String, String> persisted = syncMvSessionVars(baseMode, false);
+
+        long[] incompatibleModes = {
+            SqlModeHelper.MODE_PIPES_AS_CONCAT,
+            SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+        };
+
+        for (long incompatibleMode : incompatibleModes) {
+            Map<String, String> current = syncMvSessionVars(
+                    baseMode | strictModes | incompatibleMode, false);
+
+            Assertions.assertFalse(
+                    SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                    current, persisted),
+                    "Strict-table exemption must not hide other SQL-mode differences: "
+                    + incompatibleMode);
+        }
+    }
+
+    @Test
+    public void testSyncMvOtherSessionVariablesStillRequireExactMatch() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictMode = baseMode
+                | SqlModeHelper.MODE_STRICT_TRANS_TABLES
+                | SqlModeHelper.MODE_STRICT_ALL_TABLES;
+        Map<String, String> persisted = syncMvSessionVars(baseMode, false);
+
+        // A strict-mode difference is allowed, but an unrelated variable mismatch is not.
+        Map<String, String> current = syncMvSessionVars(strictMode, true);
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, persisted));
+    }
+
+    @Test
+    public void testSyncMvMissingSessionVariablesRemainIncompatible() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        Map<String, String> persisted = syncMvSessionVars(baseMode, false);
+        Map<String, String> missingSqlMode = ImmutableMap.of("enable_decimal256", "false");
+        Map<String, String> missingDecimal256 =
+                ImmutableMap.of(SessionVariable.SQL_MODE, Long.toString(baseMode));
+
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(missingSqlMode, persisted));
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(missingDecimal256, persisted));
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(null, persisted));
+    }
+
+    @Test
+    public void testSyncMvMalformedSqlModeDoesNotBypassGuard() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        Map<String, String> persisted = syncMvSessionVars(baseMode, false);
+        Map<String, String> malformed = ImmutableMap.of(
+                SessionVariable.SQL_MODE, "INVALID_SQL_MODE",
+                "enable_decimal256", "false");
+
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(malformed, persisted));
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(persisted, malformed));
+    }
+
+    @Test
+    public void testSyncMvPreservesEmptyPersistedVariableBehavior() {
+        Map<String, String> current = syncMvSessionVars(
+                SqlModeHelper.MODE_ONLY_FULL_GROUP_BY, false);
+
+        // Preserve the existing behavior for older MVs without saved variables.
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, null));
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, ImmutableMap.of()));
+    }
+
+    @Test
+    public void testGeneralSessionVariableComparisonRemainsStrict() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictMode = baseMode
+                | SqlModeHelper.MODE_STRICT_TRANS_TABLES
+                | SqlModeHelper.MODE_STRICT_ALL_TABLES;
+        Map<String, String> persisted = syncMvSessionVars(baseMode, false);
+        Map<String, String> current = syncMvSessionVars(strictMode, false);
+
+        // The Sync MV exception must not weaken the general-purpose comparator.
+        Assertions.assertFalse(
+                SessionVarGuardRewriter.checkSessionVariablesMatch(current, persisted));
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(current, persisted));
+    }
+
+    @Test
+    public void testSyncMvStrictTableModeCombinations() {
+        long baseMode = SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+        long strictTrans = SqlModeHelper.MODE_STRICT_TRANS_TABLES;
+        long strictAll = SqlModeHelper.MODE_STRICT_ALL_TABLES;
+
+        long[] modes = {
+            baseMode,
+            baseMode | strictTrans,
+            baseMode | strictAll,
+            baseMode | strictTrans | strictAll
+        };
+
+        // All four configurations should be mutually compatible for sync MVs.
+        for (long persistedMode : modes) {
+            for (long currentMode : modes) {
+                Assertions.assertTrue(
+                        SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                        syncMvSessionVars(currentMode, false),
+                        syncMvSessionVars(persistedMode, false)),
+                        "Strict-table SQL-mode flags should not block sync MV rewriting: "
+                        + "current=" + currentMode + ", persisted=" + persistedMode);
+            }
+        }
+
+        // The same exemption applies when SQL_MODE is the only saved variable.
+        Map<String, String> baseSqlModeOnly = ImmutableMap.of(
+                SessionVariable.SQL_MODE, Long.toString(baseMode));
+        Map<String, String> bothStrictSqlModeOnly = ImmutableMap.of(
+                SessionVariable.SQL_MODE, Long.toString(baseMode | strictTrans | strictAll));
+
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                bothStrictSqlModeOnly, baseSqlModeOnly));
+        Assertions.assertTrue(
+                SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                baseSqlModeOnly, bothStrictSqlModeOnly));
     }
 }

@@ -27,8 +27,6 @@
 
 namespace doris {
 
-using AsofMixedDateTimeKey = unsigned __int128;
-
 template <typename ColumnType>
 struct AsofColumnIntType {
     using type = typename ColumnType::value_type::underlying_value;
@@ -38,19 +36,6 @@ template <>
 struct AsofColumnIntType<ColumnTimeStampNs> {
     using type = int64_t;
 };
-
-// DATETIMEV2 stores a packed civil value whose lowest field is microseconds. For a mixed
-// TIMESTAMP_NS/DATETIMEV2 ASOF comparison, append the final three nanosecond digits to that same
-// packed representation. The 128-bit intermediate also covers DATETIMEV2's full calendar range.
-template <typename DateValue>
-AsofMixedDateTimeKey asof_mixed_datetime_key(const DateValue& value) {
-    if constexpr (requires { value.nanosecond_remainder(); }) {
-        return static_cast<AsofMixedDateTimeKey>(value.to_datetime().to_date_int_val()) * 1000 +
-               value.nanosecond_remainder();
-    } else {
-        return static_cast<AsofMixedDateTimeKey>(value.to_date_int_val()) * 1000;
-    }
-}
 
 // Devirtualize compare_at for ASOF JOIN supported column types.
 // ASOF JOIN only supports DateV2, DateTimeV2, TimestampNs, and TimestampTZ.
@@ -262,7 +247,7 @@ inline void try_convert_to_direct_mapping(
 // ASOF JOIN index with inline values for cache-friendly branchless binary search.
 // IntType is the integer representation of the ASOF column value:
 //   uint32_t for DateV2, uint64_t for DateTimeV2 and TimestampTZ,
-//   int64_t for TimestampNs and AsofMixedDateTimeKey for mixed TimestampNs/DateTimeV2.
+//   int64_t for TimestampNs.
 // Rows are sorted by asof_value during build, then materialized into SoA arrays
 // so probe-side binary search only touches the ASOF values hot path.
 template <typename IntType>
@@ -351,10 +336,9 @@ struct AsofIndexGroup {
 };
 
 // Type-erased container for all ASOF index groups.
-// DateV2 -> uint32_t, DateTimeV2/TimestampTZ -> uint64_t.
+// DateV2 -> uint32_t, DateTimeV2/TimestampTZ -> uint64_t, TimestampNs -> int64_t.
 using AsofIndexVariant =
         std::variant<std::monostate, std::vector<AsofIndexGroup<uint32_t>>,
-                     std::vector<AsofIndexGroup<uint64_t>>, std::vector<AsofIndexGroup<int64_t>>,
-                     std::vector<AsofIndexGroup<AsofMixedDateTimeKey>>>;
+                     std::vector<AsofIndexGroup<uint64_t>>, std::vector<AsofIndexGroup<int64_t>>>;
 
 } // namespace doris

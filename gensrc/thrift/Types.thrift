@@ -770,6 +770,7 @@ enum TMetadataType {
   // 14 is STREAMS on master. Reserved to keep enum values wire-compatible
   // across maintained branches. Do not reuse this value on branch-4.1.
   LANCE_INDEX_ENTRIES = 15,
+  INDEX_DISK_USAGE = 16,
 }
 
 // deprecated

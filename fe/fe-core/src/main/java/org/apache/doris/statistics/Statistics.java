@@ -104,7 +104,7 @@ public class Statistics {
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
                 expressionToColumnStats, 0, isFromHbo);
-        statistics.normalizeColumnStatistics(this.rowCount, false);
+        statistics.normalizeColumnStatistics();
         return statistics;
     }
 
@@ -121,7 +121,7 @@ public class Statistics {
     }
 
     public void normalizeColumnStatistics(double inputRowCount) {
-        normalizeColumnStatistics(inputRowCount, false);
+        normalizeColumnStatistics(this.rowCount, false);
     }
 
     public void normalizeColumnStatistics(double inputRowCount, boolean isNumNullsDecreaseByProportion) {

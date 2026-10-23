@@ -17,12 +17,20 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -46,6 +54,33 @@ import java.util.Map;
  * LogicalResultSink to fail finding the expected input field.
  */
 public class ExprIdRewriterTest {
+
+    // The guarded-branch test of the master version (testGuardedBranchIsRewritten) is not ported: it drives
+    // ExprIdRewriter with MergeUtils.selectBranch, which wraps the branches in a ShortCircuitIf. Neither
+    // MergeUtils nor ShortCircuitIf exists on branch-4.2 (MERGE INTO does not wrap its assignments that way
+    // here), so the subtree which the master fix had to enter does not exist on this branch.
+
+    @Test
+    void testAliasIdIsRewrittenThroughThePlanRewrite() {
+        // a rule which renames an Alias (e.g. EliminateGroupByKeyByUniform) publishes the alias exprId itself, and
+        // the plan rewrite has to replace it, not only the exprIds of the slots below it
+        ExprId oldAliasExprId = new ExprId(8);
+        ExprId newAliasExprId = new ExprId(10);
+        NamedExpression item = new Alias(oldAliasExprId, new IntegerLiteral(200), "field1");
+
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of(""));
+        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.of(item), scan);
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        replaceMap.put(oldAliasExprId, newAliasExprId);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(scan);
+        Plan rewritten = new ExprIdRewriter(new ExprIdRewriter.ReplaceRule(replaceMap, true),
+                new JobContext(cascadesContext, null, Double.MAX_VALUE)).rewriteExpr(project, replaceMap);
+
+        NamedExpression rewrittenItem = ((LogicalProject<?>) rewritten).getProjects().get(0);
+        Assertions.assertEquals(newAliasExprId, rewrittenItem.getExprId(), rewrittenItem.toString());
+        Assertions.assertEquals("field1", rewrittenItem.getName());
+    }
 
     /**
      * Test that visitAlias correctly rewrites Alias ExprId.
