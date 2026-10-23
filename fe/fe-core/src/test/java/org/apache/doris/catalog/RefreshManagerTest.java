@@ -191,6 +191,21 @@ public class RefreshManagerTest {
     }
 
     @Test
+    public void testExplicitRefreshReplayRetainsReplacementUpdateTimeBeforeSchemaLoad() {
+        useMutableCatalog();
+        TestExternalTable oldTable = database.getTableNullable(TABLE_NAME);
+        Assertions.assertNotNull(oldTable);
+        long refreshTime = System.currentTimeMillis();
+
+        new RefreshManager().replayRefreshTable(ExternalObjectLog.createForExplicitRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, refreshTime));
+
+        TestExternalTable replacement = database.getTableNullable(TABLE_NAME);
+        Assertions.assertNotSame(oldTable, replacement);
+        Assertions.assertTrue(replacement.getUpdateTime() >= refreshTime);
+    }
+
+    @Test
     public void testContentRefreshRetainsTableNamesAndObject() {
         useMutableCatalog();
         TestExternalTable table = database.getTableNullable(TABLE_NAME);
@@ -267,6 +282,33 @@ public class RefreshManagerTest {
         Mockito.verify(fixture.connector, Mockito.never()).invalidateTable(DATABASE_NAME, TABLE_NAME);
         Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
         Assertions.assertFalse(fixture.database.getTableForReplay(otherSpelling).isPresent());
+    }
+
+    @Test
+    public void testExplicitRefreshInLowerCaseModeClearsHistoricalRemoteSpellings() {
+        PluginCatalogFixture fixture = usePluginCatalog(1);
+        ExternalTable table = new ExternalTable(TABLE_ID, TABLE_NAME, "FOO",
+                fixture.catalog, fixture.database, TableIf.TableType.PLUGIN_EXTERNAL_TABLE);
+        fixture.database.addTableForTest(table);
+        Map<String, String> connectorEntries = new HashMap<>();
+        connectorEntries.put("Foo", "old incarnation");
+        connectorEntries.put("FOO", "current incarnation");
+        Mockito.doAnswer(inv -> {
+            connectorEntries.clear();
+            return null;
+        }).when(fixture.connector).invalidateDb(DATABASE_NAME);
+        Mockito.doAnswer(inv -> {
+            connectorEntries.remove(inv.getArgument(1));
+            return null;
+        }).when(fixture.connector).invalidateTable(Mockito.eq(DATABASE_NAME), Mockito.anyString());
+
+        new RefreshManager().replayRefreshTable(ExternalObjectLog.createForExplicitRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L));
+
+        Assertions.assertTrue(connectorEntries.isEmpty());
+        Mockito.verify(fixture.connector).invalidateDb(DATABASE_NAME);
+        Mockito.verify(fixture.connector, Mockito.never()).invalidateTable(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
     }
 
     @Test

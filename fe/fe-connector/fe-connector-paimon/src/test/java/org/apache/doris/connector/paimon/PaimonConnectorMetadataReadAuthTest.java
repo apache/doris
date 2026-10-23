@@ -156,8 +156,8 @@ public class PaimonConnectorMetadataReadAuthTest {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        Optional<ConnectorTableHandle> result = metadata(ops, ctx).getTableHandle(null, "db1", "t1");
-        Assertions.assertFalse(result.isPresent());
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).getTableHandle(null, "db1", "t1"));
         Assertions.assertTrue(ops.log.isEmpty(),
                 "auth failure must abort BEFORE the getTable seam runs");
         Assertions.assertEquals(1, ctx.authCount);

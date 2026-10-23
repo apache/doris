@@ -131,7 +131,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         });
         String dbName = db != null ? db.getRemoteName() : "";
         Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
-        if (!handle.isPresent()) {
+        // A view has no table handle. Check live view existence before treating an empty handle as a
+        // dropped table; the cached isView flag can outlive a remote view deletion.
+        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
             observation.ifPresent(Runnable::run);
         }
         return handle;

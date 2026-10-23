@@ -71,6 +71,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class PluginDrivenMissingTableTest extends TestWithFeService {
     private static final AtomicLong IDS = new AtomicLong(910000);
     private final Map<String, String> remoteTables = new ConcurrentHashMap<>();
+    private final Set<String> remoteViews = ConcurrentHashMap.newKeySet();
     private Connector connector;
     private ConnectorMetadata metadata;
     private TestCatalog catalog;
@@ -119,6 +120,9 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                         throw new IllegalStateException("metastore timeout");
                     }
                     String name = call.getArgument(2);
+                    if (remoteViews.contains(name)) {
+                        return Optional.empty();
+                    }
                     String column = remoteTables.get(name);
                     if (column == null) {
                         if (blockMissing.compareAndSet(true, false)) {
@@ -129,6 +133,8 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
                     }
                     return Optional.of(new Handle(name, column));
                 });
+        Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenAnswer(call -> remoteViews.contains(call.getArgument(2)));
         Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.any())).thenAnswer(call -> {
             Handle handle = call.getArgument(1);
             return new ConnectorTableSchema(handle.name, Collections.singletonList(new ConnectorColumn(
@@ -160,6 +166,7 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         Map<String, CatalogIf<?>> byName = Deencapsulation.getField(manager, "nameToCatalog");
         byName.remove(catalog.getName());
         remoteTables.clear();
+        remoteViews.clear();
         remoteCache.clear();
     }
 
@@ -215,6 +222,30 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         Assertions.assertEquals(Set.of("b"), database.getTableNamesWithLock());
         Assertions.assertNull(database.getTableNullable(table.getId()));
         Assertions.assertNull(remoteCache.get("a"));
+    }
+
+    @Test
+    void existingViewWithoutTableHandleKeepsLookupCaches() {
+        remoteViews.add("v");
+        PluginDrivenExternalTable view = database.getTableNullable("v");
+        Assertions.assertNotNull(view);
+        remoteCache.put("v", "view metadata");
+        ConnectorSession session = catalog.buildCrossStatementSession();
+        try {
+            Assertions.assertFalse(view.resolveConnectorTableHandle(session, metadata).isPresent());
+            Assertions.assertFalse(view.resolveConnectorTableHandle(session, metadata).isPresent());
+        } finally {
+            session.getStatementScope().closeAll();
+        }
+        Assertions.assertSame(view, database.getTableNullable("v"));
+        Assertions.assertSame(view, database.getTableNullable(view.getId()));
+        Assertions.assertTrue(database.getTableNamesWithLock().contains("v"));
+        Assertions.assertEquals("view metadata", remoteCache.get("v"));
+
+        remoteViews.remove("v");
+        readMissingHandle(view);
+        Assertions.assertNull(database.getTableNullable(view.getId()));
+        Assertions.assertFalse(database.getTableNamesWithLock().contains("v"));
     }
 
     @Test
@@ -521,7 +552,9 @@ public class PluginDrivenMissingTableTest extends TestWithFeService {
         @Override
         protected List<String> listTableNamesFromRemote(SessionContext context, String dbName) {
             nameLoads.incrementAndGet();
-            return new ArrayList<>(remoteTables.keySet());
+            List<String> names = new ArrayList<>(remoteTables.keySet());
+            names.addAll(remoteViews);
+            return names;
         }
 
         @Override
