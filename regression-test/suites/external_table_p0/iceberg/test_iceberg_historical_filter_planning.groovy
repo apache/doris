@@ -60,6 +60,14 @@ suite("test_iceberg_historical_filter_planning", "p0,external,doris,external_doc
                 sql "alter table ${table} create tag before_change"
                 if (change == "rename") {
                     sql "alter table ${table} rename column x renamed_x"
+                } else if (partitioned) {
+                    test {
+                        sql "alter table ${table} drop column x"
+                        exception "partition field history"
+                    }
+                    // Preserve partitioned historical-filter coverage while respecting the REST DROP restriction.
+                    spark_iceberg "refresh table demo.${dbName}.${tableName}"
+                    spark_iceberg "alter table demo.${dbName}.${tableName} drop column x"
                 } else {
                     sql "alter table ${table} drop column x"
                 }
