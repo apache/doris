@@ -47,6 +47,15 @@ suite("test_iceberg_update_delete_basic", "p0,external,iceberg,external_docker,e
     sql """create database if not exists ${dbName}"""
     sql """use ${dbName}"""
 
+    // Delete files must be recorded under the table's own data location (s3a:// in this fixture), not
+    // under the s3:// address BE writes them at.
+    def dataLocationOf = { String table ->
+        String ddl = sql("""show create table ${table}""")[0][1]
+        def matcher = ddl =~ /LOCATION '([^']+)'/
+        assert matcher.find() : "no LOCATION in ${ddl}"
+        return matcher.group(1) + "/data/"
+    }
+
     def formats = ["parquet", "orc"]
     for (String format : formats) {
         logger.info("Run update/delete test with format ${format}")
@@ -94,10 +103,11 @@ suite("test_iceberg_update_delete_basic", "p0,external,iceberg,external_docker,e
             FROM ${catalogName}.${dbName}.${formatTableName}\$delete_files
         """
         assert deleteFiles.size() > 0 : "Delete files should be created for ${formatTableName}"
+        String dataLocation = dataLocationOf(formatTableName)
         for (def row : deleteFiles) {
             String filePath = row[0].toString()
             String fileFormat = row[1].toString()
-            assert filePath.contains("/data/delete_pos_")
+            assert filePath.startsWith(dataLocation + "delete_pos_") : "${filePath} is not under ${dataLocation}"
             assert filePath.endsWith(format == "parquet" ? ".parquet" : ".orc")
             assert fileFormat.equalsIgnoreCase(format)
         }
@@ -142,10 +152,12 @@ suite("test_iceberg_update_delete_basic", "p0,external,iceberg,external_docker,e
             FROM ${catalogName}.${dbName}.${formatTableNamePartition}\$delete_files
         """
         assert partitionDeleteFiles.size() > 0 : "Delete files should be created for ${formatTableNamePartition}"
+        String partitionDataLocation = dataLocationOf(formatTableNamePartition)
         for (def row : partitionDeleteFiles) {
             String filePath = row[0].toString()
             String fileFormat = row[1].toString()
-            assert filePath.contains("/data/delete_pos_")
+            assert filePath.startsWith(partitionDataLocation + "delete_pos_") :
+                    "${filePath} is not under ${partitionDataLocation}"
             assert filePath.endsWith(format == "parquet" ? ".parquet" : ".orc")
             assert fileFormat.equalsIgnoreCase(format)
         }
