@@ -940,15 +940,14 @@ int InstanceChecker::do_inverted_check() {
             return -1;
         }
 
-        if (tablet_rowsets_cache.tablet_id == tablet_id) {
-            if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
-                return 0;
-            } else {
-                // Garbage data leak, same as a cache miss below
-                LOG(WARNING) << "rowset should be recycled, key=" << obj_key;
-                return 1;
-            }
+        if (tablet_rowsets_cache.tablet_id == tablet_id &&
+            tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+            return 0;
         }
+        // An absence in the cache is not trusted: a load may commit a new rowset of the tablet
+        // after the cache was loaded, and its segments are listed later in the scan. E.g. the cache
+        // of tablet 10001 holds rowset r1, then r2 commits, then data/10001/r2_0.dat is listed: it
+        // is checked against a fresh read below instead of being reported as a leak.
         // Get all rowset id of this tablet. The cache claims the tablet only after all its rowsets
         // are read: a cache left with a partial rowset set by a failed read would report the
         // following objects of the tablet as leaks, e.g. a txn error on the first object of tablet

@@ -5343,6 +5343,55 @@ TEST(CheckerTest, inverted_check_rowset_meta_read_error_is_not_leak) {
     ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
 }
 
+TEST(CheckerTest, inverted_check_rowset_committed_during_scan_is_not_leak) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+    create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, 0, 20002, 1, 0);
+    // The segment of rowset "zzz" is uploaded, and its meta commits after the checker loaded the
+    // rowsets of the tablet for the first object ("zzz" sorts after the numeric rowset ids)
+    ASSERT_EQ(accessor->put_file(segment_path(10001, "zzz", 0), ""), 0);
+
+    int rowset_reads = 0;
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check.get_rowsets_err",
+            [&](auto&& args) {
+                if (++rowset_reads != 1) {
+                    return;
+                }
+                doris::RowsetMetaCloudPB rowset;
+                rowset.set_rowset_id(0);
+                rowset.set_rowset_id_v2("zzz");
+                rowset.set_tablet_id(10001);
+                rowset.set_num_segments(1);
+                rowset.set_resource_id("1");
+                std::unique_ptr<Transaction> txn;
+                ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->put(meta_rowset_key({instance_id, 10001, 1}), rowset.SerializeAsString());
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // The rowset missing from the cache is read again and found, so it is not a leak
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(rowset_reads, 2);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_scanned", instance_id), 2);
+    ASSERT_EQ(read_status_bvar_value("checker", "num_inverted_check_failed", instance_id), 0);
+}
+
 TEST(CheckerTest, inverted_check_stops_when_stopped) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
