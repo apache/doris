@@ -38,7 +38,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -67,25 +66,19 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscomProject.checkReorder(topJoin, topJoin.left().child()))
-                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint()))
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
+                .when(join -> checkCondition(join, join.left().child().left().getOutputSet()))
+                .when(join -> join.left().isAllSlots()))
                 .thenApply(ctx -> {
                     LogicalProject<LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan>> topProject
                             = ctx.root;
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
                             = topProject.child();
-                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
-                            normalizedProject = ProjectJoinReorderHelper.normalize(topJoin.left());
-                    if (!normalizedProject.isPresent()) {
-                        return null;
-                    }
                     /* ********** init ********** */
-                    LogicalJoin<Plan, Plan> bottomJoin = normalizedProject.get().child();
-                    Plan a = bottomJoin.left();
-                    Plan b = bottomJoin.right();
-                    Plan c = topJoin.right();
-                    if (!checkCondition(topJoin, a.getOutputSet())) {
-                        return null;
-                    }
+                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
+                    GroupPlan a = bottomJoin.left();
+                    GroupPlan b = bottomJoin.right();
+                    GroupPlan c = topJoin.right();
 
                     /*
                      * Paper `On the Correct and Complete Enumeration of the Core Search Space`.

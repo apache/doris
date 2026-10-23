@@ -35,7 +35,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -68,23 +67,18 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                 .when(join -> OuterJoinLAsscomProject.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscomProject.checkReorder(topJoin, topJoin.left().child()))
-                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint()))
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
+                .when(topJoin -> OuterJoinLAsscomProject.checkCondition(topJoin,
+                        topJoin.left().child().right().getOutputExprIdSet()))
+                .when(join -> join.left().isAllSlots()))
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
                             = topProject.child();
-                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
-                            normalizedProject = ProjectJoinReorderHelper.normalize(topJoin.left());
-                    if (!normalizedProject.isPresent()) {
-                        return null;
-                    }
                     /* ********** init ********** */
-                    LogicalJoin<Plan, Plan> bottomJoin = normalizedProject.get().child();
-                    Plan a = bottomJoin.left();
-                    Plan b = bottomJoin.right();
-                    Plan c = topJoin.right();
-                    if (!OuterJoinLAsscomProject.checkCondition(topJoin, b.getOutputExprIdSet())) {
-                        return null;
-                    }
+                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
+                    GroupPlan a = bottomJoin.left();
+                    GroupPlan b = bottomJoin.right();
+                    GroupPlan c = topJoin.right();
 
                     /* ********** new Plan ********** */
                     LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
@@ -134,7 +128,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
      * check join reorder masks.
      */
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
-            LogicalJoin<? extends Plan, ? extends Plan> bottomJoin) {
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
         // hasCommute will cause to lack of OuterJoinAssocRule:Left
         return !topJoin.getJoinReorderContext().hasLAsscom()
                 && !topJoin.getJoinReorderContext().hasLeftAssociate()
