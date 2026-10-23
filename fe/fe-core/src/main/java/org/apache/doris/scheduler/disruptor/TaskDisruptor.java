@@ -55,6 +55,9 @@ public class TaskDisruptor implements Closeable {
      */
     private static final int DEFAULT_CLOSE_WAIT_TIME_SECONDS = 5;
 
+    // Orders publication against closing admission; never held while waiting for consumers.
+    private final Object publishLock = new Object();
+
     /**
      * Whether this disruptor has been closed.
      * if true, then we can't publish any more events.
@@ -62,7 +65,7 @@ public class TaskDisruptor implements Closeable {
     private boolean isClosed = false;
 
     /**
-     * The default {@link EventTranslatorThreeArg} to use for {@link #tryPublish(Long, Long)}.
+     * The default {@link EventTranslatorThreeArg} to use for {@link #tryPublishTask(Long)}.
      * This is used to avoid creating a new object for each publish.
      */
     private static final EventTranslatorThreeArg<TaskEvent, Long, Long, TaskType> TRANSLATOR
@@ -85,66 +88,41 @@ public class TaskDisruptor implements Closeable {
     }
 
     /**
-     * Publishes a job to the disruptor.
-     * Default task type is {@link TaskType#SCHEDULER_JOB_TASK}
-     *
-     * @param jobId job id
-     */
-    public void tryPublish(Long jobId, Long taskId) {
-        this.tryPublish(jobId, taskId, TaskType.SCHEDULER_JOB_TASK);
-    }
-
-
-    /**
-     * Publishes a job task to the disruptor.
-     *
-     * @param jobId    job id, describe which job this task belongs to
-     * @param taskId   task id, it's linked to job id, we can get job detail by task id
-     * @param taskType {@link TaskType}
-     */
-    public void tryPublish(Long jobId, Long taskId, TaskType taskType) {
-        if (isClosed) {
-            log.info("tryPublish failed, disruptor is closed, jobId: {}", jobId);
-            return;
-        }
-        try {
-            disruptor.publishEvent(TRANSLATOR, jobId, taskId, taskType);
-        } catch (Exception e) {
-            log.warn("tryPublish failed, jobId: {}", jobId, e);
-        }
-    }
-
-    /**
      * Publishes a task to the disruptor.
      * Default task type is {@link TaskType#TRANSIENT_TASK}
      *
      * @param taskId task id
      */
     public void tryPublishTask(Long taskId) throws JobException {
-        if (isClosed) {
-            // Fail loudly: silently returning would leave the caller's already-registered task with no event
-            // to run or remove it.
-            log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
-            throw new JobException("Disruptor is closed, cannot publish transient task: " + taskId);
-        }
-        // We reserve two slots in the ring buffer
-        // to prevent it from becoming stuck due to competition between producers and consumers.
-        if (disruptor.getRingBuffer().hasAvailableCapacity(2)) {
-            disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK);
-        } else {
-            throw new JobException("There is not enough available capacity in the RingBuffer.");
+        synchronized (publishLock) {
+            if (isClosed) {
+                throw new JobException("Disruptor is closed, cannot publish transient task: " + taskId);
+            }
+            if (disruptor == null) {
+                throw new JobException("Disruptor is not started, cannot publish transient task: " + taskId);
+            }
+            if (!disruptor.getRingBuffer().tryPublishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK)) {
+                throw new JobException("There is not enough available capacity in the RingBuffer.");
+            }
         }
     }
 
 
     @Override
     public void close() {
-        try {
+        Disruptor<TaskEvent> closingDisruptor;
+        synchronized (publishLock) {
             isClosed = true;
+            closingDisruptor = disruptor;
+        }
+        if (closingDisruptor == null) {
+            return;
+        }
+        try {
             // we can wait for 5 seconds, so that backlog can be committed
-            disruptor.shutdown(DEFAULT_CLOSE_WAIT_TIME_SECONDS, TimeUnit.SECONDS);
+            closingDisruptor.shutdown(DEFAULT_CLOSE_WAIT_TIME_SECONDS, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            log.warn("close disruptor failed", e);
+            log.warn("Timed out draining transient tasks; new tasks remain rejected", e);
         }
     }
 }
