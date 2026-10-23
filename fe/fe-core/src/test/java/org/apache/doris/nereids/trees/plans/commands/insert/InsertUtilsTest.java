@@ -527,6 +527,39 @@ public class InsertUtilsTest {
         }
     }
 
+    @Test
+    public void writeOnlyDefaultIsTypedAsItsColumnBeforeBinding() {
+        // bit_count(DEFAULT(bits)) on an INT column whose default is -1 must count the 32 bits of an INT, not the 8
+        // of the TINYINT that -1 parses to; casting the finished value to the INT target cannot restore them.
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        try {
+            PluginDrivenExternalTable table = pinWriterSchema(ctx, true);
+            Expression intDefault = TypeCoercionUtils.castUnbound(PARSER.parseExpression("-1"), IntegerType.INSTANCE);
+
+            Expression bitCount = new UnboundFunction("bit_count",
+                    ImmutableList.of(new Default(new UnboundSlot("bits"))));
+            Plan values = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("bits"),
+                    new UnboundInlineTable(ImmutableList.of(ImmutableList.of(new UnboundAlias(bitCount))))),
+                    table, Optional.empty(), Optional.empty());
+            Assertions.assertEquals(intDefault, bitCountArgument(
+                    ((LogicalInlineTable) values.child(0)).getConstantExprsList().get(0).get(0)));
+
+            Plan select = InsertUtils.normalizePlan(connectorSink(ImmutableList.of("bits"),
+                    PARSER.parseSingle("select bit_count(DEFAULT(bits))").child(0)),
+                    table, Optional.empty(), Optional.empty());
+            Assertions.assertEquals(intDefault, bitCountArgument(
+                    ((UnboundOneRowRelation) select.child(0)).getProjects().get(0)));
+            Assertions.assertEquals(IntegerType.INSTANCE, intDefault.getDataType());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    private static Expression bitCountArgument(Expression value) {
+        UnboundFunction bitCount = value.<UnboundFunction>collectFirst(UnboundFunction.class::isInstance).get();
+        return bitCount.child(0);
+    }
+
     private static PluginDrivenExternalTable pinWriterSchema(ConnectContext ctx, boolean writeOnlyDefaults) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getId()).thenReturn(17L);
@@ -538,8 +571,10 @@ public class InsertUtilsTest {
         name.setConnectorDefaultValueSql("'write-name'");
         Column score = new Column("score", PrimitiveType.INT, true);
         score.setConnectorDefaultValueSql("9");
+        Column bits = new Column("bits", PrimitiveType.INT, true);
+        bits.setConnectorDefaultValueSql("-1");
         MemoTestUtils.createStatementContext(ctx, "")
-                .setConnectorWriteSchema(17L, ImmutableList.of(id, name, score));
+                .setConnectorWriteSchema(17L, ImmutableList.of(id, name, score, bits));
         return table;
     }
 
