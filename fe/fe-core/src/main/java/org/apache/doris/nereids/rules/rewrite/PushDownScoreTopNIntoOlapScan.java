@@ -43,6 +43,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TExprOpcode;
@@ -295,20 +298,79 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
             }
         }
 
+        // A cast of score() changes the comparison semantics: CAST(score() AS DECIMALV3(p,s))
+        // rounds before comparing. Convert the rounded threshold back to an equivalent raw
+        // score threshold instead of dropping the cast, which would drop rows whose raw score
+        // rounds up to the requested value (DORIS-28583).
+        if (left instanceof Cast && isNumericLiteral(right)) {
+            Optional<ScoreRangeInfo> adjusted =
+                    extractCastScoreRangeInfo(comp, (Cast) left, right, false);
+            if (adjusted.isPresent()) {
+                return adjusted;
+            }
+        }
+
+        if (right instanceof Cast && isNumericLiteral(left)) {
+            Optional<ScoreRangeInfo> adjusted =
+                    extractCastScoreRangeInfo(comp, (Cast) right, left, true);
+            if (adjusted.isPresent()) {
+                return adjusted;
+            }
+        }
+
         return Optional.empty();
     }
 
     /**
-     * Check if the expression is a Score function, possibly wrapped in Cast expressions.
-     * The optimizer may wrap score() in Cast for type coercion (e.g., score() >= 4.0 may become
-     * CAST(score() AS DECIMAL) >= 4.0).
+     * Convert a rounded score comparison, such as
+     * CAST(score() AS DECIMALV3(2,1)) >= 0.5, into an equivalent raw score range.
+     *
+     * The cast rounds the score half away from zero, so the rounded value reaches the threshold
+     * for raw scores up to half of the last kept digit below it. Dropping the cast but keeping
+     * the literal threshold compares the raw score instead and loses those rows.
+     */
+    private Optional<ScoreRangeInfo> extractCastScoreRangeInfo(ComparisonPredicate comp, Cast cast,
+            Expression literal, boolean reversed) {
+        if (!isScoreExpression(cast.child())) {
+            return Optional.empty();
+        }
+        int scale;
+        if (cast.getDataType() instanceof DecimalV3Type) {
+            scale = ((DecimalV3Type) cast.getDataType()).getScale();
+        } else if (cast.getDataType().isIntegerLikeType()) {
+            scale = 0;
+        } else {
+            return Optional.empty();
+        }
+        TExprOpcode op = reversed ? getReversedMinScoreOpcode(comp) : getMinScoreOpcode(comp);
+        if (op == null) {
+            return Optional.empty();
+        }
+        double halfStep = 0.5 * Math.pow(10.0, -scale);
+        double threshold = extractNumericValue(literal);
+        // round_s(score) >= t  <=>  score >= t - halfStep
+        // round_s(score) >  t  <=>  score >= t + halfStep
+        double rawThreshold = op == TExprOpcode.GE ? threshold - halfStep : threshold + halfStep;
+        return Optional.of(new ScoreRangeInfo(TExprOpcode.GE, rawThreshold));
+    }
+
+    /**
+     * Check if the expression is a Score function, allowing only a value preserving
+     * float -> double widening cast (which the analyzer may insert for type coercion).
+     * Rounding casts are handled by extractCastScoreRangeInfo.
      */
     private boolean isScoreExpression(Expression expr) {
         if (expr instanceof Score) {
             return true;
         }
         if (expr instanceof Cast) {
-            return isScoreExpression(((Cast) expr).child());
+            Cast cast = (Cast) expr;
+            // Only the value preserving float -> double widening may be dropped. Casts such as
+            // CAST(score() AS DECIMALV3(2,1)) round the score, so using the raw score with the
+            // rounded threshold is not equivalent to the original predicate.
+            return cast.child().getDataType() instanceof FloatType
+                    && cast.getDataType() instanceof DoubleType
+                    && isScoreExpression(cast.child());
         }
         return false;
     }
