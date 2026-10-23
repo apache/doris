@@ -26,6 +26,7 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
@@ -509,5 +510,40 @@ public class EncryptSQLTest extends ParserTestBase {
         processor.executeQuery(sql);
         AuditEvent event = auditEvents.get(auditEvents.size() - 1);
         Assertions.assertEquals(expected, event.stmt);
+    }
+
+    @Test
+    public void testLogMaskingPreservesPropertyFormatting() {
+        String sql = "/* 😀 catalog */\r\nCREATE CATALOG log_format PROPERTIES (\r\n"
+                + "\t'type' = 'jdbc', -- keep this comment\r\n"
+                + "\t' JDBC.PASSWORD ' /* value */ = 'synthetic\\'password',\r\n"
+                + "\t\"jdbc.user\" = \"reader\",\r\n"
+                + "\t\"s3.access_key\" = \"synthetic-access-key\",\r\n"
+                + "\t\"s3.secret_key\" = \"synthetic-secret-key\"\r\n);";
+        String expected = sql.replace("'synthetic\\'password'", "'*XXX'")
+                .replace("synthetic-access-key", "*XXX").replace("synthetic-secret-key", "*XXX");
+        assertLogMasking(sql, expected);
+    }
+
+    @Test
+    public void testLogMaskingPreservesHiddenPropertyLayout() {
+        String sql = "CREATE CATALOG log_hidden PROPERTIES (\n"
+                + "  'type' = 'hms',\n"
+                + "  'AWS_ENDPOINT' /* keep */ = 'synthetic-endpoint',\n"
+                + "  'AWS_TOKEN' = 'synthetic-token',\n"
+                + "  'fluss.lake.paimon.fs.password' = 'synthetic-password'\n)";
+        String expected = sql.replace("synthetic-endpoint", "*XXX").replace("synthetic-token", "*XXX")
+                .replace("synthetic-password", "*XXX");
+        assertLogMasking(sql, expected);
+    }
+
+    @Test
+    public void testLogPasswordMaskingWithSupplementaryCharacters() {
+        String sql = "/* 😀 */\nCREATE USER 'log_user'@'%'\nIDENTIFIED BY 'synthetic-😀-password';";
+        assertLogMasking(sql, sql.replace("synthetic-😀-password", "*XXX"));
+    }
+
+    private void assertLogMasking(String sql, String expected) {
+        Assertions.assertEquals(expected, NeedAuditEncryption.maskSql(sql, true));
     }
 }
