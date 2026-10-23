@@ -186,6 +186,24 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
         sql """CREATE DATABASE IF NOT EXISTS ${v0_writer}.v0_db"""
         sql """CREATE TABLE ${v0_writer}.v0_db.v0_table (id INT) PROPERTIES ('format-version' = '2')"""
         sql """INSERT INTO ${v0_writer}.v0_db.v0_table VALUES (1), (2)"""
+        // Wrong-kind DROP statements must never purge a permanent V0 table, even with IF EXISTS.
+        for (def dropKind : [[statement: "DROP VIEW", error: "is not VIEW"],
+                            [statement: "DROP MATERIALIZED VIEW", error: "is not MTMV"],
+                            [statement: "DROP TEMPORARY TABLE", error: "Unknown table"]]) {
+            for (boolean ifExists : [false, true]) {
+                String dropSql = "${dropKind.statement} ${ifExists ? 'IF EXISTS ' : ''}${v0_writer}.v0_db.v0_table"
+                if (dropKind.statement == "DROP TEMPORARY TABLE" && ifExists) {
+                    sql dropSql
+                } else {
+                    test {
+                        sql dropSql
+                        exception dropKind.error
+                    }
+                }
+                assertEquals([["v0_table"]], sql("SHOW TABLES FROM ${v0_writer}.v0_db"))
+                assertEquals([[1], [2]], sql("SELECT * FROM ${v0_writer}.v0_db.v0_table ORDER BY id"))
+            }
+        }
         // PostgreSQL enforces read-only transactions, so accidental catalog migration or writes fail.
         createV0Catalog(v0_reader, v0_uri + "?options=-c%20default_transaction_read_only%3Don",
                 "iceberg_jdbc_v0_reader")
