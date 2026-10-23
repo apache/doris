@@ -901,7 +901,13 @@ public class StmtExecutor {
                     try {
                         QeProcessorImpl.INSTANCE.finishQueryCallbacks(queryId);
                     } finally {
-                        queryCancelCallbacks.clear();
+                        try {
+                            if (context.getStatementContext() != null) {
+                                context.getStatementContext().closeConnectorStatementScope();
+                            }
+                        } finally {
+                            queryCancelCallbacks.clear();
+                        }
                     }
                 }
             }

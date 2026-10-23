@@ -241,13 +241,13 @@ class IcebergManifestReadContextTest {
                 break;
             case "representative":
                 methodName = "planManifestCountRange";
-                arguments = new Object[] {table, scan, 1L, 2, false, Collections.emptyList(),
+                arguments = new Object[] {table, scan, scan.schema(), 1L, 2, false, Collections.emptyList(),
                         ZoneId.of("UTC"), UnaryOperator.identity(),
                         session, Optional.empty(), true, handle};
                 break;
             case "count":
                 methodName = "planCountPushdownFromFileTasks";
-                arguments = new Object[] {table, scan, 2, false, Collections.emptyList(),
+                arguments = new Object[] {table, scan, scan.schema(), 2, false, Collections.emptyList(),
                         ZoneId.of("UTC"), UnaryOperator.identity(),
                         session, Optional.empty(), true, 0L, handle};
                 break;

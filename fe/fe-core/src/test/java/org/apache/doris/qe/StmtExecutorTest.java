@@ -175,6 +175,35 @@ public class StmtExecutorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    @ResourceLock("global")
+    public void testPlanningFailureClosesTaskGroupBeforeScanRegistration() throws Exception {
+        ConnectContext context = Mockito.spy(connectContext);
+        context.getState().reset();
+        Mockito.doReturn(Mockito.mock(ResultSender.class)).when(context).getResultSender();
+        StmtExecutor executor = new StmtExecutor(context, "explain select 1");
+        ConnectorSession session = ConnectorSessionBuilder.from(context).withCatalogId(1).build();
+        FairTaskExecutor pool = context.getEnv().getExtMetaCacheMgr()
+                .getQueryTaskExecutor(ConnectorTaskScheduler.Stage.METADATA);
+        int groupsBefore = pool.getGroupCount();
+        ConnectorTaskScheduler group = session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA);
+        Assertions.assertEquals(groupsBefore + 1, pool.getGroupCount());
+        TUniqueId queryId = new TUniqueId(0x22050L, 3L);
+        try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                (planner, construction) -> Mockito.doThrow(new NereidsException("planning failed",
+                        new UserException("planning failed")))
+                        .when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+            executor.execute(queryId);
+            Assertions.assertEquals(1, planners.constructed().size());
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
+            Assertions.assertTrue(group.isClosed());
+            Assertions.assertEquals(groupsBefore, pool.getGroupCount());
+        } finally {
+            session.getStatementScope().closeAll();
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        }
+    }
+
     @ParameterizedTest
     @CsvSource({"false, CANCELLED", "true, CANCELLED", "false, TIMEOUT", "true, TIMEOUT"})
     @ResourceLock("global")
