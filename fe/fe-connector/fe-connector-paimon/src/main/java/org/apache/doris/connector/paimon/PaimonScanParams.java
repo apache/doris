@@ -105,6 +105,13 @@ public final class PaimonScanParams {
 
     private static final Set<String> INHERITED_READ_STATE_KEYS = buildInheritedReadStateKeys();
 
+    private static final Set<String> SCHEMA_INDEPENDENT_READ_KEYS = ImmutableSet.<String>builder()
+            .addAll(INHERITED_READ_STATE_KEYS)
+            .add(CoreOptions.BRANCH.key())
+            .add(CoreOptions.SCAN_PRIMARY_BRANCH.key())
+            .add(CoreOptions.SCAN_FALLBACK_BRANCH.key())
+            .build();
+
     private static final Set<String> TIME_TRAVEL_SELECTOR_KEYS = ImmutableSet.of(
             CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
             CoreOptions.SCAN_WATERMARK.key(),
@@ -328,6 +335,17 @@ public final class PaimonScanParams {
         // on rename). Only replay the catalog/runtime delta, never another generation's options.
         table.options().forEach((key, value) -> {
             if (!Objects.equals(persisted.get(key), value)) {
+                merged.put(key, value);
+            }
+        });
+        // Read selectors and branch topology belong to the resolved table, not its historical schema.
+        // Preserve absent keys too: reviving an old mode can invalidate a snapshot selector, while
+        // reviving an old branch policy can change fallback priority when reader caps rebuild the pair.
+        SCHEMA_INDEPENDENT_READ_KEYS.forEach(key -> {
+            String value = table.options().get(key);
+            if (value == null) {
+                merged.remove(key);
+            } else {
                 merged.put(key, value);
             }
         });

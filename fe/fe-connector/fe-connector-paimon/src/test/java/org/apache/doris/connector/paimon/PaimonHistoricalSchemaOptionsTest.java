@@ -56,6 +56,72 @@ import java.util.Map;
 
 public class PaimonHistoricalSchemaOptionsTest {
     @Test
+    public void snapshotReadDoesNotRestoreRemovedStartupMode(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "removed_startup_mode");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("value", DataTypes.INT()).primaryKey("id")
+                    .option("bucket", "1").option("file.format", "parquet")
+                    .option("scan.mode", "latest-full").build(), false);
+            append((FileStoreTable) catalog.getTable(id), GenericRow.of(1, 10));
+            catalog.alterTable(id, Collections.singletonList(SchemaChange.removeOption("scan.mode")), false);
+            Table latest = catalog.getTable(id);
+            Assertions.assertFalse(latest.options().containsKey("scan.mode"));
+            Map<String, String> selector = Collections.singletonMap("scan.snapshot-id", "1");
+            // Removing a startup mode must remain effective when a historical schema is restored.
+            Assertions.assertEquals(Collections.singletonList("1:10"), readRows(latest.copy(selector)));
+            Table historical = PaimonScanParams.copyWithHistoricalSchema(latest, selector);
+            Assertions.assertEquals(Collections.singletonList("1:10"), readRows(historical));
+        }
+    }
+
+    @Test
+    public void historicalFallbackPriorityIsStableAt64(@TempDir Path warehouse) throws Exception {
+        checkHistoricalFallbackPriority(warehouse, 64);
+    }
+
+    @Test
+    public void historicalFallbackPriorityIsStableAt128(@TempDir Path warehouse) throws Exception {
+        checkHistoricalFallbackPriority(warehouse, 128);
+    }
+
+    private void checkHistoricalFallbackPriority(Path warehouse, int capacity) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "branch_priority_history");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("value", DataTypes.INT().notNull()).primaryKey("id", "value").partitionKeys("id")
+                    .option("bucket", "1").option("file.format", "parquet").build(), false);
+            FileStoreTable original = (FileStoreTable) catalog.getTable(id);
+            original.createBranch("backup");
+            Identifier backupId = new Identifier("db", "branch_priority_history", "backup");
+            append((FileStoreTable) catalog.getTable(backupId), GenericRow.of(1, 20));
+            catalog.alterTable(id, Arrays.asList(SchemaChange.setOption("scan.primary-branch", "backup"),
+                    SchemaChange.setOption("scan.manifest.parallelism", "128")), false);
+            FallbackReadFileStoreTable primary = (FallbackReadFileStoreTable) catalog.getTable(id);
+            append(primary.wrapped(), GenericRow.of(1, 10));
+            Assertions.assertEquals(Collections.singletonList("1:20"), readRows(primary));
+            catalog.alterTable(id, Arrays.asList(SchemaChange.removeOption("scan.primary-branch"),
+                    SchemaChange.setOption("scan.fallback-branch", "backup")), false);
+            FallbackReadFileStoreTable latest = (FallbackReadFileStoreTable) catalog.getTable(id);
+            Assertions.assertEquals(Collections.singletonList("1:10"), readRows(latest));
+            Table historical = PaimonScanParams.copyWithHistoricalSchema(latest,
+                    Collections.singletonMap("scan.snapshot-id", "1"));
+            Assertions.assertEquals("backup", historical.options().get("scan.fallback-branch"));
+            Assertions.assertFalse(historical.options().containsKey("scan.primary-branch"));
+            // The same overlapping partition must choose the same branch on different FE capacities.
+            Table normalized = PaimonReaderOptions.runtimeSafeTable(historical, capacity);
+            Assertions.assertEquals(Integer.toString(capacity), normalized.options().get("scan.manifest.parallelism"));
+            Assertions.assertEquals("backup", normalized.options().get("scan.fallback-branch"));
+            Assertions.assertFalse(normalized.options().containsKey("scan.primary-branch"));
+            Assertions.assertEquals(Collections.singletonList("1:10"), readRows(normalized));
+        }
+    }
+
+    @Test
     public void snapshotUsesHistoricalSequenceFieldAfterRename(@TempDir Path warehouse) throws Exception {
         checkRenamedField(warehouse, false, "snapshot");
     }

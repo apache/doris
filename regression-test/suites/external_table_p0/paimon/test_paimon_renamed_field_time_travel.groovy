@@ -134,6 +134,23 @@ suite("test_paimon_renamed_field_time_travel", "p0,external,paimon") {
         """
         sql """refresh catalog ${catalogName}"""
 
+        spark_paimon_multi """
+            DROP TABLE IF EXISTS paimon.${dbName}.scan_state_history;
+            CREATE TABLE paimon.${dbName}.scan_state_history (
+                id INT, value BIGINT
+            ) USING paimon
+            TBLPROPERTIES (
+                'primary-key'='id', 'bucket'='1', 'file.format'='parquet',
+                'scan.mode'='latest-full'
+            );
+            INSERT INTO paimon.${dbName}.scan_state_history VALUES (1, 10);
+        """
+        String scanStateSnapshot = latestSnapshotId("scan_state_history")
+        spark_paimon """
+            ALTER TABLE paimon.${dbName}.scan_state_history UNSET TBLPROPERTIES ('scan.mode')
+        """
+        sql """refresh catalog ${catalogName}"""
+
         // Historical fields must use their historical sequence/aggregation options;
         // latest options reference names that do not exist in the old schema.
         [false, true].each { forceJni ->
@@ -177,6 +194,11 @@ suite("test_paimon_renamed_field_time_travel", "p0,external,paimon") {
             "order_qt_aggregation_tag_${forceJni}" """
                 SELECT id, original_total
                 FROM aggregation_timeline@tag(aggregation_base) ORDER BY id
+            """
+            // Historical schema restoration must not revive a removed startup mode.
+            "order_qt_removed_scan_mode_${forceJni}" """
+                SELECT id, value FROM scan_state_history
+                FOR VERSION AS OF ${scanStateSnapshot} ORDER BY id
             """
         }
     } finally {

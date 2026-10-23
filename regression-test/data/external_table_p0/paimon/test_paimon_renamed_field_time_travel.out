@@ -57,6 +57,9 @@
 1	10
 2	20
 
+-- !removed_scan_mode_false --
+1	10
+
 -- !sequence_latest_true --
 1	30	updated
 2	20	retained
@@ -98,4 +101,7 @@
 -- !aggregation_tag_true --
 1	10
 2	20
+
+-- !removed_scan_mode_true --
+1	10
 
