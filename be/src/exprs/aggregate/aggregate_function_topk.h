@@ -173,23 +173,37 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& state = Base::data(place);
         auto& result_array = assert_cast<ColumnArray&>(to);
-        // The array element is nullable in the planned type (ArrayType contains_null), but a
-        // produced entry never is.
+        // The array element and both fields are nullable in the planned type, but a produced entry
+        // never is.
         auto& pair_nullable = assert_cast<ColumnNullable&>(result_array.get_data());
         auto& pair_column = assert_cast<ColumnStruct&>(pair_nullable.get_nested_column());
-        auto& value_column = pair_column.get_column(0);
-        auto& count_column = assert_cast<ColumnInt64&>(pair_column.get_column(1));
+        auto& value_column = assert_cast<ColumnNullable&>(pair_column.get_column(0));
+        auto& count_column = assert_cast<ColumnNullable&>(pair_column.get_column(1));
         for (size_t i = 0; i != state.counts.size(); ++i) {
-            value_column.insert_from(*state.value_column, i);
-            count_column.get_data().push_back(state.counts[i]);
+            if (const auto* nullable_value =
+                        check_and_get_column<ColumnNullable>(state.value_column.get())) {
+                // A nullable value argument carries its own null map, which is never set here.
+                value_column.insert_from(*nullable_value, i);
+            } else {
+                value_column.get_nested_column().insert_from(*state.value_column, i);
+                value_column.get_null_map_data().push_back(0);
+            }
+            assert_cast<ColumnInt64&>(count_column.get_nested_column())
+                    .get_data()
+                    .push_back(state.counts[i]);
+            count_column.get_null_map_data().push_back(0);
             pair_nullable.get_null_map_data().push_back(0);
         }
         result_array.get_offsets().push_back(pair_column.size());
     }
 
     static DataTypePtr make_return_type(const DataTypePtr& value_type) {
+        // Both fields are nullable in the planned type: a consumer reads a field through
+        // element_at, which is always nullable, and named_struct then records nullable fields.
+        // Produced entries never contain a NULL field.
         auto pair_type = std::make_shared<DataTypeStruct>(
-                DataTypes {value_type, std::make_shared<DataTypeInt64>()},
+                DataTypes {make_nullable(value_type),
+                           make_nullable(std::make_shared<DataTypeInt64>())},
                 Strings {"value", "count"});
         // ArrayType defaults contains_null to true on the FE side, so the pair element is nullable
         // in the planned type even though the aggregate never produces a NULL entry.

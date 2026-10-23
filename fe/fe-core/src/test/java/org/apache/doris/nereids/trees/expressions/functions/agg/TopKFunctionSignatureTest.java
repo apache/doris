@@ -39,10 +39,12 @@ class TopKFunctionSignatureTest {
         Assertions.assertEquals(2, pairType.getFields().size());
         Assertions.assertEquals("value", pairType.getFields().get(0).getName());
         Assertions.assertEquals(expectedValueType, pairType.getField("value").getDataType());
-        Assertions.assertFalse(pairType.getField("value").isNullable());
+        // Nullable in the type so that a lambda reading the field through element_at composes
+        // with array_sorted_merge; the aggregate never produces a NULL field.
+        Assertions.assertTrue(pairType.getField("value").isNullable());
         Assertions.assertEquals("count", pairType.getFields().get(1).getName());
         Assertions.assertEquals(BigIntType.INSTANCE, pairType.getField("count").getDataType());
-        Assertions.assertFalse(pairType.getField("count").isNullable());
+        Assertions.assertTrue(pairType.getField("count").isNullable());
     }
 
     @Test

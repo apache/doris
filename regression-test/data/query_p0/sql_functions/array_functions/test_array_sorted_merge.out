@@ -36,3 +36,6 @@
 -- !nonnullable_body --
 [1, 2]
 
+-- !topk_output_merge --
+[{"value":1, "count":2}]
+

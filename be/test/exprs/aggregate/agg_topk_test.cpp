@@ -61,10 +61,14 @@ TopKResult read_result(const IColumn& column) {
     const auto& array = assert_cast<const ColumnArray&>(column);
     const auto& pair_nullable = assert_cast<const ColumnNullable&>(array.get_data());
     const auto& pair_column = assert_cast<const ColumnStruct&>(pair_nullable.get_nested_column());
-    const auto& value_column = assert_cast<const ColumnInt32&>(pair_column.get_column(0));
-    const auto& count_column = assert_cast<const ColumnInt64&>(pair_column.get_column(1));
+    const auto& value_nullable = assert_cast<const ColumnNullable&>(pair_column.get_column(0));
+    const auto& count_nullable = assert_cast<const ColumnNullable&>(pair_column.get_column(1));
+    const auto& value_column = assert_cast<const ColumnInt32&>(value_nullable.get_nested_column());
+    const auto& count_column = assert_cast<const ColumnInt64&>(count_nullable.get_nested_column());
     for (size_t i = 0; i != value_column.size(); ++i) {
         EXPECT_EQ(pair_nullable.get_null_map_data()[i], 0);
+        EXPECT_EQ(value_nullable.get_null_map_data()[i], 0);
+        EXPECT_EQ(count_nullable.get_null_map_data()[i], 0);
         result.values.push_back(value_column.get_element(i));
         result.counts.push_back(count_column.get_element(i));
     }

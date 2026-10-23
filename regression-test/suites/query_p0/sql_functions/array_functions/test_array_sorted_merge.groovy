@@ -173,6 +173,20 @@ suite("test_array_sorted_merge") {
                                   CAST([1, 2] AS ARRAY<INT>), true)
     """
 
+    // The most direct composition: the aggregate output is fed back into the merge lambda that
+    // rebuilds the pair with named_struct. The pair fields are nullable in the type, which is what
+    // element_at produces, so the element-type check accepts the lambda without any cast.
+    order_qt_topk_output_merge """
+        SELECT array_sorted_merge(
+                   (a, b) -> IF(element_at(a, 'value') = element_at(b, 'value'),
+                                named_struct('value', element_at(a, 'value'),
+                                             'count', element_at(a, 'count')
+                                                      + element_at(b, 'count')),
+                                NULL),
+                   s, s, true)
+        FROM (SELECT min_topk(i, 2) AS s FROM (SELECT 1 AS i) t) x
+    """
+
     test {
         sql """SELECT array_sorted_merge(
                    (a, b) -> CAST(a + element_at(array_map(x -> x + a, [1]), 1) AS INT),
