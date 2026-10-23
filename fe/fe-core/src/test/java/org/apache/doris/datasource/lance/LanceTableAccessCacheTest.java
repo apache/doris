@@ -104,6 +104,18 @@ public class LanceTableAccessCacheTest {
     }
 
     @Test
+    public void testManagedTableLocationComparisonUsesNormalizedLocation() {
+        LanceNamespace namespace = namespace();
+        Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(new DescribeTableResponse()
+                .location("s3://example-bucket/warehouse/./items.lance/")
+                .tableUri("s3://example-bucket/warehouse/items.lance?X-Amz-Signature=example")
+                .managedVersioning(true));
+        LanceNamespaceClient client = client(namespace, "rest", 60, new AtomicLong(1_000_000));
+
+        Assertions.assertTrue(client.resolveTableAccess("default", "items").isManagedVersioning());
+    }
+
+    @Test
     public void testVendedCredentialsAreResolvedForEveryRead() {
         LanceNamespace namespace = namespace();
         AtomicLong millis = new AtomicLong(1_000_000);
