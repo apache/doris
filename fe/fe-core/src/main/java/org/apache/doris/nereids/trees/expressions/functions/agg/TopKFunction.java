@@ -45,9 +45,15 @@ import java.util.List;
  * equal to each value. There is no truncation flag; the caller infers it from the length (a list of
  * exactly k entries is conservatively treated as possibly truncated). With {@code k = 0} the array
  * holds at most the extreme value and its row count.
+ *
+ * <p>NULL values of x are skipped by the implementation, but this class deliberately does not
+ * implement {@code NullIgnoringAggregateFunction}: a count expression the FE cannot fold is
+ * validated by BE on every input row, so an all-NULL input must still reach the aggregate to
+ * report a NULL count. Filtering those rows away (as {@code InferAggNotNull} would) turns that
+ * error into an empty result, which breaks the null-ignoring result-invariance contract.
  */
 public abstract class TopKFunction extends NotNullableAggregateFunction
-        implements CustomSignature, NullIgnoringAggregateFunction {
+        implements CustomSignature {
 
     /** Upper bound of k, shared with the BE implementation. */
     public static final long MAX_TOPK_K = 65536;
