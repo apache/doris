@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlStatus;
@@ -39,6 +41,7 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -46,7 +49,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public class TransactionStateTest {
@@ -162,5 +170,95 @@ public class TransactionStateTest {
             Assertions.assertEquals(1, readKafkaProgress.getOffsetByPartition().size());
             Assertions.assertEquals(100L, (long) readKafkaProgress.getOffsetByPartition().getOrDefault(1, -1L));
         });
+    }
+
+    // Commit and finish serialize the state for the edit log while they hold its monitor. The writers that
+    // change it later without any lock of their own (PublishVersionDaemon, the version check of finish)
+    // must wait for that monitor.
+    @Test
+    public void testPublishUpdatesWaitForMonitor() throws Exception {
+        TransactionState transactionState = newTransactionState();
+        Map<Long, Map<Long, Long>> deltaRows = Maps.newHashMap();
+        deltaRows.put(20000L, Maps.newHashMap());
+        deltaRows.get(20000L).put(30000L, 10L);
+
+        Thread setter = new Thread(() -> transactionState.setTableIdToTabletDeltaRows(deltaRows));
+        synchronized (transactionState) {
+            setter.start();
+            waitUntilBlocked(setter);
+            Assertions.assertTrue(transactionState.getTableIdToTabletDeltaRows().isEmpty());
+        }
+        setter.join(TimeUnit.SECONDS.toMillis(30));
+        Assertions.assertEquals(deltaRows, transactionState.getTableIdToTabletDeltaRows());
+
+        Thread pruner = new Thread(transactionState::pruneAfterVisible);
+        synchronized (transactionState) {
+            pruner.start();
+            waitUntilBlocked(pruner);
+            Assertions.assertFalse(transactionState.getTableIdToTabletDeltaRows().isEmpty());
+        }
+        pruner.join(TimeUnit.SECONDS.toMillis(30));
+        Assertions.assertTrue(transactionState.getTableIdToTabletDeltaRows().isEmpty());
+    }
+
+    @Test
+    public void testFinishCheckPartitionVersionWaitsForMonitor() throws Exception {
+        DatabaseTransactionMgr dbTransactionMgr = new DatabaseTransactionMgr(1000L, Mockito.mock(Env.class), null);
+        // The mocked database has no tables, so the check removes the commit info of a dropped table.
+        Database db = Mockito.mock(Database.class);
+
+        TransactionState transactionState = newTransactionState();
+        transactionState.putIdToTableCommitInfo(20000L, new TableCommitInfo(20000L));
+        Method check = DatabaseTransactionMgr.class.getDeclaredMethod("finishCheckPartitionVersion",
+                TransactionState.class, Database.class, List.class);
+        check.setAccessible(true);
+        Thread checker = new Thread(() -> invoke(check, dbTransactionMgr, transactionState, db, new ArrayList<>()));
+        synchronized (transactionState) {
+            checker.start();
+            waitUntilBlocked(checker);
+            Assertions.assertEquals(1, transactionState.getIdToTableCommitInfos().size());
+        }
+        checker.join(TimeUnit.SECONDS.toMillis(30));
+        Assertions.assertTrue(transactionState.getIdToTableCommitInfos().isEmpty());
+
+        TransactionState subTxnState = newTransactionState();
+        subTxnState.setSubTxnIds(Lists.newArrayList(3001L));
+        subTxnState.getSubTxnIdToTableCommitInfo().put(3001L, new TableCommitInfo(20000L));
+        Method subTxnCheck = DatabaseTransactionMgr.class.getDeclaredMethod(
+                "finishCheckPartitionVersionWithSubTxns", TransactionState.class, Database.class);
+        subTxnCheck.setAccessible(true);
+        Thread subTxnChecker = new Thread(() -> invoke(subTxnCheck, dbTransactionMgr, subTxnState, db));
+        synchronized (subTxnState) {
+            subTxnChecker.start();
+            waitUntilBlocked(subTxnChecker);
+            Assertions.assertEquals(1, subTxnState.getSubTxnIds().size());
+        }
+        subTxnChecker.join(TimeUnit.SECONDS.toMillis(30));
+        Assertions.assertTrue(subTxnState.getSubTxnIds().isEmpty());
+    }
+
+    private static TransactionState newTransactionState() {
+        return new TransactionState(1000L, Lists.newArrayList(20000L), 3000, "label123", new TUniqueId(1L, 2L),
+                LoadJobSourceType.BACKEND_STREAMING,
+                new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
+                -1L, 60 * 1000L);
+    }
+
+    private static void invoke(Method method, Object target, Object... args) {
+        try {
+            method.invoke(target, args);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void waitUntilBlocked(Thread thread) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(30);
+        while (thread.getState() != Thread.State.BLOCKED) {
+            Assertions.assertNotEquals(Thread.State.TERMINATED, thread.getState(),
+                    "the update did not wait for the monitor of the transaction state");
+            Assertions.assertTrue(System.currentTimeMillis() < deadline, "thread state: " + thread.getState());
+            Thread.sleep(10);
+        }
     }
 }

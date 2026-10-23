@@ -38,6 +38,7 @@ import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -50,6 +51,7 @@ import org.apache.doris.tls.server.FeServerStarterFactory;
 import org.apache.doris.tls.server.ServerStarter;
 import org.apache.doris.tls.server.TlsProtocolSet;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -725,7 +727,15 @@ public class DorisFE {
         return serverReady.get();
     }
 
-    private static void gracefulShutdown() {
+    @VisibleForTesting
+    static void gracefulShutdown() {
+        if (EditLog.isWriteFailed()) {
+            // Nothing done from now on can be persisted, and every thread that writes the edit log is blocked
+            // while holding its locks. Waiting for running queries would keep this frontend serving metadata
+            // that may never become durable.
+            LOG.warn("skip waiting for running queries because the edit log can not be written");
+            return;
+        }
         // wait for all queries to finish
         try {
             long now = System.currentTimeMillis();

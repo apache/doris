@@ -51,6 +51,15 @@ public class JournalBatch {
     // If the batch is too large, it may cause a latency spike. Generally, we recommend controlling
     // the number of batch entities to less than 32 and the batch data size to less than 640KB.
     public void addJournal(short op, Writable data) throws IOException {
+        addEntity(serialize(op, data));
+    }
+
+    // Serialize a writable data into the internal representation of a journal batch.
+    //
+    // The returned entity does not refer to the data object. A caller that hands an edit to another
+    // thread should serialize it first, while it still holds the lock that guards the data object,
+    // because the other thread reads the entity later and the data object may have changed by then.
+    public static Entity serialize(short op, Writable data) throws IOException {
         if (op == OperationType.OP_TIMESTAMP) {
             // OP_TIMESTAMP is not supported, see `BDBJEJournal.write` for details.
             throw new RuntimeException("JournalBatch.addJournal is not supported OP_TIMESTAMP");
@@ -62,9 +71,13 @@ public class JournalBatch {
 
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
         entity.write(buffer);
-        size += buffer.size();
+        return new Entity(op, buffer);
+    }
 
-        entities.add(new Entity(op, buffer));
+    // Add an entity returned by `serialize` into journal batch.
+    public void addEntity(Entity entity) {
+        size += entity.data.size();
+        entities.add(entity);
     }
 
     public ArrayList<Entity> getJournalEntities() {
