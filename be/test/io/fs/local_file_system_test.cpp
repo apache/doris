@@ -549,6 +549,10 @@ TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
 }
 
 TEST_F(LocalFileSystemTest, TestGlob) {
+    const std::string original_secure_path = config::user_files_secure_path;
+    DEFER(config::user_files_secure_path = original_secure_path);
+    // Bind this fixture to its own files, independent of the runner's build-profile directory.
+    config::user_files_secure_path = std::filesystem::absolute("./be/ut_build_ASAN/test").string();
     std::string path = "./be/ut_build_ASAN/test/file_path/";
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
     EXPECT_TRUE(io::global_local_filesystem()

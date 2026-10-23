@@ -4330,7 +4330,7 @@ TEST(LanceTableReaderLocalPathTest, SchemaAndScanUseTheSameSecurePath) {
     std::vector<DataTypePtr> types;
     ASSERT_TRUE(reader.fetch_schema(range, scan_params, &names, &types).ok());
     EXPECT_FALSE(names.empty());
-    DatasetKey key;
+    LanceTableReader::DatasetKey key;
     ASSERT_TRUE(reader._dataset_key(range, &key).ok());
     EXPECT_EQ((root / "all_types.lance").string(), key.uri);
 
@@ -4368,6 +4368,19 @@ TEST(LanceTableReaderLocalPathTest, ScansRelativeDatasetInsideSecureRoot) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(LanceTableReaderLocalPathTest, FixedVersionLocalCatalogKeepsItsUri) {
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    reader._scan_params = &scan_params;
+    // Catalog warehouses use their own location, not the LOCAL TVF secure directory.
+    auto range = make_lance_range("file:///catalog-owned/dataset.lance", 7, {0});
+    range.__set_file_type(TFileType::FILE_LOCAL);
+    LanceTableReader::DatasetKey key;
+    ASSERT_TRUE(reader._dataset_key(range, &key).ok());
+    EXPECT_EQ("file:///catalog-owned/dataset.lance", key.uri);
+    EXPECT_EQ(7, key.version);
+}
+
 TEST(LanceTableReaderLocalPathTest, RemoteRangeKeepsItsUriAndOptions) {
     TFileScanRangeParams scan_params;
     scan_params.__set_file_type(TFileType::FILE_LOCAL);
@@ -4378,7 +4391,7 @@ TEST(LanceTableReaderLocalPathTest, RemoteRangeKeepsItsUriAndOptions) {
     reader._scan_params = &scan_params;
     auto range = make_latest_lance_range("s3://bucket/dataset.lance");
     range.__set_file_type(TFileType::FILE_S3);
-    DatasetKey key;
+    LanceTableReader::DatasetKey key;
     ASSERT_TRUE(reader._dataset_key(range, &key).ok());
     EXPECT_EQ("s3://bucket/dataset.lance", key.uri);
     EXPECT_EQ((std::vector<std::string> {"aws_region", "us-east-1"}), key.storage_options);

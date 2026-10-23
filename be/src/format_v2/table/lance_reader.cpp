@@ -51,7 +51,10 @@ Status resolve_dataset_uri(const TFileRangeDesc& range, const TFileScanRangePara
                                   ? range.file_type == TFileType::FILE_LOCAL
                                   : scan_params.__isset.file_type &&
                                             scan_params.file_type == TFileType::FILE_LOCAL;
-    if (is_local) {
+    // LOCAL TVF uses version zero for both schema discovery and whole-dataset scans.
+    // Catalog scans pin a positive snapshot version, including file:// catalogs whose
+    // operator-configured warehouse is independent of the LOCAL TVF secure directory.
+    if (is_local && range.table_format_params.lance_params.version == 0) {
         // LOCAL Lance bypasses glob because it opens a dataset directory. Apply the same
         // canonical secure-root check before either schema discovery or a cached dataset open.
         return io::global_local_filesystem()->canonicalize_local_file(
