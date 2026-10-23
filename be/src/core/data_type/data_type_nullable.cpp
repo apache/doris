@@ -103,11 +103,60 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 
 const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* column,
                                           int be_exec_version) const {
+    return deserialize(buf, nullptr, column, be_exec_version);
+}
+
+const char* DataTypeNullable::deserialize(const char* buf, const char* end,
+                                          MutableColumnPtr* column, int be_exec_version) const {
     auto* origin_column = column->get();
+    constexpr size_t header_size = sizeof(bool) + 2 * sizeof(size_t);
+    if (end != nullptr) {
+        if (end < buf || static_cast<size_t>(end - buf) < header_size) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: missing serialized header");
+        }
+        uint8_t is_const_flag = unaligned_load<uint8_t>(buf);
+        if (is_const_flag > 1) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: invalid const flag {}", is_const_flag);
+        }
+        bool is_const = is_const_flag != 0;
+        size_t row_num = unaligned_load<size_t>(buf + sizeof(bool));
+        size_t saved_num = unaligned_load<size_t>(buf + sizeof(bool) + sizeof(size_t));
+        if (saved_num != (is_const ? 1 : row_num)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: inconsistent row count {}, saved count {}",
+                            row_num, saved_num);
+        }
+    }
+
     size_t real_have_saved_num = 0;
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
-    auto mem_size = real_have_saved_num * sizeof(bool);
+    if (end != nullptr) {
+        size_t remaining = static_cast<size_t>(end - buf);
+        size_t null_map_size = real_have_saved_num * sizeof(bool);
+        if (null_map_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            if (null_map_size > remaining) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: truncated null map");
+            }
+        } else {
+            if (remaining < sizeof(size_t)) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: missing null map length");
+            }
+            size_t encode_size = unaligned_load<size_t>(buf);
+            size_t payload_remaining = remaining - sizeof(size_t);
+            if (encode_size > payload_remaining ||
+                payload_remaining - encode_size < STREAMVBYTE_PADDING) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: encoded null map exceeds input");
+            }
+        }
+    }
+
+    size_t mem_size = real_have_saved_num * sizeof(bool);
     auto* col = assert_cast<ColumnNullable*>(origin_column);
     // A nullable column can be exclusive while its subcolumns are still shared
     // after a shallow COW clone. Detach both owner slots before writing into them.
@@ -129,7 +178,7 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
         buf += encode_size;
     }
 
-    buf = nested_data_type->deserialize(buf, &nested, be_exec_version);
+    buf = nested_data_type->deserialize(buf, end, &nested, be_exec_version);
     col->replace_columns(std::move(nested), std::move(null_map));
     return buf;
 }
