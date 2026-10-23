@@ -20,10 +20,13 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gtest/gtest_prod.h>
 
+#include <optional>
+
 #include "common/atomic_shared_ptr.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "exec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "exec/sink/writer/iceberg/partition_data.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exprs/vexpr_fwd.h"
@@ -160,6 +163,8 @@ private:
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
+    // The table's data location, set by open(); partition writers write under its subdirectories.
+    std::optional<IcebergOutputLocation> _output_location;
 
     // Target file size in bytes for controlling when to split files
     int64_t _target_file_size_bytes = 0;

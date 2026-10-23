@@ -127,8 +127,14 @@ public class IcebergConnectorTransactionTest {
         return ops;
     }
 
+    // Stands in for the raw location planWrite registers for the sink it builds; every fragment fed to a
+    // transaction from txnFor lives under it.
+    private static final String COMMIT_LOCATION = "s3://b";
+
     private static IcebergConnectorTransaction txnFor(RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorTransaction(42L, ops, ctx);
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+        txn.addCommitLocation(COMMIT_LOCATION);
+        return txn;
     }
 
     // The overwrite tests below predate the static default (iceberg_partition_overwrite_mode defaults to
@@ -245,6 +251,7 @@ public class IcebergConnectorTransactionTest {
 
     private static TIcebergCommitData dataItem(long affectedRows, long rowCount, TFileContent content) {
         TIcebergCommitData d = new TIcebergCommitData();
+        d.setFilePath(COMMIT_LOCATION + "/db/t/f.parquet");
         d.setRowCount(rowCount);
         if (affectedRows >= 0) {
             d.setAffectedRows(affectedRows);
@@ -337,6 +344,63 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> txn.addCommitData(new byte[] {(byte) 0xDE, (byte) 0xAD, (byte) 0xBE, (byte) 0xEF}));
+    }
+
+    // ─────────────────── addCommitData: files must be reported under a location a sink carries ───────────────────
+
+    private static IcebergConnectorTransaction txnCommittingUnder(String... locations) {
+        IcebergConnectorTransaction txn =
+                new IcebergConnectorTransaction(42L, opsReturning(null), new RecordingConnectorContext());
+        for (String location : locations) {
+            txn.addCommitLocation(location);
+        }
+        return txn;
+    }
+
+    @Test
+    public void addCommitDataAcceptsFilesUnderEveryRegisteredLocation() {
+        // One location without and one with a trailing '/': write.data.path is taken verbatim.
+        IcebergConnectorTransaction txn = txnCommittingUnder("oss://b/db/t/data", "oss://b/db/t2/data/");
+        txn.addCommitData(commitBytes(dataFileItem("oss://b/db/t/data/id=1/f.parquet", 1L, 64L)));
+        txn.addCommitData(commitBytes(
+                positionDeleteItem("oss://b/db/t2/data/delete_pos_1.parquet", 1L, "oss://b/db/t2/data/f.parquet")));
+        Assertions.assertEquals(2, txn.getCommitDataList().size());
+    }
+
+    @Test
+    public void addCommitDataRejectsTheNormalizedAddressBeWroteTheFileAt() {
+        // BE writes an oss:// table through s3://; reporting that form records a file no other engine opens.
+        IcebergConnectorTransaction txn = txnCommittingUnder("oss://b/db/t/data");
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.addCommitData(commitBytes(positionDeleteItem(
+                        "s3://b/db/t/data/delete_pos_1.parquet", 1L, "oss://b/db/t/data/f.parquet"))));
+        Assertions.assertTrue(ex.getMessage().contains("s3://b/db/t/data/delete_pos_1.parquet"), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("oss://b/db/t/data"), ex.getMessage());
+        Assertions.assertTrue(txn.getCommitDataList().isEmpty(), "a rejected fragment must not be accumulated");
+    }
+
+    @Test
+    public void addCommitDataRejectsASiblingDirectorySharingTheLocationPrefix() {
+        IcebergConnectorTransaction txn = txnCommittingUnder("oss://b/db/t/data");
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.addCommitData(commitBytes(dataFileItem("oss://b/db/t/data_old/f.parquet", 1L, 64L))));
+    }
+
+    @Test
+    public void addCommitDataRejectsAFragmentWithoutAPathOrBeforeAnySinkWasPlanned() {
+        IcebergConnectorTransaction planned = txnCommittingUnder("oss://b/db/t/data");
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planned.addCommitData(commitBytes(dataItem(1L, 1L, TFileContent.DATA).setFilePath(null))));
+        IcebergConnectorTransaction unplanned = txnCommittingUnder();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> unplanned.addCommitData(commitBytes(dataFileItem("oss://b/db/t/data/f.parquet", 1L, 64L))));
+    }
+
+    @Test
+    public void addCommitLocationRejectsAnEmptyLocation() {
+        IcebergConnectorTransaction txn = txnCommittingUnder();
+        Assertions.assertThrows(DorisConnectorException.class, () -> txn.addCommitLocation(""));
+        Assertions.assertThrows(DorisConnectorException.class, () -> txn.addCommitLocation(null));
     }
 
     // ─────────────────── getUpdateCnt: data/delete split, affectedRows priority (T03, regression) ───────────────────
@@ -1020,7 +1084,7 @@ public class IcebergConnectorTransactionTest {
         long snapshotId = table.currentSnapshot().snapshotId();
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-02")));
-        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 100L,
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/replacement.parquet", 1L, 100L,
                 Collections.singletonList("2024-01-02 00:00:00.000000000"))));
         // DATE metrics are days, so silently committing a nanos equality would retain the old file.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
@@ -1046,7 +1110,7 @@ public class IcebergConnectorTransactionTest {
         }
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01")));
-        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/replacement.parquet", 1L, 1024L,
                 Collections.singletonList("2024-01-01 00:00:00.000000000"))));
         txn.commit();
         List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
@@ -1073,7 +1137,7 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1",
                 overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01 00:00:00+08:00")));
-        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/replacement.parquet", 1L, 1024L,
                 Collections.singletonList("2023-12-31 16:00:00.000000000"))));
         txn.commit();
         List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));

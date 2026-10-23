@@ -53,6 +53,7 @@ under the License.
 | R16 | CTAS 对复杂类型、NULL、分区 transform、文件格式和失败清理的行为不一致 | 黑盒：DDL + writer 一体提交 | schema、文件格式、原子性 | P0 |
 | R17 | sort order、distribution mode、多次文件 flush 和并发 commit 组合导致乱序、丢行或重复提交 | 白盒：exchange、sort writer、optimistic commit | 分布式正确性、稳定性 | P0 |
 | R18 | STRING identity/bucket/truncate 对空串、中文、emoji、组合字符和 NULL 的物理分区值计算错误 | 黑盒：UTF-8 transform metadata | 分区路由、裁剪 | P0 |
+| R19 | 写入的数据文件、position delete 或 deletion vector 按 BE 实际写入的规范化地址（如 s3://）记入元数据，而不是表自己的 location（如 s3a://、oss://） | 白盒：sink 写路径与提交路径 | 其他引擎与维护操作能否打开文件 | P0 |
 
 ## 组合覆盖
 
@@ -87,6 +88,7 @@ under the License.
 | 排序与分布属性 | 多列 sort order、NULL ordering、none/hash/range distribution、强制多文件 flush | 已覆盖（验证通过） | `test_iceberg_write_order_distribution_properties` |
 | 并发写入 | 同行冲突 MERGE 的串行化不变量、非冲突分布式 append | 已覆盖（验证通过） | `test_iceberg_write_concurrent_merge_invariants` |
 | 分布式执行 | 多 bucket 源表、多分区 Iceberg sink、多 BE writer、suite 间无共享 catalog/database | 已覆盖（验证通过） | 所有本次新增 suite |
+| 文件路径记录 | INSERT、分区 OVERWRITE、branch INSERT、DELETE、UPDATE、MERGE、rewrite_data_files 写出的全部文件（v2 position delete、v3 deletion vector）都记在表的 data location 下 | 已覆盖（常规回归） | `test_iceberg_write_file_locations` |
 | Spark 交叉验证 | 十五个正向 suite 在最后一次写入后逐行比较；STRING transform suite 另行比较演进前后的物理分区 metadata | 已覆盖（验证通过） | 十五个正向 suite；物理 metadata 见 `test_iceberg_write_string_transform_metadata` |
 
 ## 本次新增用例设计
@@ -112,9 +114,10 @@ under the License.
 | W17 | 验证 sort order、distribution mode 和多文件 flush | R03、R11、R17 | 正确性、稳定性 | 多 BE Doris | NULL sort key、多列升降序、none/hash/range、低 target file size | 计划包含声明排序，多文件总行数正确，三种分布模式结果一致 |
 | W18 | 验证并发 MERGE 与 append 的提交不变量 | R11、R13、R17 | 并发、原子性 | 多 BE Doris | readiness barrier 保证两个独立会话同时具备 dispatch 条件；同行更新与互不冲突 append | 同行提交可串行化且基数为一；仅接受 Iceberg validation/commit conflict；非冲突写入无丢失或重复 |
 | W19 | 验证 MERGE source projection 进入 truncate transform 的类型安全 | R12、R18 | 常规回归、稳定性 | Iceberg v2 MOR | required STRING truncate 列执行匹配更新与未匹配插入 | MERGE 接受 nullable 物理投影中的非 NULL 值，并生成正确物理分区 |
+| W20 | 验证每种写入操作记录的文件路径都在表自己的 location 下 | R19 | 正确性、兼容性 | REST fixture 的 warehouse 为 s3a://，BE 侧规范化为 s3:// | v2、v3 表依次执行 INSERT、分区 OVERWRITE、branch INSERT、DELETE、UPDATE、MERGE、rewrite_data_files | `$all_files` 中每个文件都以 `SHOW CREATE TABLE` 的 LOCATION 加 `/data/` 开头；新增写入操作也加到这个用例 |
 
 ## P0 覆盖检查
 
-R01-R18 均映射到至少一个 P0 regression。十五个正向 suite 在最后一次成功写入后均由 Spark/Doris 交叉校验同表逻辑结果；transform、rollover、CTAS property 和失败原子性另有物理 metadata 或状态 oracle。W08、W10、W19 已作为常规回归运行；仍可能写出不可读 required-null 文件的 W07 保留隔离开关，避免破坏共享集群。
+R01-R19 均映射到至少一个 P0 regression。十五个正向 suite 在最后一次成功写入后均由 Spark/Doris 交叉校验同表逻辑结果；transform、rollover、CTAS property 和失败原子性另有物理 metadata 或状态 oracle。W08、W10、W19 已作为常规回归运行；仍可能写出不可读 required-null 文件的 W07 保留隔离开关，避免破坏共享集群。
 
 本矩阵未覆盖项为 0。COW 行级 DML、branch 行级 DML、tag 写入和 Avro 写入属于当前明确能力边界，均以预期拒绝用例固化错误语义与失败原子性；仅 required-null 已知缺陷继续使用隔离负向 regression。
