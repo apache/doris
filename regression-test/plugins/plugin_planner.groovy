@@ -17,6 +17,12 @@
 
 import org.apache.doris.regression.suite.Suite
 
+import org.awaitility.Awaitility
+
+import java.util.concurrent.TimeUnit
+
+import static java.util.concurrent.TimeUnit.SECONDS
+
 def anlyzedPlanShowFields = [
     LogicalProject : ['projects'],
     LogicalSort : ['orderKeys'],
@@ -157,6 +163,25 @@ def maskIvmDryRunSequence = { row, meta ->
 // Named ivm_hidden_qt instead of order_qt_*: Suite.invokeMethod intercepts every method whose name
 // starts with qt_ / order_qt_ and derives the tag from the method name, so a metaClass method could
 // never be reached under those prefixes.
+// Latest finished MV task row for one MV, waiting for a terminal status first. Shared by the IVM
+// suites so each one does not carry its own copy; the row carries the columns those suites assert
+// on (Status, RefreshMode, IvmFallbackReason, ErrorMsg).
+Suite.metaClass.latestIvmTask = { String mvName ->
+    def suite = delegate
+    def taskResult
+    Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
+        taskResult = suite.sql_return_maparray("""
+            SELECT Status, RefreshMode, IvmFallbackReason, ErrorMsg FROM tasks('type'='mv')
+            WHERE MvDatabaseName = '${suite.context.dbName}' AND MvName = '${mvName}'
+            ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+        """)
+        return !taskResult.isEmpty()
+                && taskResult[0].Status.toString() != 'PENDING'
+                && taskResult[0].Status.toString() != 'RUNNING'
+    })
+    return taskResult[0]
+}
+
 Suite.metaClass.ivm_hidden_qt = { String tag, String sqlText ->
     delegate.sql("SET show_hidden_columns = true;")
     try {

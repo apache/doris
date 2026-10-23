@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 // Delta shape edge cases: a single batch inserting more than K distinct values truncates the
 // insert-side list and collapses the trusted bound, and an UPDATE moves a value out of the MAX side
@@ -53,41 +51,26 @@ suite("test_ivm_agg_minmax_topk_6") {
         AS SELECT MIN(score) AS mn, MAX(score) AS mx FROM ivm_topk_6_t
     """
 
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT Status, IvmFallbackReason FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_topk_6_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        return taskResult[0]
-    }
-
     sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_6_mv")
     order_qt_initial """SELECT mn, mx FROM ivm_topk_6_mv"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_6_mv""")
+    ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_6_mv""")
 
     // Three distinct values in one batch with K = 2: the insert-side list is truncated at 6, so the
     // trusted bound collapses to 6 and 7 is never trusted.
     sql """INSERT INTO ivm_topk_6_t VALUES (4, 5), (5, 6), (6, 7)"""
     sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL"""
-    def afterTruncatingInsert = latestTask()
+    def afterTruncatingInsert = latestIvmTask("ivm_topk_6_mv")
     assertEquals("SUCCESS", afterTruncatingInsert.Status.toString())
     order_qt_after_truncating_insert """SELECT mn, mx FROM ivm_topk_6_mv"""
-    ivm_hidden_qt("state_after_truncating_insert", """SELECT * FROM ivm_topk_6_mv""")
+    ivm_hidden_qt("order_state_after_truncating_insert", """SELECT * FROM ivm_topk_6_mv""")
 
     // One UPDATE emits a delete of 30 and an insert of 4: the MAX side loses its extreme and the
     // MIN side gains a smaller value in the same batch.
     sql """UPDATE ivm_topk_6_t SET score = 4 WHERE id = 3"""
     sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL"""
-    def afterUpdate = latestTask()
+    def afterUpdate = latestIvmTask("ivm_topk_6_mv")
     assertEquals("SUCCESS", afterUpdate.Status.toString())
     order_qt_after_update """SELECT mn, mx FROM ivm_topk_6_mv"""
-    ivm_hidden_qt("state_after_update", """SELECT * FROM ivm_topk_6_mv""")
+    ivm_hidden_qt("order_state_after_update", """SELECT * FROM ivm_topk_6_mv""")
 }

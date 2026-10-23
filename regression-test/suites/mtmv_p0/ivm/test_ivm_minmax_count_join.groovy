@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_minmax_count_join") {
     // The base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
@@ -79,25 +77,6 @@ suite("test_ivm_minmax_count_join") {
     // running list before the MV history publishes it, so the newest row can temporarily be
     // the previous refresh. Require a different TaskId before trusting a terminal row.
     String lastTaskId = null
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg
-                FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}'
-                  AND MvName = 'ivm_mm_join_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].TaskId.toString() != lastTaskId
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        lastTaskId = taskResult[0].TaskId.toString()
-        return taskResult[0]
-    }
-
     sql """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_mm_join_mv")
     lastTaskId = sql_return_maparray("""
@@ -118,7 +97,7 @@ suite("test_ivm_minmax_count_join") {
     sql """DELETE FROM ivm_mm_join_r WHERE k = 1"""
     Thread.sleep(1000)
     sql """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL"""
-    def canceledDeleteTask = latestTask()
+    def canceledDeleteTask = latestIvmTask("ivm_mm_join_mv")
     assertEquals("SUCCESS", canceledDeleteTask.Status.toString())
     assertNoFallback(canceledDeleteTask)
     order_qt_after_canceled_delete """
@@ -130,7 +109,7 @@ suite("test_ivm_minmax_count_join") {
     sql """DELETE FROM ivm_mm_join_l WHERE k = 2"""
     Thread.sleep(1000)
     sql """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL FALLBACK"""
-    def boundaryTask = latestTask()
+    def boundaryTask = latestIvmTask("ivm_mm_join_mv")
     assertEquals("SUCCESS", boundaryTask.Status.toString())
     assertEquals("COMPLETE", boundaryTask.RefreshMode.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", boundaryTask.IvmFallbackReason.toString())
