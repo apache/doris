@@ -50,9 +50,11 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCount;
@@ -1410,6 +1412,27 @@ public class GroupStructInfoGoldenTest {
             Assertions.assertEquals(direct.getFingerprint(mode), reversed.getFingerprint(mode),
                     "a commutative expression keeps one structural key in " + mode);
         }
+    }
+
+    @Test
+    public void testAggregateCombinatorsWithDifferentNestedFunctionsDiffer() {
+        GroupStructInfo min = aggregateCombinatorFilter(new Min(scan(0, "t").getOutput().get(1)));
+        GroupStructInfo max = aggregateCombinatorFilter(new Max(scan(0, "t").getOutput().get(1)));
+        for (GroupStructInfo.LiteralMode mode : GroupStructInfo.LiteralMode.values()) {
+            Assertions.assertNotEquals(min.getFingerprint(mode), max.getFingerprint(mode),
+                    "min_foreach and max_foreach keep different groups, so they must not share a key in " + mode);
+        }
+    }
+
+    /** {@code Filter(IsNull(x)) -> Aggregate(gb=k, <combinator>_foreach(a) AS x) -> Scan(t)}. */
+    private static GroupStructInfo aggregateCombinatorFilter(AggregateFunction nested) {
+        LogicalOlapScan t = scan(0, "t");
+        Slot k = t.getOutput().get(0);
+        Expression a = t.getOutput().get(1);
+        Alias x = new Alias(new ForEachCombinator(ImmutableList.of(a), nested), "x");
+        LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
+                ImmutableList.of(k), ImmutableList.<NamedExpression>of(k, x), true, Optional.empty(), t);
+        return describe(new LogicalFilter<>(ImmutableSet.of(new IsNull(x.toSlot())), aggregate));
     }
 
     private static GroupStructInfo describe(Plan plan) {
