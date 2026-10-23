@@ -179,7 +179,13 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
-    _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+    // With is_unique the segment merge keeps only the newest row of a key. A table with a sequence
+    // map needs every row of a key: BlockReader takes each column group from the row with that
+    // group's largest sequence value, which is why VCollectIterator does not skip same-key rows of
+    // such a table either. Example: segment 0 holds (k = 1, s1 = 5, s2 = 1) and segment 1, the
+    // newer one, (k = 1, s1 = 3, s2 = 7); keeping only segment 1 lost the s1 group of segment 0.
+    _reader_context.is_unique =
+            tablet()->keys_type() == UNIQUE_KEYS && !_tablet_schema->has_seq_map();
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
