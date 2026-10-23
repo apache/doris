@@ -83,6 +83,30 @@ suite("test_array_sorted_merge") {
                                   CAST([2] AS ARRAY<INT>), false)
     """
 
+    // Under short-circuit evaluation the branch only sees the selected rows, so a captured column
+    // must be read at its original row rather than at the compacted index. Row id=1 has lim=2,
+    // so the merge lambda keeps a single value; reading row 0's lim=0 would keep both.
+    sql """SET short_circuit_evaluation = true"""
+    sql """DROP TABLE IF EXISTS array_sorted_merge_selector"""
+    sql """
+        CREATE TABLE array_sorted_merge_selector (
+            id INT,
+            lim INT,
+            l ARRAY<INT>,
+            r ARRAY<INT>
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO array_sorted_merge_selector VALUES (0, 0, [1], [1]), (1, 2, [1], [1])"""
+    order_qt_short_circuit_selector """
+        SELECT id, IF(id = 1,
+                      array_sorted_merge((a, b) -> IF(a = b AND a < lim, a, NULL), l, r, true),
+                      CAST([] AS ARRAY<INT>))
+        FROM array_sorted_merge_selector ORDER BY id
+    """
+    sql """SET short_circuit_evaluation = false"""
+
     // A captured input column must be read at the current row: with the capture at column
     // index 0 the predicate compares against a candidate unless it is rebound, and with the
     // capture at index 2 an unbound read reports a missing column.

@@ -17,6 +17,10 @@
 -- !null_ordering --
 [null, 1, 2]	[2, 1, null]
 
+-- !short_circuit_selector --
+0	[]
+1	[1]
+
 -- !capture_column_zero --
 [1]
 
