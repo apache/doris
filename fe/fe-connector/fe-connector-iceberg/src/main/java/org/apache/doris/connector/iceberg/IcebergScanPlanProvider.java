@@ -2284,9 +2284,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * schema, so a schema's position in the metadata list does not tell when it was last active, and the list may
      * also hold schemas committed after a time-travel or branch target. The scan snapshot's parent chain is
      * therefore searched first, so the definition active on that lineage wins; the whole metadata list, newest
-     * first, is the fallback for schema-only changes and expired ancestors. Current fields remain first, allowing
-     * a dropped/re-added name to resolve the projected field by name while a live historical equality key
-     * resolves by its stable field ID.</p>
+     * first, is the fallback for schema-only changes and expired ancestors. A dropped key nevertheless takes the
+     * widest type it has in any retained schema: a delete committed after a schema-only promotion holds values of
+     * the promoted type even when no snapshot records it. Current fields remain first, allowing a dropped/re-added
+     * name to resolve the projected field by name while a live historical equality key resolves by its stable
+     * field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
@@ -2305,6 +2307,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
+        List<Schema> metadataSchemas = metadataSchemaHistory(table);
+        Map<Integer, Type> widestTypes = widestPromotedTypes(missing, metadataSchemas);
         // Snapshots on one lineage mostly share a schema, so each schema is indexed at most once.
         Set<Integer> lineageSchemaIds = new HashSet<>();
         for (Snapshot snapshot = scanSnapshot; snapshot != null && !missing.isEmpty();
@@ -2318,11 +2322,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 throw new IllegalStateException(
                         "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
             }
-            addHistoricalEqualityFields(fields, missing, lineageSchema);
+            addHistoricalEqualityFields(fields, missing, lineageSchema, widestTypes);
         }
-        List<Schema> metadataSchemas = metadataSchemaHistory(table);
         for (int index = metadataSchemas.size() - 1; index >= 0 && !missing.isEmpty(); index--) {
-            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
+            addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index), widestTypes);
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
@@ -2338,8 +2341,40 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return new ArrayList<>(table.schemas().values());
     }
 
-    private static void addHistoricalEqualityFields(
-            List<NestedField> fields, Set<Integer> missingFieldIds, Schema historicalSchema) {
+    /**
+     * Field IDs are never reused and a field's type only changes by promotion, which is monotonic, so the widest
+     * type a field has in any retained schema covers every file written for it.
+     */
+    private static Map<Integer, Type> widestPromotedTypes(Set<Integer> fieldIds, List<Schema> schemas) {
+        Map<Integer, Type> widestTypes = new HashMap<>();
+        for (Schema schema : schemas) {
+            for (Integer fieldId : fieldIds) {
+                Type type = schema.findType(fieldId);
+                if (type == null) {
+                    continue;
+                }
+                Type widest = widestTypes.get(fieldId);
+                if (widest == null || TypeUtil.isPromotionAllowed(widest, type.asPrimitiveType())) {
+                    widestTypes.put(fieldId, type);
+                }
+            }
+        }
+        return widestTypes;
+    }
+
+    private static List<NestedField> withWidestTypes(List<NestedField> fields, Map<Integer, Type> widestTypes) {
+        List<NestedField> widened = new ArrayList<>(fields.size());
+        for (NestedField field : fields) {
+            Type type = field.type().isStructType()
+                    ? Types.StructType.of(withWidestTypes(field.type().asStructType().fields(), widestTypes))
+                    : widestTypes.getOrDefault(field.fieldId(), field.type());
+            widened.add(type.equals(field.type()) ? field : Types.NestedField.from(field).ofType(type).build());
+        }
+        return widened;
+    }
+
+    private static void addHistoricalEqualityFields(List<NestedField> fields, Set<Integer> missingFieldIds,
+            Schema historicalSchema, Map<Integer, Type> widestTypes) {
         Map<Integer, NestedField> historicalFields = TypeUtil.indexById(historicalSchema.asStruct());
         Set<Integer> selectedFieldIds = new HashSet<>();
         for (Integer fieldId : missingFieldIds) {
@@ -2356,7 +2391,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return;
         }
         Schema selectedSchema = TypeUtil.select(historicalSchema, selectedFieldIds);
-        mergeHistoricalEqualityFields(fields, selectedSchema.columns());
+        mergeHistoricalEqualityFields(fields, withWidestTypes(selectedSchema.columns(), widestTypes));
         missingFieldIds.removeAll(selectedFieldIds);
     }
 
