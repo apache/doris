@@ -26,32 +26,32 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * topk_max_count(x, k): the k largest distinct non-NULL values of x with their row counts.
- * See {@link TopKCountFunction} for the returned array and the truncation encoding.
+ * min_topk(x, k): the k smallest distinct non-NULL values of x with their row counts.
+ * See {@link TopKFunction} for the returned array and the truncation encoding.
  */
-public class TopKMaxCount extends TopKCountFunction {
+public class MinTopK extends TopKFunction {
 
-    public TopKMaxCount(Expression arg0, Expression arg1) {
+    public MinTopK(Expression arg0, Expression arg1) {
         this(false, arg0, arg1);
     }
 
-    public TopKMaxCount(boolean distinct, Expression arg0, Expression arg1) {
-        super("topk_max_count", distinct, Arrays.asList(arg0, arg1));
+    public MinTopK(boolean distinct, Expression arg0, Expression arg1) {
+        super("min_topk", distinct, Arrays.asList(arg0, arg1));
     }
 
     /** constructor for withChildren and reuse signature */
-    private TopKMaxCount(AggregateFunctionParams functionParams) {
+    private MinTopK(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public TopKMaxCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
+    public MinTopK withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new TopKMaxCount(getFunctionParams(distinct, children));
+        return new MinTopK(getFunctionParams(distinct, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitTopKMaxCount(this, context);
+        return visitor.visitMinTopK(this, context);
     }
 }

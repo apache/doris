@@ -33,7 +33,7 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count_at_min_max(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_topk_count(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_topk(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
@@ -92,7 +92,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_sum(instance);
         register_aggregate_function_minmax(instance);
         register_aggregate_function_count_at_min_max(instance);
-        register_aggregate_function_topk_count(instance);
+        register_aggregate_function_topk(instance);
         register_aggregate_function_max_min_by(instance);
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);

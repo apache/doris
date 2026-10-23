@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/aggregate/aggregate_function_topk_count.h"
+#include "exprs/aggregate/aggregate_function_topk.h"
 
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
@@ -27,10 +27,10 @@ namespace doris {
 namespace {
 
 template <PrimitiveType T>
-using TopKMinCount = AggregateFunctionTopKCount<T, true>;
+using TopKMin = AggregateFunctionTopK<T, true>;
 
 template <PrimitiveType T>
-using TopKMaxCount = AggregateFunctionTopKCount<T, false>;
+using TopKMax = AggregateFunctionTopK<T, false>;
 
 /// Constructs the aggregate directly instead of using creator_without_type, which would wrap it in
 /// a nullable-argument adapter. That adapter drops every row where any argument is NULL *before*
@@ -61,9 +61,8 @@ using TopKCount = TopKCountCreator<FunctionTemplate, TYPE_BOOLEAN, TYPE_TINYINT,
                                    TYPE_TIMESTAMPTZ, TYPE_IPV4, TYPE_IPV6, TYPE_UUID>;
 
 template <template <PrimitiveType> class FunctionTemplate>
-AggregateFunctionPtr create_topk_count(const std::string& name, const DataTypes& argument_types,
-                                       const bool result_is_nullable,
-                                       const AggregateFunctionAttr& attr) {
+AggregateFunctionPtr create_topk(const std::string& name, const DataTypes& argument_types,
+                                 const bool result_is_nullable, const AggregateFunctionAttr& attr) {
     // The function always returns a non-nullable array, the same contract the generic nullable
     // adapter enforced.
     if (!attr.is_foreach && result_is_nullable) {
@@ -76,29 +75,29 @@ AggregateFunctionPtr create_topk_count(const std::string& name, const DataTypes&
     return TopKCount<FunctionTemplate>::create(type, argument_types);
 }
 
-AggregateFunctionPtr create_aggregate_function_topk_min_count(const std::string& name,
-                                                              const DataTypes& argument_types,
-                                                              const DataTypePtr& result_type,
-                                                              const bool result_is_nullable,
-                                                              const AggregateFunctionAttr& attr) {
+AggregateFunctionPtr create_aggregate_function_min_topk(const std::string& name,
+                                                        const DataTypes& argument_types,
+                                                        const DataTypePtr& result_type,
+                                                        const bool result_is_nullable,
+                                                        const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 2, 2);
-    return create_topk_count<TopKMinCount>(name, argument_types, result_is_nullable, attr);
+    return create_topk<TopKMin>(name, argument_types, result_is_nullable, attr);
 }
 
-AggregateFunctionPtr create_aggregate_function_topk_max_count(const std::string& name,
-                                                              const DataTypes& argument_types,
-                                                              const DataTypePtr& result_type,
-                                                              const bool result_is_nullable,
-                                                              const AggregateFunctionAttr& attr) {
+AggregateFunctionPtr create_aggregate_function_max_topk(const std::string& name,
+                                                        const DataTypes& argument_types,
+                                                        const DataTypePtr& result_type,
+                                                        const bool result_is_nullable,
+                                                        const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 2, 2);
-    return create_topk_count<TopKMaxCount>(name, argument_types, result_is_nullable, attr);
+    return create_topk<TopKMax>(name, argument_types, result_is_nullable, attr);
 }
 
 } // namespace
 
-void register_aggregate_function_topk_count(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("topk_min_count", create_aggregate_function_topk_min_count);
-    factory.register_function_both("topk_max_count", create_aggregate_function_topk_max_count);
+void register_aggregate_function_topk(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("min_topk", create_aggregate_function_min_topk);
+    factory.register_function_both("max_topk", create_aggregate_function_max_topk);
 }
 
 } // namespace doris

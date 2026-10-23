@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("topk_min_max_count") {
-    sql """drop table if exists topk_min_max_count_t"""
+suite("min_max_topk") {
+    sql """drop table if exists min_max_topk_t"""
 
     sql """
-        CREATE TABLE topk_min_max_count_t (
+        CREATE TABLE min_max_topk_t (
             id INT NOT NULL,
             grp VARCHAR(8) NOT NULL,
             i INT,
@@ -42,7 +42,7 @@ suite("topk_min_max_count") {
     // grp c: only NULL i
     // grp d: 10..17, i.e. 8 distinct values
     // grp e: FLOAT special values, NaN must be distinct from every number and sort greatest
-    sql """INSERT INTO topk_min_max_count_t VALUES
+    sql """INSERT INTO min_max_topk_t VALUES
         (1,  'a', 1,    1,  'b',  1.10, '2024-01-01 10:00:00', 1.5),
         (2,  'a', 1,    1,  'a',  1.10, '2024-01-01 09:00:00', 2.5),
         (3,  'a', 2,    2,  'c',  2.20, '2024-01-02 10:00:00', 3.5),
@@ -69,139 +69,139 @@ suite("topk_min_max_count") {
     // k = 0: the array holds the extreme value of this side and its row count; it is empty when
     // no non-NULL input was seen.
     order_qt_min_k0 """
-        SELECT grp, topk_min_count(i, 0) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(i, 0) FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_max_k0 """
-        SELECT grp, topk_max_count(i, 0) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, max_topk(i, 0) FROM min_max_topk_t GROUP BY grp
     """
 
     // k = 1 is "extreme + count".
     order_qt_min_k1 """
-        SELECT grp, topk_min_count(i, 1) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(i, 1) FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_max_k1 """
-        SELECT grp, topk_max_count(i, 1) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, max_topk(i, 1) FROM min_max_topk_t GROUP BY grp
     """
 
     // k = 2: grp a/b are truncated, grp c has no values, grp d keeps 10 and 11.
     order_qt_min_k2 """
-        SELECT grp, topk_min_count(i, 2) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(i, 2) FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_max_k2 """
-        SELECT grp, topk_max_count(i, 2) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, max_topk(i, 2) FROM min_max_topk_t GROUP BY grp
     """
 
     // k larger than the distinct count: the array holds every distinct value.
     order_qt_min_k8 """
-        SELECT grp, topk_min_count(i, 8) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(i, 8) FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_max_k8 """
-        SELECT grp, topk_max_count(i, 8) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, max_topk(i, 8) FROM min_max_topk_t GROUP BY grp
     """
 
     // Empty input and all-NULL groups return an empty array, never NULL.
     order_qt_min_empty_input """
-        SELECT topk_min_count(i, 2) FROM topk_min_max_count_t WHERE id < 0
+        SELECT min_topk(i, 2) FROM min_max_topk_t WHERE id < 0
     """
 
     order_qt_min_all_null_group """
-        SELECT grp, topk_min_count(i, 2) FROM topk_min_max_count_t WHERE grp = 'c' GROUP BY grp
+        SELECT grp, min_topk(i, 2) FROM min_max_topk_t WHERE grp = 'c' GROUP BY grp
     """
 
     // A NOT NULL input type behaves the same.
     order_qt_min_not_null_type """
-        SELECT grp, topk_min_count(ni, 2) FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(ni, 2) FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_min_not_null_type_empty """
-        SELECT topk_min_count(ni, 2) FROM topk_min_max_count_t WHERE id < 0
+        SELECT min_topk(ni, 2) FROM min_max_topk_t WHERE id < 0
     """
 
     // The array follows MIN/MAX for strings, decimals and datetimes.
     order_qt_min_string """
-        SELECT grp, topk_min_count(s, 2), topk_max_count(s, 2)
-        FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(s, 2), max_topk(s, 2)
+        FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_min_decimal """
-        SELECT grp, topk_min_count(d, 2), topk_max_count(d, 2)
-        FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(d, 2), max_topk(d, 2)
+        FROM min_max_topk_t GROUP BY grp
     """
 
     order_qt_min_datetime """
-        SELECT grp, topk_min_count(dt, 2), topk_max_count(dt, 2)
-        FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, min_topk(dt, 2), max_topk(dt, 2)
+        FROM min_max_topk_t GROUP BY grp
     """
 
     // NaN is a distinct value greater than every number, -0.0 and 0.0 are the same value.
     order_qt_double_special_values """
-        SELECT grp, topk_min_count(f, 8), topk_max_count(f, 8)
-        FROM topk_min_max_count_t WHERE grp = 'e' GROUP BY grp
+        SELECT grp, min_topk(f, 8), max_topk(f, 8)
+        FROM min_max_topk_t WHERE grp = 'e' GROUP BY grp
     """
 
     // The array can be inspected with the ordinary array functions, so its shape is
     // ARRAY<STRUCT<value,count>> rather than a dedicated type.
     order_qt_result_shape """
         SELECT grp,
-               cardinality(topk_min_count(i, 2)),
-               element_at(topk_min_count(i, 2), 1).value,
-               element_at(topk_min_count(i, 2), 1).count
-        FROM topk_min_max_count_t GROUP BY grp
+               cardinality(min_topk(i, 2)),
+               element_at(min_topk(i, 2), 1).value,
+               element_at(min_topk(i, 2), 1).count
+        FROM min_max_topk_t GROUP BY grp
     """
 
     // min/max of the state list agrees with MIN/MAX for groups that fit in k.
     order_qt_agree_with_min_max """
-        SELECT grp, MIN(i), MAX(i), topk_min_count(i, 100), topk_max_count(i, 100)
-        FROM topk_min_max_count_t GROUP BY grp
+        SELECT grp, MIN(i), MAX(i), min_topk(i, 100), max_topk(i, 100)
+        FROM min_max_topk_t GROUP BY grp
     """
 
     // Two-phase aggregation (partial states are serialized, shipped and merged by the final agg)
     // must agree with the single-pass result for both MIN and MAX.
     sql "set parallel_pipeline_task_num = 8"
     order_qt_two_phase_merge """
-        SELECT topk_min_count(i, 2), topk_max_count(i, 2),
-               topk_min_count(ni, 8), topk_max_count(ni, 8)
-        FROM topk_min_max_count_t
+        SELECT min_topk(i, 2), max_topk(i, 2),
+               min_topk(ni, 8), max_topk(ni, 8)
+        FROM min_max_topk_t
     """
     sql "set parallel_pipeline_task_num = 0"
 
     // A large k is accepted; MAX_TOPK_K + 1 is rejected.
     order_qt_max_k_accepted """
-        SELECT topk_min_count(i, 65536), topk_max_count(i, 65536)
-        FROM topk_min_max_count_t WHERE id = 1
+        SELECT min_topk(i, 65536), max_topk(i, 65536)
+        FROM min_max_topk_t WHERE id = 1
     """
 
     test {
-        sql "SELECT topk_min_count(i, 65537) FROM topk_min_max_count_t"
-        exception "topk_min_count requires 0 <= count <= 65536"
+        sql "SELECT min_topk(i, 65537) FROM min_max_topk_t"
+        exception "min_topk requires 0 <= count <= 65536"
     }
 
     test {
-        sql "SELECT topk_max_count(i, -1) FROM topk_min_max_count_t"
-        exception "topk_max_count requires 0 <= count <= 65536"
+        sql "SELECT max_topk(i, -1) FROM min_max_topk_t"
+        exception "max_topk requires 0 <= count <= 65536"
     }
 
     test {
-        sql "SELECT topk_min_count(i, id) FROM topk_min_max_count_t"
-        exception "topk_min_count requires second parameter must be a constant"
+        sql "SELECT min_topk(i, id) FROM min_max_topk_t"
+        exception "min_topk requires second parameter must be a constant"
     }
 
     test {
-        sql "SELECT topk_min_count(i, NULL) FROM topk_min_max_count_t"
-        exception "topk_min_count requires a non-null constant count"
+        sql "SELECT min_topk(i, NULL) FROM min_max_topk_t"
+        exception "min_topk requires a non-null constant count"
     }
 
     test {
-        sql "SELECT topk_min_count(DISTINCT i, 2) FROM topk_min_max_count_t"
-        exception "topk_min_count does not support DISTINCT"
+        sql "SELECT min_topk(DISTINCT i, 2) FROM min_max_topk_t"
+        exception "min_topk does not support DISTINCT"
     }
 
     test {
-        sql "SELECT topk_max_count(DISTINCT i, 2) FROM topk_min_max_count_t"
-        exception "topk_max_count does not support DISTINCT"
+        sql "SELECT max_topk(DISTINCT i, 2) FROM min_max_topk_t"
+        exception "max_topk does not support DISTINCT"
     }
 }
