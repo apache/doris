@@ -25,9 +25,14 @@
 #include <numeric>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
+#include "core/column/column_dummy.h"
+#include "core/cow.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/analytic_source_operator.h"
@@ -70,6 +75,31 @@ private:
 namespace {
 
 constexpr auto CANCEL_REASON = "analytic sink cancelled";
+
+// Count actual key comparisons without adding test hooks or counters to the production hot path.
+class AnalyticCompareCountingColumn final
+        : public COWHelper<IColumnDummy, AnalyticCompareCountingColumn> {
+private:
+    friend class COWHelper<IColumnDummy, AnalyticCompareCountingColumn>;
+    explicit AnalyticCompareCountingColumn(ColumnPtr values) : _values(std::move(values)) {
+        s = _values->size();
+    }
+    ColumnPtr _values;
+
+public:
+    std::string get_name() const override { return "AnalyticCompareCounting"; }
+    MutableColumnPtr clone_dummy(size_t rows) const override {
+        return AnalyticCompareCountingColumn::create(_values->clone_resized(rows));
+    }
+    int compare_at(size_t lhs_row, size_t rhs_row, const IColumn& rhs,
+                   int nan_direction_hint) const override {
+        ++comparisons;
+        return _values->compare_at(lhs_row, rhs_row,
+                                   *assert_cast<const AnalyticCompareCountingColumn&>(rhs)._values,
+                                   nan_direction_hint);
+    }
+    mutable size_t comparisons = 0;
+};
 
 void expect_cancelled(const Status& status) {
     EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status.to_string();
@@ -783,6 +813,216 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathPercentRankUsesPeerGroupStarts) {
     expected.insert({ColumnHelper::create_column<DataTypeFloat64>({0.0, 0.0, 0.5, 0.5, 1.0}),
                      std::make_shared<DataTypeFloat64>(), "percent_rank"});
     EXPECT_TRUE(ColumnHelper::block_equal(output, expected)) << output.dump_data();
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillBoundarySearchSkipsLargeStringGroups) {
+    Initialize(1);
+    create_operator(false, 0, "", {}, nullptr);
+    create_local_state();
+    constexpr size_t rows = 65536;
+    constexpr size_t group_boundary = 60000;
+    const std::string prefix(256, 'x');
+    std::vector<std::string> values(rows, prefix + "b");
+    std::fill_n(values.begin(), group_boundary, prefix + "a");
+    auto counting = AnalyticCompareCountingColumn::create(
+            ColumnHelper::create_column<DataTypeString>(values));
+    auto* counter = counting.get();
+    const std::vector<ColumnPtr> columns {std::move(counting)};
+    PartitionStatistics statistics;
+    size_t boundary = 0;
+    ASSERT_TRUE(sink_local_state
+                        ->_find_spill_boundary(state.get(), columns, 0, rows, statistics, &boundary)
+                        .ok());
+    EXPECT_EQ(boundary, group_boundary);
+    EXPECT_LE(counter->comparisons, 20);
+
+    counter->comparisons = 0;
+    ASSERT_TRUE(sink_local_state
+                        ->_find_spill_boundary(state.get(), columns, group_boundary, rows,
+                                               statistics, &boundary)
+                        .ok());
+    EXPECT_EQ(boundary, rows);
+    EXPECT_EQ(counter->comparisons, 1);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillBoundarySearchAdaptsToSingletonGroups) {
+    Initialize(1);
+    create_operator(false, 0, "", {}, nullptr);
+    create_local_state();
+    constexpr size_t rows = 4096;
+    std::vector<int64_t> values(rows);
+    std::iota(values.begin(), values.end(), 0);
+    auto counting = AnalyticCompareCountingColumn::create(
+            ColumnHelper::create_column<DataTypeInt64>(values));
+    auto* counter = counting.get();
+    const std::vector<ColumnPtr> columns {std::move(counting)};
+    PartitionStatistics statistics;
+    for (size_t row = 0; row < rows; ++row) {
+        size_t boundary = rows;
+        ASSERT_TRUE(sink_local_state
+                            ->_find_spill_boundary(state.get(), columns, row, rows, statistics,
+                                                   &boundary)
+                            .ok());
+        ASSERT_EQ(boundary, row + 1);
+        statistics.update(boundary - row);
+        EXPECT_EQ(statistics.is_high_cardinality(), row >= 16);
+    }
+    // The initial binary searches are bounded; the remaining singleton groups cost one each.
+    EXPECT_LT(counter->comparisons, rows * 2);
+
+    counter->comparisons = 0;
+    std::vector<size_t> partition_starts;
+    ASSERT_TRUE(
+            sink_local_state
+                    ->_find_spill_partition_starts(state.get(), columns, rows, &partition_starts)
+                    .ok());
+    ASSERT_EQ(partition_starts.size(), rows - 1);
+    EXPECT_TRUE(sink_local_state->_partition_column_statistics.is_high_cardinality());
+    EXPECT_LT(counter->comparisons, rows * 2);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillBoundarySearchHandlesCompositeNullableDescendingKeys) {
+    Initialize(1);
+    create_operator(false, 0, "", {}, nullptr);
+    create_local_state();
+    const std::string prefix(256, 'x');
+    const std::vector<ColumnPtr> columns {
+            ColumnHelper::create_nullable_column<DataTypeString>(
+                    {"ignored1", "ignored2", "ignored3", prefix + "z", prefix + "z", prefix + "z",
+                     prefix + "a", prefix + "a"},
+                    {1, 1, 1, 0, 0, 0, 0, 0}),
+            ColumnHelper::create_column<DataTypeInt64>({1, 1, 2, 1, 1, 2, 1, 1})};
+    for (bool high_cardinality : {false, true}) {
+        PartitionStatistics statistics;
+        if (high_cardinality) {
+            for (int i = 0; i < 17; ++i) {
+                statistics.update(1);
+            }
+        }
+        // Exercise nonzero starts, singleton ranges, and boundaries exactly at the range end.
+        for (size_t start = 0; start < 8; ++start) {
+            for (size_t end = start + 1; end <= 8; ++end) {
+                size_t expected = start + 1;
+                while (expected < end &&
+                       sink_local_state->_keys_equal(columns, start, columns, expected)) {
+                    ++expected;
+                }
+                size_t boundary = 0;
+                ASSERT_TRUE(sink_local_state
+                                    ->_find_spill_boundary(state.get(), columns, start, end,
+                                                           statistics, &boundary)
+                                    .ok());
+                EXPECT_EQ(boundary, expected)
+                        << "range: " << start << ", " << end << ", linear: " << high_cardinality;
+            }
+        }
+    }
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillBoundarySearchCancelsInsideLinearRun) {
+    Initialize(1);
+    create_operator(false, 0, "", {}, nullptr);
+    create_local_state();
+    const std::vector<ColumnPtr> columns {
+            ColumnHelper::create_column<DataTypeInt64>(std::vector<int64_t>(20000, 1))};
+    PartitionStatistics statistics;
+    for (int i = 0; i < 17; ++i) {
+        statistics.update(1);
+    }
+    CancelAfterChecksRuntimeState cancelled_state;
+    cancelled_state.reset_cancel_after(0);
+    size_t boundary = 0;
+    expect_cancelled(sink_local_state->_find_spill_boundary(
+            &cancelled_state, columns, 0, columns[0]->size(), statistics, &boundary));
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathPeerStatisticsCountCompleteGroupsAcrossBlocks) {
+    Initialize(8);
+    prepare_cume_dist_without_partition();
+    for (int i = 0; i < 20; ++i) {
+        Block input = ColumnHelper::create_block<DataTypeInt64>({7});
+        ASSERT_TRUE(sink->sink(state.get(), &input, false).ok());
+        EXPECT_EQ(sink_local_state->_order_by_column_statistics._count, 0);
+    }
+    Block input = ColumnHelper::create_block<DataTypeInt64>({7, 8});
+    ASSERT_TRUE(sink->sink(state.get(), &input, true).ok());
+    EXPECT_EQ(sink_local_state->_order_by_column_statistics._count, 1);
+    EXPECT_EQ(sink_local_state->_order_by_column_statistics._average_size, 21);
+    LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+    const auto& batch = sink_local_state->_shared_state->spill_batches.front();
+    ASSERT_EQ(batch->peer_group_ends.size(), 2);
+    EXPECT_EQ(batch->peer_group_ends[0], 21);
+    EXPECT_EQ(batch->peer_group_ends[1], 22);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathPartitionStatisticsAdaptWithinBlock) {
+    Initialize(64);
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+    sink->_partition_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_REDUCE};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+    for (int i = 0; i < 20; ++i) {
+        Block input = ColumnHelper::create_block<DataTypeInt64>({0}, {1});
+        ASSERT_TRUE(sink->sink(state.get(), &input, false).ok());
+        EXPECT_EQ(sink_local_state->_partition_column_statistics._count, 0);
+    }
+    std::vector<int64_t> keys(41);
+    std::iota(keys.begin(), keys.end(), 0);
+    Block input = ColumnHelper::create_block<DataTypeInt64>(keys, std::vector<int64_t>(41, 1));
+    ASSERT_TRUE(sink->sink(state.get(), &input, true).ok());
+    EXPECT_EQ(sink_local_state->_partition_column_statistics._count, 40);
+    EXPECT_EQ(sink_local_state->_partition_column_statistics._cumulative_size, 60);
+    EXPECT_TRUE(sink_local_state->_partition_column_statistics.is_high_cardinality());
+    LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+    const auto& batch = sink_local_state->_shared_state->spill_batches.front();
+    ASSERT_EQ(batch->partition_ends.size(), 40);
+    for (size_t i = 0; i < batch->partition_ends.size(); ++i) {
+        EXPECT_EQ(batch->partition_ends[i], 21 + i);
+        EXPECT_EQ(batch->partition_results[0]->get_int(i), i == 0 ? 21 : 1);
+    }
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathPeerStatisticsResetAtPartitionBoundary) {
+    Initialize(32);
+    create_operator(true, 1, "cume_dist", {}, std::make_shared<DataTypeFloat64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_partition_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_order_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PEER_GROUP};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::CUME_DIST};
+    create_local_state();
+
+    std::vector<int64_t> keys(21, 1);
+    keys.back() = 2;
+    std::vector<int64_t> orders(21);
+    std::iota(orders.begin(), orders.end(), 0);
+    orders.back() = 19;
+    Block first = ColumnHelper::create_block<DataTypeInt64>(keys, orders);
+    ASSERT_TRUE(sink->sink(state.get(), &first, false).ok());
+    EXPECT_EQ(sink_local_state->_order_by_column_statistics._count, 0);
+    Block second = ColumnHelper::create_block<DataTypeInt64>({2, 2, 2}, {19, 19, 20});
+    ASSERT_TRUE(sink->sink(state.get(), &second, true).ok());
+    EXPECT_EQ(sink_local_state->_order_by_column_statistics._count, 1);
+    EXPECT_EQ(sink_local_state->_order_by_column_statistics._average_size, 3);
+    LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+    auto& batches = sink_local_state->_shared_state->spill_batches;
+    ASSERT_EQ(batches.size(), 2);
+    EXPECT_EQ(batches.front()->peer_group_ends.size(), 20);
+    EXPECT_EQ(batches.front()->peer_group_ends.back(), 20);
+    const auto& second_batch = batches.back();
+    ASSERT_EQ(second_batch->peer_group_ends.size(), 2);
+    EXPECT_EQ(second_batch->peer_group_ends[0], 3);
+    EXPECT_EQ(second_batch->peer_group_ends[1], 4);
 }
 
 namespace {

@@ -369,7 +369,11 @@ partition seal 时 descriptor 已记录总行数 `N`。Source 重放时维护从
 两个函数同时依赖 partition 总行数和完整 peer group。为避免一个超大 peer group 本身造成
 内存增长，不能在 Source 中缓存整个 group。
 
-Sink 收集阶段顺序比较 order key，并生成紧凑的 peer group 元数据：
+Sink 在当前输入 Block 的 partition 范围内自适应查找 order key 边界，并生成紧凑的
+peer group 元数据。大组使用完整 key 的二分查找，范围首尾 key 相同时直接跳过该范围；
+观察到高基数的小组后切换到线性扫描。partition 边界检测复用同一查找逻辑，统计只计入
+已完成的完整分组，不将跨 Block 的片段误算为多个小组。查找到当前范围末尾不代表 peer
+已经结束；跨 Block 继续比较上一块末尾 key，最后一个 peer 由 partition 结束操作封口。
 
 ```text
 PeerGroupEnd = end_row

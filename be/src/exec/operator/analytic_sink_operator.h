@@ -135,6 +135,11 @@ private:
                                 std::vector<ColumnPtr>& last_keys);
     bool _keys_equal(const std::vector<ColumnPtr>& lhs, size_t lhs_row,
                      const std::vector<ColumnPtr>& rhs, size_t rhs_row) const;
+    Status _find_spill_boundary(RuntimeState* state, const std::vector<ColumnPtr>& columns,
+                                size_t start, size_t end, const PartitionStatistics& statistics,
+                                size_t* boundary) const;
+    Status _find_spill_partition_starts(RuntimeState* state, const std::vector<ColumnPtr>& columns,
+                                        size_t rows, std::vector<size_t>* partition_starts);
     void _update_spill_memory_usage();
 
     void _get_partition_by_end();
@@ -222,6 +227,8 @@ private:
     // Rows and exclusive batch-relative end row of the partition that is still receiving rows.
     int64_t _open_partition_rows = 0;
     int64_t _open_partition_end = 0;
+    // Batch-relative start of the open peer group, including rows from preceding input Blocks.
+    int64_t _open_peer_group_start = 0;
     std::vector<int64_t> _open_partition_parameters;
     // Metadata of the finished partitions in _batch_store, moved into AnalyticSpillBatch on seal.
     std::vector<int64_t> _batch_partition_ends;

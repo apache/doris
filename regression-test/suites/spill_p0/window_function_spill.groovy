@@ -138,6 +138,51 @@ suite("window_function_spill") {
                        cume_dist() over (partition by k order by o) cd
                 from window_function_spill_t) w
         """)
+        // Composite keys have trailing values that repeat across leading-key boundaries.
+        // Include long strings, NULLs, and descending order in the shared boundary search.
+        "order_qt_${tag}_peer_group_composite_keys"("""
+            select g, o, count(*), min(pr), max(pr), min(cd), max(cd)
+            from (
+                select g, o,
+                       percent_rank() over (partition by p, g order by s desc nulls first, o) pr,
+                       cume_dist() over (partition by p, g order by s desc nulls first, o) cd
+                from (
+                    select g, o,
+                           concat(repeat('p', 256), cast(g % 3 as string)) p,
+                           case when o < 3 then null
+                                else concat(repeat('s', 256), cast(o % 3 as string)) end s
+                    from window_function_spill_t
+                ) key_values
+            ) w
+            where g in (0, 3, 49)
+            group by g, o
+        """)
+        // Large peer groups span many of the 97-row input Blocks, including an all-NULL key.
+        "order_qt_${tag}_peer_group_large_nullable_keys"("""
+            select skew, bucket, count(*), min(pr), max(pr), min(cd), max(cd)
+            from (
+                select skew, bucket,
+                       percent_rank() over (partition by skew order by s nulls last) pr,
+                       cume_dist() over (partition by skew order by s nulls last) cd
+                from (
+                    select skew, cast(k / 10000 as int) bucket,
+                           case when k < 10000 then null
+                                else concat(repeat('s', 256), cast(k / 10000 as int)) end s
+                    from window_function_spill_t
+                ) key_values
+            ) w
+            where skew in (0, 1)
+            group by skew, bucket
+        """)
+        // Unlike one-row partitions, this exercises adaptive peer search within a large partition.
+        "order_qt_${tag}_peer_group_dense_boundaries"("""
+            select count(*), min(pr), max(pr), min(cd), max(cd)
+            from (
+                select percent_rank() over (order by k desc) pr,
+                       cume_dist() over (order by k desc) cd
+                from window_function_spill_t
+            ) w
+        """)
         // row_number is not spillable, so the whole node falls back to the in-memory path.
         "order_qt_${tag}_unsupported_fallback"("""
             select g, n4, count(*), max(rn), min(rn)

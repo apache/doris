@@ -658,22 +658,32 @@ void AnalyticSinkLocalState::_find_next_order_by_ends() {
     }
 }
 
-// Compares (*this)[n] and rhs[m]
-int64_t AnalyticSinkLocalState::find_first_not_equal(IColumn* reference_column,
-                                                     IColumn* compared_column, int64_t target,
-                                                     int64_t start, int64_t end) {
+namespace {
+
+template <typename Index, typename Equal>
+Index find_first_not_equal_impl(Index start, Index end, Equal equals_target) {
     while (start + 1 < end) {
-        int64_t mid = start + (end - start) / 2;
-        if (reference_column->compare_at(target, mid, *compared_column, 1) == 0) {
+        const auto mid = start + (end - start) / 2;
+        if (equals_target(mid)) {
             start = mid;
         } else {
             end = mid;
         }
     }
-    if (reference_column->compare_at(target, end - 1, *compared_column, 1) == 0) {
+    if (equals_target(end - 1)) {
         return end;
     }
     return end - 1;
+}
+
+} // namespace
+
+int64_t AnalyticSinkLocalState::find_first_not_equal(IColumn* reference_column,
+                                                     IColumn* compared_column, int64_t target,
+                                                     int64_t start, int64_t end) {
+    return find_first_not_equal_impl(start, end, [&](int64_t row) {
+        return reference_column->compare_at(target, row, *compared_column, 1) == 0;
+    });
 }
 
 bool AnalyticSinkLocalState::_keys_equal(const std::vector<ColumnPtr>& lhs, size_t lhs_row,
@@ -685,6 +695,40 @@ bool AnalyticSinkLocalState::_keys_equal(const std::vector<ColumnPtr>& lhs, size
         }
     }
     return true;
+}
+
+Status AnalyticSinkLocalState::_find_spill_boundary(RuntimeState* state,
+                                                    const std::vector<ColumnPtr>& columns,
+                                                    size_t start, size_t end,
+                                                    const PartitionStatistics& statistics,
+                                                    size_t* boundary) const {
+    DCHECK_LT(start, end);
+    DCHECK(!columns.empty());
+    *boundary = end;
+    if (start + 1 == end) {
+        return Status::OK();
+    }
+    if (statistics.is_high_cardinality()) {
+        // Repeated binary searches cost O(B log B) for B singleton groups. Keep the existing
+        // linear strategy after observing small groups, with cancellation checks inside long runs.
+        for (size_t row = start + 1; row < end; ++row) {
+            if (((row - start) & 4095) == 0) {
+                RETURN_IF_CANCELLED(state);
+            }
+            if (!_keys_equal(columns, start, columns, row)) {
+                *boundary = row;
+                break;
+            }
+        }
+        return Status::OK();
+    }
+    // The complete key is contiguous in this sorted range. Individual trailing key columns
+    // need not be monotonic: (1, 1), (1, 2), (2, 1) must have three distinct groups.
+    auto equals_start = [&](size_t row) { return _keys_equal(columns, start, columns, row); };
+    if (!equals_start(end - 1)) {
+        *boundary = find_first_not_equal_impl(start, end, equals_start);
+    }
+    return Status::OK();
 }
 
 void AnalyticSinkLocalState::_save_last_keys(const std::vector<ColumnPtr>& columns, size_t row,
@@ -758,18 +802,35 @@ Status AnalyticSinkLocalState::_record_peer_groups(RuntimeState* state,
     if (!_has_peer_group_functions || order_columns.empty()) {
         return Status::OK();
     }
-    for (size_t offset = 0; offset < length; ++offset) {
-        if ((offset & 4095) == 0) {
+    RETURN_IF_CANCELLED(state);
+    auto append_group_end = [&](int64_t group_end) {
+        _order_by_column_statistics.update(group_end - _open_peer_group_start);
+        _open_peer_group_start = group_end;
+        return _batch_store->append_peer_group_end(state, group_end);
+    };
+    if (_open_partition_rows == 0) {
+        _open_peer_group_start = batch_row;
+        _order_by_column_statistics.reset();
+    } else if (!_keys_equal(_last_order_keys, 0, order_columns, start)) {
+        RETURN_IF_ERROR(append_group_end(batch_row));
+    }
+    const size_t end = start + length;
+    size_t groups = 0;
+    for (size_t row = start; row < end; ++groups) {
+        // Search jumps over rows, so cancellation must not depend on landing on a row multiple.
+        if ((groups & 4095) == 0) {
             RETURN_IF_CANCELLED(state);
         }
-        const size_t row = start + offset;
-        const bool same_group = offset == 0
-                                        ? (_open_partition_rows == 0 ||
-                                           _keys_equal(_last_order_keys, 0, order_columns, row))
-                                        : _keys_equal(order_columns, row - 1, order_columns, row);
-        if (!same_group) {
-            RETURN_IF_ERROR(_batch_store->append_peer_group_end(state, batch_row + offset));
+        size_t boundary = end;
+        RETURN_IF_ERROR(_find_spill_boundary(state, order_columns, row, end,
+                                             _order_by_column_statistics, &boundary));
+        if (boundary == end) {
+            // A peer may continue in the next Block. Only _finish_spill_partition() closes the
+            // final peer; emitting this range's end would split it or duplicate the partition end.
+            break;
         }
+        RETURN_IF_ERROR(append_group_end(batch_row + boundary - start));
+        row = boundary;
     }
     return Status::OK();
 }
@@ -985,6 +1046,35 @@ Status AnalyticSinkLocalState::_finish_spill_sink_call(RuntimeState* state, bool
     return Status::OK();
 }
 
+Status AnalyticSinkLocalState::_find_spill_partition_starts(RuntimeState* state,
+                                                            const std::vector<ColumnPtr>& columns,
+                                                            size_t rows,
+                                                            std::vector<size_t>* partition_starts) {
+    if (columns.empty()) {
+        return Status::OK();
+    }
+    SCOPED_TIMER(_partition_search_timer);
+    int64_t preceding_rows = _open_partition_rows;
+    for (size_t row = 0; row < rows;) {
+        if ((partition_starts->size() & 4095) == 0) {
+            RETURN_IF_CANCELLED(state);
+        }
+        size_t boundary = rows;
+        RETURN_IF_ERROR(_find_spill_boundary(state, columns, row, rows,
+                                             _partition_column_statistics, &boundary));
+        if (boundary == rows) {
+            break;
+        }
+        // Count completed partitions, not Block fragments, and adapt during this scan
+        // rather than waiting until the partitions are subsequently accumulated.
+        _partition_column_statistics.update(preceding_rows + boundary - row);
+        preceding_rows = 0;
+        partition_starts->push_back(boundary);
+        row = boundary;
+    }
+    return Status::OK();
+}
+
 Status AnalyticSinkLocalState::_process_spill_block(RuntimeState* state, Block* input_block) {
     std::vector<std::vector<ColumnPtr>> agg_columns;
     std::vector<ColumnPtr> partition_columns;
@@ -993,22 +1083,16 @@ Status AnalyticSinkLocalState::_process_spill_block(RuntimeState* state, Block* 
                                                &order_columns));
     const size_t rows = input_block->rows();
 
-    // Rows at which a new partition starts inside this Block, excluding row 0.
-    std::vector<size_t> partition_starts;
-    if (!partition_columns.empty()) {
-        for (size_t row = 1; row < rows; ++row) {
-            if ((row & 4095) == 0) {
-                RETURN_IF_CANCELLED(state);
-            }
-            if (!_keys_equal(partition_columns, row - 1, partition_columns, row)) {
-                partition_starts.push_back(row);
-            }
-        }
-    }
+    RETURN_IF_CANCELLED(state);
     if (_open_partition_rows > 0 && !partition_columns.empty() &&
         !_keys_equal(_last_partition_keys, 0, partition_columns, 0)) {
+        _partition_column_statistics.update(_open_partition_rows);
         RETURN_IF_ERROR(_finish_spill_partition(state));
     }
+    // Rows at which a new partition starts inside this Block, excluding row 0.
+    std::vector<size_t> partition_starts;
+    RETURN_IF_ERROR(
+            _find_spill_partition_starts(state, partition_columns, rows, &partition_starts));
 
     // Every partition that ends inside this Block joins the current batch, which is then handed to
     // the source as a whole. Only the last partition of the Block stays open in a new batch.
