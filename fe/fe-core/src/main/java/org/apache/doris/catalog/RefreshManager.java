@@ -321,6 +321,7 @@ public class RefreshManager {
 
     private void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime,
             boolean invalidateTableLookup) {
+        boolean invalidateDatabase = invalidateTableLookup && table.getCatalog().getLowerCaseTableNames() == 2;
         table.unsetObjectCreated();
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
@@ -328,8 +329,14 @@ public class RefreshManager {
         // Connector metadata is the row-count source, so invalidate it before engine and row-count caches.
         try {
             if (table.getCatalog() instanceof PluginDrivenExternalCatalog) {
-                ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector()
-                        .invalidateTable(db.getRemoteName(), table.getRemoteName());
+                if (invalidateDatabase) {
+                    // A refreshed local name may resolve to a different remote spelling in this database.
+                    ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector()
+                            .invalidateDb(db.getRemoteName());
+                } else {
+                    ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector()
+                            .invalidateTable(db.getRemoteName(), table.getRemoteName());
+                }
             }
         } finally {
             try {
@@ -337,7 +344,7 @@ public class RefreshManager {
                     db.invalidateTableLookup(table.getName());
                 }
             } finally {
-                if (invalidateTableLookup && table.getCatalog().getLowerCaseTableNames() == 2) {
+                if (invalidateDatabase) {
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
                             table.getCatalog().getId(), db.getId(), db.getFullName());
                 } else {

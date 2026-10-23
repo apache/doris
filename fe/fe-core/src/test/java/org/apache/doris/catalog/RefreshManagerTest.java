@@ -244,6 +244,27 @@ public class RefreshManagerTest {
     }
 
     @Test
+    public void testExplicitRefreshReplayInvalidatesConnectorDatabaseInCaseInsensitiveMode() {
+        PluginCatalogFixture fixture = usePluginCatalog(2);
+        ExternalTable oldTable = new ExternalTable(TABLE_ID, TABLE_NAME, TABLE_NAME,
+                fixture.catalog, fixture.database, TableIf.TableType.PLUGIN_EXTERNAL_TABLE);
+        String otherSpelling = TABLE_NAME.toUpperCase(java.util.Locale.ROOT);
+        ExternalTable otherTable = new ExternalTable(
+                Util.genIdByName(CATALOG_NAME, DATABASE_NAME, otherSpelling), otherSpelling, otherSpelling,
+                fixture.catalog, fixture.database, TableIf.TableType.PLUGIN_EXTERNAL_TABLE);
+        fixture.database.addTableForTest(oldTable);
+        fixture.database.addTableForTest(otherTable);
+
+        new RefreshManager().replayRefreshTable(ExternalObjectLog.createForExplicitRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L));
+
+        Mockito.verify(fixture.connector).invalidateDb(DATABASE_NAME);
+        Mockito.verify(fixture.connector, Mockito.never()).invalidateTable(DATABASE_NAME, TABLE_NAME);
+        Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
+        Assertions.assertFalse(fixture.database.getTableForReplay(otherSpelling).isPresent());
+    }
+
+    @Test
     public void testRefreshTableRemovesRowCountLoadedDuringConnectorInvalidation() throws Exception {
         PluginCatalogFixture fixture = usePluginCatalog();
         ExternalTable table = Mockito.mock(ExternalTable.class);
@@ -442,8 +463,14 @@ public class RefreshManagerTest {
     }
 
     private PluginCatalogFixture usePluginCatalog() {
+        return usePluginCatalog(0);
+    }
+
+    private PluginCatalogFixture usePluginCatalog(int lowerCaseTableNames) {
         Connector connector = Mockito.mock(Connector.class);
-        Map<String, String> properties = Collections.singletonMap("type", "test");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "test");
+        properties.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, Integer.toString(lowerCaseTableNames));
         PluginDrivenExternalCatalog pluginCatalog = new PluginDrivenExternalCatalog(
                 CATALOG_ID, CATALOG_NAME, null, properties, "", connector);
         pluginCatalog.setInitializedForTest(true);
