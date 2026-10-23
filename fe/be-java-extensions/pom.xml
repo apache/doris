@@ -51,4 +51,14 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
     </properties>
 
+    <!-- Explicitly opt in to test the retained scanner; regular builds keep LakeSoul disabled. -->
+    <profiles>
+        <profile>
+            <id>lakesoul-scanner-tests</id>
+            <modules>
+                <module>lakesoul-scanner</module>
+            </modules>
+        </profile>
+    </profiles>
+
 </project>
