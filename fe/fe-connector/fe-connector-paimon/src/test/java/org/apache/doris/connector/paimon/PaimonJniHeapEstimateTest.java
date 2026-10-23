@@ -120,6 +120,25 @@ public class PaimonJniHeapEstimateTest {
         Assertions.assertEquals((130 + 4) * MB, estimate.bytesOf(split));
     }
 
+    /**
+     * paimon plans the files a first-row table keeps above level 0 as a split that needs no merging, also those
+     * written before it counted deleted rows, but reads such a split file by file only when every file counts
+     * them: it merges the others, a file of one level open beside one of another whose keys overlap. An append
+     * table's split is read file by file whatever its files count.
+     */
+    @Test
+    public void splitWithFilesThatDoNotCountDeletedRowsIsMergedOfAPrimaryKeyTable() {
+        DataSplit uncounted = split(true, uncountedFile("data-0.parquet", 130 * MB, 2),
+                uncountedFile("data-1.parquet", 12 * MB, 1));
+        Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(uncounted));
+        DataSplit mixed = split(true, uncountedFile("data-0.parquet", 130 * MB, 2), file("data-1.parquet", 12 * MB));
+        Assertions.assertEquals((130 + 4) * MB + (12 + 4) * MB, estimate.bytesOf(mixed));
+
+        PaimonJniHeapEstimate appendTable = new PaimonJniHeapEstimate(false,
+                schemaId -> new PaimonJniHeapEstimate.FileLayout(128 * MB, 64 * MB, MB, 4));
+        Assertions.assertEquals((130 + 4) * MB, appendTable.bytesOf(uncounted));
+    }
+
     /** Moving on to the next row group, a file has the old one and the new one in the heap together. */
     @Test
     public void fileOfMoreThanOneRowGroupHoldsTwoAtMost() {
@@ -155,6 +174,33 @@ public class PaimonJniHeapEstimateTest {
             both.put("parquet.block.size", String.valueOf(32 * MB));
             assertBothDeclare((32 + 6) * MB, table(catalog, "block_size", both), oneBigFile);
         }
+    }
+
+    /**
+     * A file stores a nested field in a column for every primitive value it holds, each with a dictionary of
+     * its own: every field of a row, an array's element, a map's key and value, a multiset's element beside its
+     * count, a variant's value beside its metadata.
+     */
+    @Test
+    public void nestedFieldHasADictionaryForEveryColumnItIsStoredIn(@TempDir Path warehouse) throws Exception {
+        // (id INT, payload ROW<STRING, STRING, ARRAY<STRING>>, tags MAP<STRING, INT>) keyed by id:
+        // 1 + 3 + 2 + 1 + 2 = 9 columns, 9 MB of dictionaries a file.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "nested");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("payload", DataTypes.ROW(DataTypes.STRING(), DataTypes.STRING(),
+                            DataTypes.ARRAY(DataTypes.STRING())))
+                    .column("tags", DataTypes.MAP(DataTypes.STRING(), DataTypes.INT()))
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            assertBothDeclare((100 + 9) * MB, catalog.getTable(id), split(false, file("data-0.parquet", 100 * MB)));
+        }
+        Assertions.assertEquals(2, PaimonJniHeapEstimate.FileLayout.columns(DataTypes.MULTISET(DataTypes.STRING())));
+        Assertions.assertEquals(2, PaimonJniHeapEstimate.FileLayout.columns(DataTypes.VARIANT()));
     }
 
     /**
@@ -217,6 +263,13 @@ public class PaimonJniHeapEstimateTest {
     private static DataFileMeta file(String name, long size, long schemaId) {
         return DataFileMeta.forAppend(name, size, 1000L, SimpleStats.EMPTY_STATS, 0L, 0L, schemaId,
                 Collections.emptyList(), null, null, null, null, null, null);
+    }
+
+    // A file written before paimon counted deleted rows (0.7 and earlier): it has no deleteRowCount.
+    private static DataFileMeta uncountedFile(String name, long size, int level) {
+        return DataFileMeta.create(name, size, 1000L, BinaryRow.EMPTY_ROW, BinaryRow.EMPTY_ROW,
+                SimpleStats.EMPTY_STATS, SimpleStats.EMPTY_STATS, 0L, 0L, 0L, level, Collections.emptyList(),
+                null, null, null, null, null, null, null);
     }
 
     private static DataSplit split(boolean rawConvertible, DataFileMeta... files) {
