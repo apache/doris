@@ -29,8 +29,40 @@
 -- !ordinary_constant_element --
 20	30
 
+-- !to_json_values_false --
+1	{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}	{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}	{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}
+2	\N	\N	\N
+3	{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}	{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}	{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}
+
+-- !to_json_nested_false --
+1	[{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"},null]	{"f":{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}}	{"source":{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}}
+2	[null,null]	{"f":null}	{"source":null}
+3	[{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""},null]	{"f":{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}}	{"source":{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}}
+
+-- !to_json_inline_false --
+1	{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":"AP8="}
+2	{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":""}
+3	\N
+4	{"uri":"urn:reference","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}
+
 -- !constant_container_metadata_false --
 4096	urn:large-constant	urn:large-constant	urn:large-constant
+
+-- !to_json_values_true --
+1	{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}	{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}	{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}
+2	\N	\N	\N
+3	{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}	{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}	{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}
+
+-- !to_json_nested_true --
+1	[{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"},null]	{"f":{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}}	{"source":{"uri":"S3://Bucket/a%2fb?versionId=v1","offset":null,"size":0,"content_type":"Image/PNG","checksum":"CRC32:00000000","inline":"AP+A"}}
+2	[null,null]	{"f":null}	{"source":null}
+3	[{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""},null]	{"f":{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}}	{"source":{"uri":"urn:example:three","offset":2,"size":8,"content_type":null,"checksum":null,"inline":""}}
+
+-- !to_json_inline_true --
+1	{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":"AP8="}
+2	{"uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":""}
+3	\N
+4	{"uri":"urn:reference","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}
 
 -- !constant_container_metadata_true --
 4096	urn:large-constant	urn:large-constant	urn:large-constant
