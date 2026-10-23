@@ -21,8 +21,10 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFromUnixtime;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.BigIntType;
@@ -74,6 +76,28 @@ public class HboTimeZoneKeyTest {
     }
 
     @Test
+    public void testAFromUnixtimePredicateIsSensitiveToTheSessionTimeZone() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        String previous = context.getSessionVariable().getTimeZone();
+        try {
+            context.getSessionVariable().setTimeZone("+00:00");
+            GroupStructInfo utc = fromUnixtimeFilter();
+            utc.getCanonical(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            utc.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            context.getSessionVariable().setTimeZone("+08:00");
+            GroupStructInfo shanghai = fromUnixtimeFilter();
+            shanghai.getCanonical(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            shanghai.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL);
+            Assertions.assertNotEquals(utc.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL),
+                    shanghai.getFingerprint(GroupStructInfo.LiteralMode.WITH_LITERAL),
+                    "from_unixtime formats an epoch in the session time zone, so the key must differ");
+        } finally {
+            context.getSessionVariable().setTimeZone(previous);
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testAPredicateWithoutATimeZoneDependentFunctionKeepsItsKey() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         String previous = context.getSessionVariable().getTimeZone();
@@ -93,6 +117,16 @@ public class HboTimeZoneKeyTest {
             context.getSessionVariable().setTimeZone(previous);
             ConnectContext.remove();
         }
+    }
+
+    private static GroupStructInfo fromUnixtimeFilter() {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        // the analysis casts the argument to the bigint the function declares
+        FromUnixtime fromUnixtime = new FromUnixtime(new Cast(slot, BigIntType.INSTANCE));
+        return GroupStructInfo.describeGroup(new Memo(null, new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(fromUnixtime, new StringLiteral("1970-01-01 00:00:00"))),
+                scan)).getRoot());
     }
 
     private static GroupStructInfo hourFromUnixtimeFilter() {

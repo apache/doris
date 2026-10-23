@@ -238,11 +238,18 @@ public class GroupStructInfo {
      * their result are a date: an epoch value is read in that zone ({@code hour_from_unixtime(t.ts) = 0}
      * keeps 1000 rows in one session and 1 row in another although its argument is the same integer).
      * A function whose argument or result is a date or a datetime is covered by its type instead (see
-     * {@link #usesSessionTimeZone}).
+     * {@link #usesSessionTimeZone}); a function which formats an epoch into text, or reads a wall clock
+     * into a time of day, has neither and is listed here explicitly.
      */
     private static final List<String> EPOCH_TIME_ZONE_FUNCTIONS = Arrays.asList(
             "hour_from_unixtime", "minute_from_unixtime", "second_from_unixtime",
-            "microsecond_from_unixtime", "unix_timestamp");
+            "microsecond_from_unixtime", "unix_timestamp",
+            // from_unixtime is BIGINT to VARCHAR, so neither its argument nor its result is a date and the
+            // type check below does not see it, yet the zone decides which datetime it formats
+            "from_unixtime",
+            // a time of day is returned as TIME, which is not a date like type, but the session zone
+            // decides which wall clock it reads
+            "current_time");
 
     private static final String NO_LOOKUP_PATH_REASON =
             "storage layer aggregate: the read side applies the row count of the aggregation above it";
