@@ -884,12 +884,6 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
-    if (accessor_map_.size() > 1) {
-        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
-                  << instance_id_;
-        return 0;
-    }
-
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     int check_ret = 0;
     long num_scanned = 0;
@@ -946,16 +940,19 @@ int InstanceChecker::do_inverted_check() {
             return -1;
         }
 
-        if (tablet_rowsets_cache.tablet_id == tablet_id) {
-            if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
-                return 0;
-            } else {
-                LOG(WARNING) << "rowset not exists, key=" << obj_key;
-                return -1;
-            }
+        if (tablet_rowsets_cache.tablet_id == tablet_id &&
+            tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+            return 0;
         }
-        // Get all rowset id of this tablet
-        tablet_rowsets_cache.tablet_id = tablet_id;
+        // An absence in the cache is not trusted: a load may commit a new rowset of the tablet
+        // after the cache was loaded, and its segments are listed later in the scan. E.g. the cache
+        // of tablet 10001 holds rowset r1, then r2 commits, then data/10001/r2_0.dat is listed: it
+        // is checked against a fresh read below instead of being reported as a leak.
+        // Get all rowset id of this tablet. The cache claims the tablet only after all its rowsets
+        // are read: a cache left with a partial rowset set by a failed read would report the
+        // following objects of the tablet as leaks, e.g. a txn error on the first object of tablet
+        // 10001 must make the next object of 10001 read the meta again, not hit an empty cache.
+        tablet_rowsets_cache.tablet_id = 0;
         tablet_rowsets_cache.rowset_ids.clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -968,6 +965,7 @@ int InstanceChecker::do_inverted_check() {
         auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
         while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             TxnErrorCode err = txn->get(begin, end, &it);
+            TEST_SYNC_POINT_CALLBACK("InstanceChecker::do_inverted_check.get_rowsets_err", &err);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get rowset kv, err=" << err;
                 return -1;
@@ -991,6 +989,11 @@ int InstanceChecker::do_inverted_check() {
                 }
             }
         }
+        if (stopped()) {
+            // The loop above stops early when the checker is stopped, the rowsets are incomplete
+            return -1;
+        }
+        tablet_rowsets_cache.tablet_id = tablet_id;
 
         if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
             // Garbage data leak
@@ -1049,7 +1052,19 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    // Several resources may be backed by the same storage location, e.g. storage vaults on the same
+    // bucket and prefix with different credentials. List each location only once, otherwise its
+    // objects would be scanned and their leaks counted repeatedly. Compare the location as
+    // configured, not the normalized `uri()`: prefixes "a/b" and "a//b" share a uri but hold
+    // different objects, and skipping one would hide its leaks.
+    std::unordered_set<std::string> checked_locations;
+    for (auto& [resource_id, accessor] : accessor_map_) {
+        if (!checked_locations.insert(accessor->location()).second) {
+            LOG(INFO) << "skip inverted check of a storage location already checked, instance_id="
+                      << instance_id_ << " resource_id=" << resource_id
+                      << " uri=" << accessor->uri();
+            continue;
+        }
         std::unique_ptr<ListIterator> list_iter;
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
@@ -1057,6 +1072,12 @@ int InstanceChecker::do_inverted_check() {
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            if (stopped()) {
+                // A stop during the rowset load of a tablet leaves the cache invalid, so each
+                // remaining object of the tablet would start another rowset meta read; stop here
+                LOG(INFO) << "inverted check stopped, instance_id=" << instance_id_;
+                return -1;
+            }
             const auto& path = file->path;
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic

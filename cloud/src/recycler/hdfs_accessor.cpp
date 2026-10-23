@@ -29,7 +29,9 @@
 #include <hdfs/hdfs.h> // IWYU pragma: export
 #endif
 
+#include <map>
 #include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/defer.h"
@@ -325,11 +327,44 @@ private:
     std::vector<DirEntries> level_dirs_;
 };
 
-HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
-        : StorageVaultAccessor(AccessorType::HDFS), info_(info), prefix_(info.prefix()) {
-    if (!prefix_.empty() && prefix_[0] != '/') {
-        prefix_.insert(prefix_.begin(), '/');
+namespace {
+
+// Either empty or starts with '/', e.g. "p1" and "/p1" are the same directory
+std::string accessor_prefix(const HdfsVaultInfo& info) {
+    std::string prefix = info.prefix();
+    if (!prefix.empty() && prefix[0] != '/') {
+        prefix.insert(prefix.begin(), '/');
     }
+    return prefix;
+}
+
+// fs_name and prefix name the directory, but a logical nameservice in fs_name resolves through the
+// vault's hdfs_confs: two vaults with fs_name hdfs://ns and prefix /warehouse are different
+// clusters when their dfs.namenode.rpc-address.ns.* differ. Append the effective confs, sorted by
+// key, so equal locations mean equal configurations; differences that do not matter only cost a
+// second listing. '\n' separates the parts, so e.g. hdfs://ns/a + /b and hdfs://ns + /a/b differ.
+std::string accessor_location(const HdfsVaultInfo& info) {
+    // libhdfs applies builder confs so that the first value set for a key wins: keep that one
+    std::map<std::string, std::string> confs;
+    for (const auto& conf : info.build_conf().hdfs_confs()) {
+        confs.emplace(conf.key(), conf.value());
+    }
+    std::string location = info.build_conf().fs_name() + '\n' + accessor_prefix(info);
+    for (const auto& [key, value] : confs) {
+        location += '\n';
+        location += key;
+        location += '=';
+        location += value;
+    }
+    return location;
+}
+
+} // namespace
+
+HdfsAccessor::HdfsAccessor(const HdfsVaultInfo& info)
+        : StorageVaultAccessor(AccessorType::HDFS, accessor_location(info)),
+          info_(info),
+          prefix_(accessor_prefix(info)) {
     uri_ = info.build_conf().fs_name() + prefix_;
 }
 

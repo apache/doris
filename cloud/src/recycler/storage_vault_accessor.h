@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Aws::S3 {
@@ -50,7 +51,9 @@ public:
 
 class StorageVaultAccessor {
 public:
-    explicit StorageVaultAccessor(AccessorType type) : type_(type) {}
+    // `location` identifies the storage the accessor reads and writes, see `location()`
+    StorageVaultAccessor(AccessorType type, std::string location)
+            : type_(type), location_(std::move(location)) {}
 
     virtual ~StorageVaultAccessor() = default;
 
@@ -60,6 +63,13 @@ public:
     AccessorType type() const { return type_; }
 
     const std::string& uri() const { return uri_; }
+
+    // The storage location this accessor reads and writes, built from its configuration without
+    // normalization: two accessors with equal locations see the same objects. Different locations
+    // may still reach the same storage (e.g. HDFS confs that do not affect resolution), which only
+    // costs a second listing. `uri()` is for display and may be normalized, e.g. S3 prefixes "a/b"
+    // and "a//b" have the same uri but hold different objects.
+    const std::string& location() const { return location_; }
 
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.
     // returns 0 for success otherwise error
@@ -98,6 +108,7 @@ public:
 
 private:
     const AccessorType type_;
+    const std::string location_;
 
 protected:
     std::string uri_;

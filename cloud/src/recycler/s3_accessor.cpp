@@ -310,8 +310,12 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     return s3_conf;
 }
 
+// The location is endpoint, bucket and prefix as configured; `uri_` normalizes them for display.
+// '\n' never occurs in an endpoint or a bucket name, so different confs never collide.
 S3Accessor::S3Accessor(S3Conf conf)
-        : StorageVaultAccessor(AccessorType::S3), conf_(std::move(conf)) {}
+        : StorageVaultAccessor(AccessorType::S3,
+                               conf.endpoint + '\n' + conf.bucket + '\n' + conf.prefix),
+          conf_(std::move(conf)) {}
 
 S3Accessor::~S3Accessor() = default;
 
