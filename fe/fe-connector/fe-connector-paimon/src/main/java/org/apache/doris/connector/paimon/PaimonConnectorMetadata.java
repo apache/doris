@@ -543,14 +543,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         // here instead would enter the authenticator a second time and would turn a missing base
         // table into a thrown RuntimeException rather than this method's Optional.empty() contract.
         //
-        // "Exactly the way the catalog builds it" includes building it over the UNDECORATED base:
-        // CatalogUtils#loadTable hands createSystemTable the raw FileStoreTableFactory#create
-        // result, and the decorator a catalog may add afterwards never reaches a system table,
-        // because it only wraps a FileStoreTable and no system table is one. That matters for $ro:
-        // ReadOptimizedTable#newScan builds its two-branch FallbackReadScan only when its immediate
-        // wrapped object is a FallbackReadFileStoreTable, so with a PrivilegedFileStoreTable in
-        // between it would plan the main branch alone through the pair's inherited
-        // newSnapshotReader() and silently drop every fallback-only partition.
+        // ReadOptimizedTable builds its two-branch FallbackReadScan only when its immediate
+        // wrapped object is the fallback pair. Keep that pair directly under the system wrapper.
         Table baseTable = base.getPaimonTable();
         FileStoreTable sysBase = baseTable instanceof FileStoreTable
                 ? PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) baseTable)

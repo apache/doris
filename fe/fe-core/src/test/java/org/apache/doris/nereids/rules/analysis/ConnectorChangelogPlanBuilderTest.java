@@ -25,20 +25,30 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.info.ConnectorChangelogRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -46,7 +56,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 class ConnectorChangelogPlanBuilderTest {
@@ -183,6 +195,73 @@ class ConnectorChangelogPlanBuilderTest {
         }
     }
 
+    @Test
+    void matchedMergeAcceptsNullPrimaryKeyForUpdateAndDelete() {
+        for (boolean delete : new boolean[] {false, true}) {
+            LogicalPlan child = targetRow(true);
+            MergeMatchedClause clause = new MergeMatchedClause(Optional.empty(), delete ? ImmutableList.of()
+                    : ImmutableList.of(new EqualTo(new UnboundSlot("value"), new IntegerLiteral(99))), delete);
+            ConnectorChangelogRowChangeSpec.Merge spec = new ConnectorChangelogRowChangeSpec.Merge(
+                    ImmutableList.of("target"), ImmutableList.of(clause), ImmutableList.of());
+            LogicalPlan result = ConnectorChangelogPlanBuilder.build(
+                    SCHEMA, TARGET_TABLE, ImmutableList.of("id"), MODE, spec, child, context(child));
+            Map<Expression, Expression> nullRow = new HashMap<>();
+            child.getOutput().forEach(slot -> nullRow.put(slot, new NullLiteral(slot.getDataType())));
+
+            Assertions.assertEquals(new IntegerLiteral(0), FoldConstantRuleOnFE.evaluateWithoutContext(
+                    ExpressionUtils.replace(branchLabel(result), nullRow)));
+        }
+    }
+
+    @Test
+    void mergeDistinguishesNullTargetValuesFromNullExtendedRows() {
+        LogicalPlan target = targetRow(true);
+        LogicalPlan source = new LogicalEmptyRelation(new RelationId(2), ImmutableList.of(
+                new SlotReference("id", IntegerType.INSTANCE, true, ImmutableList.of("source")),
+                new SlotReference("__DORIS_CHANGELOG_TARGET_PRESENT__", IntegerType.INSTANCE, true,
+                        ImmutableList.of("source"))));
+        LogicalPlan child = MergeUtils.buildMergeJoin(target, source,
+                new EqualTo(target.getOutput().get(0), source.getOutput().get(0)), true);
+        MergeMatchedClause update = new MergeMatchedClause(Optional.empty(), ImmutableList.of(
+                new EqualTo(new UnboundSlot("value"),
+                        new UnboundSlot("__DORIS_CHANGELOG_TARGET_PRESENT__"))), false);
+        MergeNotMatchedClause insert = new MergeNotMatchedClause(Optional.empty(), ImmutableList.of(),
+                ImmutableList.copyOf(source.getOutput()));
+        ConnectorChangelogRowChangeSpec.Merge spec = new ConnectorChangelogRowChangeSpec.Merge(
+                ImmutableList.of("target"), ImmutableList.of(update), ImmutableList.of(insert));
+        LogicalPlan result = ConnectorChangelogPlanBuilder.build(
+                SCHEMA, TARGET_TABLE, ImmutableList.of("id"), MODE, spec, child, context(child));
+        LogicalJoin<?, ?> join = result.<LogicalJoin<?, ?>>collectToList(LogicalJoin.class::isInstance).get(0);
+        Slot marker = join.getOutput().get(target.getOutput().size());
+        Assertions.assertTrue(marker.nullable(), "the marker must inherit outer-join null-extension");
+        Map<Expression, Expression> nullRow = new HashMap<>();
+        join.getOutput().forEach(slot -> nullRow.put(slot, new NullLiteral(slot.getDataType())));
+        Expression label = branchLabel(result);
+
+        Assertions.assertEquals(new IntegerLiteral(1), FoldConstantRuleOnFE.evaluateWithoutContext(
+                ExpressionUtils.replace(label, nullRow)));
+        nullRow.put(marker, new TinyIntLiteral((byte) 1));
+        Assertions.assertEquals(new IntegerLiteral(0), FoldConstantRuleOnFE.evaluateWithoutContext(
+                ExpressionUtils.replace(label, nullRow)));
+        // A source column sharing the private marker's name must still supply the UPDATE value.
+        nullRow.put(source.getOutput().get(1), new IntegerLiteral(555));
+        Expression value = result.<LogicalProject<?>>collectToList(LogicalProject.class::isInstance).stream()
+                .flatMap(project -> project.getProjects().stream())
+                .filter(project -> project instanceof Alias && project.getName().equals("value"))
+                .findFirst().get().child(0);
+        value.getInputSlots().stream().filter(slot -> slot.getName().equals("__DORIS_CHANGELOG_BRANCH__"))
+                .forEach(slot -> nullRow.put(slot, new IntegerLiteral(0)));
+        Assertions.assertEquals(new IntegerLiteral(555), FoldConstantRuleOnFE.evaluateWithoutContext(
+                ExpressionUtils.replace(value, nullRow)));
+    }
+
+    private Expression branchLabel(LogicalPlan plan) {
+        return plan.<LogicalProject<?>>collectToList(LogicalProject.class::isInstance).stream()
+                .flatMap(project -> project.getProjects().stream())
+                .filter(project -> project.getName().equals("__DORIS_CHANGELOG_BRANCH__"))
+                .findFirst().get().child(0);
+    }
+
     private List<Column> schemaWithValueDefault(String defaultValue) {
         return ImmutableList.of(
                 new Column("id", ScalarType.createType(PrimitiveType.INT)),
@@ -191,7 +270,11 @@ class ConnectorChangelogPlanBuilderTest {
     }
 
     private LogicalPlan targetRow() {
-        SlotReference id = new SlotReference("id", IntegerType.INSTANCE, false,
+        return targetRow(false);
+    }
+
+    private LogicalPlan targetRow(boolean nullableKey) {
+        SlotReference id = new SlotReference("id", IntegerType.INSTANCE, nullableKey,
                 ImmutableList.of("target"));
         SlotReference value = new SlotReference("value", IntegerType.INSTANCE, true,
                 ImmutableList.of("target"));

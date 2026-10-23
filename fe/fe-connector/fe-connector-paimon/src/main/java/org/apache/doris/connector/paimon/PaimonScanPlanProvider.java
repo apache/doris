@@ -1527,8 +1527,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private Table prepareSystemSource(PaimonTableHandle handle, Table source) {
         // These later property transformations can reopen schema files on the retained source,
         // after tableForBackend has already left its authentication and plugin classloader scope.
-        return withBoundSchemaAuthentication(handle,
-                () -> PaimonReaderOptions.runtimeSafeSystemSource(source, effectiveScanOptions(handle)));
+        return withBoundSchemaAuthentication(handle, () -> {
+            Table prepared = source;
+            if (source instanceof FileStoreTable
+                    && PaimonScanParams.resolvesSnapshotOnBackend(handle.getSysTableName())) {
+                // JNI rebuilds the wrapper from this second payload, so it needs the same catalog
+                // visibility bound as the serialized table before either loader is removed.
+                prepared = pinCatalogSnapshot((FileStoreTable) source, (FileStoreTable) source);
+            }
+            return PaimonReaderOptions.runtimeSafeSystemSource(prepared, effectiveScanOptions(handle));
+        });
     }
 
     /**
@@ -1581,7 +1589,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         String sysTableType = handle.getSysTableName();
         boolean resolvesOnBackend = PaimonScanParams.resolvesSnapshotOnBackend(sysTableType);
-        if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)) {
+        if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)
+                || "file_indexes".equalsIgnoreCase(sysTableType)) {
             authorizeDeferredScan(dataTable);
         }
         FileStoreTable preparedDataTable = dataTable;
@@ -1640,15 +1649,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * {@code $files} plans only partition-level splits on the FE and re-plans the base table on the
-     * BE through {@code DataTableScan#plan()} ({@code FilesTable.FilesRead#createReader}). That
+     * {@code $files} and {@code $file_indexes} plan only partition-level splits on the FE and re-plan
+     * the base table on the BE through {@code DataTableScan#plan()}
+     * ({@code FilesTable.FilesRead#createReader}). That
      * deferred plan normally authorizes itself through the catalog loader
      * ({@code CatalogEnvironment#tableQueryAuth} -&gt; {@code Catalog#authTableQuery}); once the
      * loader is dropped it silently allows everything. So authorize here, while the loader is still
      * around. Paimon discards the predicates the call returns (row level access control is a TODO in
      * {@code AbstractDataTableScan#authQuery}), so running it on the FE loses nothing.
      *
-     * <p>Only {@code $files} may do this: {@code auth(null)} means "every column" to
+     * <p>Only {@code $files} and {@code $file_indexes} may do this: {@code auth(null)} means "every column" to
      * {@code Catalog#authTableQuery}, and the system tables that keep planning on the FE
      * ({@code $ro}, {@code $row_tracking}, {@code $audit_log}, {@code $binlog}) already authorize
      * themselves through {@code DataTableBatchScan} with the slot projection the query really reads.
