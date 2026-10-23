@@ -528,9 +528,7 @@ TEST_F(VParquetWriterTest, IcebergNanosecondsRoundTripWithoutCoercion) {
     const auto name = "iceberg_ns_" + UniqueId::gen_uid().to_string();
     _file_path = "./" + name + "-0.parquet";
     VIcebergPartitionWriter writer(sink, {}, exprs, *schema, &json, {"ts"},
-                                   {.write_path = ".",
-                                    .original_write_path = ".",
-                                    .target_path = ".",
+                                   {.location = IcebergOutputLocation(".", "."),
                                     .file_type = TFileType::FILE_LOCAL,
                                     .broker_addresses = {}},
                                    name, 0, TFileFormatType::FORMAT_PARQUET,

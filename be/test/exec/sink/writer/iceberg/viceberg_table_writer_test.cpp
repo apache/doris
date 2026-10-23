@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
+#include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -258,6 +259,65 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     IcebergPartitionData hybrid({std::any(), Int32(7)});
     EXPECT_EQ("key=3q0%3D/id=7", writer._partition_to_path(hybrid));
     EXPECT_EQ(std::vector<std::string>({"0xdead", "7"}), writer._partition_values(hybrid));
+}
+
+TEST(VIcebergTableWriterTest, OpenRejectsASinkWithoutTheTableFormOfTheDataLocation) {
+    // Without original_output_path the commit used to record relative paths such as
+    // /p=1/xxx.parquet; now the write fails before any file is created.
+    TIcebergTableSink sink;
+    sink.__set_output_path("s3://b/db/t/data");
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    RuntimeState state;
+    TQueryOptions query_options;
+    query_options.__set_supports_external_file_report_ack(true);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("test");
+
+    Status status = writer.open(&state, &profile);
+
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("original_output_path"));
+    EXPECT_FALSE(writer._output_location.has_value());
+}
+
+TEST(VIcebergTableWriterTest, PartitionWritersWriteAndCommitUnderBothFormsOfTheDataLocation) {
+    // FE normalizes the location BE writes to (oss:// becomes s3://); the commit must keep the
+    // table's own form in the data location and in every partition directory under it.
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(false, 1, "p", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    TIcebergTableSink sink;
+    sink.__set_output_path("s3://b/db/t/data");
+    sink.__set_original_output_path("oss://b/db/t/data/");
+    sink.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    sink.__set_compression_type(TFileCompressType::SNAPPYBLOCK);
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    writer._schema = std::make_shared<iceberg::Schema>(std::move(columns));
+    // What open() derives from the two location fields.
+    writer._output_location.emplace(sink.output_path, sink.original_output_path);
+
+    const std::string file_name = "f";
+    auto expect_paths = [&](const std::string& partition_dir) {
+        auto writer_base = writer._create_partition_writer(nullptr, -1, &file_name, 0);
+        auto* partition_writer = dynamic_cast<VIcebergPartitionWriter*>(writer_base.get());
+        ASSERT_NE(nullptr, partition_writer);
+        const auto& location = partition_writer->_write_info.location;
+        const std::string target_file = partition_writer->_get_target_file_name();
+        EXPECT_EQ("s3://b/db/t/data/" + partition_dir + target_file,
+                  location.write_path(target_file));
+        EXPECT_EQ("oss://b/db/t/data/" + partition_dir + target_file,
+                  location.commit_path(target_file));
+    };
+    // A non-partitioned table writes into the data location itself.
+    expect_paths("");
+    // A partition writes into its directory under the data location.
+    writer._is_full_static_partition = true;
+    writer._static_partition_path = "p=1";
+    writer._static_partition_value_list = {"1"};
+    expect_paths("p=1/");
 }
 
 TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {

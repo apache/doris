@@ -24,12 +24,14 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/iceberg/iceberg_output_location.h"
 #include "exec/sink/writer/iceberg/viceberg_delete_file_writer.h"
 #include "exprs/vexpr_fwd.h"
 #include "roaring/roaring64map.hh"
@@ -114,15 +116,9 @@ private:
 
     std::string _build_puffin_footer_json(const std::vector<DeletionVectorBlob>& blobs);
 
-    std::string _generate_puffin_file_path();
-
-    /**
-     * Generate unique delete file path
-     */
-    std::string _generate_delete_file_path(const std::string& referenced_data_file = "");
-
-    // The path the commit records for a delete file written at write_path; see the definition.
-    std::string _commit_path_of(const std::string& write_path) const;
+    // Unique file names, relative to the data location (_output_location).
+    std::string _puffin_file_name() const;
+    std::string _delete_file_name(const std::string& referenced_data_file) const;
 
     /**
      * Get $row_id column index from block
@@ -166,9 +162,8 @@ private:
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_PARQUET;
     TFileCompressType::type _compress_type = TFileCompressType::SNAPPYBLOCK;
 
-    // Output directory for delete files
-    std::string _output_path;
-    std::string _table_location;
+    // The data location delete files are written to and committed under, set by init_properties().
+    std::optional<IcebergOutputLocation> _output_location;
 
     TFileType::type _file_type = TFileType::FILE_HDFS;
     std::vector<TNetworkAddress> _broker_addresses;

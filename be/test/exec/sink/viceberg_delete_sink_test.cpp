@@ -476,29 +476,26 @@ TEST_F(VIcebergDeleteSinkTest, TestBuildPositionDeleteBlock) {
     ASSERT_EQ(40, pos_column->get_element(3));
 }
 
-TEST_F(VIcebergDeleteSinkTest, TestGenerateDeleteFilePath) {
+TEST_F(VIcebergDeleteSinkTest, TestDeleteFileNames) {
     VExprContextSPtrs output_exprs;
     auto sink = std::make_shared<VIcebergDeleteSink>(_t_data_sink, output_exprs, nullptr, nullptr);
     ObjectPool pool;
-    Status status = sink->init_properties(&pool);
-    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
 
-    std::string data_file_path = "data/file1.parquet";
-    std::string delete_file_path = sink->_generate_delete_file_path(data_file_path);
+    // Names are relative to the data location; the location supplies both forms of the directory.
+    std::string delete_file_name = sink->_delete_file_name("data/file1.parquet");
+    EXPECT_TRUE(delete_file_name.starts_with("delete_pos_")) << delete_file_name;
+    EXPECT_TRUE(delete_file_name.ends_with(".snappy.parquet")) << delete_file_name;
+    EXPECT_EQ(std::string::npos, delete_file_name.find('/'));
+    EXPECT_NE(delete_file_name, sink->_delete_file_name("data/file1.parquet"));
 
-    // Verify the path format
-    ASSERT_FALSE(delete_file_path.empty());
-    const auto& delete_sink = _t_data_sink.iceberg_delete_sink;
-    std::string expected_base =
-            delete_sink.__isset.output_path ? delete_sink.output_path : delete_sink.table_location;
-    if (!expected_base.empty() && expected_base.back() != '/') {
-        expected_base += '/';
-    }
-    ASSERT_TRUE(delete_file_path.rfind(expected_base, 0) == 0);
-    ASSERT_NE(std::string::npos, delete_file_path.find("delete_pos_"));
+    std::string puffin_file_name = sink->_puffin_file_name();
+    EXPECT_TRUE(puffin_file_name.starts_with("delete_dv_")) << puffin_file_name;
+    EXPECT_TRUE(puffin_file_name.ends_with(".puffin")) << puffin_file_name;
+    EXPECT_EQ(std::string::npos, puffin_file_name.find('/'));
 }
 
-TEST_F(VIcebergDeleteSinkTest, TestCommitPathUsesTableLocation) {
+TEST_F(VIcebergDeleteSinkTest, TestInitPropertiesTakesBothFormsOfTheDataLocation) {
     // FE writes through the normalized output_path but the table records its own location.
     TDataSink t_data_sink = _t_data_sink;
     t_data_sink.iceberg_delete_sink.__set_output_path("s3://b/db/t/data");
@@ -507,23 +504,29 @@ TEST_F(VIcebergDeleteSinkTest, TestCommitPathUsesTableLocation) {
     auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
     ObjectPool pool;
     ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->_output_location.has_value());
+    EXPECT_EQ("s3://b/db/t/data/delete_dv_1.puffin",
+              sink->_output_location->write_path("delete_dv_1.puffin"));
+    EXPECT_EQ("oss://b/db/t/data/delete_dv_1.puffin",
+              sink->_output_location->commit_path("delete_dv_1.puffin"));
 
-    std::string write_path = sink->_generate_delete_file_path("data/file1.parquet");
-    ASSERT_EQ(0, write_path.rfind("s3://b/db/t/data/", 0));
-    std::string file_name = write_path.substr(std::string("s3://b/db/t/data/").size());
-    EXPECT_EQ("oss://b/db/t/data/" + file_name, sink->_commit_path_of(write_path));
-
-    std::string puffin_path = sink->_generate_puffin_file_path();
-    EXPECT_EQ("oss://b/db/t/data/" + puffin_path.substr(std::string("s3://b/db/t/data/").size()),
-              sink->_commit_path_of(puffin_path));
-
-    // Without a table location there is no other form to record.
+    // Without the table's own form the commit could only record the s3:// address BE wrote.
     t_data_sink.iceberg_delete_sink.__isset.table_location = false;
     t_data_sink.iceberg_delete_sink.table_location.clear();
     auto no_table_location =
             std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
-    ASSERT_TRUE(no_table_location->init_properties(&pool).ok());
-    EXPECT_EQ(write_path, no_table_location->_commit_path_of(write_path));
+    Status status = no_table_location->init_properties(&pool);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("table_location"));
+
+    t_data_sink.iceberg_delete_sink.__set_table_location("oss://b/db/t/data/");
+    t_data_sink.iceberg_delete_sink.__isset.output_path = false;
+    t_data_sink.iceberg_delete_sink.output_path.clear();
+    auto no_output_path =
+            std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    status = no_output_path->init_properties(&pool);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("output_path"));
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
