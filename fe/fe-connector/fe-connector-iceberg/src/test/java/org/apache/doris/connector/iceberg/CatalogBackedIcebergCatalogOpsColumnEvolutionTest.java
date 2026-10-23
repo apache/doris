@@ -413,6 +413,74 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         Assertions.assertEquals(Types.LongType.get(), schema.findField("id").type());
     }
 
+    // ---------- row lineage names ----------
+
+    /** Creates {@code db1.<name>} at {@code formatVersion} with {@code fields} as its top-level columns. */
+    private void createTableWithFields(String name, String formatVersion, Types.NestedField... fields) {
+        Map<String, String> props = new HashMap<>(IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        props.put("format-version", formatVersion);
+        ops.createTable("db1", name, new Schema(fields), PartitionSpec.unpartitioned(), null, props);
+    }
+
+    private List<String> columnNames(String tableName) {
+        return ops.loadTable("db1", tableName).schema().columns().stream()
+                .map(Types.NestedField::name).collect(Collectors.toList());
+    }
+
+    @Test
+    public void testRejectsRowLineageNamesOnFormatThreeTable() {
+        // A format-version 3 table reads _row_id and _last_updated_sequence_number as hidden columns, so a column
+        // that takes either name makes every later read of the table fail with a duplicate column.
+        createTableWithFields("v3", "3", Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "age", Types.IntegerType.get()));
+        DorisConnectorException add = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumn("db1", "v3", change("_row_id", Types.LongType.get(), null, true), null));
+        Assertions.assertEquals("Cannot add Iceberg v3 reserved row lineage column: _row_id", add.getMessage());
+        DorisConnectorException addColumns = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addColumns("db1", "v3", Arrays.asList(
+                        change("extra", Types.IntegerType.get(), null, true),
+                        change("_LAST_UPDATED_SEQUENCE_NUMBER", Types.LongType.get(), null, true))));
+        Assertions.assertEquals("Cannot add Iceberg v3 reserved row lineage column: _LAST_UPDATED_SEQUENCE_NUMBER",
+                addColumns.getMessage());
+        DorisConnectorException rename = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.renameColumn("db1", "v3", "age", "_last_updated_sequence_number"));
+        Assertions.assertEquals(
+                "Cannot rename to Iceberg v3 reserved row lineage column: _last_updated_sequence_number",
+                rename.getMessage());
+        Assertions.assertEquals(Arrays.asList("id", "age"), columnNames("v3"));
+    }
+
+    @Test
+    public void testAllowsRowLineageNamesOnFormatTwoTableAndNestedFields() {
+        // The names are reserved only for the top-level columns of a format-version 3 table.
+        createTableWithFields("v2", "2", Types.NestedField.optional(1, "id", Types.LongType.get()));
+        ops.addColumn("db1", "v2", change("_row_id", Types.LongType.get(), null, true), null);
+        ops.renameColumn("db1", "v2", "id", "_last_updated_sequence_number");
+        Assertions.assertEquals(Arrays.asList("_last_updated_sequence_number", "_row_id"), columnNames("v2"));
+
+        createTableWithFields("v3_nested", "3", Types.NestedField.optional(1, "s", Types.StructType.of(
+                Types.NestedField.optional(2, "a", Types.IntegerType.get()))));
+        ops.addNestedColumn("db1", "v3_nested", ConnectorColumnPath.of(Arrays.asList("s", "_row_id")),
+                change("_row_id", Types.LongType.get(), null, true), null);
+        ops.renameNestedColumn("db1", "v3_nested", ConnectorColumnPath.of(Arrays.asList("s", "a")),
+                "_last_updated_sequence_number");
+        Assertions.assertEquals(Arrays.asList("_last_updated_sequence_number", "_row_id"),
+                ops.loadTable("db1", "v3_nested").schema().findField("s").type().asStructType().fields().stream()
+                        .map(Types.NestedField::name).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testDropsOrRenamesAwayExistingRowLineageNamesOnFormatThreeTable() {
+        // A format-version 3 table can already hold such columns, for example one upgraded from format-version 2.
+        // Dropping them or renaming them away is how such a table becomes readable again, so both stay allowed.
+        createTableWithFields("v3_taken", "3", Types.NestedField.optional(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "_row_id", Types.LongType.get()),
+                Types.NestedField.optional(3, "_last_updated_sequence_number", Types.LongType.get()));
+        ops.dropColumn("db1", "v3_taken", "_row_id");
+        ops.renameColumn("db1", "v3_taken", "_last_updated_sequence_number", "seq");
+        Assertions.assertEquals(Arrays.asList("id", "seq"), columnNames("v3_taken"));
+    }
+
     // ---------- reorderColumns ----------
 
     @Test

@@ -523,6 +523,7 @@ public interface IcebergCatalogOps {
                 if (column.getType().isVariantType()) {
                     IcebergWriterHelper.validateVariantColumn(table, column.getName());
                 }
+                IcebergWriterHelper.validateNotRowLineageColumn(table, column.getName(), "add");
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveSiblingCollision(
                         table.schema().asStruct(), "", column.getName(), null, "add");
                 UpdateSchema updateSchema = table.updateSchema();
@@ -541,6 +542,7 @@ public interface IcebergCatalogOps {
                     if (column.getType().isVariantType()) {
                         IcebergWriterHelper.validateVariantColumn(table, column.getName());
                     }
+                    IcebergWriterHelper.validateNotRowLineageColumn(table, column.getName(), "add");
                 }
                 IcebergNestedColumnEvolution.validateNoCaseInsensitiveTopLevelCollisions(table.schema(), columns);
                 UpdateSchema updateSchema = table.updateSchema();
@@ -564,6 +566,7 @@ public interface IcebergCatalogOps {
         @Override
         public void renameColumn(String dbName, String tableName, String oldName, String newName) {
             withTable(dbName, tableName, table -> {
+                IcebergWriterHelper.validateNotRowLineageColumn(table, newName, "rename to");
                 IcebergNestedColumnEvolution.renameTopLevelColumn(table, oldName, newName);
                 return null;
             });
