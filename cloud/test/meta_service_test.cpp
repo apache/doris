@@ -11985,6 +11985,39 @@ TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
     auto status = add_s3_vault("v1_shared", "shared", "ak2", 1);
     ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
     EXPECT_NE(status.msg().find("vault v0_shared already uses"), std::string::npos) << status.msg();
+    // Prefixes are stored trimmed, so these are the same root
+    ASSERT_EQ(add_s3_vault("v1_shared_slash", "shared/", "ak2", 1).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(add_s3_vault("v1_shared_leading", "/shared", "ak2", 1).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    // A vault added through add_vault_into_instance (here ADD_HDFS_INFO carrying an obj info) is
+    // checked too
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_external_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("shared");
+        vault.mutable_obj_info()->set_ak("ak4");
+        vault.mutable_obj_info()->set_sk("sk");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.set_name("v1_shared_via_add_vault");
+        vault.mutable_path_format()->set_path_version(1);
+        vault.mutable_path_format()->set_shard_num(1024);
+        req.mutable_vault()->CopyFrom(vault);
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        EXPECT_NE(res.status().msg().find("vault v0_shared already uses"), std::string::npos)
+                << res.status().msg();
+    }
     ASSERT_EQ(add_s3_vault("v1_other", "other", "ak1", 1).code(), MetaServiceCode::OK);
     ASSERT_EQ(add_s3_vault("v0_other", "other", "ak2", 0).code(),
               MetaServiceCode::INVALID_ARGUMENT);

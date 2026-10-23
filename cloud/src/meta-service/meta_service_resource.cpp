@@ -735,10 +735,15 @@ static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& c
 // data/{shard}/{tablet_id}/ only.
 static bool check_s3_root_path_version(Transaction* txn, const InstanceInfoPB& instance,
                                        const std::string& endpoint, const std::string& bucket,
-                                       const std::string& prefix, int64_t path_version,
+                                       std::string prefix, int64_t path_version,
                                        MetaServiceCode& code, std::string& msg) {
+    // Prefixes are stored trimmed, e.g. a request prefix "/shared/" is stored as "shared", so
+    // compare them trimmed, otherwise "shared/" would pass next to a vault on "shared"
+    trim(prefix);
     auto same_root = [&](const ObjectStoreInfoPB& obj) {
-        return obj.endpoint() == endpoint && obj.bucket() == bucket && obj.prefix() == prefix;
+        std::string obj_prefix = obj.prefix();
+        trim(obj_prefix);
+        return obj.endpoint() == endpoint && obj.bucket() == bucket && obj_prefix == prefix;
     };
     auto reject = [&](std::string_view name, int64_t existing_path_version) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -926,6 +931,13 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
 
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
+    }
+
+    // The built-in vault (create_instance, ADD_BUILT_IN_VAULT) is also an S3 root
+    const auto& obj = vault_param.obj_info();
+    if (!check_s3_root_path_version(txn, instance, obj.endpoint(), obj.bucket(), obj.prefix(),
+                                    vault_param.path_format().path_version(), code, msg)) {
+        return -1;
     }
 
     create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, code, msg);
