@@ -284,16 +284,19 @@ public:
         };
 
         for (size_t row = 0; row < rows; ++row) {
+            // The ascending flag is an argument contract, not data: it is validated on every row,
+            // including a row whose input array is NULL, so a backend-evaluated NULL flag reports
+            // the same error regardless of the value column.
+            if (flag_nullmap != nullptr && (*flag_nullmap)[row] != 0) {
+                return Status::InvalidArgument(
+                        "array_sorted_merge requires a non-null ascending flag");
+            }
             const bool row_is_null = (nullmaps[0] != nullptr && (*nullmaps[0])[row] != 0) ||
                                      (nullmaps[1] != nullptr && (*nullmaps[1])[row] != 0);
             if (row_is_null) {
                 result_nullmap_data[row] = 1;
                 offsets_data.push_back(result_nested->size());
                 continue;
-            }
-            if (flag_nullmap != nullptr && (*flag_nullmap)[row] != 0) {
-                return Status::InvalidArgument(
-                        "array_sorted_merge requires a non-null ascending flag");
             }
             const bool ascending = flags[row] != 0;
             // A short-circuit branch receives a selector and only the selected rows, so the row
