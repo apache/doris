@@ -24,6 +24,8 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -43,6 +45,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/json/new_json_reader.h"
 #include "format_v2/column_data.h"
+#include "format_v2/table_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
@@ -302,6 +305,131 @@ VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
 }
 
 } // namespace
+
+// Match a Hive COUNT plan whose only projected slot is a partition constant.
+class JsonPartitionCountTest : public testing::TestWithParam<std::tuple<bool, bool>> {};
+
+TEST_P(JsonPartitionCountTest, PreservesRowsAcrossBatchesWithNoFileColumns) {
+    const auto [use_v2, push_count] = GetParam();
+    const auto path = write_json_file("partition_count.jsonl",
+                                      "{\"value\":\"a\"}\n\n{\"value\":null}\n{\"value\":\"c\"}\n"
+                                      "{\"value\":\"d\"}\n{\"value\":\"e\"}");
+    auto params = json_scan_params();
+    auto range = file_range(path);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("hive");
+    range.__set_table_format_params(table_format);
+    RuntimeProfile profile("partition_count_test");
+    MockRuntimeState state;
+    state._batch_size = 2;
+    std::vector<SlotDescriptor*> file_slots;
+    std::vector<size_t> batches;
+    auto type = make_nullable(std::make_shared<DataTypeString>());
+    auto make_next_block = [&] {
+        Block block;
+        block.insert({type->create_column(), type, "etl_date"});
+        return block;
+    };
+    auto read_blocks = [&](auto&& next_block) {
+        bool eof = false;
+        for (size_t call = 0; !eof && call < 10; ++call) {
+            Block block = make_next_block();
+            size_t rows = 0;
+            const auto status = next_block(&block, &rows, &eof);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_LE(rows, 2);
+            ASSERT_EQ(block.rows(), rows);
+            for (size_t row = 0; row < rows; ++row) {
+                EXPECT_EQ(nullable_string_at(*block.get_by_position(0).column, row), "2026-10-22");
+            }
+            if (rows > 0) {
+                batches.push_back(rows);
+            }
+        }
+        EXPECT_TRUE(eof);
+    };
+    const auto push_agg = push_count ? TPushAggOp::COUNT : TPushAggOp::NONE;
+    if (use_v2) {
+        TableReader reader;
+        ColumnDefinition partition;
+        partition.name = "etl_date";
+        partition.type = type;
+        partition.is_partition_key = true;
+        ASSERT_TRUE(reader.init({.projected_columns = {partition},
+                                 .conjuncts = {},
+                                 .format = FileFormat::JSON,
+                                 .scan_params = &params,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = &profile,
+                                 .file_slot_descs = &file_slots,
+                                 .push_down_agg_type = push_agg,
+                                 .push_down_count_columns = std::vector<GlobalIndex> {}})
+                            .ok());
+        SplitReadOptions split;
+        split.current_range = range;
+        split.current_split_format = FileFormat::JSON;
+        split.partition_values.emplace("etl_date", Field::create_field<TYPE_STRING>("2026-10-22"));
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        read_blocks([&](Block* block, size_t* rows, bool* eof) {
+            auto status = reader.get_block(block, eof);
+            *rows = block->rows();
+            return status;
+        });
+        ASSERT_TRUE(reader.close().ok());
+    } else {
+        ScannerCounter counter;
+        bool scanner_eof = false;
+        ObjectPool pool;
+        auto* partition_slot = make_test_slot(&pool, 0, 0, type, "etl_date");
+        std::unordered_map<std::string, uint32_t> positions {{"etl_date", 0}};
+        auto reader = NewJsonReader::create_unique(&state, &profile, &counter, params, range,
+                                                   file_slots, &scanner_eof, 2, nullptr);
+        ASSERT_TRUE(reader->init_reader({}, false).ok());
+        reader->set_batch_size(2);
+        reader->set_push_down_agg_type(push_agg);
+        reader->_fill_col_name_to_block_idx = &positions;
+        reader->_fill_partition_values.emplace("etl_date",
+                                               std::make_tuple("2026-10-22", partition_slot));
+        reader->_fill_partition_value_is_null.emplace("etl_date", false);
+        read_blocks([&](Block* block, size_t* rows, bool* eof) {
+            return reader->get_next_block(block, rows, eof);
+        });
+        EXPECT_EQ(counter.num_rows_filtered, 0);
+    }
+    EXPECT_EQ(batches, std::vector<size_t>({2, 2, 1}));
+}
+
+INSTANTIATE_TEST_SUITE_P(ScannerAndPushdown, JsonPartitionCountTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
+
+TEST(JsonReaderTest, EmptyProjectionPreservesArrayAndMalformedRecordCardinality) {
+    ObjectPool pool;
+    const auto slots = build_slots(&pool);
+    for (const auto& projection : {std::vector<int32_t> {}, std::vector<int32_t> {0, 1}}) {
+        auto array = read_once("count_array.json", R"([{"id":1},{"id":null},{"id":3}])",
+                               json_scan_params(false, true), slots, projection, true, true);
+        ASSERT_TRUE(array.status.ok()) << array.status;
+        EXPECT_EQ(array.rows, 3);
+        EXPECT_TRUE(array.second_status.ok());
+        EXPECT_EQ(array.second_rows, 0);
+        EXPECT_TRUE(array.second_eof);
+        auto empty = read_once("count_empty_array.json", "[]", json_scan_params(false, true), slots,
+                               projection, true, true);
+        ASSERT_TRUE(empty.status.ok()) << empty.status;
+        EXPECT_EQ(empty.rows, 0);
+        EXPECT_TRUE(empty.eof);
+        auto malformed = read_once("count_malformed.jsonl", "{\"id\":1}\nnot-json\n{\"id\":2}\n",
+                                   json_scan_params(true, false, "", "", true), slots, projection,
+                                   true, true);
+        ASSERT_TRUE(malformed.status.ok()) << malformed.status;
+        EXPECT_EQ(malformed.rows, 3);
+        EXPECT_TRUE(malformed.second_eof);
+        auto strict = read_once("count_strict.jsonl", "{\"id\":1}\nnot-json\n", json_scan_params(),
+                                slots, projection, false, true);
+        EXPECT_TRUE(strict.status.is<ErrorCode::DATA_QUALITY_ERROR>()) << strict.status;
+    }
+}
 
 // Exercise both readers with the same physical splits and compare the complete record sequence,
 // since a row-count assertion alone can hide one lost record and one duplicated record.
