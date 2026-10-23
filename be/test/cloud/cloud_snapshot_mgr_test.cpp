@@ -17,12 +17,15 @@
 
 #include "cloud/cloud_snapshot_mgr.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include <optional>
 #include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cpp/remote_path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "util/s3_util.h"
@@ -170,6 +173,86 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).resource_id(), storage_resource.fs->id());
     EXPECT_FALSE(file_mapping.empty());
     EXPECT_TRUE(status.ok());
+}
+
+// Restored files must land where the destination storage resource reads them
+TEST_F(CloudSnapshotMgrTest, ConvertRowsetsMapsFilesToTargetLayout) {
+    auto convert = [&](const StorageResource& resource, InvertedIndexStorageFormatPB index_format,
+                       std::string* src_rowset_id, std::string* dst_rowset_id) {
+        TabletMetaPB input_meta_pb;
+        input_meta_pb.set_tablet_id(1000);
+        input_meta_pb.set_schema_hash(123456);
+        *input_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
+        TabletSchemaPB* schema = input_meta_pb.mutable_schema();
+        schema->set_keys_type(KeysType::DUP_KEYS);
+        schema->set_inverted_index_storage_format(index_format);
+        ColumnPB* col = schema->add_column();
+        col->set_unique_id(1);
+        col->set_name("col1");
+        col->set_type("VARCHAR");
+        col->set_is_key(true);
+        doris::TabletIndexPB* index = schema->add_index();
+        index->set_index_id(2002);
+        index->set_index_name("test_index");
+        index->set_index_type(IndexType::INVERTED);
+        index->add_col_unique_id(1);
+
+        RowsetMetaPB* rowset_meta = input_meta_pb.add_rs_metas();
+        RowsetId rowset_id;
+        rowset_id.init(10000);
+        *src_rowset_id = rowset_id.to_string();
+        rowset_meta->set_rowset_id(0);
+        rowset_meta->set_rowset_id_v2(*src_rowset_id);
+        rowset_meta->set_tablet_id(1000);
+        rowset_meta->set_num_segments(2);
+        rowset_meta->set_start_version(2);
+        rowset_meta->set_end_version(2);
+        rowset_meta->set_rowset_state(RowsetStatePB::VISIBLE);
+        rowset_meta->mutable_tablet_schema()->CopyFrom(*schema);
+
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->init_from_pb(input_meta_pb);
+        CloudTabletSPtr target_tablet = std::make_shared<CloudTablet>(*_engine, tablet_meta);
+        StorageResource target_resource = resource;
+        std::unordered_map<std::string, std::string> file_mapping;
+        TabletMetaPB output_meta_pb;
+        EXPECT_TRUE(_snapshot_mgr
+                            ->convert_rowsets(&output_meta_pb, input_meta_pb, 3000, target_tablet,
+                                              target_resource, file_mapping)
+                            .ok());
+        *dst_rowset_id = output_meta_pb.rs_metas(0).rowset_id_v2();
+        return file_mapping;
+    };
+
+    cloud::StorageVaultPB_PathFormat path_format;
+    path_format.set_path_version(1);
+    path_format.set_shard_num(1000);
+    StorageResource v1_resource(_fs, path_format);
+    StorageResource v0_resource {_fs};
+    const std::string v1_rowset_dir = fmt::format("data/{}/3000/", remote_tablet_shard(3000, 1000));
+    std::string src;
+    std::string dst;
+
+    // path_version 1, inverted index storage format v1: one index file per index
+    auto mapping = convert(v1_resource, InvertedIndexStorageFormatPB::V1, &src, &dst);
+    ASSERT_EQ(mapping.size(), 4);
+    EXPECT_EQ(mapping[src + "_0.dat"], v1_rowset_dir + dst + "/0.dat");
+    EXPECT_EQ(mapping[src + "_1.dat"], v1_rowset_dir + dst + "/1.dat");
+    EXPECT_EQ(mapping[src + "_0_2002.idx"], v1_rowset_dir + dst + "/0_2002.idx");
+    EXPECT_EQ(mapping[src + "_1_2002.idx"], v1_rowset_dir + dst + "/1_2002.idx");
+    EXPECT_EQ(mapping[src + "_0.dat"], v1_resource.remote_segment_path(3000, dst, 0));
+
+    // path_version 1, inverted index storage format v2: one index file per segment
+    mapping = convert(v1_resource, InvertedIndexStorageFormatPB::V2, &src, &dst);
+    ASSERT_EQ(mapping.size(), 4);
+    EXPECT_EQ(mapping[src + "_0.idx"], v1_rowset_dir + dst + "/0.idx");
+    EXPECT_EQ(mapping[src + "_1.idx"], v1_rowset_dir + dst + "/1.idx");
+
+    // path_version 0 is unchanged: the files are in the tablet directory
+    mapping = convert(v0_resource, InvertedIndexStorageFormatPB::V1, &src, &dst);
+    ASSERT_EQ(mapping.size(), 4);
+    EXPECT_EQ(mapping[src + "_0.dat"], "data/3000/" + dst + "_0.dat");
+    EXPECT_EQ(mapping[src + "_1_2002.idx"], "data/3000/" + dst + "_1_2002.idx");
 }
 
 TEST_F(CloudSnapshotMgrTest, ConvertRowsetsPreservesCommitTso) {
