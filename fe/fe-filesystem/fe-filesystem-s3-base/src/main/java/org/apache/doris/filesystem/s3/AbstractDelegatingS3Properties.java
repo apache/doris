@@ -106,10 +106,15 @@ public abstract class AbstractDelegatingS3Properties
                         "Property " + aliasPrefix + ".endpoint is required.")
                 .check(this::hasInvalidUsePathStyle,
                         "use_path_style must be true or false, got: '" + getUsePathStyle() + "'")
-                .check(() -> S3CompatSignals.hasAwsOnlyCredentialOptions(rawProperties),
+                .check(() -> S3CompatSignals.hasAwsOnlyCredentialOptions(credentialProperties()),
                         displayName + " supports only HMAC access_key/secret_key credentials; "
                                 + "role_arn/instance-profile style options are not supported")
                 .validate("Invalid " + displayName + " filesystem properties");
+    }
+
+    /** Raw credential aliases belonging to this storage, excluding independent metadata clients. */
+    protected Map<String, String> credentialProperties() {
+        return rawProperties;
     }
 
     @Override
@@ -175,7 +180,7 @@ public abstract class AbstractDelegatingS3Properties
         // requested mode (validation restricts it to DEFAULT/ANONYMOUS): a user asking for DEFAULT
         // keeps the credential chain instead of being silently downgraded to unsigned ANONYMOUS.
         if (!hasStaticCredentials()) {
-            String requested = S3CompatSignals.requestedCredentialsProviderType(rawProperties);
+            String requested = S3CompatSignals.requestedCredentialsProviderType(credentialProperties());
             kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", requested != null ? requested : "ANONYMOUS");
         }
         customizeS3CompatibleKv(kv);

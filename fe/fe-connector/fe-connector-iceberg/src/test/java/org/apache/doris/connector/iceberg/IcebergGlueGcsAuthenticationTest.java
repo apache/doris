@@ -23,6 +23,7 @@ import org.apache.doris.filesystem.gcs.GcsFileSystemProperties;
 import com.sun.net.httpserver.HttpServer;
 import org.apache.iceberg.aws.AwsClientFactories;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.aws.S3FileIOAwsClientFactories;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOAwsClientFactory;
@@ -96,6 +97,8 @@ class IcebergGlueGcsAuthenticationTest {
                 "warehouse", "gs://bucket/warehouse", "gs.credential_provider_type", mode,
                 "glue.access_key", "glue-test-ak", "glue.secret_key", "glue-test-sk",
                 "glue.region", "us-west-2", "glue.endpoint", endpoint));
+        // Keep the local transport test independent of the optional Apache HTTP client.
+        raw.put(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
         if ("ANONYMOUS".equals(mode)) {
             raw.put("gs.endpoint", endpoint);
             raw.put("use_path_style", "true");

@@ -218,6 +218,48 @@ class GcsFileSystemPropertiesTest {
     }
 
     @Test
+    void metadataCredentialsDoNotSelectOrInvalidateGcsAuthentication() {
+        Map<String, String> metadata = Map.of(
+                "glue.role_arn", "arn:aws:iam::1:role/metadata",
+                "glue.external_id", "metadata-external-id",
+                "glue.credentials_provider_type", "INSTANCE_PROFILE",
+                "iceberg.rest.credentials_provider_type", "SYSTEM_PROPERTIES");
+        for (String mode : List.of("DEFAULT", "COMPUTE_ENGINE", "ANONYMOUS", "HMAC")) {
+            Map<String, String> raw = new HashMap<>(metadata);
+            raw.put("provider", "GCP");
+            if ("HMAC".equals(mode)) {
+                raw.put("gs.access_key", "gcs-ak");
+                raw.put("gs.secret_key", "gcs-sk");
+            } else {
+                raw.put("gs.credential_provider_type", mode);
+            }
+            GcsFileSystemProperties properties = GcsFileSystemProperties.of(raw);
+            Map<String, String> backend = properties.toMap();
+            Assertions.assertEquals(raw, properties.rawProperties());
+            if ("ANONYMOUS".equals(mode)) {
+                Assertions.assertEquals("ANONYMOUS", backend.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+            } else {
+                Assertions.assertFalse(backend.containsKey("AWS_CREDENTIALS_PROVIDER_TYPE"));
+            }
+            Assertions.assertEquals("", properties.getRoleArn());
+            Assertions.assertEquals("", properties.getExternalId());
+            for (String key : metadata.keySet()) {
+                Assertions.assertFalse(backend.containsKey(key), key);
+            }
+            // Actual AWS storage credentials must still conflict with GCS authentication.
+            for (Map.Entry<String, String> credential : Map.of(
+                    "s3.role_arn", "arn:aws:iam::1:role/storage",
+                    "sts.role_arn", "arn:aws:iam::1:role/storage",
+                    "s3.credentials_provider_type", "INSTANCE_PROFILE").entrySet()) {
+                Map<String, String> conflicting = new HashMap<>(raw);
+                conflicting.put(credential.getKey(), credential.getValue());
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> GcsFileSystemProperties.of(conflicting), mode + ": " + credential.getKey());
+            }
+        }
+    }
+
+    @Test
     void toString_masksSecretsButNotAccessKey() {
         String rendered = GcsFileSystemProperties.of(Map.of(
                 "gs.access_key", "gcs-ak-plain",

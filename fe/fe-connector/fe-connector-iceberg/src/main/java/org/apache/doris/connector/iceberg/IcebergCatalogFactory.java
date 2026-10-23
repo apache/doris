@@ -456,13 +456,8 @@ public final class IcebergCatalogFactory {
         chosenS3.ifPresent(storage -> storage.toBackendProperties().ifPresent(backend -> {
             Optional<GcsAuth> auth = GcsAuthResolver.resolve(backend.toMap());
             if (auth.filter(GcsAuth::isAnonymous).isPresent()) {
-                if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)) {
-                    // Glue metadata still needs AWS credentials when the GCS objects are public.
-                    opts.put(S3FileIOProperties.CLIENT_FACTORY, AnonymousS3FileIOAwsClientFactory.class.getName());
-                } else {
-                    opts.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
-                            "software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider");
-                }
+                // Glue and REST metadata can require AWS authentication even when GCS objects are public.
+                opts.put(S3FileIOProperties.CLIENT_FACTORY, AnonymousS3FileIOAwsClientFactory.class.getName());
             }
             auth.flatMap(GcsAuth::getNativeCredential).ifPresent(credential -> {
                 // HadoopCatalog resolves its namespace filesystem independently of S3FileIO.

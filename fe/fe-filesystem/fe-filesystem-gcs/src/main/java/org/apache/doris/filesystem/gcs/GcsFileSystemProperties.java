@@ -133,6 +133,17 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
     }
 
     @Override
+    protected Map<String, String> credentialProperties() {
+        // Unlike S3's legacy aliases, GCS never uses Glue/REST credentials for object access.
+        Map<String, String> storage = new HashMap<>(rawProperties());
+        storage.remove("glue.role_arn");
+        storage.remove("glue.external_id");
+        storage.remove("glue.credentials_provider_type");
+        storage.remove("iceberg.rest.credentials_provider_type");
+        return storage;
+    }
+
+    @Override
     public void validate() {
         validateHmacDialect("gs", "GCS");
         if (auth.getNativeCredential().isPresent()) {

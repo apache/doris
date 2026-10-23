@@ -1234,8 +1234,8 @@ public class IcebergCatalogFactoryTest {
         Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
                 IcebergCatalogProperties.of(raw),
                 Optional.of(GcsFileSystemProperties.of(raw)), false);
-        Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(),
-                options.get(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER));
-        Assertions.assertFalse(options.containsKey("s3.client-factory"));
+        Assertions.assertEquals(AnonymousS3FileIOAwsClientFactory.class.getName(),
+                options.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(options.containsKey(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER));
     }
 }
