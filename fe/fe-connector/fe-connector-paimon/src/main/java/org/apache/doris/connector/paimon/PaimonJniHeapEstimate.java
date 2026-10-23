@@ -27,6 +27,12 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.IncrementalSplit;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VariantType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -44,10 +50,12 @@ import java.util.function.LongFunction;
  * on to the next, when the old and the new are there together for a moment. ORC keeps a stripe the
  * same way. Sixteen such splits read at once are what runs a 2 GB heap out. So a split that has to be
  * merged holds, steadily, the sum over its files of one row group - two for a file that has more than one
- * - plus a dictionary page for every column of every file. That takes all the files as one section,
- * which is exact for the uncompacted tables that need the gate and over the mark for files that do not
- * overlap, which are read one section after another. A split that needs no merging reads its files one
- * after another and holds one file's share.
+ * - plus a dictionary page for every column of every file, a file storing a column for every primitive
+ * value a field nests. That takes all the files as one section, which is exact for the uncompacted tables
+ * that need the gate and over the mark for files that do not overlap, which are read one section after
+ * another. A split that needs no merging reads its files one after another and holds one file's share -
+ * unless a file of a primary-key table in it was written before paimon counted deleted rows: paimon plans
+ * such files as needing no merging, but merges them when it reads them, as they may hold deletes.
  *
  * <p>A diff read between two snapshots ({@code @incr} with {@code incrementalBetweenScanMode} diff) plans an
  * {@link IncrementalSplit} instead, of the files only the earlier snapshot has and those only the later one
@@ -86,7 +94,8 @@ final class PaimonJniHeapEstimate {
     // allowed as much for each of its columns.
     static final long DEFAULT_DICTIONARY_PAGE_BYTES = 1024L * 1024;
 
-    // A primary-key table's diff read merges its files; an append table's reads them one after another.
+    // A primary-key table's diff read merges its files, as does its read of files that do not count their
+    // deleted rows; an append table's reads them one after another.
     private final boolean primaryKeyTable;
     // How the files written under a schema version are laid out, by its id, each worked out once.
     private final LongFunction<FileLayout> layoutOfSchema;
@@ -109,7 +118,7 @@ final class PaimonJniHeapEstimate {
 
     /** For a table whose schema versions are not at hand: every file laid out by the options it shows. */
     static PaimonJniHeapEstimate of(Table table) {
-        FileLayout layout = FileLayout.of(table.options(), table.rowType().getFieldCount(),
+        FileLayout layout = FileLayout.of(table.options(), FileLayout.columns(table.rowType()),
                 table.primaryKeys().size());
         return new PaimonJniHeapEstimate(!table.primaryKeys().isEmpty(), schemaId -> layout);
     }
@@ -117,7 +126,7 @@ final class PaimonJniHeapEstimate {
     long bytesOf(Split split) {
         if (split instanceof DataSplit) {
             DataSplit dataSplit = (DataSplit) split;
-            return dataSplit.rawConvertible() ? largest(dataSplit.dataFiles()) : total(dataSplit.dataFiles());
+            return readsFileByFile(dataSplit) ? largest(dataSplit.dataFiles()) : total(dataSplit.dataFiles());
         }
         // A fallback-branch table wraps the splits that are not DataSplits; its FallbackDataSplit is one.
         Split read = split instanceof FallbackReadFileStoreTable.FallbackSplit
@@ -128,6 +137,14 @@ final class PaimonJniHeapEstimate {
         }
         IncrementalSplit diff = (IncrementalSplit) read;
         return primaryKeyTable ? total(diff.beforeFiles()) + total(diff.afterFiles()) : largest(diff.afterFiles());
+    }
+
+    // Whether paimon reads the split's files one after another, as PrimaryKeyTableRawFileSplitReadProvider
+    // decides: it was planned as needing no merging and, of a primary-key table, every file counts its deleted
+    // rows. A file written before paimon counted them may hold deletes, so a split with such files is merged.
+    private boolean readsFileByFile(DataSplit split) {
+        return split.rawConvertible() && (!primaryKeyTable
+                || split.dataFiles().stream().allMatch(file -> file.deleteRowCount().isPresent()));
     }
 
     private long total(List<DataFileMeta> files) {
@@ -157,10 +174,10 @@ final class PaimonJniHeapEstimate {
         }
 
         static FileLayout of(TableSchema schema) {
-            return of(schema.options(), schema.fields().size(), schema.primaryKeys().size());
+            return of(schema.options(), columns(schema.logicalRowType()), schema.primaryKeys().size());
         }
 
-        static FileLayout of(Map<String, String> options, int fields, int primaryKeys) {
+        static FileLayout of(Map<String, String> options, int fieldColumns, int primaryKeys) {
             // The precedence paimon's writers apply: file.block-size for every format, else the format's
             // own option, else its default.
             String blockSize = options.get(CoreOptions.FILE_BLOCK_SIZE.key());
@@ -173,7 +190,29 @@ final class PaimonJniHeapEstimate {
             long dictionaryPage = bytes(options.get("parquet.dictionary.page.size"), DEFAULT_DICTIONARY_PAGE_BYTES);
             // A primary-key table's data file stores the keys a second time, as _KEY_ columns, beside the
             // sequence number and the row kind.
-            return new FileLayout(parquet, orc, dictionaryPage, fields + (primaryKeys > 0 ? primaryKeys + 2 : 0));
+            return new FileLayout(parquet, orc, dictionaryPage,
+                    fieldColumns + (primaryKeys > 0 ? primaryKeys + 2 : 0));
+        }
+
+        // The columns a file stores for a field of this type, each with a dictionary of its own: one for every
+        // primitive value it nests - every field of a row, an array's element, a map's key and value, a
+        // multiset's element beside its count, a variant's value beside its metadata. A primary key is never
+        // nested, so each _KEY_ column is one.
+        static int columns(DataType type) {
+            if (type instanceof RowType) {
+                return ((RowType) type).getFields().stream().mapToInt(field -> columns(field.type())).sum();
+            }
+            if (type instanceof ArrayType) {
+                return columns(((ArrayType) type).getElementType());
+            }
+            if (type instanceof MapType) {
+                MapType map = (MapType) type;
+                return columns(map.getKeyType()) + columns(map.getValueType());
+            }
+            if (type instanceof MultisetType) {
+                return columns(((MultisetType) type).getElementType()) + 1;
+            }
+            return type instanceof VariantType ? 2 : 1;
         }
 
         // A row group - two for a file that has more than one - and a dictionary page for every column.
