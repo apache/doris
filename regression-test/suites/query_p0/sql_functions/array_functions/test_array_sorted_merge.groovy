@@ -143,6 +143,16 @@ suite("test_array_sorted_merge") {
         FROM array_sorted_merge_capture_2
     """
 
+    // The merge lambda may also reference an enclosing lambda's argument. array_map binds x by
+    // name, while this function executes the merge lambda against a block of its own, so the
+    // outer binding is published under its name there. x=0 keeps both values, x=2 merges them.
+    order_qt_capture_enclosing_lambda """
+        SELECT array_map(x -> array_sorted_merge((a, b) -> IF(a = b AND a < x, a, NULL),
+                                                 CAST([1] AS ARRAY<INT>),
+                                                 CAST([1] AS ARRAY<INT>), true),
+                         [0, 2])
+    """
+
     // A non-nullable lambda body (COALESCE) must be wrapped into the nullable element
     // representation instead of being inserted directly.
     order_qt_nonnullable_body """

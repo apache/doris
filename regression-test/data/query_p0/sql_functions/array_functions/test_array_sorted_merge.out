@@ -27,6 +27,9 @@
 -- !capture_column_two --
 [1]
 
+-- !capture_enclosing_lambda --
+[[1, 1], [1]]
+
 -- !nonnullable_body --
 [1, 2]
 
