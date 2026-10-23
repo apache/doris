@@ -21,17 +21,26 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.load.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -164,6 +173,173 @@ public class KafkaPropertyValidationTest {
         DdlException error = Assertions.assertThrows(DdlException.class,
                 () -> Deencapsulation.invoke(job, "convertCustomProperties", false));
         Assertions.assertTrue(error.getMessage().contains("is not allowed in Routine Load"));
+    }
+
+    // Build an already analyzed, persisted ALTER from an older FE without applying
+    // today's CREATE/ALTER admission rules to the historical input.
+    private AlterRoutineLoadJobOperationLog historicalAlter(Map<String, String> custom,
+            String topic, String brokers, List<Pair<Integer, Long>> offsets) {
+        Map<String, String> source = new HashMap<>();
+        custom.forEach((key, value) -> source.put("property." + key, value));
+        source.put("kafka_topic", topic);
+        source.put("kafka_broker_list", brokers);
+        KafkaDataSourceProperties properties = new KafkaDataSourceProperties(source);
+        properties.setAlter(true);
+        Deencapsulation.setField(properties, "dataSourceType", "KAFKA");
+        Deencapsulation.setField(properties, "customKafkaProperties", custom);
+        Deencapsulation.setField(properties, "topic", topic);
+        Deencapsulation.setField(properties, "brokerList", brokers);
+        properties.setKafkaPartitionOffsets(offsets);
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(1L,
+                Map.of("max_batch_rows", "2000000"), properties);
+        return GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(log), AlterRoutineLoadJobOperationLog.class);
+    }
+
+    @Test
+    public void testReplayHistoricalAlterRestoresCompleteState() throws Exception {
+        for (boolean cloud : new boolean[] {false, true}) {
+            try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                    MockedStatic<Env> env = Mockito.mockStatic(Env.class);
+                    MockedStatic<MetaServiceProxy> metaService = Mockito.mockStatic(MetaServiceProxy.class);
+                    MockedStatic<KafkaUtil> kafka = Mockito.mockStatic(KafkaUtil.class)) {
+                config.when(Config::isCloudMode).thenReturn(cloud);
+                KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                        "127.0.0.1:9092", "topic_a", UserIdentity.ADMIN);
+                Deencapsulation.setField(job, "progress", new KafkaProgress(Map.of(0, 5L, 1, 6L)));
+                job.prepare();
+
+                AlterRoutineLoadJobOperationLog log = historicalAlter(
+                        Map.of("sasl.kerberos.min.time.before.relogin", "60000"),
+                        "topic_b", "127.0.0.2:9092", List.of(Pair.of(0, 100L)));
+                job.replayModifyProperties(log);
+
+                Assertions.assertEquals("topic_b", job.getTopic());
+                Assertions.assertEquals("127.0.0.2:9092", job.getBrokerList());
+                Assertions.assertEquals(Map.of(0, 100L),
+                        ((KafkaProgress) job.getProgress()).getOffsetByPartition());
+                Assertions.assertEquals(2000000L, job.getMaxBatchRows());
+                Assertions.assertEquals("60000", job.getCustomProperties()
+                        .get("property.sasl.kerberos.min.time.before.relogin"));
+                Assertions.assertTrue(job.getConvertedCustomProperties().isEmpty());
+
+                DdlException error = Assertions.assertThrows(DdlException.class, job::prepare);
+                Assertions.assertTrue(error.getMessage().contains("Kerberos tickets must be managed externally"));
+                Assertions.assertThrows(DdlException.class,
+                        () -> Deencapsulation.invoke(job, "getAllKafkaPartitions"));
+                Assertions.assertThrows(DdlException.class,
+                        () -> Deencapsulation.invoke(job, "convertOffset", log.getDataSourceProperties()));
+
+                // A later committed repair must retain topic B and its offsets.
+                job.replayModifyProperties(historicalAlter(
+                        Map.of("sasl.kerberos.min.time.before.relogin", "0"), "", "", List.of()));
+                job.prepare();
+                Assertions.assertEquals("topic_b", job.getTopic());
+                Assertions.assertEquals("127.0.0.2:9092", job.getBrokerList());
+                Assertions.assertEquals(Map.of(0, 100L),
+                        ((KafkaProgress) job.getProgress()).getOffsetByPartition());
+                Assertions.assertEquals("0", job.getConvertedCustomProperties()
+                        .get("sasl.kerberos.min.time.before.relogin"));
+                env.verifyNoInteractions();
+                metaService.verifyNoInteractions();
+                kafka.verifyNoInteractions();
+            }
+        }
+    }
+
+    @Test
+    public void testReplayDefersManagedFileResolution() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        SmallFileMgr smallFileMgr = Mockito.mock(SmallFileMgr.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSmallFileMgr()).thenReturn(smallFileMgr);
+            Mockito.when(smallFileMgr.getSmallFile(1L, "kafka", "missing.pem", true))
+                    .thenThrow(new DdlException("missing managed file"));
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                    "127.0.0.1:9092", "topic_a", UserIdentity.ADMIN);
+
+            // Partition 3 need not exist in the pre-replay progress. These offsets
+            // were checked when the ALTER was committed, not during recovery.
+            job.replayModifyProperties(historicalAlter(Map.of("ssl.ca.location", "FILE:missing.pem"),
+                    "topic_b", "127.0.0.2:9092", List.of(Pair.of(3, 100L))));
+            Assertions.assertEquals("topic_b", job.getTopic());
+            Assertions.assertEquals(Map.of(3, 100L),
+                    ((KafkaProgress) job.getProgress()).getOffsetByPartition());
+            Assertions.assertEquals(2000000L, job.getMaxBatchRows());
+            envStatic.verifyNoInteractions();
+            Mockito.verifyNoInteractions(smallFileMgr);
+
+            DdlException error = Assertions.assertThrows(DdlException.class, job::prepare);
+            Assertions.assertTrue(error.getMessage().contains("missing managed file"));
+            Assertions.assertTrue(job.getConvertedCustomProperties().isEmpty());
+        }
+    }
+
+    @Test
+    public void testSchedulerPausesReplayedJobWithRejectedProperties() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        RoutineLoadManager manager = Mockito.mock(RoutineLoadManager.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KafkaUtil> kafka = Mockito.mockStatic(KafkaUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                    "127.0.0.1:9092", "topic_a", UserIdentity.ADMIN);
+            job.replayModifyProperties(historicalAlter(Map.of("plugin.library.paths", "unused.so"),
+                    "topic_b", "127.0.0.2:9092", List.of()));
+            Mockito.when(manager.getRoutineLoadJobByState(Mockito.anySet())).thenReturn(List.of(job));
+
+            Deencapsulation.invoke(new RoutineLoadScheduler(manager), "process");
+
+            Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, job.getState());
+            Assertions.assertTrue(job.getPauseReason().getMsg().contains("plugin.library.paths"));
+            Assertions.assertEquals("topic_b", job.getTopic());
+            kafka.verifyNoInteractions();
+            Mockito.verify(editLog).logOpRoutineLoadJob(Mockito.any(RoutineLoadOperation.class));
+        }
+    }
+
+    @Test
+    public void testLiveAlterPublishesOnlyPreparedProperties() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        SmallFileMgr smallFileMgr = Mockito.mock(SmallFileMgr.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSmallFileMgr()).thenReturn(smallFileMgr);
+            Mockito.when(smallFileMgr.getSmallFile(1L, "kafka", "missing.pem", true))
+                    .thenThrow(new DdlException("missing managed file"));
+            KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 2L,
+                    "127.0.0.1:9092", "topic_a", UserIdentity.ADMIN);
+            Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+            job.prepare();
+            Map<String, String> converted = new HashMap<>(job.getConvertedCustomProperties());
+            AlterRoutineLoadJobOperationLog log = historicalAlter(Map.of("ssl.ca.location", "FILE:missing.pem"),
+                    "topic_b", "127.0.0.2:9092", List.of());
+            AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+            Mockito.when(command.getAnalyzedJobProperties()).thenReturn(log.getJobProperties());
+            Mockito.when(command.getDataSourceProperties()).thenReturn(log.getDataSourceProperties());
+
+            Assertions.assertThrows(DdlException.class, () -> job.modifyProperties(command));
+            Assertions.assertEquals("topic_a", job.getTopic());
+            Assertions.assertEquals("127.0.0.1:9092", job.getBrokerList());
+            Assertions.assertTrue(job.getCustomProperties().isEmpty());
+            Assertions.assertEquals(converted, job.getConvertedCustomProperties());
+            Mockito.verify(env, Mockito.never()).getEditLog();
+
+            KafkaDataSourceProperties safe = properties("sasl.kerberos.min.time.before.relogin", "0", true);
+            safe.analyze();
+            Mockito.when(command.getDataSourceProperties()).thenReturn(safe);
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            job.modifyProperties(command);
+            Assertions.assertEquals(Map.of("property.sasl.kerberos.min.time.before.relogin", "0"),
+                    job.getCustomProperties());
+            Assertions.assertEquals("0", job.getConvertedCustomProperties()
+                    .get("sasl.kerberos.min.time.before.relogin"));
+            Assertions.assertEquals(2000000L, job.getMaxBatchRows());
+            Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.any(AlterRoutineLoadJobOperationLog.class));
+        }
     }
 
     @Test
