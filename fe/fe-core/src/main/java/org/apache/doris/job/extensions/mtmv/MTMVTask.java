@@ -1505,14 +1505,6 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * Whether each MV partition of this batch is one the mapping describes, i.e. one that some base partition's
-     * keys name. A partition nothing describes is one the alignment has not caught up with: a base `ADD
-     * PARTITION` widens the keys an MV partition covers, which replaces it with an empty partition of the new
-     * keys, and if that lands between the alignment and this mapping the partition is read as no table feeding
-     * it and the batch writes no rows over the rows it holds. The batch is not read at all then: the task tries
-     * again, and trying again realigns.
-     */
-    /**
      * Whether any of the tables the MV is partitioned on is an olap one, which is where the check below can
      * read anything. It reads a partition no base partition describes as the alignment having fallen behind an
      * olap table's change, and that is a state only an olap table has: an external table describes its
@@ -1529,6 +1521,14 @@ public class MTMVTask extends AbstractTask {
         return false;
     }
 
+    /**
+     * Whether each MV partition of this batch is one the mapping describes, i.e. one that some base partition's
+     * keys name. A partition nothing describes is one the alignment has not caught up with: a base `ADD
+     * PARTITION` widens the keys an MV partition covers, which replaces it with an empty partition of the new
+     * keys, and if that lands between the alignment and this mapping the partition is read as no table feeding
+     * it and the batch writes no rows over the rows it holds. The batch is not read at all then: the task tries
+     * again, and trying again realigns.
+     */
     private void requireDescribedPartitions(MTMVRefreshContext context, Set<String> execPartitionNames)
             throws AnalysisException {
         for (String mvPartitionName : execPartitionNames) {
