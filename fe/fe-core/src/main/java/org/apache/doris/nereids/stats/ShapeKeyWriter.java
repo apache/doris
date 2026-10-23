@@ -62,6 +62,16 @@ final class ShapeKeyWriter {
         }
     }
 
+    /** A raw value which already is a key: its length is written, not its content re-encoded. */
+    void bytes(byte[] value) {
+        writeInt(value.length);
+        try {
+            data.write(value);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     byte[] toByteArray() {
         return bytes.toByteArray();
     }

@@ -494,18 +494,39 @@ public class GroupStructInfo {
                 StringBuilder header = new StringBuilder();
                 appendWindowHeader(header, node);
                 out.text(header.toString());
+                // the header is the display form; the expressions it names are written structurally as
+                // well, so a value inside them (an array literal, for instance) keeps its own boundaries
+                out.count(node.windowExpressions.size());
+                for (NamedExpression namedExpression : node.windowExpressions) {
+                    appendExpressionKey(out, namedExpression, LiteralMode.WITH_LITERAL);
+                }
                 break;
             }
             case GENERATE: {
                 StringBuilder header = new StringBuilder();
                 appendGenerateHeader(header, node);
                 out.text(header.toString());
+                out.count(node.generators.size());
+                for (Expression generator : node.generators) {
+                    appendExpressionKey(out, generator, LiteralMode.WITH_LITERAL);
+                }
+                out.count(node.generatorConjuncts.size());
+                for (Expression conjunct : node.generatorConjuncts) {
+                    appendExpressionKey(out, conjunct, LiteralMode.WITH_LITERAL);
+                }
                 break;
             }
             case REPEAT: {
                 StringBuilder header = new StringBuilder();
                 appendRepeatHeader(header, node, mode);
                 out.text(header.toString());
+                out.count(node.groupingSets.size());
+                for (List<Expression> set : node.groupingSets) {
+                    out.count(set.size());
+                    for (Expression key : set) {
+                        appendExpressionKey(out, key, LiteralMode.WITH_LITERAL);
+                    }
+                }
                 break;
             }
             case SET_OPERATION:
@@ -522,7 +543,7 @@ public class GroupStructInfo {
             // identity names the sub tree only, not how often the plan references it
             out.count(child.mapping.size());
             for (Expression mapped : child.mapping) {
-                out.text(renderExpression(mapped, mode));
+                appendExpressionKey(out, mapped, mode);
             }
             appendShapeKey(out, child.node, mode);
         }
@@ -540,6 +561,62 @@ public class GroupStructInfo {
         out.text(descriptor.getPartitionIdentity());
         out.text(descriptor.getTabletIdentity());
         out.text(descriptor.getIndexIdentity());
+    }
+
+    /**
+     * The key of one expression: its kind, the fields which define its value (a literal's type and
+     * value, a slot's qualifier) and its children, every one of them length prefixed. The display form
+     * of an expression is not used here: a value which carries the characters of that form cannot stand
+     * for a field of the identity.
+     */
+    private static void appendExpressionKey(ShapeKeyWriter out, Expression expression, LiteralMode mode) {
+        String name = expression.getClass().getSimpleName();
+        out.text(name.isEmpty() ? expression.getClass().getName() : name);
+        List<Expression> children = expression.children();
+        out.count(children.size());
+        for (Expression child : children) {
+            appendExpressionKey(out, child, mode);
+        }
+        if (expression instanceof SlotReference) {
+            SlotReference slot = (SlotReference) expression;
+            out.text(String.join(".", slot.getQualifier()));
+            out.text(slot.getName());
+        } else if (expression instanceof Literal) {
+            Literal literal = (Literal) expression;
+            out.text(String.valueOf(literal.getDataType()));
+            if (literal instanceof ArrayLiteral) {
+                // the elements are literals of their own: each one is written with its boundary instead
+                // of being concatenated into the text of the whole array
+                List<Literal> elements = ((ArrayLiteral) literal).getValue();
+                out.count(elements.size());
+                for (Literal element : elements) {
+                    appendExpressionKey(out, element, mode);
+                }
+            } else {
+                out.text(mode == LiteralMode.NO_LITERAL ? "*" : literalText(literal));
+            }
+        }
+    }
+
+    /** The key of a condition collection: sorted by its bytes, de-duplicated when the renderer does. */
+    private static void appendConditionsKey(ShapeKeyWriter out, List<Expression> conditions, LiteralMode mode,
+            boolean dedupe) {
+        List<byte[]> keys = new ArrayList<>(conditions.size());
+        for (Expression condition : conditions) {
+            ShapeKeyWriter key = new ShapeKeyWriter();
+            appendExpressionKey(key, condition, mode);
+            keys.add(key.toByteArray());
+        }
+        keys.sort(Arrays::compareUnsigned);
+        out.count(keys.size());
+        byte[] previous = null;
+        for (byte[] key : keys) {
+            if (dedupe && previous != null && Arrays.equals(previous, key)) {
+                continue;
+            }
+            out.bytes(key);
+            previous = key;
+        }
     }
 
     /** The header fields of a set operation, which decide which rows its branches combine. */
