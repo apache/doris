@@ -191,6 +191,15 @@ suite("test_array_sorted_merge") {
         exception "non-null constant ascending flag"
     }
 
+    // A flag the FE cannot fold is validated per row by BE. A NULL input array must not short
+    // circuit that check: the flag is an argument contract, not data.
+    test {
+        sql """SELECT array_sorted_merge((a, b) -> IF(a = b, a, NULL),
+                   CAST(NULL AS ARRAY<INT>), CAST([1] AS ARRAY<INT>),
+                   CAST(bitmap_min(bitmap_from_string('')) AS BOOLEAN))"""
+        exception "non-null ascending flag"
+    }
+
     test {
         sql """SELECT array_sorted_merge(a -> a, [1], [2], true)"""
         exception "requires two arrays and an ascending flag"
