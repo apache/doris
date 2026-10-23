@@ -141,11 +141,22 @@ void IDictionary::load_values(const std::vector<ColumnPtr>& values_column) {
                     return true;
                 });
         if (!valid) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "Dictionary({}) attribute {} type is : {} , column is : {}  Not supported",
-                    dict_name(), _attributes[i].name, _attributes[i].type->get_name(),
-                    values_column[i]->get_name());
+            if (is_complex_type(value_type_without_nullable->get_primitive_type())) {
+                ColumnWithTypeGeneric col;
+                col.column = value_column_without_nullable;
+                if (values_column[i]->is_nullable()) {
+                    col.null_map = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                                           values_column[i].get())
+                                           ->get_null_map_column_ptr();
+                }
+                _values_data[i] = col;
+            } else {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Dictionary({}) attribute {} type is : {} , column is : {}  Not supported",
+                        dict_name(), _attributes[i].name, _attributes[i].type->get_name(),
+                        values_column[i]->get_name());
+            }
         }
     }
 }
