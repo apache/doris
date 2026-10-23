@@ -47,6 +47,7 @@
 #include "storage/row_cursor.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
@@ -56,6 +57,12 @@
 
 namespace doris::segment_v2 {
 namespace {
+
+// Segment::new_iterator() hands out an EmptySegmentIterator for a segment the zone maps
+// filter out completely, a SegmentIterator otherwise.
+bool is_empty_segment_iterator(const RowwiseIterator& iter) {
+    return dynamic_cast<const EmptySegmentIterator*>(&iter) != nullptr;
+}
 
 constexpr auto kTestDir = "./ut_dir/segment_iterator_expr_zonemap_test";
 constexpr int kNumRows = 8192;
@@ -409,7 +416,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonema
     auto st = segment->new_iterator(read_schema, read_options, &iter);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_NE(nullptr, iter);
-    EXPECT_TRUE(iter->empty());
+    EXPECT_TRUE(is_empty_segment_iterator(*iter));
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(1, _stats.filtered_segment_number);
     EXPECT_EQ(1, _stats.expr_zonemap_filtered_segments);
@@ -430,7 +437,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMay
     auto st = segment->new_iterator(read_schema, read_options, &iter);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_NE(nullptr, iter);
-    EXPECT_FALSE(iter->empty());
+    EXPECT_FALSE(is_empty_segment_iterator(*iter));
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(0, _stats.filtered_segment_number);
     EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
@@ -987,7 +994,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     auto st = segment->new_iterator(read_schema, read_options, &iter);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_NE(nullptr, iter);
-    EXPECT_TRUE(iter->empty());
+    EXPECT_TRUE(is_empty_segment_iterator(*iter));
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(1, _stats.filtered_segment_number);
 }

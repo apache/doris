@@ -19,37 +19,26 @@
 
 #include <glog/logging.h>
 
-#include "common/config.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 
 namespace doris {
 using namespace ErrorCode;
 
-bool OutputBlockLimits::reached_byte_budget(const MutableColumns& columns) const {
-    return config::enable_adaptive_batch_size && preferred_bytes > 0 &&
-           Block::columns_byte_size(columns) >= preferred_bytes;
-}
-
 Status MergedRowCursor::init() {
-    auto st = _collect_iter->current_row(&_row);
-    if (st.is<END_OF_FILE>()) {
-        _eof = true;
-        _row.reset();
-        return Status::OK();
-    }
-    return st;
+    DCHECK(!_eof);
+    return advance();
 }
 
 Status MergedRowCursor::advance() {
     DCHECK(!_eof);
-    auto st = _collect_iter->next(&_row);
+    auto st = _rows->next_row(&_row);
     if (UNLIKELY(st.is<END_OF_FILE>())) {
         _eof = true;
         _row.reset();
         return Status::OK();
     }
     if (UNLIKELY(!st.ok())) {
-        LOG(WARNING) << "next failed: " << st;
+        LOG(WARNING) << "next_row failed: " << st;
         return st;
     }
     return Status::OK();

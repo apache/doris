@@ -23,26 +23,25 @@
 namespace doris {
 
 class Block;
-class VCollectIterator;
+class RowwiseIterator;
 
-// Reads that need no row-level merge in BlockReader:
+// Reads that need no row-level fold in BlockReader:
 //   * DUP_KEYS tables,
 //   * queries on merge-on-write UNIQUE_KEYS tables (the delete bitmap already resolved the
 //     duplicate keys),
 //   * every direct-mode read, i.e. the scanner asked the storage layer not to merge, for
 //     example a single-version tablet or a query whose aggregation is pushed down.
-// VCollectIterator already produces whole Blocks for them, including the scanner-local TopN
-// rows, so this iterator only passes those Blocks through.
+// The rows of the read already come as whole Blocks, so this iterator only passes them through.
 class DirectBlockIterator final : public TabletBlockIterator {
 public:
-    explicit DirectBlockIterator(VCollectIterator* collect_iter) : _collect_iter(collect_iter) {}
+    explicit DirectBlockIterator(RowwiseIterator* rows) : _rows(rows) {}
 
     Status init() override { return Status::OK(); }
 
     Status next_block(Block* block, bool* eof) override;
 
 private:
-    VCollectIterator* _collect_iter;
+    RowwiseIterator* _rows;
 };
 
 } // namespace doris

@@ -26,13 +26,13 @@
 namespace doris {
 
 class Block;
-class VCollectIterator;
+class RowwiseIterator;
 struct OlapReaderStatistics;
 
 // Merge-on-read UNIQUE_KEYS tables without a sequence map: queries, compactions and the
 // checksum task.
 //
-// VCollectIterator yields the rows in key order, the newest version of a key first, and it
+// The rows of the read arrive in key order, the newest version of a key first, and it
 // drops the older versions of the same key itself (skip_same). So every row the cursor
 // yields is the final row of its key and is copied as is; the cursor only has to stop at
 // the Block limits.
@@ -45,7 +45,7 @@ class UniqueKeyBlockIterator final : public TabletBlockIterator {
 public:
     // `delete_sign_ordinal` is the read-schema ordinal of __DORIS_DELETE_SIGN__ when deleted
     // rows must be filtered, -1 to keep them.
-    UniqueKeyBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits,
+    UniqueKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                            int32_t delete_sign_ordinal, OlapReaderStatistics* stats);
 
     Status init() override { return _cursor.init(); }

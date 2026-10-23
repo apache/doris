@@ -82,8 +82,6 @@ struct RowsetReaderContext {
     size_t preferred_block_size_bytes = 8388608UL;
 
     bool is_unique = false;
-    //record row num merged in generic iterator
-    uint64_t* merged_rows = nullptr;
     // for unique key merge on write
     bool enable_unique_key_merge_on_write = false;
     DeleteBitmapPtr delete_bitmap = nullptr;
@@ -92,7 +90,6 @@ struct RowsetReaderContext {
     // column unique ids referenced by output/orderby exprs (NOT ordinals)
     const std::set<int32_t>* output_columns = nullptr;
     std::set<ColumnId> extra_columns;
-    RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     // Absolute timestamp (seconds since epoch) after which cache blocks filled by this

@@ -21,15 +21,14 @@
 
 #include "common/exception.h"
 #include "core/block/block.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 
 namespace doris {
 
-SequenceMapBlockIterator::SequenceMapBlockIterator(VCollectIterator* collect_iter,
-                                                   OutputBlockLimits limits,
+SequenceMapBlockIterator::SequenceMapBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                                                    ReadSchemaSPtr read_schema,
                                                    uint64_t* merged_rows)
-        : _cursor(collect_iter),
+        : _cursor(rows),
           _limits(limits),
           _read_schema(std::move(read_schema)),
           _merged_rows(merged_rows) {}
@@ -39,6 +38,7 @@ Status SequenceMapBlockIterator::next_block(Block* block, bool* eof) {
         *eof = true;
         return Status::OK();
     }
+    *eof = false;
 
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
@@ -59,7 +59,6 @@ Status SequenceMapBlockIterator::next_block(Block* block, bool* eof) {
         while (true) {
             RETURN_IF_ERROR(_cursor.advance());
             if (_cursor.eof()) {
-                *eof = true;
                 break;
             }
             if (!_cursor.row().is_same) {

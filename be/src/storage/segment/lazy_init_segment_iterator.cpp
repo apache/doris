@@ -41,9 +41,11 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
     std::shared_ptr<Segment> segment;
     {
         SegmentCacheHandle segment_cache_handle;
+        // The segment is read with this iterator's own options, the ones its rowset reader
+        // built for it; `opts` only drives the caller's merge or union above.
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                _rowset, _segment, &segment_cache_handle, _should_use_cache, false, opts.stats,
-                &opts.io_ctx));
+                _rowset, _segment, &segment_cache_handle, _should_use_cache, false,
+                _read_options.stats, &_read_options.io_ctx));
         const auto& tmp_segments = segment_cache_handle.get_segments();
         segment = tmp_segments[0];
     }

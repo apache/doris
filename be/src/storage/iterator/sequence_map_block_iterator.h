@@ -27,12 +27,12 @@
 namespace doris {
 
 class Block;
-class VCollectIterator;
+class RowwiseIterator;
 
 // Merge-on-read UNIQUE_KEYS tables with a sequence map, i.e. several sequence columns that
 // each govern a group of value columns: queries, compactions and the checksum task.
 //
-// VCollectIterator yields the rows in key order, the newest rowset version of a key first,
+// The rows of the read arrive in key order, the newest rowset version of a key first,
 // and flags every older version of the same key with is_same (it must not drop them, since
 // an older rowset may still hold the winning value of some sequence group). The newest row
 // is the output row of its key; for each older row and each sequence group, the group's
@@ -42,7 +42,7 @@ class VCollectIterator;
 //   older row:  s1=3 v1=b s2=7 v2=y   ->  output: s1=5 v1=a s2=7 v2=y
 class SequenceMapBlockIterator final : public TabletBlockIterator {
 public:
-    SequenceMapBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits,
+    SequenceMapBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                              ReadSchemaSPtr read_schema, uint64_t* merged_rows);
 
     Status init() override { return _cursor.init(); }

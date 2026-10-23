@@ -58,7 +58,6 @@ class DeleteBitmap;
 class HybridSetBase;
 class RuntimeProfile;
 
-class VCollectIterator;
 class Block;
 class VExpr;
 class VExprContext;
@@ -190,7 +189,7 @@ public:
         // Force globally key-ordered reading for changelog scans (e.g. so MIN_DELTA can
         // group consecutive same-key changes across segments). Overlapping segments use the
         // merge iterator; segments proven non-overlapping use an ordered union.
-        // See BetaRowsetReader::is_merge_iterator() in beta_rowset_reader.h:62.
+        // See BetaRowsetReader::new_iterator() in beta_rowset_reader.cpp.
         bool force_key_ordered_read = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
@@ -240,8 +239,8 @@ public:
     virtual Status init(const ReaderParams& read_params);
 
     // Read next block with aggregation.
-    // Return OK and set `*eof` to false when next block is read
-    // Return OK and set `*eof` to true when no more rows can be read.
+    // Return OK and set `*eof` to false when at least one row was read into `block`.
+    // Return OK and set `*eof` to true when no more rows can be read; `block` is empty then.
     // Return others when unexpected error happens.
     virtual Status next_block_with_aggregation(Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>(
@@ -265,8 +264,8 @@ public:
     }
 
     // Returns the preferred output block byte budget. Subclasses that support adaptive batch size
-    // should override this; the base returns 0 (disabled) so VCollectIterator degrades safely
-    // when called through a TabletReader* that has not been configured.
+    // should override this; the base returns 0 (disabled), so a TabletReader that has not been
+    // configured reads with the row ceiling only.
     virtual size_t preferred_block_size_bytes() const { return 0; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
@@ -282,8 +281,6 @@ public:
             std::map<int32_t, TColumnAccessPaths>& all_access_paths);
 
 protected:
-    friend class VCollectIterator;
-
     Status _init_params(const ReaderParams& read_params);
 
     Status _capture_rs_readers(const ReaderParams& read_params);

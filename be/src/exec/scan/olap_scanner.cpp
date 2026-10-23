@@ -721,13 +721,11 @@ doris::TabletStorageType OlapScanner::get_storage_type() {
 }
 
 Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
-    // Read one block from block reader
-    // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
-    // that is, eof can be set to true only when the returned block is empty.
+    // Read one block from block reader; the reader sets eof only with an empty block.
     RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
+    DCHECK(!*eof || block->rows() == 0);
     if (block->rows() > 0) {
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
-        *eof = false;
     }
 #ifndef NDEBUG
     RETURN_IF_ERROR(_check_ann_cache_hit_debug_points(_tablet_reader->stats()));
