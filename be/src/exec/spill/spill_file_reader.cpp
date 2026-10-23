@@ -20,12 +20,14 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "core/block/block.h"
+#include "exec/spill/spill_file_format.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
@@ -34,6 +36,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
+#include "util/coding.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
 namespace doris {
@@ -133,18 +136,19 @@ Status SpillFileReader::_open_part(size_t part_index, bool fetch_small_part) {
 
 Status SpillFileReader::_read_footer(size_t file_size, bool fetch_small_part) {
     // The part layout (from the end backwards) is:
+    //   [magic (4 bytes)]
+    //   [format version (little-endian uint32)]
     //   [block count (size_t)]
     //   [max sub block size (size_t)]
     //   [block start offsets array (_part_block_count * size_t)]
     //   [serialized blocks]
-    constexpr size_t kFooterTailBytes = 2 * sizeof(size_t);
+    constexpr size_t kFooterTailBytes = 2 * sizeof(size_t) + kSpillPartFormatBytes;
     // Enough for the offsets of a few thousand blocks, so the footer usually takes one GET.
     constexpr size_t kRemoteFooterProbeBytes = 64 * 1024;
     if (file_size < kFooterTailBytes) {
         return Status::InternalError("spill part {} is too small: {} bytes",
                                      _file_reader->path().native(), file_size);
     }
-
     // Without coalescing (local disk) the footer is read exactly. Otherwise a larger tail, bounded
     // by the coalesced read size like every other read, is read in one request, or the whole
     // part when it fits in one coalesced read.
@@ -159,6 +163,19 @@ Status SpillFileReader::_read_footer(size_t file_size, bool fetch_small_part) {
     RETURN_IF_ERROR(_read_exact(file_size - probe_size, _read_buff.data(), probe_size));
 
     const char* tail = _read_buff.data() + probe_size - kFooterTailBytes;
+    const char* version = tail + 2 * sizeof(size_t);
+    const char* magic = version + sizeof(uint32_t);
+    // A stale pre-marker part or a corrupted trailer cannot safely supply block metadata.
+    if (memcmp(magic, kSpillPartMagic, sizeof(kSpillPartMagic)) != 0) {
+        return Status::InternalError("invalid spill part magic in {}",
+                                     _file_reader->path().native());
+    }
+    const auto format_version = decode_fixed32_le(reinterpret_cast<const uint8_t*>(version));
+    // A future version may change even the meaning of the legacy size_t footer fields.
+    if (format_version != kSpillPartFormatVersion) {
+        return Status::InternalError("unsupported spill part format version {} in {}",
+                                     format_version, _file_reader->path().native());
+    }
     memcpy(&_part_max_sub_block_size, tail, sizeof(size_t));
     memcpy(&_part_block_count, tail + sizeof(size_t), sizeof(size_t));
     if (_part_block_count > (file_size - kFooterTailBytes) / sizeof(size_t)) {
