@@ -9432,7 +9432,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private String buildRoutineLoadAuditSql(DorisParser.AlterRoutineLoadContext ctx) {
-        // Capture masking while the property keys still have the same SQL mode as execution.
+        // A preceding SET in a pre-parsed batch can change the mode sent to the master.
+        // Mask keys sensitive under either interpretation without changing execution properties.
         // Keep only this statement when the request contains multiple statements: the audit caller
         // can pass the entire request if its separate statement splitter disagrees with Nereids.
         ParserRuleContext statement = ctx;
@@ -9452,7 +9453,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
         if (ctx.propertyItemList() != null) {
             for (DorisParser.PropertyItemContext property : ctx.propertyItemList().properties) {
-                if (KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key))) {
+                boolean sensitive = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+                        () -> KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key)))
+                        || SqlModeHelper.withSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES,
+                                () -> KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key)));
+                if (sensitive) {
                     // ANTLR positions count code points; Java string rewriting uses UTF-16 offsets.
                     int valueStart = sql.offsetByCodePoints(0, property.value.start.getStartIndex() - start);
                     int valueEnd = sql.offsetByCodePoints(0, property.value.stop.getStopIndex() - start + 1);

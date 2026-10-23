@@ -86,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -2536,8 +2537,15 @@ public class StmtExecutor {
     }
 
     private String getStmtForLogging() {
-        // Reuse SQL captured by the parsed command before later session mode changes.
-        return getStmtForLogging(originStmt == null ? null : originStmt.originStmt);
+        String stmt = originStmt == null ? null : originStmt.originStmt;
+        if (parsedStmt instanceof LogicalPlanAdapter
+                && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof AlterRoutineLoadCommand) {
+            // This command captures only its own masked SQL during the initial parse.
+            return getStmtForLogging(stmt);
+        }
+        // A splitter mismatch can leave a neighboring statement's credentials in originStmt.
+        // Other plans do not own all of that text: require a single statement or fail closed.
+        return getStmtForLoggingBeforeParse(stmt);
     }
 
     private String getStmtForLoggingBeforeParse(String stmt) {

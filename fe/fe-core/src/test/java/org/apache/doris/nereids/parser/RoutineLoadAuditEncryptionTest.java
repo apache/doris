@@ -174,14 +174,24 @@ public class RoutineLoadAuditEncryptionTest {
     }
 
     @Test
-    public void testOriginalNoBackslashModePreservesNonSensitiveKey() {
+    public void testOriginalNoBackslashModeMasksKeySensitiveOnMaster() {
         String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
                 + "('property.sasl.\\password' = 'ordinary-value')";
         AlterRoutineLoadCommand command = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES,
                 () -> (AlterRoutineLoadCommand) new NereidsParser().parseSingle(sql));
         Assertions.assertEquals("ordinary-value", command.getDataSourceMapProperties().get("property.sasl.\\password"));
-        Assertions.assertEquals(sql, SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
-                () -> command.geneEncryptionSQL(sql)));
+        Assertions.assertEquals(sql.replace("'ordinary-value'", "'******'"),
+                SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+                        () -> command.geneEncryptionSQL(sql)));
+    }
+
+    @Test
+    public void testBothModesPreserveEscapedOperationalKey() {
+        String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.client.\\id' = 'client-value')";
+        for (long mode : new long[] {SqlModeHelper.MODE_DEFAULT, SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+            Assertions.assertEquals(sql, SqlModeHelper.withSqlMode(mode, () -> encrypt(sql)));
+        }
     }
 
     @Test
