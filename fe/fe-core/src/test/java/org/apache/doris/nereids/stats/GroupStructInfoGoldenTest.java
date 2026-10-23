@@ -466,6 +466,18 @@ public class GroupStructInfoGoldenTest {
     }
 
     @Test
+    void testAnArrayElementCannotForgeAnotherElement() {
+        // one element whose text is exactly the identity of two elements: the boundaries are written
+        // per element, so the two arrays cannot share a key
+        GroupStructInfo twoElements = built("filter_with_an_array_literal");
+        GroupStructInfo injected = built("filter_with_an_injected_delimiter_array_literal");
+        for (GroupStructInfo.LiteralMode mode : new GroupStructInfo.LiteralMode[] {WITH_LITERAL, NO_LITERAL}) {
+            Assertions.assertNotEquals(twoElements.getFingerprint(mode), injected.getFingerprint(mode),
+                    "an element can forge the boundaries of another in mode " + mode);
+        }
+    }
+
+    @Test
     void testANullAndTheStringNullDoNotShareAKey() {
         // `CAST(NULL AS STRING)` and `'null'` have one data type and one text without the marker: a
         // filter over either argument (CONCAT_WS keeps the string and skips the null) keeps a different
@@ -1286,6 +1298,9 @@ public class GroupStructInfoGoldenTest {
         cases.add(new PlanCase("filter_with_an_array_literal",
                 "a filter over an array literal of two elements",
                 GroupStructInfoGoldenTest::filterWithAnArrayLiteral));
+        cases.add(new PlanCase("filter_with_an_injected_delimiter_array_literal",
+                "the same filter over one element whose text is the delimiters of two elements",
+                GroupStructInfoGoldenTest::filterWithAnInjectedDelimiterArrayLiteral));
         cases.add(new PlanCase("filter_with_an_ambiguous_array_literal",
                 "the same filter over one element whose text looks like the two elements of the first",
                 GroupStructInfoGoldenTest::filterWithAnAmbiguousArrayLiteral));
@@ -1758,6 +1773,10 @@ public class GroupStructInfoGoldenTest {
      */
     private static GroupStructInfo filterWithAnAmbiguousArrayLiteral() {
         return filterWithAnArrayLiteral("a', 'b");
+    }
+
+    private static GroupStructInfo filterWithAnInjectedDelimiterArrayLiteral() {
+        return filterWithAnArrayLiteral("a:TEXT),lit(b");
     }
 
     private static GroupStructInfo filterWithANullArgument() {
