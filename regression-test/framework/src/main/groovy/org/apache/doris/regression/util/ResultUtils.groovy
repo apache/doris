@@ -47,9 +47,21 @@ class ResultUtils {
     private static final Pattern DATETIME_PATTERN = Pattern.compile(
             "(\\d{4}-\\d{2}-\\d{2})[T ](\\d{2}:\\d{2})(?::(\\d{2})(?:\\.(\\d{1,9}))?)?")
     private static final Pattern UNICODE_ESCAPE_PATTERN = Pattern.compile("[0-9a-fA-F]{4}")
-    /** A "0x" token as Doris renders a VARBINARY nested in arrays/maps/structs. */
+    /**
+     * A "0x" token as Doris renders a VARBINARY nested in arrays/maps/structs.
+     * The negative lookbehind keeps the match at a VALUE/ELEMENT boundary: a
+     * token preceded by an alphanumeric ("prefix0x41"), a quote (a nested
+     * STRING the engine renders quoted) or a backslash is a literal-string
+     * fragment, not a binary rendering — substituting it could make unequal
+     * rows compare equal (Spark "prefixA" vs Doris "prefix0x41"). Only a token
+     * that Doris could only have produced as a binary element ("[0x616C, "
+     * / "{0x41: 0x42}" / "ROW(0x61)") is decoded. A literal string whose whole
+     * value coincides with a bare token ("0x41") is indistinguishable from a
+     * binary rendering without column types and remains the one known
+     * ambiguity.
+     */
     private static final Pattern NESTED_BINARY_TOKEN = Pattern.compile(
-            "(?i)0x(?:[0-9a-f]{2})*(?![0-9a-fA-F])")
+            "(?i)(?<![0-9a-zA-Z'"\\])0x(?:[0-9a-f]{2})+(?![0-9a-fA-F])")
 
     static List<List<Object>> normalizeRows(List<List<Object>> rows) {
         List<List<Object>> normalizedRows = new ArrayList<>()
