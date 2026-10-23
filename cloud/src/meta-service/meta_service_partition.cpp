@@ -70,11 +70,10 @@ using check_create_table_type = std::function<const std::tuple<
 //              UNKNOWN
 
 // Return TXN_OK if exists, TXN_KEY_NOT_FOUND if not exists, otherwise error
-static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_id,
-                                 const IndexRequest* req) {
-    auto tablet_key = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), 0, 0});
-    auto tablet_key_end =
-            meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), INT64_MAX, 0});
+static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_id, int64_t table_id,
+                                 int64_t index_id) {
+    auto tablet_key = meta_tablet_key({instance_id, table_id, index_id, 0, 0});
+    auto tablet_key_end = meta_tablet_key({instance_id, table_id, index_id, INT64_MAX, 0});
     std::unique_ptr<RangeGetIterator> it;
 
     TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
@@ -304,18 +303,21 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
     } else {
         bool is_versioned_read = is_version_read_enabled(instance_id);
         CloneChainReader reader(instance_id, resource_mgr_.get());
-        err = is_versioned_read ? reader.is_index_exists(txn.get(), request->index_ids(0))
-                                : index_exists(txn.get(), instance_id, request);
-        // If index has existed, this might be a stale request
-        if (err == TxnErrorCode::TXN_OK) {
-            code = MetaServiceCode::ALREADY_EXISTED;
-            msg = "index already existed";
-            return;
-        }
-        if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to check index existence, err={}", err);
-            return;
+        for (int64_t index_id : request->index_ids()) {
+            err = is_versioned_read
+                          ? reader.is_index_exists(txn.get(), index_id)
+                          : index_exists(txn.get(), instance_id, request->table_id(), index_id);
+            // If index has existed, this might be a stale request
+            if (err == TxnErrorCode::TXN_OK) {
+                code = MetaServiceCode::ALREADY_EXISTED;
+                msg = "index already existed";
+                return;
+            }
+            if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to check index existence, err={}", err);
+                return;
+            }
         }
     }
 
@@ -492,7 +494,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             if (!is_versioned_read) {
-                err = index_exists(txn.get(), instance_id, request);
+                err = index_exists(txn.get(), instance_id, request->table_id(), index_id);
             } else {
                 err = reader.is_index_exists(txn.get(), index_id);
             }
@@ -531,6 +533,14 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         }
         LOG_INFO("remove recycle index").tag("key", hex(key));
         txn->remove(key);
+
+        if (!is_versioned_read) {
+            // Keep the index visible even when it has no tablets or loses its last partition.
+            auto placeholder_key = meta_tablet_key(
+                    {instance_id, request->table_id(), index_id, INT64_MAX - 1, INT64_MAX - 1});
+            txn->put(placeholder_key, "");
+            LOG_INFO("put index tablet placeholder").tag("key", hex(placeholder_key));
+        }
 
         // Save the versioned index mappings.
         if (is_versioned_write) {
