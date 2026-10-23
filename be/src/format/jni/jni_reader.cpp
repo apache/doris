@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <atomic>
 #include <map>
 #include <ostream>
 #include <tuple>
@@ -29,8 +30,10 @@
 #include "core/types.h"
 #include "format/jni/jni_data_bridge.h"
 #include "format/table/partition_column_filler.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/jni-util.h"
 
 namespace doris {
@@ -51,7 +54,8 @@ const std::vector<SlotDescriptor*> JniReader::_s_empty_slot_descs;
 JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                      RuntimeProfile* profile, Jni::PluginRef plugin_ref,
                      std::map<std::string, std::string> scanner_params,
-                     std::vector<std::string> column_names, int64_t self_split_weight)
+                     std::vector<std::string> column_names, int64_t self_split_weight,
+                     int64_t jni_heap_bytes)
         : _file_slot_descs(file_slot_descs),
           _state(state),
           _profile(profile),
@@ -59,7 +63,8 @@ JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, Runtim
           _connector_name(plugin_ref.plugin),
           _scanner_params(std::move(scanner_params)),
           _column_names(std::move(column_names)),
-          _self_split_weight(static_cast<int32_t>(self_split_weight)) {}
+          _self_split_weight(static_cast<int32_t>(self_split_weight)),
+          _jni_heap_bytes(jni_heap_bytes) {}
 
 JniReader::JniReader(Jni::PluginRef plugin_ref, std::map<std::string, std::string> scanner_params)
         : _file_slot_descs(_s_empty_slot_descs),
@@ -71,6 +76,7 @@ JniReader::JniReader(Jni::PluginRef plugin_ref, std::map<std::string, std::strin
 
 Status JniReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
+    _io_ctx = ctx->io_ctx;
     if (_col_name_to_block_idx == nullptr) {
         _col_name_to_block_idx = ctx->col_name_to_block_idx;
     }
@@ -131,24 +137,78 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
         _java_create_vector_table_time =
                 ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
         _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
+        _jvm_heap_wait_time = ADD_CHILD_TIMER(_profile, "JvmHeapWaitTime", _connector_name.c_str());
+        _jvm_heap_declared_bytes = ADD_CHILD_COUNTER(_profile, "JvmHeapDeclaredBytes", TUnit::BYTES,
+                                                     _connector_name.c_str());
         _max_time_split_weight_counter = _profile->add_conditition_counter(
                 "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
                 _connector_name.c_str());
     }
     _java_scan_watcher = 0;
 
-    JNIEnv* env = nullptr;
     int batch_size = 0;
     if (!_is_table_schema && _state) {
         batch_size = _state->batch_size();
     }
     _batch_size = batch_size;
+    // Only a reader whose range declared the heap it will hold asks for it; see the constructor.
+    if (_jni_heap_bytes > 0) {
+        // FileScanner's try_stop() marks its IOContext: a cancelled query, a satisfied limit, a
+        // closing scan. The gate asks on a thread of its own, so the check owns what it reads, and
+        // reads it atomically, as try_stop() writes it.
+        DORIS_CHECK(_io_ctx != nullptr);
+        _heap_admission =
+                JniScanHeapGate::instance()->request(_jni_heap_bytes, [io_ctx = _io_ctx]() {
+                    return std::atomic_ref<bool>(io_ctx->should_stop)
+                            .load(std::memory_order_relaxed);
+                });
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_jvm_heap_declared_bytes, _jni_heap_bytes);
+        }
+        if (_heap_admission->waiting()) {
+            // The first read opens it once the gate admits it. Until then FileScanner parks on
+            // waiting_for() instead of keeping a worker that admitted readers need to finish.
+            return Status::OK();
+        }
+    }
+    return _open_admitted_java_scanner();
+}
+
+std::optional<SharedListenableFuture<Void>> JniReader::waiting_for() const {
+    if (_heap_admission != nullptr && _heap_admission->waiting()) {
+        return _heap_admission->future();
+    }
+    return std::nullopt;
+}
+
+Status JniReader::_open_admitted_java_scanner() {
+    if (_heap_admission != nullptr) {
+        DORIS_CHECK(!_heap_admission->waiting());
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_jvm_heap_wait_time, _heap_admission->wait_ns());
+        }
+        if (!_heap_admission->admitted()) {
+            // The scan stopped before this reader's turn: it opens no Java scanner and reads
+            // nothing. Opening it would not be harmless - FileScanner reads the first block in the
+            // same pass, and a merge read loads the row groups of all its files for that block.
+            return Status::OK();
+        }
+    }
+    // The admission covers the Java scanner: close() gives it back, and here it goes if the
+    // scanner did not open - attaching to the JVM can fail too.
+    Defer release_unless_opened {[this]() {
+        if (!_scanner_opened) {
+            _heap_admission.reset();
+        }
+    }};
+    // Only now does the reader attach to the JVM.
+    JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     if (_state) {
         _scanner_params.emplace("time_zone", _state->timezone());
     }
-    RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
+    RETURN_IF_ERROR(_init_jni_scanner(env, static_cast<int>(_batch_size)));
     // Call org.apache.doris.jni.spi.JniScanner#open
     RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _scanner_api->open).call());
 
@@ -162,6 +222,18 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
 // =========================================================================
 
 Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    if (!_scanner_opened) {
+        // Only a reader that open() left waiting for its share of the JVM heap is unopened here,
+        // and FileScanner reads it only once waiting_for() says the wait is over.
+        DORIS_CHECK(_heap_admission != nullptr);
+        RETURN_IF_ERROR(_open_admitted_java_scanner());
+        if (!_scanner_opened) {
+            // Its scan stopped first.
+            *read_rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
+    }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     long meta_address = 0;
@@ -199,6 +271,8 @@ Status JniReader::close() {
         return Status::OK();
     }
     if (!_scanner_opened) {
+        // Leaves the gate's line if it was still waiting.
+        _heap_admission.reset();
         _closed = true;
         return Status::OK();
     }
@@ -215,6 +289,7 @@ Status JniReader::close() {
         close_status = std::move(java_close_status);
     }
     if (close_status.ok()) {
+        _heap_admission.reset();
         _scanner_opened = false;
         _closed = true;
     }

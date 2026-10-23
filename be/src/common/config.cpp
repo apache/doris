@@ -1929,6 +1929,32 @@ DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 DEFINE_mInt64(hdfs_jni_write_sleep_milliseconds, "300");
 // The max retry times when hdfs write failed
 DEFINE_mInt64(hdfs_jni_write_max_retry_time, "3");
+// The share of the JVM's maximum heap that the JNI scanners admitted by the heap they declare may
+// declare together. Only statements with enable_jni_heap_admission declare it
+// (util/jni_scan_heap_gate.h)
+DEFINE_mDouble(jni_scanner_heap_budget_ratio, "0.5");
+// The gate reads both of its settings while set_config() may write them, so it reads copies that
+// init() and every update publish.
+static std::atomic<double> published_jni_scanner_heap_budget_ratio {0.5};
+DEFINE_ON_UPDATE(jni_scanner_heap_budget_ratio, [](double, double value) {
+    published_jni_scanner_heap_budget_ratio.store(value, std::memory_order_relaxed);
+});
+
+double get_jni_scanner_heap_budget_ratio() {
+    return published_jni_scanner_heap_budget_ratio.load(std::memory_order_relaxed);
+}
+// The longest the Java scanner of one split that declared its heap waits for its share before it
+// opens anyway, in milliseconds. A scan of many splits can wait this long once per split. The wait
+// holds no scan thread: the scanner is parked until the share comes
+DEFINE_mInt64(jni_scanner_heap_max_wait_ms, "60000");
+static std::atomic<int64_t> published_jni_scanner_heap_max_wait_ms {60000};
+DEFINE_ON_UPDATE(jni_scanner_heap_max_wait_ms, [](int64_t, int64_t value) {
+    published_jni_scanner_heap_max_wait_ms.store(value, std::memory_order_relaxed);
+});
+
+int64_t get_jni_scanner_heap_max_wait_ms() {
+    return published_jni_scanner_heap_max_wait_ms.load(std::memory_order_relaxed);
+}
 
 // The min thread num for NonBlockCloseThreadPool
 DEFINE_Int64(min_nonblock_close_thread_num, "12");
@@ -2456,6 +2482,10 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     atomic_lookup_connection_cache_block_pool_size.store(
             static_cast<size_t>(lookup_connection_cache_block_pool_size),
             std::memory_order_relaxed);
+    published_jni_scanner_heap_budget_ratio.store(jni_scanner_heap_budget_ratio,
+                                                  std::memory_order_relaxed);
+    published_jni_scanner_heap_max_wait_ms.store(jni_scanner_heap_max_wait_ms,
+                                                 std::memory_order_relaxed);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)
