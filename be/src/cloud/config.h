@@ -101,6 +101,7 @@ DECLARE_mInt64(compaction_txn_max_size_bytes);
 // CloudStorageEngine config
 DECLARE_mInt32(refresh_s3_info_interval_s);
 DECLARE_mInt32(vacuum_stale_rowsets_interval_s);
+DECLARE_mInt64(warm_up_rowset_state_gc_grace_period_seconds);
 DECLARE_mInt32(schedule_sync_tablets_interval_s);
 
 // Cloud mow
