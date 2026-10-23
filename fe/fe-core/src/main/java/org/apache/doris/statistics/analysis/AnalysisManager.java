@@ -40,6 +40,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
@@ -1345,16 +1346,39 @@ public class AnalysisManager implements Writable {
 
     // Invoke this for cloud version load.
     public void updateUpdatedRows(Map<Long, Long> updatedRows, long dbId) {
+        if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
+            return;
+        }
+        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(dbId, updatedRows);
+        // The record of a table which has none is created while this event is applied, and the event is
+        // journaled afterwards. A whole table DROP STATS removes the record and journals the deletion, so both
+        // mutations have to be applied in the order their journal entries have: without the table lock the
+        // deletion can be applied (and journaled) between the application of this event and its journal entry,
+        // and a follower which replays "remove, then add" keeps a record which the master no longer has, which
+        // makes the row count of the table differ between the master and its followers. The lock is the one
+        // DROP STATS takes and the one finishTransaction holds while a local load recreates the record.
+        List<Table> tableList = getTablesOnIdOrder(dbId, updatedRows.keySet());
+        if (!MetaLockUtils.tryWriteLockTablesIfExist(tableList, 10, TimeUnit.SECONDS)) {
+            LOG.warn("Failed to lock the tables {} of db {} to record the updated rows {}, the row counts stay "
+                    + "unknown until the backends report them", updatedRows.keySet(), dbId, updatedRows);
+            return;
+        }
         try {
-            if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
-                return;
-            }
-            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(dbId, updatedRows);
             replayUpdateRowsRecord(updateRowsEvent);
             logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
             LOG.warn("Failed to record update rows.", t);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
         }
+    }
+
+    private List<Table> getTablesOnIdOrder(long dbId, Collection<Long> tableIds) {
+        Optional<Database> db = Env.getCurrentInternalCatalog().getDb(dbId);
+        if (!db.isPresent()) {
+            return Lists.newArrayList();
+        }
+        return db.get().getTablesOnIdOrderIfExist(Lists.newArrayList(tableIds));
     }
 
     // Set to true means new partition loaded data

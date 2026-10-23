@@ -79,6 +79,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
@@ -1012,5 +1013,63 @@ public class AnalysisManagerTest {
         Assertions.assertNotNull(loaded.findTableStatsStatus(0L));
         Assertions.assertNull(loaded.findTableStatsStatus(table.getId()),
                 "the record which was created after the image was written is in the image");
+    }
+    /**
+     * A cloud load reports the rows of its transaction from the backend, and the report applies them and
+     * journals them afterwards. A whole table DROP STATS removes the record and journals the deletion, so
+     * without a common lock the deletion can be applied between the application of the report and its journal
+     * entry: a follower then replays "remove, then add" and keeps a record which the master no longer has.
+     */
+    @Test
+    public void testCloudRowUpdateIsSerializedWithTheTableLock() throws Exception {
+        AnalysisManager manager = new AnalysisManager();
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20003L, "test_cloud_row_update_lock");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30009L, "t_cloud_row_update", db);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+        Mockito.when(table.tryWriteLockIfExist(Mockito.anyLong(), Mockito.any(TimeUnit.class)))
+                .thenAnswer(invocation -> lock.writeLock().tryLock(invocation.getArgument(0),
+                        invocation.getArgument(1)));
+        Mockito.doAnswer(invocation -> {
+            lock.writeLock().unlock();
+            return null;
+        }).when(table).writeUnlock();
+
+        CountDownLatch reportReady = new CountDownLatch(1);
+        CountDownLatch reported = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread report = new Thread(() -> {
+            try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+                envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+                envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+                Mockito.when(env.getEditLog()).thenReturn(editLog);
+                Mockito.when(env.isMaster()).thenReturn(true);
+                reportReady.countDown();
+                manager.updateUpdatedRows(ImmutableMap.of(table.getId(), 5L), db.getId());
+                reported.countDown();
+            } catch (Throwable t) {
+                failure.set(t);
+            }
+        });
+
+        // The deletion holds the table write lock while it removes the record and journals it.
+        lock.writeLock().lock();
+        report.start();
+        Assertions.assertTrue(reportReady.await(30, TimeUnit.SECONDS), "the report is not ready");
+        boolean appliedWhileTheDeletionRan = reported.await(500, TimeUnit.MILLISECONDS);
+        lock.writeLock().unlock();
+        report.join(30000);
+
+        Assertions.assertFalse(appliedWhileTheDeletionRan, "the report was applied while the table was locked");
+        Assertions.assertNull(failure.get());
+        Assertions.assertFalse(report.isAlive());
+        Mockito.verify(env, Mockito.atLeast(1)).isMaster();
+        TableStatsMeta record = manager.findTableStatsStatus(table.getId());
+        Assertions.assertNotNull(record);
+        Assertions.assertEquals(5, record.updatedRows.get());
+        Mockito.verify(editLog, Mockito.times(1)).logUpdateRowsRecord(Mockito.any(UpdateRowsEvent.class));
     }
 }
