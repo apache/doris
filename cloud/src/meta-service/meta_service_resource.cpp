@@ -727,6 +727,65 @@ static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& c
     return true;
 }
 
+// An S3 root (endpoint, bucket and prefix) must hold a single path_version. A path_version 0 tablet
+// directory data/{tablet_id}/ and a path_version 1 shard directory data/{shard}/ share a
+// namespace: tablet 10005 of a v0 vault and shard 10005 of a v1 vault (shard_num > 10005) are the
+// same directory, and recycling the tablet deletes data/10005/ with the other vault's objects.
+// Vaults with the same path_version never collide: tablet ids are unique, and a v1 vault deletes
+// data/{shard}/{tablet_id}/ only.
+static bool check_s3_root_path_version(Transaction* txn, const InstanceInfoPB& instance,
+                                       const std::string& endpoint, const std::string& bucket,
+                                       const std::string& prefix, int64_t path_version,
+                                       MetaServiceCode& code, std::string& msg) {
+    auto same_root = [&](const ObjectStoreInfoPB& obj) {
+        return obj.endpoint() == endpoint && obj.bucket() == bucket && obj.prefix() == prefix;
+    };
+    auto reject = [&](std::string_view name, int64_t existing_path_version) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "storage {} already uses endpoint={} bucket={} prefix={} with path_version={}, a "
+                "vault with path_version={} must use a different bucket or prefix",
+                name, endpoint, bucket, prefix, existing_path_version, path_version);
+        return false;
+    };
+    // Legacy obj infos have no path format, they use path_version 0
+    for (const auto& obj : instance.obj_info()) {
+        if (same_root(obj) && path_version != 0) {
+            return reject(fmt::format("obj_info id={}", obj.id()), 0);
+        }
+    }
+    std::string start = storage_vault_key({instance.instance_id(), ""});
+    std::string end = storage_vault_key({instance.instance_id(), "\xff"});
+    std::unique_ptr<RangeGetIterator> it;
+    while (it == nullptr /* may be not init */ || it->more()) {
+        TxnErrorCode err = txn->get(start, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get storage vault, err={}", err);
+            return false;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            StorageVaultPB vault;
+            if (!vault.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed storage vault, key={}", hex(k));
+                return false;
+            }
+            if (vault.has_obj_info() && same_root(vault.obj_info()) &&
+                vault.path_format().path_version() != path_version) {
+                return reject(fmt::format("vault {}", vault.name()),
+                              vault.path_format().path_version());
+            }
+            if (!it->has_next()) {
+                start = k;
+            }
+        }
+        start.push_back('\x00'); // Update to next smallest key for iteration
+    }
+    return true;
+}
+
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
@@ -1545,6 +1604,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                 msg = "original obj infos has a same conf, please check it";
                 return;
             }
+        }
+        if (!check_s3_root_path_version(txn.get(), instance, endpoint, bucket, prefix,
+                                        request->vault().path_format().path_version(), code, msg)) {
+            return;
         }
         // calc id
         auto tmp_tuple = ObjectStorageDesc {ak,       sk,

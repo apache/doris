@@ -11923,6 +11923,84 @@ TEST(MetaServiceTest, CreateS3VaultWithPathFormat) {
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
+TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("MixedPathVersionTestInstance");
+    instance.set_enable_storage_vault(true);
+    // A legacy obj info, which uses path_version 0
+    auto* legacy = instance.add_obj_info();
+    legacy->set_id("1");
+    legacy->set_endpoint("s3.us-east-1.amazonaws.com");
+    legacy->set_bucket("test_bucket");
+    legacy->set_prefix("legacy");
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto add_s3_vault = [&](const std::string& name, const std::string& prefix,
+                            const std::string& ak, int64_t path_version) {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix(prefix);
+        vault.mutable_obj_info()->set_ak(ak);
+        vault.mutable_obj_info()->set_sk("sk");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.set_name(name);
+        vault.mutable_path_format()->set_path_version(path_version);
+        vault.mutable_path_format()->set_shard_num(path_version == 1 ? 1024 : 0);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        return res.status();
+    };
+
+    // v0 and v1 vaults must not share a root, in either order
+    ASSERT_EQ(add_s3_vault("v0_shared", "shared", "ak1", 0).code(), MetaServiceCode::OK);
+    auto status = add_s3_vault("v1_shared", "shared", "ak2", 1);
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.msg().find("vault v0_shared already uses"), std::string::npos) << status.msg();
+    ASSERT_EQ(add_s3_vault("v1_other", "other", "ak1", 1).code(), MetaServiceCode::OK);
+    ASSERT_EQ(add_s3_vault("v0_other", "other", "ak2", 0).code(),
+              MetaServiceCode::INVALID_ARGUMENT);
+    // Vaults with the same path_version can share a root
+    ASSERT_EQ(add_s3_vault("v1_other_2", "other", "ak3", 1).code(), MetaServiceCode::OK);
+    ASSERT_EQ(add_s3_vault("v0_shared_2", "shared", "ak3", 0).code(), MetaServiceCode::OK);
+    // A legacy obj info is path_version 0
+    status = add_s3_vault("v1_legacy", "legacy", "ak1", 1);
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.msg().find("obj_info id=1 already uses"), std::string::npos) << status.msg();
+    ASSERT_EQ(add_s3_vault("v0_legacy", "legacy", "ak2", 0).code(), MetaServiceCode::OK);
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 TEST(MetaServiceTest, AddObjInfoWithRole) {
     auto meta_service = get_meta_service();
 
