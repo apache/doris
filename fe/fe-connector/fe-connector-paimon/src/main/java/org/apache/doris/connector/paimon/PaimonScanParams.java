@@ -24,7 +24,9 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.ChainGroupReadTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -204,11 +206,58 @@ public final class PaimonScanParams {
         }
         // Apply the relation override first, then normalize each physical planning branch. A
         // single combined copy would flatten independent fallback values into one sibling's cap.
-        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(table.copy(isolatedOptions));
+        Table effectiveTable = PaimonReaderOptions.runtimeSafeTable(
+                copyWithHistoricalSchema(table, isolatedOptions, options));
         // Validate after every copy so relation options participate in the documented
         // relation > catalog > physical precedence before the effective value is judged.
         PaimonReaderOptions.validateEffectiveTable(effectiveTable);
         return effectiveTable;
+    }
+
+    static Table copyWithHistoricalSchema(Table table, Map<String, String> options) {
+        return copyWithHistoricalSchema(table, userOptions(options), options);
+    }
+
+    private static Table copyWithHistoricalSchema(
+            Table table, Map<String, String> dynamicOptions, Map<String, String> provenance) {
+        if (!(table instanceof FileStoreTable) || table instanceof ChainGroupReadTable
+                || PaimonTableDecorators.isChainTable(table)) {
+            // Chain groups have their own option filtering and are not ordinary fallback readers.
+            return table.copy(dynamicOptions);
+        }
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            // Each branch has independent snapshot IDs. Keep the SDK's timestamp translation
+            // before restoring either schema; copying one historical schema onto the pair is invalid.
+            return PaimonTableDecorators.rebuildFallbackPair(pair,
+                    (FileStoreTable) copyWithHistoricalSchema(pair.wrapped(), dynamicOptions, provenance),
+                    (FileStoreTable) copyWithHistoricalSchema(pair.other(),
+                            PaimonTableDecorators.otherOptions(pair, dynamicOptions), provenance));
+        }
+        FileStoreTable dataTable = (FileStoreTable) table;
+        Map<String, String> effectiveOptions = new HashMap<>(table.options());
+        dynamicOptions.forEach((key, value) -> {
+            if (value == null) {
+                effectiveOptions.remove(key);
+            } else {
+                effectiveOptions.put(key, value);
+            }
+        });
+        Optional<Snapshot> snapshot;
+        try {
+            snapshot = TimeTravelUtil.tryTravelToSnapshot(Options.fromMap(effectiveOptions),
+                    dataTable.snapshotManager(), dataTable.tagManager());
+        } catch (Exception e) {
+            // Match the SDK's schema-selection fallback (for example a timestamp on an empty table).
+            // Its normal copy below still owns option validation and the eventual scan error.
+            return table.copy(dynamicOptions);
+        }
+        if (snapshot.isPresent() && snapshot.get().schemaId() != dataTable.schema().id()) {
+            // Paimon overlays current options onto historical columns. Restore the matching
+            // sequence/aggregation options first, or renamed fields fail before scan planning.
+            dataTable = restoreBoundSchema(dataTable, snapshot.get().schemaId(), provenance, "");
+        }
+        return dataTable.copy(dynamicOptions);
     }
 
     public static FileStoreTable applyOptionsWithoutTimeTravel(
@@ -353,6 +402,11 @@ public final class PaimonScanParams {
     }
 
     public static Map<String, String> resolveOptions(Table table, Map<String, String> options) {
+        return resolveOptions(table, options, java.util.Collections.emptyMap());
+    }
+
+    static Map<String, String> resolveOptions(
+            Table table, Map<String, String> options, Map<String, String> catalogOptions) {
         validateOptions(options);
         if (!hasStartupOptions(options)) {
             return options;
@@ -388,7 +442,7 @@ public final class PaimonScanParams {
             return resolveFileCreationTime(options, fileStoreTable, creationTime);
         }
 
-        Table selectedTable = applyOptions(table, options);
+        Table selectedTable = applyOptions(table, withCatalogOptions(options, catalogOptions));
         if ("compacted-full".equalsIgnoreCase(options.get(CoreOptions.SCAN_MODE.key()))) {
             Long snapshotId = compactedFullSnapshotId((FileStoreTable) selectedTable);
             return snapshotId == null
@@ -508,9 +562,13 @@ public final class PaimonScanParams {
     }
 
     private static Map<String, String> userOptions(Map<String, String> options) {
-        return options.entrySet().stream()
-                .filter(entry -> !entry.getKey().startsWith(INTERNAL_PREFIX))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, String> result = new HashMap<>();
+        options.forEach((key, value) -> {
+            if (!key.startsWith(INTERNAL_PREFIX)) {
+                result.put(key, value);
+            }
+        });
+        return result;
     }
 
     /**
