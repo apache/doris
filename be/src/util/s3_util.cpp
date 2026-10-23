@@ -58,8 +58,11 @@
 #include "cpp/util.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
+#include "util/s3_client_cache.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
+#include "util/time.h"
 
 namespace doris {
 namespace {
@@ -167,7 +170,10 @@ constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
 } // namespace
 
-S3ClientFactory::S3ClientFactory() {
+S3ClientFactory::S3ClientFactory()
+        : _cache(std::make_unique<S3ClientCache>(config::s3_client_cache_capacity,
+                                                 config::s3_client_cache_idle_ttl_seconds,
+                                                 [] { return MonotonicSeconds(); })) {
     _aws_options = Aws::SDKOptions {};
     auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
     _aws_options.loggingOptions.logLevel = logLevel;
@@ -206,6 +212,7 @@ S3ClientFactory::S3ClientFactory() {
 }
 
 S3ClientFactory::~S3ClientFactory() {
+    _cache.reset();
     Aws::ShutdownAPI(_aws_options);
 }
 
@@ -214,54 +221,70 @@ S3ClientFactory& S3ClientFactory::instance() {
     return ret;
 }
 
+namespace {
+class S3ClientCachePolicy final : public CachePolicy {
+public:
+    explicit S3ClientCachePolicy(S3ClientCache& cache)
+            : CachePolicy(CacheType::S3_CLIENT_CACHE, config::s3_client_cache_capacity,
+                          config::s3_client_cache_idle_ttl_seconds, true),
+              _cache(cache) {}
+
+    void prune_stale() override { COUNTER_SET(_freed_entrys_counter, _cache.prune_stale()); }
+    void prune_all(bool /*force*/) override { COUNTER_SET(_freed_entrys_counter, _cache.clear()); }
+    int64_t adjust_capacity_weighted(double /*weight*/) override { return 0; }
+    size_t get_capacity() override { return _initial_capacity; }
+    int64_t reset_initial_capacity(double /*weight*/) override { return 0; }
+
+private:
+    S3ClientCache& _cache;
+};
+} // namespace
+
+void S3ClientFactory::init_cache() {
+    _cache_policy = std::make_unique<S3ClientCachePolicy>(*_cache);
+    CacheManager::instance()->register_cache(_cache_policy.get());
+}
+
+void S3ClientFactory::close_cache() {
+    _cache_policy.reset();
+    _cache.reset();
+}
+
 Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3ClientConf& s3_conf) {
     RETURN_IF_ERROR_RESULT(is_s3_conf_valid(s3_conf));
+    return _cache->get_or_create(s3_conf, [&] { return _create_client(s3_conf); });
+}
 
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_client(
+        const S3ClientConf& s3_conf) {
 #ifdef BE_TEST
-    {
-        std::lock_guard l(_lock);
-        if (_test_client_creator) {
-            return _test_client_creator(s3_conf);
-        }
+    if (_test_client_creator) {
+        return _test_client_creator(s3_conf);
     }
 #endif
-
-    {
-        std::lock_guard l(_lock);
-        auto it = _cache.find(s3_conf);
-        if (it != _cache.end()) {
-            return it->second;
-        }
+    auto result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
+                          ? _create_azure_client(s3_conf)
+                          : _create_s3_client(s3_conf);
+    if (!result.has_value()) {
+        return ResultError(std::move(result).error());
     }
-
-    auto client_result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
-                                 ? _create_azure_client(s3_conf)
-                                 : _create_s3_client(s3_conf);
-    if (!client_result.has_value()) {
-        return ResultError(std::move(client_result).error());
-    }
-    auto obj_client = std::move(client_result).value();
+    auto client = std::move(result).value();
     if (!config::is_cloud_mode() || s3_conf.is_internal_bucket) {
-        obj_client = std::make_shared<io::RateLimitedObjStorageClient>(
-                std::move(obj_client), std::make_shared<BeObjStorageRateLimitPolicy>());
+        client = std::make_shared<io::RateLimitedObjStorageClient>(
+                std::move(client), std::make_shared<BeObjStorageRateLimitPolicy>());
     }
-
-    {
-        std::lock_guard l(_lock);
-        auto [it, _] = _cache.emplace(s3_conf, std::move(obj_client));
-        return it->second;
-    }
+    return client;
 }
 
 #ifdef BE_TEST
 void S3ClientFactory::set_client_creator_for_test(
         std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> creator) {
-    std::lock_guard l(_lock);
+    _cache->clear();
     _test_client_creator = std::move(creator);
 }
 
 void S3ClientFactory::clear_client_creator_for_test() {
-    std::lock_guard l(_lock);
+    _cache->clear();
     _test_client_creator = nullptr;
 }
 #endif

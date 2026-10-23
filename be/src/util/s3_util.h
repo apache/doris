@@ -33,7 +33,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 
 #include "common/status.h"
 #include "core/string_ref.h"
@@ -55,6 +54,8 @@ namespace doris {
 std::string hide_access_key(const std::string& ak);
 
 class S3URI;
+class S3ClientCache;
+class CachePolicy;
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -144,6 +145,10 @@ public:
 
     static S3ClientFactory& instance();
 
+    // ExecEnv registers after CacheManager initialization and unregisters before its teardown.
+    void init_cache();
+    void close_cache();
+
     Result<std::shared_ptr<io::ObjStorageClient>> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
@@ -173,15 +178,15 @@ private:
 #ifdef BE_TEST
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
 #endif
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_client(const S3ClientConf& s3_conf);
     Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
     Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     std::string _get_ca_cert_file_path();
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
-    std::mutex _lock;
-    std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
-            _cache;
+    std::unique_ptr<S3ClientCache> _cache;
+    std::unique_ptr<CachePolicy> _cache_policy;
     std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST
