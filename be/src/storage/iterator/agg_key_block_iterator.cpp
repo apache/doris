@@ -21,7 +21,7 @@
 
 #include "common/exception.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -163,10 +163,10 @@ void AggValueAggregator::_aggregate_rows(size_t begin, size_t rows, bool close,
     }
 }
 
-AggKeyBlockIterator::AggKeyBlockIterator(VCollectIterator* collect_iter, OutputBlockLimits limits,
+AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                                          ReadSchemaSPtr read_schema, int be_exec_version,
                                          uint64_t* merged_rows)
-        : _cursor(collect_iter),
+        : _cursor(rows),
           _limits(limits),
           _read_schema(std::move(read_schema)),
           _be_exec_version(be_exec_version),
@@ -204,6 +204,7 @@ Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
         *eof = true;
         return Status::OK();
     }
+    *eof = false;
 
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
@@ -217,7 +218,6 @@ Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
     while (true) {
         RETURN_IF_ERROR(_cursor.advance());
         if (_cursor.eof()) {
-            *eof = true;
             break;
         }
 

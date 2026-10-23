@@ -17,7 +17,7 @@
 
 // End-to-end branch coverage for ChangelogMinDeltaBlockIterator and
 // ChangelogDetailBlockIterator. Instead of standing up a real tablet / rowset
-// stack, we inject a fake VCollectIterator::LevelIterator that walks a
+// stack, we inject a fake RowwiseIterator that walks a
 // pre-built merged changelog block one row at a time, so we can exercise every
 // min-delta fold result (SKIP / INSERT / DELETE / UPDATE_BEFORE_AFTER) and every
 // detail op (INSERT / DELETE / UPDATE, including the pending-row batch split).
@@ -29,7 +29,7 @@
 #include "storage/iterator/block_reader.h"
 #include "storage/iterator/changelog_block_iterator.h"
 #include "storage/iterator/tablet_block_iterator.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -291,41 +291,28 @@ std::shared_ptr<Block> make_unsupported_compare_source_block(
     return block;
 }
 
-// Fake merge iterator: hands out rows from `source` one at a time. `is_same` is
-// derived from primary-key equality with the previous emitted row, matching the
-// real merge iterator's contract that consecutive same-key rows are flagged.
-class FakeLevelIterator : public VCollectIterator::LevelIterator {
+// Fake rows of the read: hands out the rows of `source` one at a time through next_row().
+// `is_same` is derived from primary-key equality with the previous emitted row, matching the
+// merge iterator's contract that consecutive same-key rows are flagged.
+class FakeRowsIterator : public RowwiseIterator {
 public:
-    FakeLevelIterator(TabletReader* reader, std::shared_ptr<Block> source)
-            : LevelIterator(reader), _source(std::move(source)) {
-        _ref.block = _source;
-        _ref.row_pos = 0;
-        _ref.is_same = false;
-    }
+    FakeRowsIterator(std::shared_ptr<Block> source, ReadSchemaSPtr read_schema)
+            : _source(std::move(source)), _read_schema(std::move(read_schema)) {}
 
-    Status init(bool /*get_data_by_ref*/) override { return Status::OK(); }
-    int64_t version() const override { return 0; }
+    Status init(const StorageReadOptions& /*opts*/) override { return Status::OK(); }
 
-    Status next(IteratorRowRef* ref) override {
-        int prev = _ref.row_pos;
-        int next_pos = prev + 1;
+    Status next_row(IteratorRowRef* ref) override {
+        const int next_pos = _pos + 1;
         if (next_pos >= _source->rows()) {
-            _ref.row_pos = -1;
-            *ref = _ref;
             return Status::Error<END_OF_FILE>("");
         }
-        int64_t prev_key = read_i64(KEY_IDX, prev);
-        int64_t cur_key = read_i64(KEY_IDX, next_pos);
-        _ref.row_pos = next_pos;
-        _ref.is_same = (prev_key == cur_key);
-        *ref = _ref;
+        const bool same = _pos >= 0 && read_i64(KEY_IDX, _pos) == read_i64(KEY_IDX, next_pos);
+        _pos = next_pos;
+        *ref = IteratorRowRef {.block = _source, .row_pos = _pos, .is_same = same};
         return Status::OK();
     }
 
-    Status next(Block* /*block*/) override { return Status::Error<END_OF_FILE>(""); }
-
-    Status ensure_first_row_ref() override { return Status::OK(); }
-    void update_profile(RuntimeProfile* /*profile*/) override {}
+    const ReadSchema& schema() const override { return *_read_schema; }
 
 private:
     int64_t read_i64(int col, int row) const {
@@ -334,6 +321,8 @@ private:
     }
 
     std::shared_ptr<Block> _source;
+    ReadSchemaSPtr _read_schema;
+    int _pos = -1;
 };
 
 // Read schema mirroring the merged changelog block layout above.
@@ -355,7 +344,7 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
 
 // Wire a BlockReader as if init() had already completed for a changelog change
 // scan over the fixed 6-column schema, then plug in the fake merge iterator. The
-// reader hosts the read schema and the VCollectIterator the changelog iterators
+// reader hosts the read schema and the rows the changelog iterators
 // under test read from; make_min_delta_iter() / make_detail_iter() build those.
 void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t batch_size,
                       TabletSchemaSPtr schema = make_test_tablet_schema()) {
@@ -380,8 +369,7 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
                         .ok());
     reader._read_schema = std::move(read_schema);
 
-    reader._vcollect_iter._inner_iter =
-            std::make_unique<FakeLevelIterator>(&reader, std::move(source));
+    reader._rows_iter = std::make_unique<FakeRowsIterator>(std::move(source), reader._read_schema);
 }
 
 OutputBlockLimits limits_of(const BlockReader& reader) {
@@ -392,7 +380,7 @@ OutputBlockLimits limits_of(const BlockReader& reader) {
 // The MIN_DELTA iterator over the reader's merge, positioned on its first row.
 std::unique_ptr<ChangelogMinDeltaBlockIterator> make_min_delta_iter(BlockReader& reader) {
     auto iter = std::make_unique<ChangelogMinDeltaBlockIterator>(
-            &reader._vcollect_iter, limits_of(reader), reader._read_schema);
+            reader._rows_iter.get(), limits_of(reader), reader._read_schema);
     EXPECT_TRUE(iter->init().ok());
     return iter;
 }
@@ -400,7 +388,7 @@ std::unique_ptr<ChangelogMinDeltaBlockIterator> make_min_delta_iter(BlockReader&
 // The DETAIL iterator over the reader's merge, positioned on its first row.
 std::unique_ptr<ChangelogDetailBlockIterator> make_detail_iter(BlockReader& reader) {
     auto iter = std::make_unique<ChangelogDetailBlockIterator>(
-            &reader._vcollect_iter, limits_of(reader), reader._read_schema);
+            reader._rows_iter.get(), limits_of(reader), reader._read_schema);
     EXPECT_TRUE(iter->init().ok());
     return iter;
 }
@@ -494,6 +482,14 @@ TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaDoesNotRequireLsn) {
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
 }
 
+// The call after the last rows went out reports eof with an empty Block.
+static void expect_eof(TabletBlockIterator& iter, Block block) {
+    bool eof = false;
+    ASSERT_TRUE(iter.next_block(&block, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(block.rows(), 0);
+}
+
 // ============================================================================
 // ChangelogMinDeltaBlockIterator branch coverage
 // ============================================================================
@@ -501,8 +497,10 @@ TEST_F(BlockReaderChangeNextBlockTest, ChangelogSchemaDoesNotRequireLsn) {
 // APPEND then DELETE within the window folds to SKIP: nothing is emitted.
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaSkip) {
     auto source = make_source_block({
-            {/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1, static_cast<int64_t>(ChangelogOp::APPEND)},
-            {/*key=*/1, /*val=*/10, /*before=*/10, /*tso=*/2, /*lsn=*/2, static_cast<int64_t>(ChangelogOp::DELETE)},
+            {/*key=*/1, /*val=*/10, /*before=*/0, /*tso=*/1, /*lsn=*/1,
+             static_cast<int64_t>(ChangelogOp::APPEND)},
+            {/*key=*/1, /*val=*/10, /*before=*/10, /*tso=*/2, /*lsn=*/2,
+             static_cast<int64_t>(ChangelogOp::DELETE)},
     });
     BlockReader reader;
     configure_reader(reader, source, /*batch_size=*/16);
@@ -585,13 +583,16 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaAllNullBeforeImageIsRetained) {
     Block output = source->clone_empty();
     ASSERT_TRUE(iter->next_block(&output, &eof).ok());
     ASSERT_EQ(output.rows(), 2);
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_EQ(out_i64(output, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     const auto& value_column =
             assert_cast<const ColumnNullable&>(*output.get_by_position(VAL_IDX).column);
     EXPECT_TRUE(value_column.is_null_at(0));
     EXPECT_TRUE(value_column.is_null_at(1));
-    EXPECT_TRUE(eof);
+    EXPECT_FALSE(eof);
+    expect_eof(*iter, output.clone_empty());
 }
 
 // A user column may have the same name as another column's generated BEFORE mirror. Pairing by
@@ -642,13 +643,18 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnsupportedCompareIsRetainedAndCa
     // Both equal-value updates must be retained. The second key uses the cached unsupported
     // capability, so the exception-based capability probe runs exactly once per iterator.
     ASSERT_EQ(output.rows(), 4);
-    EXPECT_EQ(out_i64(output, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
-    EXPECT_EQ(out_i64(output, OP_IDX, 1), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
-    EXPECT_EQ(out_i64(output, OP_IDX, 2), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
-    EXPECT_EQ(out_i64(output, OP_IDX, 3), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_EQ(out_i64(output, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_EQ(out_i64(output, OP_IDX, 2),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, OP_IDX, 3),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(*compare_calls, 1);
     EXPECT_TRUE(iter->_value_compare_unsupported);
-    EXPECT_TRUE(eof);
+    EXPECT_FALSE(eof);
+    expect_eof(*iter, output.clone_empty());
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUnexpectedCompareExceptionIsNotSuppressed) {
@@ -893,10 +899,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexMultiColumnChains) {
     configure_two_value_reader(reader, source, /*batch_size=*/1);
 
     auto out = drain(reader, TChangelogScanType::MIN_DELTA);
-    expect_out_rows(out, {
-                                 {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
-                                 {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
-                         });
+    expect_out_rows(out,
+                    {
+                            {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
+                            {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
+                    });
 }
 
 // Multiple distinct keys, each in its own group, are folded independently.
@@ -944,7 +951,8 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     ASSERT_TRUE(iter->next_block(&block1, &eof).ok());
     ASSERT_EQ(block1.rows(), 2);
     EXPECT_EQ(out_i64(block1, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
-    EXPECT_EQ(out_i64(block1, OP_IDX, 1), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(block1, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out_i64(block1, VAL_IDX, 1), 15); // before value
     EXPECT_FALSE(eof);
     EXPECT_TRUE(iter->_pending_row.has_row());
@@ -952,9 +960,11 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatePendingRowAcrossBatch) {
     Block block2 = make_output_block();
     ASSERT_TRUE(iter->next_block(&block2, &eof).ok());
     ASSERT_EQ(block2.rows(), 1);
-    EXPECT_EQ(out_i64(block2, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_EQ(out_i64(block2, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out_i64(block2, VAL_IDX, 0), 30); // after value
-    EXPECT_TRUE(eof);
+    EXPECT_FALSE(eof);
+    expect_eof(*iter, make_output_block());
 }
 
 // ============================================================================
@@ -1023,9 +1033,12 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUsesOrdinalBeforePairWhenNamesColli
     ASSERT_EQ(output.rows(), 2);
     EXPECT_EQ(out_i64(output, /*v=*/1, 0), 10);
     EXPECT_EQ(out_i64(output, /*v=*/1, 1), 11);
-    EXPECT_EQ(out_i64(output, /*op=*/7, 0), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
-    EXPECT_EQ(out_i64(output, /*op=*/7, 1), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
-    EXPECT_TRUE(eof);
+    EXPECT_EQ(out_i64(output, /*op=*/7, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(output, /*op=*/7, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_FALSE(eof);
+    expect_eof(*iter, output.clone_empty());
 }
 
 // Mixed ops emitted verbatim in order.
@@ -1066,7 +1079,8 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     ASSERT_TRUE(iter->next_block(&block1, &eof).ok());
     ASSERT_EQ(block1.rows(), 2);
     EXPECT_EQ(out_i64(block1, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::INSERT));
-    EXPECT_EQ(out_i64(block1, OP_IDX, 1), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
+    EXPECT_EQ(out_i64(block1, OP_IDX, 1),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE));
     EXPECT_EQ(out_i64(block1, VAL_IDX, 1), 20); // before
     EXPECT_FALSE(eof);
     EXPECT_TRUE(iter->_pending_row.has_row());
@@ -1074,9 +1088,11 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailUpdatePendingRowAcrossBatch) {
     Block block2 = make_output_block();
     ASSERT_TRUE(iter->next_block(&block2, &eof).ok());
     ASSERT_EQ(block2.rows(), 1);
-    EXPECT_EQ(out_i64(block2, OP_IDX, 0), static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
+    EXPECT_EQ(out_i64(block2, OP_IDX, 0),
+              static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER));
     EXPECT_EQ(out_i64(block2, VAL_IDX, 0), 25); // after
-    EXPECT_TRUE(eof);
+    EXPECT_FALSE(eof);
+    expect_eof(*iter, make_output_block());
 }
 
 // Already-at-EOF with no pending row returns eof immediately with no output.
@@ -1088,12 +1104,12 @@ TEST_F(BlockReaderChangeNextBlockTest, DetailEofImmediately) {
     configure_reader(reader, source, 16);
     auto iter = make_detail_iter(reader);
 
-    // First call drains the only row.
+    // First call drains the only row; eof comes with the next, empty, call.
     bool eof = false;
     Block block = make_output_block();
     ASSERT_TRUE(iter->next_block(&block, &eof).ok());
     ASSERT_EQ(block.rows(), 1);
-    EXPECT_TRUE(eof);
+    EXPECT_FALSE(eof);
 
     // A subsequent call should report eof with no rows.
     eof = false;

@@ -202,7 +202,6 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
     // init collect iterator
     StorageReadOptions opts(_stats);
-    opts.rowset_id = _reader_context.rowset_id;
     opts.use_insert_order_when_same = _reader_context.use_insert_order_when_same;
     if (read_params.batch_size > 0) {
         opts.block_row_max = cast_set<int>(read_params.batch_size);

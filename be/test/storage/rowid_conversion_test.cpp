@@ -1086,8 +1086,8 @@ TEST_P(TestRowIdConversion, Conversion) {
     bool has_delete_handler = std::get<2>(GetParam());
     bool is_vertical_merger = std::get<3>(GetParam());
 
-    // if num_input_rowset = 2, VCollectIterator::Level1Iterator::_merge = flase
-    // if num_input_rowset = 3, VCollectIterator::Level1Iterator::_merge = true
+    // if num_input_rowset = 2, the rowsets are concatenated, not merged
+    // if num_input_rowset = 3, the rowsets are merged
     for (auto num_input_rowset = 2; num_input_rowset <= 3; num_input_rowset++) {
         uint32_t rows_per_segment = 4567;
         // RowsetReader: SegmentIterator

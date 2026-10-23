@@ -24,19 +24,15 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 
 namespace doris {
 
-UniqueKeyBlockIterator::UniqueKeyBlockIterator(VCollectIterator* collect_iter,
-                                               OutputBlockLimits limits,
+UniqueKeyBlockIterator::UniqueKeyBlockIterator(RowwiseIterator* rows, OutputBlockLimits limits,
                                                int32_t delete_sign_ordinal,
                                                OlapReaderStatistics* stats)
-        : _cursor(collect_iter),
-          _limits(limits),
-          _delete_sign_ordinal(delete_sign_ordinal),
-          _stats(stats) {
+        : _cursor(rows), _limits(limits), _delete_sign_ordinal(delete_sign_ordinal), _stats(stats) {
     if (_delete_sign_ordinal >= 0) {
         _delete_filter_column = ColumnUInt8::create();
     }
@@ -47,6 +43,7 @@ Status UniqueKeyBlockIterator::next_block(Block* block, bool* eof) {
         *eof = true;
         return Status::OK();
     }
+    *eof = false;
 
     size_t rows = 0;
     {
@@ -66,7 +63,6 @@ Status UniqueKeyBlockIterator::next_block(Block* block, bool* eof) {
             // with an unread row.
             RETURN_IF_ERROR(_cursor.advance());
             if (_cursor.eof()) {
-                *eof = true;
                 break;
             }
         } while (rows < _limits.max_rows && !_limits.reached_byte_budget_at(rows, target_columns));

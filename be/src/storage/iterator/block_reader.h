@@ -18,23 +18,39 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "storage/iterator/tablet_block_iterator.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
+
 class Block;
 class RuntimeProfile;
 
-// The row-level reader of a tablet: merges the rowsets of a read through VCollectIterator
-// and lets one TabletBlockIterator, chosen by table model and read mode, turn the merged
-// rows into output Blocks. The reader itself keeps no per-read-mode state.
+// The row-level reader of a tablet.
+//
+// It reads the segments of every rowset of the read through one RowwiseIterator, the rows of
+// the read: a VMergeIterator over all segments when the rowsets overlap on keys and the read
+// needs key order, a VUnionIterator otherwise. One TabletBlockIterator, chosen by table model
+// and read mode, turns those rows into the output Blocks. The reader itself keeps no
+// per-read-mode state.
+//
+//   BlockReader
+//    └ TabletBlockIterator (Direct / UniqueKey / SequenceMap / AggKey / Changelog / TopN)
+//       └ _rows_iter: VMergeIterator or VUnionIterator over
+//            every segment of a rowset whose segments overlap on keys, and
+//            a VUnionIterator per rowset whose segments do not,
+//          in (rowset version, segment) order
+//            └ LazyInitSegmentIterator -> SegmentIterator
 class BlockReader final : public TabletReader {
 public:
+    BlockReader();
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
@@ -42,9 +58,10 @@ public:
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
-    void update_profile(RuntimeProfile* profile) override {
-        return _vcollect_iter.update_profile(profile);
-    }
+    // Rows dropped as older versions of a key, by the merge and by the fold.
+    uint64_t merged_rows() const override;
+
+    void update_profile(RuntimeProfile* profile) override;
 
     // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
     size_t preferred_block_size_bytes() const override {
@@ -52,15 +69,29 @@ public:
     }
 
 private:
-    Status _init_collect_iter(const ReaderParams& read_params);
-
+    // Whether the rowsets, in version order, are not already one key-ordered sequence: some
+    // rowset has overlapping segments, or two rowsets overlap on keys.
+    bool _rowsets_overlap(const ReaderParams& read_params) const;
+    // Whether the rows of the read must be merged by key.
+    bool _needs_merge(const ReaderParams& read_params, bool force_merge,
+                      bool rowsets_overlap) const;
+    // Build the rows of the read: `_rows_iter`, or for a TopN read `_rowset_iters`.
+    Status _init_rows_iter(const ReaderParams& read_params);
+    // The options the rows of the read are initialized with.
+    void _init_rows_options(const ReaderParams& read_params);
+    // `_rows_iter` over `children`, the segment iterators of every rowset in (rowset version,
+    // segment) order: a merge when `merge`, the children one after another otherwise.
+    Status _new_rows_iter(std::vector<RowwiseIteratorUPtr> children, bool merge, bool reverse);
     // Pick and initialize the TabletBlockIterator of this read.
     Status _init_block_iterator(const ReaderParams& read_params, bool merge_by_sequence_mapping);
 
-    // return false if keys of rowsets are mono ascending and disjoint
-    bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
-
-    VCollectIterator _vcollect_iter;
+    // Options the merge or union of the read is initialized with: the output Block limits,
+    // the tie-break direction and the compare columns.
+    StorageReadOptions _rows_options;
+    // The rows of the read; empty for a TopN read.
+    RowwiseIteratorUPtr _rows_iter;
+    // TopN reads only: the key-ordered rows of every rowset, in read order.
+    std::vector<RowwiseIteratorUPtr> _rowset_iters;
     std::unique_ptr<TabletBlockIterator> _block_iter;
 };
 

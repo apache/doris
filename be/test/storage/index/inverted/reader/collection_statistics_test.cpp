@@ -275,15 +275,9 @@ public:
         return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
-    Status next_batch(BlockView* block_view) override {
-        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
+    Status new_iterator(RowsetReaderContext* read_context, RowwiseIteratorUPtr* out_iter) override {
+        return Status::NotSupported("MockRowsetReader::new_iterator not implemented");
     }
-
-    Status next_batch(BlockWithSameBit* block_view) override {
-        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
-    }
-
-    bool delete_flag() override { return false; }
 
     Version version() override { return Version(1, 1); }
 
@@ -302,8 +296,6 @@ public:
     void update_profile(RuntimeProfile* profile) override {}
 
     RowsetReaderSharedPtr clone() override { return std::make_shared<MockRowsetReader>(_rowset); }
-
-    void set_topn_limit(size_t limit) override {}
 
 private:
     std::shared_ptr<MockRowset> _rowset;

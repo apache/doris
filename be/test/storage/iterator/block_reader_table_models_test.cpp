@@ -19,7 +19,7 @@
 // BlockReader::_init_block_iterator writes its own segments with RowsetWriter, reads them back
 // through BlockReader::init + next_block_with_aggregation, and checks both the
 // TabletBlockIterator that was picked and the rows it yields. The rowsets overlap on keys and
-// have several segments, so the segment merge, the VCollectIterator heap and the output Block
+// have several segments, so the segment merge, the rowset merge and the output Block
 // limits all take part; the batch sizes are small so the group and Block boundaries show up.
 
 #if defined(__clang__)
@@ -691,9 +691,10 @@ TEST_F(BlockReaderChangelogTest, MinDeltaScanFoldsEveryKey) {
 
     // key 1: APPEND + UPDATE -> INSERT of the final value; key 2: UPDATE + DELETE -> DELETE
     // carrying the before image of the first op.
-    EXPECT_EQ(key_value_op(opened->drain()),
-              (std::vector<Row> {{1, 15, static_cast<int64_t>(changelog::StreamChangeOp::INSERT)},
-                                 {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::DELETE)}}));
+    EXPECT_EQ(
+            key_value_op(opened->drain()),
+            (std::vector<Row> {{1, 15, static_cast<int64_t>(changelog::StreamChangeOp::INSERT)},
+                               {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::DELETE)}}));
 }
 
 TEST_F(BlockReaderChangelogTest, DetailScanEmitsEveryChange) {
@@ -703,12 +704,13 @@ TEST_F(BlockReaderChangelogTest, DetailScanEmitsEveryChange) {
     EXPECT_TRUE(uses_iterator<ChangelogDetailBlockIterator>(opened->reader));
 
     EXPECT_EQ(key_value_op(opened->drain()),
-              (std::vector<Row> {{1, 10, static_cast<int64_t>(changelog::StreamChangeOp::INSERT)},
-                                 {1, 10, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
-                                 {1, 15, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
-                                 {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
-                                 {2, 21, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
-                                 {2, 21, static_cast<int64_t>(changelog::StreamChangeOp::DELETE)}}));
+              (std::vector<Row> {
+                      {1, 10, static_cast<int64_t>(changelog::StreamChangeOp::INSERT)},
+                      {1, 10, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
+                      {1, 15, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
+                      {2, 20, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_BEFORE)},
+                      {2, 21, static_cast<int64_t>(changelog::StreamChangeOp::UPDATE_AFTER)},
+                      {2, 21, static_cast<int64_t>(changelog::StreamChangeOp::DELETE)}}));
 }
 
 } // namespace doris

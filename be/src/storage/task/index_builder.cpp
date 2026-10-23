@@ -752,7 +752,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
 
                 // write inverted index data, or ann index data
-                status = _write_inverted_index_data(output_rowset_schema, iter->data_id(),
+                status = _write_inverted_index_data(output_rowset_schema, seg_ptr->id(),
                                                     block.get());
                 DBUG_EXECUTE_IF(
                         "IndexBuilder::handle_single_rowset_write_inverted_index_data_error", {

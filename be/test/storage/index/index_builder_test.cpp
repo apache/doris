@@ -37,6 +37,7 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_fwd.h"
@@ -768,7 +769,9 @@ protected:
         std::unique_ptr<RowwiseIterator> filtered;
         st = segment->new_iterator(read_schema, options, &filtered);
         ASSERT_TRUE(st.ok()) << st;
-        EXPECT_EQ(expected_tso == 0, filtered->empty());
+        // The segment is filtered out completely exactly when the TSO predicate matches no row.
+        EXPECT_EQ(expected_tso == 0,
+                  dynamic_cast<segment_v2::EmptySegmentIterator*>(filtered.get()) != nullptr);
     }
 };
 

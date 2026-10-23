@@ -25,7 +25,7 @@
 //      change chain is no longer consecutive.
 //   2. When a forced segment boundary splits a key range across output segments (the same
 //      user key lands in more than one segment), the output rowset meta must be OVERLAPPING
-//      so BetaRowsetReader::is_merge_iterator() picks a merge iterator.
+//      so BetaRowsetReader::new_iterator() picks a merge iterator.
 //
 // This test drives the real Merger::vmerge_rowsets on a changelog tablet with two input
 // rowsets that share every key under different TSOs, forces a multi-segment output via
@@ -99,7 +99,7 @@ protected:
     }
 
     // Changelog read schema: single leading key column, a value column, and the changelog TSO
-    // column (marked via changelog_tso_col_idx so Level1Iterator uses it as the merge sequence
+    // column (marked via changelog_tso_col_idx so the merge uses it as the sequence
     // column). DUP_KEYS matches the FE-generated hidden changelog table, which keeps every
     // change event instead of deduplicating by user key.
     TabletSchemaSPtr create_changelog_schema(const std::string& tso_name = CHANGELOG_TSO_COL) {

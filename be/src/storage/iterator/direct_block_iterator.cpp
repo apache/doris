@@ -17,17 +17,19 @@
 
 #include "storage/iterator/direct_block_iterator.h"
 
-#include "storage/iterator/vcollect_iterator.h"
+#include "core/block/block.h"
+#include "storage/iterators.h"
 
 namespace doris {
 using namespace ErrorCode;
 
 Status DirectBlockIterator::next_block(Block* block, bool* eof) {
-    auto res = _collect_iter->next(block);
+    auto res = _rows->next_batch(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
     *eof = res.is<END_OF_FILE>();
+    DCHECK(!*eof || block->rows() == 0);
     return Status::OK();
 }
 

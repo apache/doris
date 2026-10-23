@@ -434,7 +434,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _block_rowids.resize(_opts.block_row_max);
 
     // Adaptive batch size: snapshot the initial row limit and create predictor if enabled.
-    _initial_block_row_max = _opts.block_row_max;
+    _batch_rows = _opts.block_row_max;
     _block_size_predictor = _make_block_size_predictor();
 
     _virtual_column_exprs = _opts.virtual_column_exprs;
@@ -578,12 +578,9 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     }
 
-    // Reserve columns for _initial_block_row_max (the original max before any adaptive
-    // prediction) because the predictor may increase block_row_max on subsequent batches
-    // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
-    // cause heap-buffer-overflow if a later prediction is larger.
-    auto nrows_reserve_limit =
-            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
+    // Reserve the columns for the ceiling, not for the current prediction: a later batch may
+    // be predicted larger again, up to _opts.block_row_max.
+    auto nrows_reserve_limit = std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
     _current_columns.resize(_schema->num_read_columns());
 
     for (size_t i = 0; i < _schema->num_read_columns(); i++) {
@@ -2860,6 +2857,25 @@ Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
 }
 
 Status SegmentIterator::next_batch(Block* block) {
+    DCHECK(!_eof_returned) << "next_batch() called after EndOfFile";
+    // A batch whose rows were all filtered out is not handed up: read on, so that a caller
+    // only ever sees batches with rows and then one EndOfFile.
+    Status status;
+    do {
+        status = _next_batch_once(block);
+        if (status.ok() && block->rows() == 0 && _opts.runtime_state != nullptr &&
+            _opts.runtime_state->is_cancelled()) [[unlikely]] {
+            // The read may filter out batch after batch: a cancelled query stops here.
+            return _opts.runtime_state->cancel_reason();
+        }
+    } while (status.ok() && block->rows() == 0);
+    if (status.is<END_OF_FILE>()) {
+        _eof_returned = true;
+    }
+    return status;
+}
+
+Status SegmentIterator::_next_batch_once(Block* block) {
     // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
     _init_virtual_columns(block);
     auto status = [&]() {
@@ -2867,7 +2883,7 @@ Status SegmentIterator::next_batch(Block* block) {
             // Adaptive batch size: predict how many rows this batch should read.
             if (_block_size_predictor) {
                 auto predicted = static_cast<uint32_t>(_block_size_predictor->predict_next_rows());
-                _opts.block_row_max = std::min(predicted, _initial_block_row_max);
+                _batch_rows = std::min(predicted, _opts.block_row_max);
                 _opts.stats->adaptive_batch_size_predict_min_rows =
                         std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
                                  static_cast<int64_t>(predicted));
@@ -3017,7 +3033,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
-            std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
+            std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _batch_rows);
     if (_can_opt_limit_reads()) {
         // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
         // and after filtering. Cap the first read directly; this is the no-conjunct fast path that

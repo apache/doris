@@ -25,7 +25,7 @@
 #include "core/column/column_vector.h"
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -102,10 +102,10 @@ bool ChangelogPendingRow::emit(MutableColumns& target_columns) {
     return true;
 }
 
-ChangelogMinDeltaBlockIterator::ChangelogMinDeltaBlockIterator(VCollectIterator* collect_iter,
+ChangelogMinDeltaBlockIterator::ChangelogMinDeltaBlockIterator(RowwiseIterator* rows,
                                                                OutputBlockLimits limits,
                                                                ReadSchemaSPtr read_schema)
-        : _cursor(collect_iter),
+        : _cursor(rows),
           _limits(limits),
           _read_schema(std::move(read_schema)),
           _op_ordinal(changelog_op_ordinal(*_read_schema)) {}
@@ -174,7 +174,8 @@ Status ChangelogMinDeltaBlockIterator::_append_insert_row(MutableColumns& column
     const size_t last_row = _last_group_row();
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
         if (ordinal == _op_ordinal) {
-            RETURN_IF_ERROR(write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::INSERT));
+            RETURN_IF_ERROR(
+                    write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::INSERT));
         } else {
             columns[ordinal]->insert_from(*_group_columns[ordinal], last_row);
         }
@@ -186,7 +187,8 @@ Status ChangelogMinDeltaBlockIterator::_append_delete_row(MutableColumns& column
     const size_t last_row = _last_group_row();
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
         if (ordinal == _op_ordinal) {
-            RETURN_IF_ERROR(write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::DELETE));
+            RETURN_IF_ERROR(
+                    write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::DELETE));
         } else if (std::cmp_equal(ordinal, _read_schema->lsn_ordinal()) ||
                    std::cmp_equal(ordinal, _read_schema->tso_ordinal())) {
             columns[ordinal]->insert_from(*_group_columns[ordinal], last_row);
@@ -202,8 +204,8 @@ Status ChangelogMinDeltaBlockIterator::_append_delete_row(MutableColumns& column
 Status ChangelogMinDeltaBlockIterator::_append_update_before_row(MutableColumns& columns) const {
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
         if (ordinal == _op_ordinal) {
-            RETURN_IF_ERROR(
-                    write_changelog_op(*columns[ordinal], changelog::StreamChangeOp::UPDATE_BEFORE));
+            RETURN_IF_ERROR(write_changelog_op(*columns[ordinal],
+                                               changelog::StreamChangeOp::UPDATE_BEFORE));
         } else {
             const auto before_ordinal =
                     _read_schema->before_column_ordinal(static_cast<ColumnId>(ordinal));
@@ -302,14 +304,15 @@ Status ChangelogMinDeltaBlockIterator::next_block(Block* block, bool* eof) {
             column->clear();
         }
     }
-    *eof = _cursor.eof() && !_pending_row.has_row();
+    // Rows went out, or everything has been emitted: either way the next call settles it.
+    *eof = output_rows == 0 && _cursor.eof() && !_pending_row.has_row();
     return Status::OK();
 }
 
-ChangelogDetailBlockIterator::ChangelogDetailBlockIterator(VCollectIterator* collect_iter,
+ChangelogDetailBlockIterator::ChangelogDetailBlockIterator(RowwiseIterator* rows,
                                                            OutputBlockLimits limits,
                                                            ReadSchemaSPtr read_schema)
-        : _cursor(collect_iter),
+        : _cursor(rows),
           _limits(limits),
           _read_schema(std::move(read_schema)),
           _op_ordinal(changelog_op_ordinal(*_read_schema)) {}
@@ -348,10 +351,12 @@ Status ChangelogDetailBlockIterator::_emit_change(ChangelogOp op, MutableColumns
                 _append_change_row(target_columns, changelog::StreamChangeOp::UPDATE_AFTER, false));
         (*output_rows)++;
     } else if (op == ChangelogOp::APPEND) {
-        RETURN_IF_ERROR(_append_change_row(target_columns, changelog::StreamChangeOp::INSERT, false));
+        RETURN_IF_ERROR(
+                _append_change_row(target_columns, changelog::StreamChangeOp::INSERT, false));
         (*output_rows)++;
     } else if (op == ChangelogOp::DELETE) {
-        RETURN_IF_ERROR(_append_change_row(target_columns, changelog::StreamChangeOp::DELETE, true));
+        RETURN_IF_ERROR(
+                _append_change_row(target_columns, changelog::StreamChangeOp::DELETE, true));
         (*output_rows)++;
     }
     return Status::OK();
@@ -381,7 +386,8 @@ Status ChangelogDetailBlockIterator::next_block(Block* block, bool* eof) {
         RETURN_IF_ERROR(_emit_change(op, target_columns, &output_rows));
         RETURN_IF_ERROR(_cursor.advance());
     }
-    *eof = _cursor.eof() && !_pending_row.has_row();
+    // Rows went out, or everything has been emitted: either way the next call settles it.
+    *eof = output_rows == 0 && _cursor.eof() && !_pending_row.has_row();
     return Status::OK();
 }
 
