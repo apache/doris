@@ -105,7 +105,7 @@ int HttpRequest::init_from_evhttp() {
     struct evkeyvalq params;
     auto res = evhttp_parse_query_str(query, &params);
     if (res < 0) {
-        LOG(WARNING) << "parse query str failed, query=" << query;
+        LOG(WARNING) << "parse query str failed";
         return res;
     }
     for (auto param = params.tqh_first; param != nullptr; param = param->next.tqe_next) {
@@ -120,7 +120,7 @@ std::string HttpRequest::debug_string() const {
     std::stringstream ss;
     ss << "HttpRequest: \n"
        << "method:" << _method << "\n"
-       << "uri:" << _uri << "\n"
+       << "uri:" << _raw_path << "\n"
        << "raw_path:" << _raw_path << "\n"
        << "headers: \n";
     for (auto& iter : _headers) {
@@ -131,10 +131,7 @@ std::string HttpRequest::debug_string() const {
             ss << "key=" << iter.first << ", value=" << iter.second << "\n";
         }
     }
-    ss << "params: \n";
-    for (auto& iter : _params) {
-        ss << "key=" << iter.first << ", value=" << iter.second << "\n";
-    }
+    ss << "params_count:" << _params.size() << "\n";
 
     return ss.str();
 }
