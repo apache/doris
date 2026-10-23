@@ -456,8 +456,13 @@ public final class IcebergCatalogFactory {
         chosenS3.ifPresent(storage -> storage.toBackendProperties().ifPresent(backend -> {
             Optional<GcsAuth> auth = GcsAuthResolver.resolve(backend.toMap());
             if (auth.filter(GcsAuth::isAnonymous).isPresent()) {
-                opts.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
-                        "software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider");
+                if (IcebergCatalogProperties.TYPE_GLUE.equals(flavor)) {
+                    // Glue metadata still needs AWS credentials when the GCS objects are public.
+                    opts.put(S3FileIOProperties.CLIENT_FACTORY, AnonymousS3FileIOAwsClientFactory.class.getName());
+                } else {
+                    opts.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                            "software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider");
+                }
             }
             auth.flatMap(GcsAuth::getNativeCredential).ifPresent(credential -> {
                 // HadoopCatalog resolves its namespace filesystem independently of S3FileIO.
@@ -471,7 +476,11 @@ public final class IcebergCatalogFactory {
                         opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(6));
                     }
                 }
-                putS3FileIODialect(opts, storage);
+                // Glue already emitted the object-store settings. Its shared client.region belongs
+                // to the metadata client; the GCP FileIO factory resolves its own storage region.
+                if (!IcebergCatalogProperties.TYPE_GLUE.equals(flavor)) {
+                    putS3FileIODialect(opts, storage);
+                }
                 opts.put("provider", "GCP");
                 opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
                 putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
