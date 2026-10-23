@@ -1249,6 +1249,162 @@ int InstanceChecker::collect_tablet_rowsets(
     return 0;
 }
 
+std::pair<MetaServiceCode, std::string> check_delete_bitmap_orphan(
+        const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id, int64_t tablet_id,
+        int64_t max_scan_keys, DeleteBitmapOrphanCheckResult* result,
+        const std::function<bool()>& should_cancel) {
+    *result = {};
+    auto check_cancelled = [&] {
+        result->cancelled = should_cancel();
+        return result->cancelled;
+    };
+    std::unique_ptr<Transaction> txn;
+    auto err = txn_kv->create_txn(&txn);
+    if (check_cancelled()) {
+        return {MetaServiceCode::OK, ""};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::CREATE>(err), "failed to create check transaction"};
+    }
+    std::string instance_value;
+    err = txn->get(instance_key({instance_id}), &instance_value);
+    if (check_cancelled()) {
+        return {MetaServiceCode::OK, ""};
+    }
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return {MetaServiceCode::INVALID_ARGUMENT, "instance not found"};
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::READ>(err), "failed to read instance"};
+    }
+
+    auto begin = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+    auto end = meta_delete_bitmap_key(
+            {instance_id, tablet_id == 0 ? INT64_MAX : tablet_id + 1, "", 0, 0});
+    RangeGetOptions options;
+    options.reverse = true;
+    options.snapshot = true;
+    int64_t cached_tablet_id = -1;
+    std::unordered_set<std::string> rowsets;
+    while (true) {
+        if (max_scan_keys > 0 && result->scanned_kvs >= max_scan_keys) {
+            return {MetaServiceCode::OK, ""};
+        }
+        err = txn_kv->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::CREATE>(err), "failed to create check transaction"};
+        }
+        // Small pages bound bitmap value traffic before an early return. No next-page prefetch.
+        options.batch_limit = max_scan_keys > 0
+                                      ? std::min<int64_t>(128, max_scan_keys - result->scanned_kvs)
+                                      : 128;
+        std::unique_ptr<RangeGetIterator> it;
+        err = txn->get(begin, end, &it, options);
+        TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_orphan::get_bitmap", &err);
+        if (check_cancelled()) {
+            return {MetaServiceCode::OK, ""};
+        }
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::READ>(err), "failed to scan v1 delete bitmaps"};
+        }
+        // The cache is reused across pages, each with a new transaction. Track whether the
+        // current tablet's cache was refreshed at this transaction's read version, so a cache
+        // miss is rechecked for newly published rowsets before reporting a suspected orphan.
+        bool rowsets_cache_refreshed_in_txn = false;
+        bool retry_current_bitmap = false;
+        while (!check_cancelled() && it->has_next()) {
+            auto [key, value] = it->next();
+            ++result->scanned_kvs;
+            auto encoded_key = key.substr(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> fields;
+            // Legacy keys have seven fields; blob keys have an additional encoded suffix.
+            if (decode_key(&encoded_key, &fields) != 0 ||
+                (fields.size() != 7 && fields.size() != 8)) {
+                return {MetaServiceCode::UNDEFINED_ERR,
+                        fmt::format("malformed delete bitmap key: {}", hex(key))};
+            }
+            const auto* current_tablet_id = std::get_if<int64_t>(&std::get<0>(fields[3]));
+            const auto* rowset_id = std::get_if<std::string>(&std::get<0>(fields[4]));
+            const auto* version = std::get_if<int64_t>(&std::get<0>(fields[5]));
+            const auto* segment_id = std::get_if<int64_t>(&std::get<0>(fields[6]));
+            if (current_tablet_id == nullptr || rowset_id == nullptr || version == nullptr ||
+                segment_id == nullptr) {
+                return {MetaServiceCode::UNDEFINED_ERR,
+                        fmt::format("invalid delete bitmap key fields: {}", hex(key))};
+            }
+
+            if (cached_tablet_id != *current_tablet_id ||
+                (!rowsets.contains(*rowset_id) && !rowsets_cache_refreshed_in_txn)) {
+                rowsets.clear();
+                FullRangeGetOptions rowset_options;
+                rowset_options.snapshot = true;
+                rowset_options.batch_limit = 128;
+                auto rowset_it = txn->full_range_get(
+                        meta_rowset_key({instance_id, *current_tablet_id, 0}),
+                        meta_rowset_key({instance_id, *current_tablet_id + 1, 0}), rowset_options);
+                while (true) {
+                    // next() may fetch another page; check cancellation after it returns,
+                    // before decoding any rowset metadata.
+                    auto kv = rowset_it->next();
+                    if (check_cancelled()) {
+                        return {MetaServiceCode::OK, ""};
+                    }
+                    if (!kv) {
+                        break;
+                    }
+                    RowsetMetaCloudPB rowset;
+                    if (!rowset.ParseFromArray(kv->second.data(), kv->second.size())) {
+                        return {MetaServiceCode::PROTOBUF_PARSE_ERR,
+                                fmt::format("malformed rowset meta: {}", hex(kv->first))};
+                    }
+                    rowsets.insert(rowset.rowset_id_v2());
+                }
+                err = rowset_it->error_code();
+                TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_orphan::get_rowsets", &err, &key);
+                if (err == TxnErrorCode::TXN_TOO_OLD) {
+                    // Retry this key inclusively in a new transaction. Reread the bitmap and
+                    // rebuild the rowset cache at the new read version before reporting a leak.
+                    end = key;
+                    options.end_key_selector = RangeKeySelector::FIRST_GREATER_THAN;
+                    rowsets.clear();
+                    cached_tablet_id = -1;
+                    --result->scanned_kvs; // The unfinished key must not consume the budget twice.
+                    retry_current_bitmap = true;
+                    break;
+                }
+                if (err != TxnErrorCode::TXN_OK) {
+                    return {cast_as<ErrCategory::READ>(err), "failed to scan tablet rowsets"};
+                }
+                cached_tablet_id = *current_tablet_id;
+                rowsets_cache_refreshed_in_txn = true;
+            }
+            if (!rowsets.contains(*rowset_id)) {
+                result->key = key;
+                result->tablet_id = *current_tablet_id;
+                result->rowset_id = *rowset_id;
+                result->version = *version;
+                result->segment_id = *segment_id;
+                return {MetaServiceCode::OK, ""};
+            }
+        }
+        if (result->cancelled) {
+            return {MetaServiceCode::OK, ""};
+        }
+        if (retry_current_bitmap) {
+            continue;
+        }
+        if (!it->more()) {
+            result->range_exhausted = true;
+            return {MetaServiceCode::OK, ""};
+        }
+        end = it->last_key();
+        options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+    }
+}
+
 int InstanceChecker::do_delete_bitmap_inverted_check() {
     LOG(INFO) << fmt::format(
             "[delete bitmap checker] begin to do_delete_bitmap_inverted_check for instance_id={}",

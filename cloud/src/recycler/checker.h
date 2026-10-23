@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/cloud.pb.h>
+
 #include "resource-manager/resource_manager.h"
 #if defined(USE_LIBCPP) && _LIBCPP_ABI_VERSION <= 1
 #define _LIBCPP_ABI_INCOMPLETE_TYPES_IN_DEQUE
@@ -62,6 +64,27 @@ struct PendingTableStreamDrop {
 TxnErrorCode collect_pending_table_stream_drops(
         const std::shared_ptr<TxnKv>& txn_kv, std::string_view instance_id,
         std::unordered_map<int64_t, PendingTableStreamDrop>* pending_drops);
+
+struct DeleteBitmapOrphanCheckResult {
+    int64_t scanned_kvs = 0;
+    bool range_exhausted = false;
+    bool cancelled = false;
+    std::string key;
+    int64_t tablet_id = 0;
+    std::string rowset_id;
+    int64_t version = 0;
+    int64_t segment_id = 0;
+};
+
+// Scan v1 bitmap keys in descending key order and return the first one without a formal v1
+// meta rowset. Pending bitmaps and unexpired job tmp rowsets are not excluded, so a match is
+// only a suspected orphan. tablet_id == 0 scans the instance; max_scan_keys == 0 is unlimited.
+// Cancellation is checked between reads and while iterating bitmap and rowset keys. A read
+// already in progress must return or time out before cancellation can be observed.
+std::pair<MetaServiceCode, std::string> check_delete_bitmap_orphan(
+        const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id, int64_t tablet_id,
+        int64_t max_scan_keys, DeleteBitmapOrphanCheckResult* result,
+        const std::function<bool()>& should_cancel = [] { return false; });
 
 class Checker {
 public:
