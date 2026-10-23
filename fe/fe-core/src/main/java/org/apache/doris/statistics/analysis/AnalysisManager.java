@@ -1346,10 +1346,20 @@ public class AnalysisManager implements Writable {
 
     // Invoke this for cloud version load.
     public void updateUpdatedRows(Map<Long, Long> updatedRows, long dbId) {
+        updateUpdatedRows(updatedRows, dbId, Collections.emptyMap());
+    }
+
+    /**
+     * Apply and journal the rows a cloud load reported.
+     *
+     * @param reportedPartitions the partitions each table's rows were loaded into, or an empty map when the
+     *         caller has no partition information
+     */
+    public void updateUpdatedRows(Map<Long, Long> updatedRows, long dbId,
+            Map<Long, List<Long>> reportedPartitions) {
         if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
             return;
         }
-        UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(dbId, updatedRows);
         // The record of a table which has none is created while this event is applied, and the event is
         // journaled afterwards. A whole table DROP STATS removes the record and journals the deletion, so both
         // mutations have to be applied in the order their journal entries have: without the table lock the
@@ -1364,6 +1374,19 @@ public class AnalysisManager implements Writable {
             return;
         }
         try {
+            // A report can arrive after the partitions it counted are gone: a stream load queues the report of
+            // the rows it loaded (`send_stats_to_fe_async`) and can return before the frontend received it, and
+            // a whole table TRUNCATE replaces the partitions while it keeps the id of the table. The rows of
+            // such a report are the rows which were removed, so they are neither applied nor journaled: the
+            // record which the next load recreates would otherwise report a table which holds 3 rows as if it
+            // held 103 rows, until the backends report the new tablets.
+            Map<Long, Long> recordedRows = new HashMap<>(updatedRows);
+            recordedRows.keySet().removeIf(tableId -> !reportCountsCurrentPartitions(dbId, tableId,
+                    reportedPartitions.getOrDefault(tableId, Collections.emptyList())));
+            if (recordedRows.isEmpty()) {
+                return;
+            }
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(dbId, recordedRows);
             replayUpdateRowsRecord(updateRowsEvent);
             logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
@@ -1371,6 +1394,36 @@ public class AnalysisManager implements Writable {
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+    }
+
+    /**
+     * Whether the partitions which a cloud row count report counted still belong to the table.
+     *
+     * <p>A stream load queues the report of the rows it loaded and can return before the frontend received it,
+     * so a report can arrive after the partitions it counted are gone: a whole table TRUNCATE replaces the
+     * partitions of the table and keeps its id, so the rows of such a report are the rows the truncation
+     * removed and must not be accumulated into the record which the next load recreates.
+     */
+    @VisibleForTesting
+    static boolean reportCountsCurrentPartitions(OlapTable table, Collection<Long> reportedPartitionIds) {
+        for (long partitionId : reportedPartitionIds) {
+            if (table.getPartition(partitionId) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean reportCountsCurrentPartitions(long dbId, long tableId,
+            Collection<Long> reportedPartitionIds) {
+        if (reportedPartitionIds.isEmpty()) {
+            return true;
+        }
+        return Env.getCurrentInternalCatalog().getDb(dbId)
+                .flatMap(db -> db.getTable(tableId))
+                .filter(table -> table instanceof OlapTable)
+                .map(table -> reportCountsCurrentPartitions((OlapTable) table, reportedPartitionIds))
+                .orElse(true);
     }
 
     private List<Table> getTablesOnIdOrder(long dbId, Collection<Long> tableIds) {

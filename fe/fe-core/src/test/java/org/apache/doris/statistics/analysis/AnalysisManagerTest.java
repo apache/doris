@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableIf;
@@ -1071,5 +1072,59 @@ public class AnalysisManagerTest {
         Assertions.assertNotNull(record);
         Assertions.assertEquals(5, record.updatedRows.get());
         Mockito.verify(editLog, Mockito.times(1)).logUpdateRowsRecord(Mockito.any(UpdateRowsEvent.class));
+    }
+    /**
+     * A cloud stream load queues the report of the rows it loaded and can return before the frontend received
+     * it. A whole table TRUNCATE replaces the partitions and keeps the table id, so a report which arrives
+     * afterwards counts the rows the truncation removed: they must neither be applied to the record which the
+     * next load recreates nor be journaled.
+     */
+    @Test
+    public void testReportOfAPartitionRemovedByTruncateIsNotApplied() throws Exception {
+        AnalysisManager manager = new AnalysisManager();
+        InternalCatalog catalog = new InternalCatalog();
+        Database db = new Database(20004L, "test_stale_cloud_report");
+        catalog.unprotectCreateDb(db);
+        OlapTable table = mockOlapTableInReplica(30010L, "t_stale_report", db);
+        long replacedPartitionId = 40001L;
+        long partitionId = 40002L;
+        Mockito.when(table.getPartition(partitionId)).thenReturn(Mockito.mock(Partition.class));
+        Mockito.when(table.tryWriteLockIfExist(Mockito.anyLong(), Mockito.any(TimeUnit.class))).thenReturn(true);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.isMaster()).thenReturn(true);
+
+            // The report of the 100 rows which the truncation removed arrives after the replacement partitions
+            // were created.
+            manager.updateUpdatedRows(ImmutableMap.of(table.getId(), 100L), db.getId(),
+                    ImmutableMap.of(table.getId(), ImmutableList.of(replacedPartitionId)));
+            Assertions.assertNull(manager.findTableStatsStatus(table.getId()));
+            Mockito.verify(editLog, Mockito.never()).logUpdateRowsRecord(Mockito.any(UpdateRowsEvent.class));
+
+            // The 3 rows which the next load reports belong to the current partition and recreate the record.
+            manager.updateUpdatedRows(ImmutableMap.of(table.getId(), 3L), db.getId(),
+                    ImmutableMap.of(table.getId(), ImmutableList.of(partitionId)));
+            TableStatsMeta record = manager.findTableStatsStatus(table.getId());
+            Assertions.assertNotNull(record);
+            Assertions.assertEquals(3, record.updatedRows.get());
+            Mockito.verify(editLog).logUpdateRowsRecord(Mockito.any(UpdateRowsEvent.class));
+        }
+    }
+
+    @Test
+    public void testReportOfRemovedPartitionsIsRecognized() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getPartition(1L)).thenReturn(Mockito.mock(Partition.class));
+
+        Assertions.assertTrue(AnalysisManager.reportCountsCurrentPartitions(table, ImmutableList.of()));
+        Assertions.assertTrue(AnalysisManager.reportCountsCurrentPartitions(table, ImmutableList.of(1L)));
+        Assertions.assertFalse(AnalysisManager.reportCountsCurrentPartitions(table, ImmutableList.of(2L)));
+        // A report which counts rows of a removed partition is stale as a whole.
+        Assertions.assertFalse(AnalysisManager.reportCountsCurrentPartitions(table, ImmutableList.of(1L, 2L)));
     }
 }
