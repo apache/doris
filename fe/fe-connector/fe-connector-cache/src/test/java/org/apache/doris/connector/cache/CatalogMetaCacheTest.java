@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.concurrent.CountDownLatch;
@@ -37,6 +38,40 @@ import java.util.concurrent.atomic.AtomicReference;
 
 class CatalogMetaCacheTest {
     private static final CacheSpec SPEC = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100);
+
+    @Test
+    void resourceNormalizationCoversDomainsAndBulkLoadsWithoutChangingRemoteNames() {
+        try (CatalogMetaCache root = CatalogMetaCache.managed(987654321L, "test", Collections.emptyMap(),
+                getClass().getClassLoader(), scope -> scope.coordinates() == ScopePath.Coordinates.LOCAL
+                        ? scope.mapTableName(name -> name.toLowerCase(Locale.ROOT)) : scope)) {
+            CatalogMetaCache local = root.openDomain("local", ScopePath.Coordinates.LOCAL, getClass().getClassLoader());
+            CatalogMetaCache remote = root.openDomain("remote", ScopePath.Coordinates.REMOTE,
+                    getClass().getClassLoader());
+            MetaCache<String, String> objects = local.create(MetaCacheDefinition.<String, String>builder(
+                    "objects", SPEC, key -> ScopePath.table("db", key)).build());
+            MetaCache<String, String> metadata = local.create(MetaCacheDefinition.<String, String>builder(
+                    "metadata", SPEC, key -> ScopePath.tableMetadata("db", key)).build());
+            MetaCache<String, String> remoteObjects = remote.create(MetaCacheDefinition.<String, String>builder(
+                    "objects", SPEC, key -> ScopePath.table("db", key)).build());
+            objects.put("Dest", "old");
+            metadata.put("Dest", "schema");
+            objects.put("b", "sibling");
+            remoteObjects.put("Dest", "remote");
+            try (MetaCache.BulkLoad<String, String> load = objects.beginBulkLoad(ScopePath.table("db", "Dest"))) {
+                root.invalidateScopes(Collections.singletonList(
+                        ScopePath.table("db", "DEST").in(ScopePath.Coordinates.LOCAL)));
+                Assertions.assertFalse(load.publish("Dest", "late"));
+            }
+            Assertions.assertNull(objects.getIfPresent("Dest"));
+            Assertions.assertNull(metadata.getIfPresent("Dest"));
+            Assertions.assertEquals("sibling", objects.getIfPresent("b"));
+            Assertions.assertEquals("remote", remoteObjects.getIfPresent("Dest"));
+            remote.invalidateTable("db", "DEST");
+            Assertions.assertEquals("remote", remoteObjects.getIfPresent("Dest"));
+            remote.invalidateTable("db", "Dest");
+            Assertions.assertNull(remoteObjects.getIfPresent("Dest"));
+        }
+    }
 
     @Test
     void unmanagedOwnershipMustBeSelectedExplicitly() throws Exception {

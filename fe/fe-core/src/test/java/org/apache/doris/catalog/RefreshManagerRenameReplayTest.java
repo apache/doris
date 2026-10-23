@@ -79,7 +79,10 @@ public class RefreshManagerRenameReplayTest {
         Mockito.when(catalog.getMetaCacheOwnerIfPresent()).thenReturn(root);
         Mockito.when(catalog.resolveDatabaseNameForInvalidation("db1")).thenReturn("db1");
         Mockito.doReturn(Optional.of(db)).when(catalog).getDbForReplay("db1");
+        Mockito.when(db.getFullName()).thenReturn("db1");
         Mockito.when(db.getRemoteName()).thenReturn("DB1");
+        Mockito.when(db.resolveTableNameForInvalidation(Mockito.anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         dbId = Util.genIdByName("c", "db1");
         sourceTableId = Util.genIdByName("c", "db1", "t1");
         destinationTableId = Util.genIdByName("c", "db1", "t2");

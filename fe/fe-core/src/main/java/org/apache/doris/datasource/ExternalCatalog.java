@@ -419,7 +419,10 @@ public abstract class ExternalCatalog
             overlayMetaCacheConfig(properties);
             String engine = this instanceof RemoteDorisExternalCatalog
                     ? "doris" : "default";
-            feMetaCacheOwner = CatalogMetaCache.managed(id, engine, properties, ExternalCatalog.class.getClassLoader());
+            boolean caseInsensitiveTables = getLowerCaseTableNames() == 2;
+            feMetaCacheOwner = CatalogMetaCache.managed(id, engine, properties, ExternalCatalog.class.getClassLoader(),
+                    scope -> caseInsensitiveTables && scope.coordinates() == ScopePath.Coordinates.LOCAL
+                            ? scope.mapTableName(table -> table.toLowerCase(Locale.ROOT)) : scope);
             dbIdNameIndex.clear();
             if (replacingClosedOwner) {
                 initialized = false;
@@ -999,7 +1002,9 @@ public abstract class ExternalCatalog
     private void invalidateCachesAfterPropertyUpdate(Map<String, String> updatedProps) {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null
-                || updatedProps.containsKey(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
+                || updatedProps.containsKey(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)
+                || updatedProps.containsKey(LOWER_CASE_TABLE_NAMES)
+                || updatedProps.containsKey(ONLY_TEST_LOWER_CASE_TABLE_NAMES)) {
             cacheMgr.removeCatalog(id);
             return;
         }

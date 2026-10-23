@@ -26,9 +26,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.datasource.log.CatalogLog;
 import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
@@ -133,6 +135,143 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
     }
 
     @Test
+    public void renameInvalidatesCaseEquivalentDestinationAndDerivedCaches() {
+        verifyCaseEquivalentRenameDestination(false, false, true);
+    }
+
+    @Test
+    public void renameReplayInvalidatesCaseEquivalentDestinationWithColdNames() {
+        verifyCaseEquivalentRenameDestination(true, false, true);
+    }
+
+    @Test
+    public void renameReplayInvalidatesPreviousDestinationAfterNamesRefresh() {
+        verifyCaseEquivalentRenameDestination(true, true, true);
+    }
+
+    @Test
+    public void renameEventRefreshReplayInvalidatesPreviousDestinationAfterNamesRefresh() {
+        verifyCaseEquivalentRenameDestination(true, true, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void verifyCaseEquivalentRenameDestination(boolean replay, boolean refreshedNames, boolean rename) {
+        prepareCaseInsensitiveTables();
+        putTable("Dest", "previous_destination");
+        TestExternalTable source = database.getTableNullable("a");
+        TestExternalTable destination = database.getTableNullable("Dest");
+        TestExternalTable sibling = database.getTableNullable("b");
+        source.getFullSchema();
+        destination.getFullSchema();
+        List<Column> siblingSchema = sibling.getFullSchema();
+        CatalogMetaCache root = catalog.getFeMetaCacheOwner();
+        MetaCache<SchemaCacheKey, SchemaCacheValue> schemas =
+                (MetaCache<SchemaCacheKey, SchemaCacheValue>) root.entries().get("schema");
+        SchemaCacheKey schemaKey = new SchemaCacheKey(destination.getOrBuildNameMapping());
+        ExternalRowCountCache counts = Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache();
+        counts.getCachedRowCount(catalog.getId(), database.getId(), destination.getId(), false);
+        counts.getCachedRowCount(catalog.getId(), database.getId(), sibling.getId(), false);
+        MetaCache<ExternalRowCountCache.RowCountKey, ?> rows =
+                (MetaCache<ExternalRowCountCache.RowCountKey, ?>) root.entries().get("row_count");
+        ExternalRowCountCache.RowCountKey rowKey = new ExternalRowCountCache.RowCountKey(
+                catalog.getId(), database.getId(), destination.getId());
+        ExternalRowCountCache.RowCountKey siblingRowKey = new ExternalRowCountCache.RowCountKey(
+                catalog.getId(), database.getId(), sibling.getId());
+        Assertions.assertNotNull(schemas.getIfPresent(schemaKey));
+        Assertions.assertNotNull(rows.getIfPresent(rowKey));
+        Assertions.assertNotNull(rows.getIfPresent(siblingRowKey));
+        Assertions.assertEquals("Dest", database.getCachedTableNameByIdForTest(destination.getId()));
+
+        // The destination was removed outside Doris; rename recreates its case-equivalent remote name.
+        Provider.TABLES.remove("Dest");
+        Provider.TABLES.remove("a");
+        putTable("DEST", "renamed_source");
+        if (replay) {
+            database.resetMetaCacheNames();
+        }
+        if (refreshedNames) {
+            Assertions.assertEquals(Set.of("DEST", "b"), database.getTableNamesWithLock());
+        }
+        int namesBeforeChange = catalog.nameLoads.get();
+        ExternalObjectLog change = rename
+                ? ExternalObjectLog.createForRenameTable(catalog.getId(), "db", "a", "DEST")
+                        .withRemoteNames("db", "a")
+                : ExternalObjectLog.createForExplicitRefreshTable(catalog.getId(), "db", "DEST", 0)
+                        .withRemoteNames("db", "DEST");
+        if (rename) {
+            change.setRemoteNewTableName("DEST");
+        }
+        if (replay) {
+            ExternalObjectLog restored = GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(change), ExternalObjectLog.class);
+            new RefreshManager().replayRefreshTable(restored);
+        } else {
+            CatalogMetadataChanges.apply(catalog, change);
+        }
+        Assertions.assertEquals(namesBeforeChange, catalog.nameLoads.get(), "invalidation must not list remotely");
+        Assertions.assertNull(database.getCachedTableNameByIdForTest(destination.getId()));
+        Assertions.assertNull(database.getTableNullable(destination.getId()));
+        if (rename) {
+            Assertions.assertNull(database.getTableNullable(source.getId()));
+        } else {
+            Assertions.assertSame(source, database.getTableNullable(source.getId()));
+        }
+        Assertions.assertNull(schemas.getIfPresent(schemaKey));
+        Assertions.assertNull(rows.getIfPresent(rowKey));
+        Assertions.assertNull(rows.getIfPresent(siblingRowKey), "mode 2 identity changes fence numeric state for this DB");
+        TestExternalTable renamed = database.getTableNullable("DEST");
+        Assertions.assertNotSame(destination, renamed);
+        Assertions.assertEquals("renamed_source", renamed.getFullSchema().get(0).getName());
+        Assertions.assertSame(sibling, database.getTableNullable("b"));
+        Assertions.assertSame(siblingSchema, sibling.getFullSchema());
+    }
+
+    private void prepareCaseInsensitiveTables() {
+        catalog.modifyCatalogProps(Collections.singletonMap(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "2"));
+        catalog.setInitializedForTest(true);
+        database = new CountingDatabase(catalog);
+        database.setInitializedForTest(true);
+        catalog.addDatabaseForTest(database);
+    }
+
+    @Test
+    public void tableNameModeChangesRetireTheScopePolicy() {
+        CatalogMetaCache sensitive = catalog.getFeMetaCacheOwner();
+        prepareCaseInsensitiveTables();
+        CatalogMetaCache insensitive = catalog.getFeMetaCacheOwner();
+        Assertions.assertTrue(sensitive.isClosed());
+        Assertions.assertNotSame(sensitive, insensitive);
+        catalog.modifyCatalogProps(Collections.singletonMap(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "0"));
+        Assertions.assertTrue(insensitive.isClosed());
+        Assertions.assertNotSame(insensitive, catalog.getFeMetaCacheOwner());
+    }
+
+    @Test
+    public void renameFencesFirstDestinationLoadAfterNamesRefresh() throws Exception {
+        prepareCaseInsensitiveTables();
+        putTable("Dest", "previous_destination");
+        objectsGate.arm();
+        Future<TestExternalTable> old = workers.submit(() -> database.getTableNullable("Dest"));
+        objectsGate.awaitStarted();
+        Provider.TABLES.remove("Dest");
+        Provider.TABLES.remove("a");
+        putTable("DEST", "renamed_source");
+        database.resetMetaCacheNames();
+        Assertions.assertEquals(Set.of("DEST", "b"), database.getTableNamesWithLock());
+        CatalogMetadataChanges.apply(catalog,
+                ExternalObjectLog.createForRenameTable(catalog.getId(), "db", "a", "DEST")
+                        .withRemoteNames("db", "a"));
+        objectsGate.release.countDown();
+        TestExternalTable previous = old.get(10, TimeUnit.SECONDS);
+        Assertions.assertNotNull(previous);
+        Assertions.assertNull(database.getCachedTableNameByIdForTest(previous.getId()));
+        Assertions.assertNull(database.getTableNullable(previous.getId()));
+        TestExternalTable renamed = database.getTableNullable("DEST");
+        Assertions.assertNotSame(previous, renamed);
+        Assertions.assertEquals("renamed_source", renamed.getFullSchema().get(0).getName());
+    }
+
+    @Test
     public void disabledDatabaseCacheSupportsCaseInsensitiveDropAndRenameEvents() {
         long originalTtl = Config.external_cache_expire_time_seconds_after_access;
         try {
@@ -172,6 +311,16 @@ public class FeCatalogCacheOwnerTest extends TestWithFeService {
 
     @Test
     public void committedWritesAndTheirReplayDoNotReloadNames() {
+        verifyCommittedWritesDoNotReloadNames();
+    }
+
+    @Test
+    public void caseInsensitiveCommittedWritesAndReplayDoNotReloadNames() {
+        prepareCaseInsensitiveTables();
+        verifyCommittedWritesDoNotReloadNames();
+    }
+
+    private void verifyCommittedWritesDoNotReloadNames() {
         TestExternalTable a = database.getTableNullable("a");
         database.getTableNamesWithLock();
         RefreshManager manager = new RefreshManager();

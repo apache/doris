@@ -146,16 +146,18 @@ public final class CatalogMetadataChanges {
             });
             scopes.add(id(ScopePath.table(Long.toString(dbId), Long.toString(tableId))));
             if (!partitions) {
-                if (db.isPresent() && change.isInvalidateTableLookup()) {
-                    String canonical = db.get().resolveTableNameForInvalidation(change.getTableName());
-                    scopes.add(local(ScopePath.table(db.get().getFullName(), canonical)));
-                    scopes.add(id(ScopePath.table(Long.toString(dbId), Long.toString(Util.genIdByName(
-                            catalog.getName(), db.get().getFullName(), canonical)))));
+                if (db.isPresent() && (change.isInvalidateTableLookup() || change.getNewTableName() != null)) {
+                    addCanonicalTableScopes(catalog, db.get(), dbId, change.getTableName(), scopes);
                 }
                 scopes.add(local(change.isInvalidateTableLookup()
                         ? ScopePath.table(change.getDbName(), change.getTableName())
                         : ScopePath.tableMetadata(change.getDbName(), change.getTableName())));
                 if (change.isInvalidateTableLookup() || change.getNewTableName() != null) {
+                    // A first object/row-count load can publish an old spelling after scope planning.
+                    // LOCAL scopes share case-folded identities; numeric derived caches need this DB fence.
+                    if (catalog.getLowerCaseTableNames() == 2) {
+                        scopes.add(id(ScopePath.database(Long.toString(dbId))));
+                    }
                     scopes.add(local(ScopePath.tableCollection(change.getDbName())));
                 }
             }
@@ -169,6 +171,9 @@ public final class CatalogMetadataChanges {
                 remote.add(ScopePath.tableCollection(remoteDb));
             }
             if (change.getNewTableName() != null) {
+                if (db.isPresent()) {
+                    addCanonicalTableScopes(catalog, db.get(), dbId, change.getNewTableName(), scopes);
+                }
                 scopes.add(local(ScopePath.table(change.getDbName(), change.getTableName())));
                 scopes.add(local(ScopePath.table(change.getDbName(), change.getNewTableName())));
                 scopes.add(id(ScopePath.table(Long.toString(dbId), Long.toString(Util.genIdByName(
@@ -203,6 +208,15 @@ public final class CatalogMetadataChanges {
         } finally {
             remote.forEach(scope -> scopes.add(scope.in(ScopePath.Coordinates.REMOTE)));
         }
+    }
+
+    private static void addCanonicalTableScopes(ExternalCatalog catalog, ExternalDatabase<?> database,
+            long dbId, String tableName, List<ScopePath> scopes) {
+        // Case-insensitive lookup can retain a differently cased owner with a different deterministic ID.
+        String canonical = database.resolveTableNameForInvalidation(tableName);
+        scopes.add(local(ScopePath.table(database.getFullName(), canonical)));
+        scopes.add(id(ScopePath.table(Long.toString(dbId), Long.toString(Util.genIdByName(
+                catalog.getName(), database.getFullName(), canonical)))));
     }
 
     private static ScopePath local(ScopePath scope) {

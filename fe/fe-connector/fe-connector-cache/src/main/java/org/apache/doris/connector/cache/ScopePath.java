@@ -18,6 +18,7 @@
 package org.apache.doris.connector.cache;
 
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 
 /**
  * Hierarchical invalidation path within one catalog-owned scoped cache registry.
@@ -137,6 +138,12 @@ public final class ScopePath {
                 database, table, partition, nameCollection, coordinates);
     }
 
+    /** Changes only a real table identity, preserving collection markers, coordinates and partition identity. */
+    public ScopePath mapTableName(UnaryOperator<String> mapper) {
+        return table == null ? this : new ScopePath(level, database, mapper.apply(table),
+                partition, nameCollection, coordinates);
+    }
+
     int depth() {
         return level == Level.NAMESPACE ? 1 : level.ordinal() + (coordinates == null ? 0 : 1);
     }
@@ -176,6 +183,10 @@ public final class ScopePath {
 
     public Level level() {
         return level;
+    }
+
+    public Coordinates coordinates() {
+        return coordinates;
     }
 
     public String database() {

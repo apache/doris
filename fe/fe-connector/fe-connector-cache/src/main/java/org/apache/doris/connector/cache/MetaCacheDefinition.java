@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 /**
  * Declarative definition of one physical metadata cache in a catalog.
@@ -47,10 +48,10 @@ public final class MetaCacheDefinition<K, V> {
     private final Executor refreshExecutor;
     private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     private final BudgetPolicy budgetPolicy;
-    private final ScopePath.Coordinates coordinates;
+    private final UnaryOperator<ScopePath> scopeProjection;
 
     private MetaCacheDefinition(Builder<K, V> builder) {
-        coordinates = builder.coordinates;
+        scopeProjection = builder.scopeProjection;
         name = requireName(builder.name);
         budgetGroup = requireName(builder.budgetGroup == null ? builder.name : builder.budgetGroup);
         cacheSpec = Objects.requireNonNull(builder.cacheSpec, "cacheSpec can not be null");
@@ -118,10 +119,10 @@ public final class MetaCacheDefinition<K, V> {
         return budgetPolicy;
     }
 
-    MetaCacheDefinition<K, V> forDomain(ScopePath.Coordinates coordinates, CacheCallbackContext callbacks) {
+    MetaCacheDefinition<K, V> forDomain(UnaryOperator<ScopePath> projection, CacheCallbackContext callbacks) {
         Builder<K, V> copy = builder(name, cacheSpec, key -> callbacks.call(() -> {
             ScopePath path = scope(key);
-            return coordinates == null ? path : path.in(coordinates);
+            return projection.apply(path);
         }));
         copy.budgetGroup = budgetGroup;
         copy.budgetPolicy = budgetPolicy;
@@ -135,12 +136,12 @@ public final class MetaCacheDefinition<K, V> {
                 : (key, value) -> callbacks.run(() -> discardListener.accept(key, value));
         copy.sizeEstimator = sizeEstimator == null ? null
                 : (key, value) -> callbacks.call(() -> sizeEstimator.estimate(key, value));
-        copy.coordinates = coordinates;
+        copy.scopeProjection = projection;
         return copy.build();
     }
 
     ScopePath project(ScopePath path) {
-        return coordinates == null ? path : path.in(coordinates);
+        return scopeProjection.apply(path);
     }
 
     private static String requireName(String name) {
@@ -162,7 +163,7 @@ public final class MetaCacheDefinition<K, V> {
         private Executor refreshExecutor;
         private MetaCacheSizeEstimator<K, V> sizeEstimator;
         private String budgetGroup;
-        private ScopePath.Coordinates coordinates;
+        private UnaryOperator<ScopePath> scopeProjection = UnaryOperator.identity();
         private BudgetPolicy budgetPolicy = BudgetPolicy.WEIGHTED_PAYLOAD;
 
         private Builder(String name, CacheSpec cacheSpec, Function<K, ScopePath> scopeResolver) {

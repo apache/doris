@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.UnaryOperator;
 
 /**
  * Catalog-local owner of all framework metadata caches.
@@ -43,6 +44,7 @@ public final class CatalogMetaCache implements AutoCloseable {
     private final boolean managed;
     private final CatalogMetaCache parent;
     private final ScopePath.Coordinates coordinates;
+    private final UnaryOperator<ScopePath> scopeNormalizer;
     private final CacheCallbackContext callbacks;
     private final CatalogMetaCache rootOwner;
     private final String registrationPrefix;
@@ -85,9 +87,15 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     public static CatalogMetaCache managed(long catalogId, String engine,
             Map<String, String> catalogProperties, ClassLoader classLoader) {
+        return managed(catalogId, engine, catalogProperties, classLoader, UnaryOperator.identity());
+    }
+
+    /** The pure, immutable normalizer defines resource equivalence for the lifetime of this root. */
+    public static CatalogMetaCache managed(long catalogId, String engine,
+            Map<String, String> catalogProperties, ClassLoader classLoader, UnaryOperator<ScopePath> normalizer) {
         MetaCacheBudgetManager manager = MetaCacheGovernance.budgetManager();
         CatalogMetaCache cache = new CatalogMetaCache(new ScopedMetaCacheRegistry(), manager,
-                catalogId, engine, manager.parseCatalogMaxWeight(catalogProperties), true, classLoader);
+                catalogId, engine, manager.parseCatalogMaxWeight(catalogProperties), true, classLoader, normalizer);
         MetaCacheGovernance.register(cache);
         return cache;
     }
@@ -100,6 +108,14 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     private CatalogMetaCache(ScopedMetaCacheRegistry registry, MetaCacheBudgetManager budgetManager,
             long catalogId, String engine, OptionalLong catalogMaxWeight, boolean managed, ClassLoader classLoader) {
+        this(registry, budgetManager, catalogId, engine, catalogMaxWeight, managed, classLoader,
+                UnaryOperator.identity());
+    }
+
+    private CatalogMetaCache(ScopedMetaCacheRegistry registry, MetaCacheBudgetManager budgetManager,
+            long catalogId, String engine, OptionalLong catalogMaxWeight, boolean managed, ClassLoader classLoader,
+            UnaryOperator<ScopePath> normalizer) {
+        this.scopeNormalizer = Objects.requireNonNull(normalizer, "scope normalizer can not be null");
         this.registry = Objects.requireNonNull(registry, "registry can not be null");
         this.budgetManager = Objects.requireNonNull(budgetManager, "budgetManager can not be null");
         this.catalogId = catalogId;
@@ -118,6 +134,7 @@ public final class CatalogMetaCache implements AutoCloseable {
     private CatalogMetaCache(CatalogMetaCache parent, String engine,
             ScopePath.Coordinates coordinates, ClassLoader classLoader) {
         this.coordinates = coordinates;
+        this.scopeNormalizer = parent.scopeNormalizer;
         this.callbacks = new CacheCallbackContext(classLoader);
         this.registry = parent.registry;
         this.budgetManager = parent.budgetManager;
@@ -150,7 +167,7 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     public <K, V> MetaCache<K, V> create(MetaCacheDefinition<K, V> definition) {
         MetaCacheDefinition<K, V> nonNullDefinition =
-                Objects.requireNonNull(definition, "definition can not be null").forDomain(coordinates, callbacks);
+                Objects.requireNonNull(definition, "definition can not be null").forDomain(this::project, callbacks);
         checkOpen();
         if (!names.add(nonNullDefinition.name())) {
             throw new IllegalArgumentException("Duplicate meta cache name: " + nonNullDefinition.name());
@@ -243,7 +260,7 @@ public final class CatalogMetaCache implements AutoCloseable {
     }
 
     private ScopePath project(ScopePath scope) {
-        return coordinates == null ? scope : scope.in(coordinates);
+        return scopeNormalizer.apply(coordinates == null ? scope : scope.in(coordinates));
     }
 
     public boolean isClosed() {

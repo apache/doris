@@ -55,6 +55,14 @@ name lists; explicit lookup refresh also invalidates the target identity and par
 written journals persist local/remote identities and the operation's lookup flag. Old records widen only
 the remote scope when a cache-only lookup cannot recover the remote identity.
 
+The root captures an immutable resource normalization policy. With case-insensitive table lookup (mode 2),
+LOCAL table scopes fold case while cache keys and displayed names retain their original spelling; REMOTE
+scopes retain the connector's case semantics. Registration, bulk-load parents and invalidation use the same
+projection, so an old spelling cannot publish after its case-equivalent name is invalidated. A mode 2 lookup invalidation (including rename and its event records)
+also fences the database's numeric derived state: IDs published after scope planning must not leave a stale
+row count behind. Sibling objects and schemas remain cached, while row counts in that database are reloaded.
+Changing table-name mode retires the root rather than changing the policy of live registrations.
+
 Gateways with different physical identities implement the pure `Connector.cacheDependencies` projection;
 it must not perform I/O or construct siblings. Partition names are translated by `partitionCacheScopes`.
 The host applies the resulting scopes; gateways do not maintain a second list of invalidation callbacks.
