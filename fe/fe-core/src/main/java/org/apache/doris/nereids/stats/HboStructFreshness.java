@@ -273,7 +273,17 @@ public class HboStructFreshness {
                 liveTexts.add(recorded.getTable() + ":-");
                 continue;
             }
-            if (table.getIndexIdList().size() > 1 && !recorded.isPartitionSelectionComplete()) {
+            // the index map is a plain hash map: a concurrent drop of a rollup rewrites it under the
+            // table write lock, so the local metadata is captured under the read lock (and released
+            // before the visible version rpc the caller runs afterwards)
+            boolean multipleIndexes;
+            table.readLock();
+            try {
+                multipleIndexes = table.getIndexIdList().size() > 1;
+            } finally {
+                table.readUnlock();
+            }
+            if (multipleIndexes && !recorded.isPartitionSelectionComplete()) {
                 // the table has more than one index (a rollup) and the entry records only a partition
                 // count, so this statement cannot tell which index its row count came from: judging it
                 // against the base index could be wrong in both directions, so it is left to a query
