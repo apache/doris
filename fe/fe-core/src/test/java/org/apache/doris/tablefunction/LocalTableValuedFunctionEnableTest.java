@@ -162,8 +162,44 @@ public class LocalTableValuedFunctionEnableTest {
     @Test
     public void testEnabledLancePreservesExistingBackendSelection() throws Exception {
         Config.enable_local_tvf = true;
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.ADMIN)).thenReturn(true);
         new LocalTableValuedFunction(ImmutableMap.of(
                 "file_path", "local_enable_test.lance", "backend_id", "1", "format", "lance"));
         Mockito.verifyNoInteractions(proxy);
+    }
+
+    @Test
+    public void testEnabledLocalRejectsUnprivilegedUserBeforeFileAccess() {
+        Config.enable_local_tvf = true;
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> new LocalTableValuedFunction(PROPERTIES));
+        Assertions.assertTrue(exception.getMessage().contains("ADMIN/OPERATOR"));
+        Mockito.verifyNoInteractions(systemInfo, proxy);
+    }
+
+    @Test
+    public void testOperatorCanAccessLocalFiles() throws Exception {
+        Config.enable_local_tvf = true;
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.OPERATOR)).thenReturn(true);
+        new LocalTableValuedFunction(PROPERTIES);
+        Mockito.verify(proxy).glob(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testCheckAuthRejectsRevokedPrivileges() throws Exception {
+        Config.enable_local_tvf = true;
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.ADMIN)).thenReturn(true);
+        LocalTableValuedFunction local = new LocalTableValuedFunction(PROPERTIES);
+        Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.ADMIN)).thenReturn(false);
+        Assertions.assertThrows(AnalysisException.class, () -> local.checkAuth(context));
+    }
+
+    @Test
+    public void testEnabledFileRejectsUnprivilegedUserBeforeFileAccess() {
+        Config.enable_local_tvf = true;
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> new FileTableValuedFunction(PROPERTIES));
+        Assertions.assertTrue(exception.getMessage().contains("ADMIN/OPERATOR"));
+        Mockito.verifyNoInteractions(systemInfo, proxy);
     }
 }

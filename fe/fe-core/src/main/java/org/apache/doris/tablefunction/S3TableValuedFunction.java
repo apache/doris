@@ -24,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -62,6 +63,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             this.backendConnectProperties.put(URI_KEY, filePath);
         } catch (UserException e) {
             throw new RuntimeException(e);
+        }
+        // LocalProperties accepts file_path unchanged. Do not let S3 Lance open a local
+        // dataset in FE, bypassing the LOCAL feature switch and BE secure directory.
+        if (isLanceFormat() && storageProperties instanceof LocalProperties) {
+            throw new AnalysisException("S3 Lance requires remote storage properties");
         }
         if (FeConstants.runningUnitTest) {
             // Just check
