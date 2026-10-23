@@ -2967,9 +2967,11 @@ TEST(function_string_test, function_translate_mixed_const_map_test) {
         // Keep mixed source rows in one batch, with singleton nested mapping columns.
         Block block;
         block.insert({std::move(source), type, "source"});
-        block.insert(
-                {type->create_column_const(row_count, Field(std::string("ab"))), type, "from"});
-        block.insert({type->create_column_const(row_count, Field(to)), type, "to"});
+        block.insert({type->create_column_const(
+                              row_count, Field::create_field<TYPE_STRING>(std::string("ab"))),
+                      type, "from"});
+        block.insert({type->create_column_const(row_count, Field::create_field<TYPE_STRING>(to)),
+                      type, "to"});
         auto function = SimpleFunctionFactory::instance().get_function(
                 "translate", block.get_columns_with_type_and_name(), type);
         ASSERT_NE(function, nullptr);
@@ -2979,12 +2981,16 @@ TEST(function_string_test, function_translate_mixed_const_map_test) {
         context->set_constant_cols(
                 {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
                  std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
-        ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-        ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+        ASSERT_TRUE(
+                function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(
+                function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
         block.insert({nullptr, type, "result"});
         ASSERT_TRUE(function->execute(context, block, {0, 1, 2}, 3, row_count).ok());
-        ASSERT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-        ASSERT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+        ASSERT_TRUE(
+                function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        ASSERT_TRUE(
+                function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
 
         const auto& result = block.get_by_position(3).column;
         ASSERT_EQ(row_count, result->size());
