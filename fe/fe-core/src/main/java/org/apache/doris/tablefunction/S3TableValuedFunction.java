@@ -24,14 +24,20 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
-import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.net.HostAndPort;
+
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The Implement of table valued function
@@ -46,6 +52,11 @@ import java.util.Map;
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
+
+    // Remote providers registered by the pinned Lance SDK. File providers also have aliases,
+    // so checking only for "file" (or a particular StorageProperties type) is insufficient.
+    private static final Set<String> LANCE_REMOTE_SCHEMES = ImmutableSet.of(
+            "s3", "s3+ddb", "az", "abfss", "gs", "goosefs", "oss", "cos", "hf", "tos");
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
         this(properties, null);
@@ -64,10 +75,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-        // LocalProperties accepts file_path unchanged. Do not let S3 Lance open a local
-        // dataset in FE, bypassing the LOCAL feature switch and BE secure directory.
-        if (isLanceFormat() && storageProperties instanceof LocalProperties) {
-            throw new AnalysisException("S3 Lance requires remote storage properties");
+        // Validate the final URI, including when BrokerProperties passes it through unchanged.
+        // A local dataset must not bypass the LOCAL switch, privileges or BE secure directory.
+        if (isLanceFormat() && !isRemoteLanceUri(filePath)) {
+            throw new AnalysisException("S3 Lance requires remote storage with a valid URI");
         }
         if (FeConstants.runningUnitTest) {
             // Just check
@@ -94,6 +105,32 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         }
     }
 
+
+    private static boolean isRemoteLanceUri(String path) {
+        try {
+            URI uri = new URI(path == null ? "" : path);
+            String scheme = uri.getScheme();
+            String authority = uri.getRawAuthority();
+            if (scheme == null || !LANCE_REMOTE_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT))
+                    || uri.isOpaque()) {
+                return false;
+            }
+            if (authority == null || authority.isEmpty()) {
+                // GooseFS can resolve its remote master from storage options or configuration.
+                return "goosefs".equalsIgnoreCase(scheme) && uri.getRawPath() != null
+                        && uri.getRawPath().startsWith("/");
+            }
+            // Lance falls back to a local path if Rust's URL parser rejects the URI. Java's URI
+            // accepts registry authorities with invalid ports, which Rust rejects. Validate the
+            // host/port separately without disallowing legitimate bucket names with underscores.
+            String host = HostAndPort.fromString(authority.substring(authority.lastIndexOf('@') + 1))
+                    .requireBracketsForIPv6().getHost();
+            // Java accepts IPv6 zone identifiers, while Rust's URL parser rejects them.
+            return !host.isEmpty() && !(host.contains(":") && host.contains("%"));
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            return false;
+        }
+    }
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================
     @Override
