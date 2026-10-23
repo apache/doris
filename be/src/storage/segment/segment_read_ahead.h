@@ -60,9 +60,9 @@ struct SegmentReadAheadResult {
     size_t new_pages {0};
     /// Newly requested pages already available from StoragePageCache.
     size_t page_cache_hits {0};
-    /// Physical range handles returned for an accepted scheduler batch.
+    /// Physical ranges admitted to buffering; byte-budget skips are excluded.
     size_t submitted_ranges {0};
-    /// Sum of that batch's range sizes, including coalescing and block-fill bytes.
+    /// Sum of admitted range sizes, including coalescing and block-fill bytes.
     size_t submitted_bytes {0};
     /// Batch-level scheduler rejection; NONE also covers plans that required no source reads.
     io::FileRangeReadRejectReason reject_reason {io::FileRangeReadRejectReason::NONE};

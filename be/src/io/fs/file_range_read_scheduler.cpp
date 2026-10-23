@@ -104,13 +104,18 @@ void FileRangeReadContext::_register_reads(
             std::erase_if(_reads, [](const auto& read) { return read.expired(); });
             _reads.reserve(_reads.size() + reads.size());
             for (const auto& read : reads) {
-                _reads.emplace_back(read);
+                // Partial admission leaves null slots for ranges without a buffer or task.
+                if (read != nullptr) {
+                    _reads.emplace_back(read);
+                }
             }
         }
     }
     if (cancel_reads) {
         for (const auto& read : reads) {
-            read->request_cancel();
+            if (read != nullptr) {
+                read->request_cancel();
+            }
         }
     }
 }
@@ -396,7 +401,7 @@ std::shared_ptr<FileRangeReadContext> FileRangeReadScheduler::create_context() c
 FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
         const std::vector<FileRange>& ranges, FileReaderSPtr reader,
         FileRangeReadIOContext io_context, const std::shared_ptr<FileRangeReadContext>& context) {
-    const auto reject = [&](FileRangeReadRejectReason reason, Status status = Status::OK()) {
+    const auto record_rejection = [&](FileRangeReadRejectReason reason) {
         read_ahead_bvars().rejected_batches << 1;
         if (io_context.statistics != nullptr) {
             COUNTER_UPDATE(&io_context.statistics->rejected_batches, 1);
@@ -406,10 +411,12 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
                 COUNTER_UPDATE(&io_context.statistics->be_budget_rejected_batches, 1);
             }
         }
+    };
+    const auto reject = [&](FileRangeReadRejectReason reason, Status status = Status::OK()) {
+        record_rejection(reason);
         return FileRangeReadSubmitResult::rejected(reason, std::move(status));
     };
-    size_t total_bytes = 0;
-    Status validation_status = _validate_request(ranges, reader, context, &total_bytes);
+    Status validation_status = _validate_request(ranges, reader, context);
     if (!validation_status.ok()) {
         return reject(FileRangeReadRejectReason::INVALID_REQUEST, std::move(validation_status));
     }
@@ -422,28 +429,32 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
                       Status::Cancelled("query cancelled before file range submission"));
     }
 
-    std::vector<FileRangeReadReservation> reservations;
-    reservations.reserve(ranges.size());
-    const auto reserve_reason = _reserve_batch(context, ranges, total_bytes, &reservations);
-    if (reserve_reason != FileRangeReadRejectReason::NONE) {
-        return reject(reserve_reason);
-    }
+    std::vector<std::optional<FileRangeReadReservation>> reservations(ranges.size());
+    const auto reserve_reason = _reserve_batch(context, ranges, &reservations);
 
-    std::vector<std::shared_ptr<FileRangeRead>> reads;
-    reads.reserve(ranges.size());
+    std::vector<std::shared_ptr<FileRangeRead>> reads(ranges.size());
     std::vector<ReadTask> tasks;
     tasks.reserve(ranges.size());
     for (size_t index = 0; index < ranges.size(); ++index) {
+        // Keep the input slot empty when admission skipped a range, so page mappings stay valid.
+        if (!reservations[index].has_value()) {
+            continue;
+        }
         std::shared_ptr<FileRangeRead> read;
         Status status =
-                FileRangeRead::create(ranges[index], _mem_tracker, std::move(reservations[index]),
+                FileRangeRead::create(ranges[index], _mem_tracker, std::move(*reservations[index]),
                                       &read, io_context.statistics);
         if (!status.ok()) {
             return reject(FileRangeReadRejectReason::ALLOCATION_FAILED, std::move(status));
         }
         tasks.push_back(ReadTask {
                 .reader = reader, .read = read, .context = context, .io_context = io_context});
-        reads.emplace_back(std::move(read));
+        reads[index] = std::move(read);
+    }
+    // Every range may exceed the remaining budgets, leaving the whole request on the sync path.
+    if (tasks.empty()) {
+        DORIS_CHECK(reserve_reason != FileRangeReadRejectReason::NONE);
+        return reject(reserve_reason);
     }
     context->_register_reads(reads);
 
@@ -452,6 +463,11 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
     if (!submit_status.ok()) {
         return reject(submit_reason, std::move(submit_status));
     }
+    // Record a partially budget-rejected batch once, after execution admission succeeds. If every
+    // executor task was rejected, the failure above already counted this submission.
+    if (reserve_reason != FileRangeReadRejectReason::NONE) {
+        record_rejection(reserve_reason);
+    }
     return {.reads = std::move(reads),
             .reject_reason = FileRangeReadRejectReason::NONE,
             .status = Status::OK()};
@@ -459,8 +475,7 @@ FileRangeReadSubmitResult FileRangeReadScheduler::try_submit(
 
 Status FileRangeReadScheduler::_validate_request(
         const std::vector<FileRange>& ranges, const FileReaderSPtr& reader,
-        const std::shared_ptr<FileRangeReadContext>& context, size_t* total_bytes) const {
-    DORIS_CHECK(total_bytes != nullptr);
+        const std::shared_ptr<FileRangeReadContext>& context) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("file range reader is null");
     }
@@ -471,7 +486,6 @@ Status FileRangeReadScheduler::_validate_request(
         return Status::InvalidArgument("file range read batch is empty");
     }
 
-    *total_bytes = 0;
     for (const auto& range : ranges) {
         if (range.size == 0) {
             return Status::InvalidArgument("file range at offset {} is empty", range.offset);
@@ -484,36 +498,45 @@ Status FileRangeReadScheduler::_validate_request(
             return Status::InvalidArgument("file range [{}, {}) exceeds file size {}", range.offset,
                                            range.end(), reader->size());
         }
-        if (add_overflows(*total_bytes, range.size)) {
-            return Status::InvalidArgument("file range read batch byte size overflows");
-        }
-        *total_bytes += range.size;
     }
     return Status::OK();
 }
 
 FileRangeReadRejectReason FileRangeReadScheduler::_reserve_batch(
         const std::shared_ptr<FileRangeReadContext>& context, const std::vector<FileRange>& ranges,
-        size_t total_bytes, std::vector<FileRangeReadReservation>* reservations) {
+        std::vector<std::optional<FileRangeReadReservation>>* reservations) {
     DORIS_CHECK(reservations != nullptr);
-    DORIS_CHECK(reservations->capacity() >= ranges.size());
+    DORIS_CHECK(reservations->size() == ranges.size());
     auto& query_budget = context->_budget;
     std::scoped_lock lock(query_budget._mutex, _global_budget->_mutex);
 
-    if (total_bytes > query_budget._max_bytes - query_budget._resident_bytes) {
-        return FileRangeReadRejectReason::QUERY_BYTE_LIMIT;
-    }
-    if (total_bytes > _global_budget->_max_bytes - _global_budget->_resident_bytes) {
-        return FileRangeReadRejectReason::GLOBAL_BYTE_LIMIT;
+    size_t query_remaining = query_budget._max_bytes - query_budget._resident_bytes;
+    size_t be_remaining = _global_budget->_max_bytes - _global_budget->_resident_bytes;
+    size_t reserved_bytes = 0;
+    auto reject_reason = FileRangeReadRejectReason::NONE;
+    for (size_t index = 0; index < ranges.size(); ++index) {
+        const size_t bytes = ranges[index].size;
+        const auto reason = bytes > query_remaining ? FileRangeReadRejectReason::QUERY_BYTE_LIMIT
+                            : bytes > be_remaining  ? FileRangeReadRejectReason::GLOBAL_BYTE_LIMIT
+                                                    : FileRangeReadRejectReason::NONE;
+        // With 3 MiB available and ranges of 2, 2, and 1 MiB, admit the first and third ranges.
+        // A range that cannot fit must not prevent later, smaller ranges from using the budget.
+        if (reason != FileRangeReadRejectReason::NONE) {
+            if (reject_reason == FileRangeReadRejectReason::NONE) {
+                reject_reason = reason;
+            }
+            continue;
+        }
+        (*reservations)[index].emplace(FileRangeReadReservation(context, _global_budget, bytes));
+        query_remaining -= bytes;
+        be_remaining -= bytes;
+        reserved_bytes += bytes;
     }
 
-    query_budget._reserve_unlocked(total_bytes);
-    _global_budget->_reserve_unlocked(total_bytes);
-    read_ahead_bvars().resident_bytes << static_cast<int64_t>(total_bytes);
-    for (const auto& range : ranges) {
-        reservations->push_back(FileRangeReadReservation(context, _global_budget, range.size));
-    }
-    return FileRangeReadRejectReason::NONE;
+    query_budget._reserve_unlocked(reserved_bytes);
+    _global_budget->_reserve_unlocked(reserved_bytes);
+    read_ahead_bvars().resident_bytes << static_cast<int64_t>(reserved_bytes);
+    return reject_reason;
 }
 
 Status FileRangeReadScheduler::_submit_tasks(std::vector<ReadTask> tasks,

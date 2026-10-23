@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -42,15 +43,15 @@ namespace io {
 struct ReadAheadStatistics;
 
 enum class FileRangeReadRejectReason : uint8_t {
-    /// At least one executor task was accepted. Other handles may fail to submit or read.
+    /// At least one executor task was accepted. Other ranges may be skipped or fail to submit/read.
     NONE,
-    /// A reader, context, range, or aggregate byte count failed request validation.
+    /// A reader, context, or range failed request validation.
     INVALID_REQUEST,
     /// The query context had already been cancelled before admission.
     QUERY_CANCELLED,
-    /// Reserving the complete batch would exceed its query-scoped byte budget.
+    /// The query-scoped byte budget prevented range admission.
     QUERY_BYTE_LIMIT,
-    /// Reserving the complete batch would exceed the BE-wide byte budget.
+    /// The BE-wide byte budget prevented range admission.
     GLOBAL_BYTE_LIMIT,
     /// At least one range buffer could not be allocated; no read handles are returned.
     ALLOCATION_FAILED,
@@ -221,6 +222,8 @@ struct FileRangeReadIOContext {
 };
 
 struct FileRangeReadSubmitResult {
+    /// One slot per input range on acceptance; a null slot was skipped by byte-budget admission.
+    /// A completely rejected submission returns an empty vector.
     std::vector<std::shared_ptr<FileRangeRead>> reads;
     FileRangeReadRejectReason reject_reason {FileRangeReadRejectReason::NONE};
     Status status;
@@ -249,10 +252,10 @@ public:
     /// Create a query-scoped cancellation and byte-budget context.
     std::shared_ptr<FileRangeReadContext> create_context() const;
 
-    /// Atomically admits and allocates the complete batch, then submits one executor task per
-    /// range. A rejected batch returns no read handles and leaves both budgets unchanged. If the
-    /// executor accepts only part of a batch, the returned handles expose each rejected range as a
-    /// failed read.
+    /// Admit ranges in input order under both byte-budget locks, skipping ranges that do not fit,
+    /// then allocate and submit one task per admitted range. Returned slots preserve input indices;
+    /// unadmitted ranges have null handles. Allocation failure rolls back all admitted buffers.
+    /// Executor rejection is exposed as a failed handle when other tasks were accepted.
     FileRangeReadSubmitResult try_submit(const std::vector<FileRange>& ranges,
                                          FileReaderSPtr reader, FileRangeReadIOContext io_context,
                                          const std::shared_ptr<FileRangeReadContext>& context);
@@ -273,15 +276,15 @@ private:
 
     FileRangeReadScheduler(FileRangeReadSchedulerOptions options, ThreadPool* executor);
 
-    /// Validate the complete request and compute its total buffer capacity.
+    /// Validate the reader, context, and individual ranges before reserving any memory.
     Status _validate_request(const std::vector<FileRange>& ranges, const FileReaderSPtr& reader,
-                             const std::shared_ptr<FileRangeReadContext>& context,
-                             size_t* total_bytes) const;
-    /// Atomically reserve query and BE bytes for every range in the batch.
-    FileRangeReadRejectReason _reserve_batch(const std::shared_ptr<FileRangeReadContext>& context,
-                                             const std::vector<FileRange>& ranges,
-                                             size_t total_bytes,
-                                             std::vector<FileRangeReadReservation>* reservations);
+                             const std::shared_ptr<FileRangeReadContext>& context) const;
+    /// Reserve query and BE bytes for ranges that fit, preserving input indices. Return the first
+    /// encountered byte-budget rejection, including when some ranges were admitted.
+    FileRangeReadRejectReason _reserve_batch(
+            const std::shared_ptr<FileRangeReadContext>& context,
+            const std::vector<FileRange>& ranges,
+            std::vector<std::optional<FileRangeReadReservation>>* reservations);
     /// Submit one task per range while retaining accepted handles for shutdown coordination.
     Status _submit_tasks(std::vector<ReadTask> tasks, FileRangeReadRejectReason* reject_reason);
     void _task_finished(const std::shared_ptr<FileRangeRead>& read);
