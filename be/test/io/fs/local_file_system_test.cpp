@@ -618,15 +618,24 @@ TEST_F(LocalFileSystemTest, TestSafeGlobPathContainment) {
     ASSERT_TRUE(save_string_file((outside / "outside.csv").string(), "outside").ok());
     std::filesystem::create_directory_symlink(outside, secure / "escape");
     std::filesystem::create_symlink(outside / "outside.csv", secure / "outside.csv");
+    std::filesystem::create_symlink(outside / "missing.csv", outside / "broken.csv");
     std::filesystem::create_directory_symlink(secure / "nested", secure / "inside");
     config::user_files_secure_path = secure.string();
 
     for (const auto* pattern : {".[.]/secure-other/outside.csv", ".?/secure-other/outside.csv",
-                                ".[.-.]/secure-other/outside.csv", "escape/*.csv", "outside.csv"}) {
+                                ".[.-.]/secure-other/outside.csv", "escape/*.csv", "outside.csv",
+                                ".[.]/secure-other/*.csv", "escape/broken*.csv"}) {
         std::vector<io::FileInfo> files;
         const auto status = fs->safe_glob(pattern, &files);
         EXPECT_FALSE(status.ok()) << pattern;
         EXPECT_NE(status.to_string().find("file path is not allowed"), std::string::npos) << status;
+        // The pattern need not name the matched file, so errors must not reveal that name.
+        const auto message = status.to_string();
+        EXPECT_EQ(std::string::npos, message.find(root.string())) << message;
+        for (const auto* name : {"outside.csv", "broken.csv", "missing.csv"}) {
+            EXPECT_EQ(std::string::npos, message.find(name)) << message;
+        }
+        EXPECT_TRUE(files.empty());
     }
 
     for (const auto* pattern : {"nested/*.csv", "inside/*.csv"}) {
@@ -683,7 +692,9 @@ TEST_F(LocalFileSystemTest, TestCanonicalizeSecureLocalPath) {
           std::string("http://invalid/dataset"), std::string(""),
           std::string("nested\0ignored", 14)}) {
         std::string resolved;
-        EXPECT_FALSE(fs->canonicalize_local_file(secure.string(), path, &resolved).ok()) << path;
+        const auto status = fs->canonicalize_local_file(secure.string(), path, &resolved);
+        EXPECT_FALSE(status.ok()) << path;
+        EXPECT_EQ(std::string::npos, status.to_string().find(root.string())) << status;
     }
     std::string resolved;
     EXPECT_FALSE(fs->canonicalize_local_file("", secure.string(), &resolved).ok());

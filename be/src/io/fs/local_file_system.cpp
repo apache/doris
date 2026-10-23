@@ -485,10 +485,11 @@ Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
     std::string secure_path;
     RETURN_IF_ERROR(canonicalize(dir, &secure_path));
     std::string canonical_path;
-    RETURN_IF_ERROR(canonicalize(Path(secure_path) / local_path, &canonical_path));
-    // Canonicalize both sides: a symlink inside the root may point to a sibling directory.
-    if (!contain_path(secure_path, canonical_path)) {
-        return Status::InvalidArgument("file path is not allowed: {}", canonical_path);
+    const auto status = canonicalize(Path(secure_path) / local_path, &canonical_path);
+    // A glob result can reveal external names even when resolution fails on a dangling symlink.
+    // Reject both failed resolution and out-of-root targets without exposing expanded names.
+    if (!status.ok() || !contain_path(secure_path, canonical_path)) {
+        return Status::InvalidArgument("file path is not allowed");
     }
     *full_path = std::move(canonical_path);
     return Status::OK();
