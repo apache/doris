@@ -77,7 +77,7 @@ public:
      * - Succeeds only if the peer response exactly covers all requested block ranges.
      *
      * Params:
-     * - blocks: List of file blocks to fetch (global file offsets, inclusive ranges).
+     * - ranges: Cache block ranges to fetch (global file offsets, inclusive).
      * - result: Output structure holding sparse chunks and total bytes_read.
      * - file_size: Size of the file to be read.
      * - ctx: IO context (kept for interface symmetry).
@@ -86,7 +86,7 @@ public:
      * - OK: Successfully populated all requested block bytes into the result.
      * - NotSupported: The file is not a Doris table segment.
      */
-    Status fetch_blocks(const std::vector<FileBlockSPtr>& blocks, PeerFetchResult* result,
+    Status fetch_blocks(const std::vector<FileBlock::Range>& ranges, PeerFetchResult* result,
                         size_t file_size, const IOContext* ctx, bool request_fill = false,
                         int64_t tablet_id = 0, std::string resource_id = {});
 
