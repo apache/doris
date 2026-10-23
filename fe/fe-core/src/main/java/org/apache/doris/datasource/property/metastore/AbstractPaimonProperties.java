@@ -146,7 +146,13 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         }
         conf.forEach(entry -> {
             String key = entry.getKey();
-            if (key.startsWith(HADOOP_S3A_PREFIX) && StringUtils.isNotBlank(entry.getValue())) {
+            // Fill only ABSENT options: the user's explicit fs.s3a.* catalog options
+            // (e.g. an assumed-role credentials provider set via a paimon.fs.s3a.*
+            // property) take precedence over the Hadoop-generated defaults (the
+            // SimpleAWSCredentialsProvider the static S3 keys produce); an
+            // unconditional set would re-open the warehouse under the base identity.
+            if (key.startsWith(HADOOP_S3A_PREFIX) && StringUtils.isNotBlank(entry.getValue())
+                    && catalogOptions.get(key) == null) {
                 catalogOptions.set(key, entry.getValue());
             }
         });
