@@ -86,7 +86,7 @@ suite("test_ivm_agg_minmax_topk_1") {
     sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     order_qt_initial """SELECT category, min_score, max_score FROM ivm_topk_1_mv ORDER BY category"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_1_mv""")
 
     // A smaller value enters the list and pushes the bound down.
     sql """INSERT INTO ivm_topk_1_t VALUES (8, 'a', 5)"""
@@ -94,7 +94,7 @@ suite("test_ivm_agg_minmax_topk_1") {
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     assertEquals("SUCCESS", latestTask().Status.toString())
     order_qt_after_insert """SELECT category, min_score, max_score FROM ivm_topk_1_mv ORDER BY category"""
-    ivm_hidden_qt("state_after_insert", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_insert", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting one of several rows at the extreme only decrements its count.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 1"""
@@ -102,7 +102,7 @@ suite("test_ivm_agg_minmax_topk_1") {
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     assertEquals("SUCCESS", latestTask().Status.toString())
     order_qt_after_delete_one """SELECT category, min_score, max_score FROM ivm_topk_1_mv ORDER BY category"""
-    ivm_hidden_qt("state_after_delete_one", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_delete_one", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting the last row at the extreme retires the value from the list.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 7"""
@@ -110,7 +110,7 @@ suite("test_ivm_agg_minmax_topk_1") {
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     assertEquals("SUCCESS", latestTask().Status.toString())
     order_qt_after_delete_extreme """SELECT category, min_score, max_score FROM ivm_topk_1_mv ORDER BY category"""
-    ivm_hidden_qt("state_after_delete_extreme", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_delete_extreme", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting a value above the trusted bound does not move the extreme.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 2"""
@@ -118,7 +118,7 @@ suite("test_ivm_agg_minmax_topk_1") {
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     assertEquals("SUCCESS", latestTask().Status.toString())
     order_qt_after_delete_above_bound """SELECT category, min_score, max_score FROM ivm_topk_1_mv ORDER BY category"""
-    ivm_hidden_qt("state_after_delete_above_bound", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_delete_above_bound", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting the only cached value exhausts the known range while rows remain: strict refresh
     // fails, and only an explicit FALLBACK rebuilds the MV.
@@ -134,7 +134,7 @@ suite("test_ivm_agg_minmax_topk_1") {
     assertEquals("SUCCESS", fallbackTask.Status.toString())
     assertEquals("COMPLETE", fallbackTask.RefreshMode.toString())
     order_qt_after_fallback """SELECT category, min_score, max_score FROM ivm_topk_1_mv ORDER BY category"""
-    ivm_hidden_qt("state_after_fallback", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_fallback", """SELECT * FROM ivm_topk_1_mv""")
 
     // A different capacity cannot be interpreted against the old state: ALTER rebuilds the MV.
     sql """ALTER MATERIALIZED VIEW ivm_topk_1_mv SET ("ivm_minmax_top_k" = "4")"""
@@ -142,5 +142,5 @@ suite("test_ivm_agg_minmax_topk_1") {
     assertTrue(alteredDdl.toString().contains('"ivm_minmax_top_k" = "4"'))
     sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
-    ivm_hidden_qt("state_after_alter", """SELECT * FROM ivm_topk_1_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_alter", """SELECT * FROM ivm_topk_1_mv""")
 }

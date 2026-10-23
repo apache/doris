@@ -90,7 +90,7 @@ suite("test_ivm_agg_minmax_topk_5") {
     sql """REFRESH MATERIALIZED VIEW ivm_topk_5_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_5_mv")
     order_qt_initial """SELECT flag, mn FROM ivm_topk_5_mv ORDER BY flag"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_5_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_5_mv""")
 
     // Swap the two rows between the groups. Each group gets a delete and an insert of the same value
     // in one batch, so the count must stay 1 and the extreme must survive without a fallback.
@@ -99,5 +99,5 @@ suite("test_ivm_agg_minmax_topk_5") {
     def afterSwap = latestTask()
     assertEquals("SUCCESS", afterSwap.Status.toString())
     order_qt_after_swap """SELECT flag, mn FROM ivm_topk_5_mv ORDER BY flag"""
-    ivm_hidden_qt("state_after_swap", """SELECT * FROM ivm_topk_5_mv ORDER BY 1, 2""")
+    ivm_hidden_qt("state_after_swap", """SELECT * FROM ivm_topk_5_mv""")
 }
