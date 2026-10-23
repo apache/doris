@@ -1719,7 +1719,7 @@ public class StmtExecutor {
     private void handleQueryStmt() throws Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
-                    originStmt.originStmt, DebugUtil.printId(context.queryId));
+                    getStmtForLogging(), DebugUtil.printId(context.queryId));
         }
 
         ResultSender sender = context.getResultSender();

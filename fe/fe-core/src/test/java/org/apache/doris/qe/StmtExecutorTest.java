@@ -1367,6 +1367,8 @@ public class StmtExecutorTest extends TestWithFeService {
 
             Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, MASKED_STMT_FALLBACK));
             Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, MASKED_STMT_FALLBACK));
+            Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG,
+                    "Handling query " + MASKED_STMT_FALLBACK + " with query id "));
             Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "synthetic-secret"));
             Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, "synthetic-secret"));
         } finally {
