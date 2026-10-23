@@ -19,6 +19,7 @@ package org.apache.doris.datasource.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.filesystem.properties.AzureBackendPropertyKeys;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
@@ -278,6 +279,16 @@ public final class StorageAdapter {
 
     public StorageTypeId getType() {
         return type;
+    }
+
+    /**
+     * Whether this is an Azure binding authenticated with SAS or OAuth2. BE uses those only
+     * through TAzureClientConfig; an entry that still sends BE the S3-style backend map (Broker
+     * Load, backup repositories) can carry only SharedKey and must reject them.
+     */
+    public boolean isAzureTokenAuth() {
+        return type == StorageTypeId.AZURE && !AzureBackendPropertyKeys.AUTH_SHARED_KEY.equals(
+                getBackendConfigProperties().get(AzureBackendPropertyKeys.AUTH_TYPE));
     }
 
     /** Legacy getStorageName() (2.4-1 mapping: every S3-compatible dialect reports "S3"). */

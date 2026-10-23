@@ -94,4 +94,36 @@ public class StorageAdapterAzureNativeTest {
         Assertions.assertEquals("sv=2024&se=2030-01-01&sig=abc", config.getCredential().getSas().getToken());
         Assertions.assertEquals(1893456000000L, config.getCredential().getSas().getExpiresAtMs());
     }
+
+    @Test
+    void testOnlySasAndOauth2AreAzureTokenAuth() {
+        Map<String, String> sharedKey = new HashMap<>();
+        sharedKey.put("provider", "azure");
+        sharedKey.put("azure.account_name", "acct");
+        sharedKey.put("azure.account_key", "key");
+        Assertions.assertFalse(StorageAdapter.of(sharedKey).isAzureTokenAuth());
+
+        Map<String, String> sas = new HashMap<>();
+        sas.put("provider", "azure");
+        sas.put("azure.auth_type", "sas");
+        sas.put("azure.account_name", "acct");
+        sas.put("azure.sas_token", "sv=2024&se=2030-01-01&sig=abc");
+        Assertions.assertTrue(StorageAdapter.of(sas).isAzureTokenAuth());
+
+        Map<String, String> oauth2 = new HashMap<>();
+        oauth2.put("provider", "azure");
+        oauth2.put("azure.auth_type", "OAuth2");
+        oauth2.put("azure.oauth2_account_host", "acct.blob.core.windows.net");
+        oauth2.put("azure.oauth2_client_id", "client");
+        oauth2.put("azure.oauth2_client_secret", "secret");
+        oauth2.put("azure.oauth2_server_uri", "https://login.microsoftonline.com/tenant-1/oauth2/token");
+        Assertions.assertTrue(StorageAdapter.of(oauth2).isAzureTokenAuth());
+
+        Map<String, String> s3 = new HashMap<>();
+        s3.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        s3.put("s3.region", "us-east-1");
+        s3.put("s3.access_key", "ak");
+        s3.put("s3.secret_key", "sk");
+        Assertions.assertFalse(StorageAdapter.of(s3).isAzureTokenAuth());
+    }
 }
