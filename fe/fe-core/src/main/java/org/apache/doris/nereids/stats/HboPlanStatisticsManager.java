@@ -454,7 +454,11 @@ public class HboPlanStatisticsManager {
      * without triggering a load any more.
      */
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
-        ensurePinnedLoaded();
+        if (!ensurePinnedLoaded()) {
+            // presenting a partial cache as the complete set would make HBO SHOW miss stored entries and
+            // HBO DELETE STALE claim it cleaned up entries it never inspected
+            throw new IllegalStateException("hbo pinned statistics are not loaded yet, retry later");
+        }
         return Collections.unmodifiableMap(pinnedPlanStatistics.asMap());
     }
 
@@ -491,22 +495,22 @@ public class HboPlanStatisticsManager {
         ensurePinnedLoaded();
     }
 
-    private void ensurePinnedLoaded() {
+    private boolean ensurePinnedLoaded() {
         if (hboPinnedLoaded || !persistenceEnabled()) {
-            return;
+            return true;
         }
         synchronized (pinnedLoadLock) {
             if (hboPinnedLoaded || !persistenceEnabled()) {
-                return;
+                return true;
             }
             long now = System.currentTimeMillis();
             if (now - lastLoadFailedMs < LOAD_RETRY_INTERVAL_MS) {
-                return;
+                return false;
             }
             List<PinnedHboStatistics> loaded = HboStatisticsStore.loadAll();
             if (loaded == null) {
                 lastLoadFailedMs = now;
-                return;
+                return false;
             }
             for (PinnedHboStatistics pinned : loaded) {
                 // entries injected while persistence was off, or concurrently with the load, must win
@@ -518,6 +522,7 @@ public class HboPlanStatisticsManager {
             }
             hboPinnedLoaded = true;
             LOG.info("loaded {} hbo pinned statistics entries from internal table", loaded.size());
+            return true;
         }
     }
 
