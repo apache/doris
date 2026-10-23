@@ -115,6 +115,28 @@ create table blob_size_limit (
 insert into blob_size_limit
 select /*+ COALESCE(1) */ * from paimon_blob_seed where id in (1, 2, 11, 12, 13) order by id;
 
+-- Real payloads at and above Doris' default 10 MiB inline limit. Keep them separate
+-- from the small fixtures so ordinary payload scans do not fail with the default limit.
+-- Store an MD5 instead of a hex copy of each multi-megabyte payload.
+drop table if exists blob_large_payload;
+create table blob_large_payload (
+    id int, case_name string, image binary, expected_size int, expected_md5 string
+) using paimon tblproperties (
+    'file.format' = 'parquet', 'row-tracking.enabled' = 'true',
+    'data-evolution.enabled' = 'true', 'blob-field' = 'image', 'write-only' = 'true'
+);
+insert into blob_large_payload
+select /*+ COALESCE(1) */ id, case_name, image, expected_size, md5(image)
+from (
+    select id, case_name, encode(repeat('A', expected_size), 'UTF-8') as image, expected_size
+    from values
+        (1, 'limit_10m_exact',    10485760),
+        (2, 'limit_10m_plus_one', 10485761),
+        (3, 'payload_11m',       11534336)
+    as seed(id, case_name, expected_size)
+) payloads
+order by id;
+
 -- Two BLOB fields separated by an ordinary column. NULL maps and sizes are independent.
 create or replace temporary view paimon_blob_pair_seed as
 select id, image, note, thumbnail,
