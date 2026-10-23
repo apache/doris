@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_file_type_spill") {
-    def publicStruct = "STRUCT<uri:VARCHAR(65533),offset:BIGINT,size:BIGINT," +
-            "content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>"
     sql "DROP TABLE IF EXISTS test_file_type_spill_source"
     sql """
         CREATE TABLE test_file_type_spill_source (id INT NOT NULL)
@@ -34,7 +32,7 @@ suite("test_file_type_spill") {
             FROM test_file_type_spill_source
         ), test_file_type_spill_values AS (
             SELECT id, category, f,
-                   CAST(ARRAY(CAST(f AS ${publicStruct}), NULL) AS ARRAY<FILE>) AS files
+                   ARRAY(f, NULL) AS files
             FROM file_values
         )
     """
