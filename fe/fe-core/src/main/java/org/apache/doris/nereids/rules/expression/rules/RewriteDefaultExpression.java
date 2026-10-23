@@ -81,6 +81,7 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
         }
 
         Column column = columnOpt.get();
+        DataType targetType = DataType.fromCatalogType(column.getType());
         if (column.isGeneratedColumn()) {
             throw new AnalysisException("DEFAULT cannot be used on generated column '"
                     + column.getName() + "'");
@@ -93,10 +94,16 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
             column = pinnedWriteColumn(context.cascadesContext.getStatementContext(), originalTable.get(), column)
                     .orElseThrow(() -> new AnalysisException("DEFAULT(" + slotRef.toSql()
                             + ") must reference a column of the table that this statement writes"));
+            // The expressions around DEFAULT(column) were bound against the read column, so a default of another type
+            // cannot stand in for it. The types differ when the table changed outside Doris after its read schema was
+            // cached, e.g. by a type promotion.
+            DataType writeType = DataType.fromCatalogType(column.getType());
+            if (!writeType.equals(targetType)) {
+                throw new AnalysisException("DEFAULT(" + slotRef.toSql() + ") reads the column as "
+                        + targetType.toSql() + " but the table now writes it as " + writeType.toSql()
+                        + "; the table changed outside Doris, refresh it and retry");
+            }
         }
-        // The pinned writer column can be wider than the read column the slot was bound with, e.g. after a type
-        // promotion committed outside Doris, and the default is a value of the writer column.
-        DataType targetType = DataType.fromCatalogType(column.getType());
 
         String defaultValueSql = column.getDefaultValueSql();
         if (defaultValueSql == null) {
