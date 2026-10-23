@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -61,6 +62,11 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        if (!Config.enable_local_tvf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "LOCAL TVF is disabled. Set enable_local_tvf=true in fe.conf and restart every FE to enable it.");
+        }
+
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
 
