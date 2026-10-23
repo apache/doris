@@ -67,6 +67,8 @@ public:
 
     static std::filesystem::perms PERMS_OWNER_RW;
 
+    // Resolve a local path relative to a nonempty secure root, then check canonical containment.
+    // Absolute paths and file: URIs must resolve inside the same root; remote schemes are rejected.
     Status canonicalize_local_file(const std::string& dir, const std::string& file_path,
                                    std::string* full_path);
 

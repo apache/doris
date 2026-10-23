@@ -426,14 +426,26 @@ const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
 Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
                                                 const std::string& file_path,
                                                 std::string* full_path) {
-    const std::string absolute_path = dir + "/" + file_path;
+    // An empty root would turn a relative request into an unrestricted absolute path.
+    if (dir.empty()) {
+        return Status::InvalidArgument("user_files_secure_path must not be empty");
+    }
+    // Reject embedded NULs before passing paths to filesystem APIs that use C strings.
+    if (file_path.empty() || file_path.find('\0') != std::string::npos) {
+        return Status::InvalidArgument("local file path must not be empty or contain NUL");
+    }
+    Path local_path;
+    // Convert file: URIs to filesystem paths and reject remote schemes before any reader opens them.
+    RETURN_IF_ERROR(convert_to_abs_path(file_path, local_path));
+    std::string secure_path;
+    RETURN_IF_ERROR(canonicalize(dir, &secure_path));
     std::string canonical_path;
-    RETURN_IF_ERROR(canonicalize(absolute_path, &canonical_path));
-    if (!contain_path(dir, canonical_path)) {
+    RETURN_IF_ERROR(canonicalize(Path(secure_path) / local_path, &canonical_path));
+    // Canonicalize both sides: a symlink inside the root may point to a sibling directory.
+    if (!contain_path(secure_path, canonical_path)) {
         return Status::InvalidArgument("file path is not allowed: {}", canonical_path);
     }
-
-    *full_path = canonical_path;
+    *full_path = std::move(canonical_path);
     return Status::OK();
 }
 
@@ -441,13 +453,20 @@ Status LocalFileSystem::safe_glob(const std::string& path, std::vector<FileInfo>
     if (path.find("..") != std::string::npos) {
         return Status::InvalidArgument("can not contain '..' in path");
     }
-    std::string full_path = config::user_files_secure_path + "/" + path;
+    // An empty root would turn the prefix below into "/" and allow any local file.
+    if (config::user_files_secure_path.empty()) {
+        return Status::InvalidArgument("user_files_secure_path must not be empty");
+    }
+    std::string secure_path;
+    RETURN_IF_ERROR(canonicalize(config::user_files_secure_path, &secure_path));
+    std::string full_path = secure_path + "/" + path;
     std::vector<std::string> files;
     RETURN_IF_ERROR(_glob(full_path, &files));
     for (auto& file : files) {
         FileInfo fi;
         fi.is_file = true;
-        RETURN_IF_ERROR(canonicalize_local_file("", file, &(fi.file_name)));
+        // Glob classes and symlinks can escape without a literal ".." in the pattern.
+        RETURN_IF_ERROR(canonicalize_local_file(secure_path, file, &(fi.file_name)));
         RETURN_IF_ERROR(file_size_impl(fi.file_name, &(fi.file_size)));
         res->push_back(std::move(fi));
     }
