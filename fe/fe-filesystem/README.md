@@ -141,6 +141,23 @@ At runtime, `DirectoryPluginRuntimeManager` creates an isolated `ClassLoader` pe
 `software.amazon.awssdk.*`, `org.apache.hadoop.*`) are loaded parent-first to avoid cross-
 ClassLoader cast failures.
 
+### Overlapping provider matches
+
+The binding registry preserves the existing provider order and `fs.<x>.support` flag semantics.
+It does not treat a `provider` property as a global override; each plugin owns its interpretation
+of that property. A provider can declare `fallbackProviders()` to suppress general-purpose
+heuristic matches when it also matches. This applies to both primary and multi-provider binding;
+explicit filesystem flags are never suppressed. Providers without this declaration retain their
+existing multi-match behavior. The default HDFS binding and HDFS URI validation are preserved.
+
+`validateProperties()` runs on every loaded provider before selection, so invalid provider-owned
+credentials cannot silently disappear when another plugin is chosen. It must be deterministic and
+perform no I/O. Forced provider binding validates with the effective provider name too.
+
+Filesystem plugin API 2.0 includes these two default hooks; plugins must be rebuilt
+against the matching host API. Existing providers retain their behavior until they
+opt into these hooks.
+
 ### S3 Delegation Pattern
 
 Several cloud providers (OSS, COS, OBS) are S3-compatible. Instead of duplicating the S3
