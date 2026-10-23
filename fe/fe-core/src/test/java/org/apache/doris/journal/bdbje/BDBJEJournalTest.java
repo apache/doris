@@ -22,14 +22,18 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.sleepycat.je.Database;
+import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
@@ -37,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -360,6 +365,41 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
             Assertions.assertEquals(11, journalId);
 
             journal.close();
+        }
+    }
+
+    // This journal exits the frontend by itself when it can not complete a write. Such an exit must go through
+    // EditLog.exitOnWriteFailure, which records the failure so that the shutdown hook does not wait for running
+    // queries. Each case below is a real failure of the journal; only the exit itself is replaced.
+    @Test
+    public void testWriteFailuresExitThroughEditLog() throws Exception {
+        String nodeName = Env.genFeNodeName("127.0.0.1", 9010, false);
+        Env mockEnv = Mockito.mock(Env.class);
+        Mockito.when(mockEnv.getBdbDir()).thenReturn(createTmpDir().getAbsolutePath());
+        Mockito.when(mockEnv.getSelfNode()).thenReturn(new HostInfo("127.0.0.1", 9010));
+        // A database that never accepts a put, and that holds more journals than the journal ids handed out.
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(database.put(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(OperationStatus.KEYEXIST);
+        Mockito.when(database.count()).thenReturn(5L);
+        Mockito.when(database.getDatabaseName()).thenReturn("1");
+        RuntimeException exit = new RuntimeException("exit on write failure");
+
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<EditLog> mockedEditLog = Mockito.mockStatic(EditLog.class)) {
+            mockedEnvStatic.when(Env::getServingEnv).thenReturn(mockEnv);
+            mockedEditLog.when(() -> EditLog.exitOnWriteFailure(Mockito.any())).thenThrow(exit);
+            BDBJEJournal journal = new BDBJEJournal(nodeName);
+            Deencapsulation.setField(journal, "currentJournalDB", database);
+
+            // A direct write gives up after its retries.
+            Writable writable = out -> Text.writeString(out, "data");
+            Assertions.assertSame(exit, Assertions.assertThrows(RuntimeException.class,
+                    () -> journal.write(OperationType.OP_START_ROLLUP, writable)));
+            mockedEditLog.verify(() -> EditLog.exitOnWriteFailure(Mockito.any()), Mockito.times(1));
+
+            // A roll finds journals that this journal did not write.
+            Assertions.assertSame(exit, Assertions.assertThrows(RuntimeException.class, journal::rollJournal));
+            mockedEditLog.verify(() -> EditLog.exitOnWriteFailure(Mockito.any()), Mockito.times(2));
         }
     }
 }
