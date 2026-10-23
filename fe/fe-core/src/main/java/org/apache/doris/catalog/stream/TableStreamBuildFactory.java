@@ -51,6 +51,7 @@ public class TableStreamBuildFactory {
         Preconditions.checkNotNull(params.baseTable, "Stream base table isn't initialized.");
         switch (params.baseTable.getType()) {
             case OLAP:
+            case MATERIALIZED_VIEW: // MTMV extends OlapTable
                 return new OlapTableStream(params.tableStreamName, params.baseTable);
             default:
                 throw new DdlException("unsupported stream base table type: " + params.baseTable.getType());

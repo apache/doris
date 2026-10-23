@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 
@@ -53,8 +54,9 @@ public class SingleCombinatorRollupHandler extends AggFunctionRollUpHandler {
             return false;
         }
         if (!(queryAggregateFunction instanceof Combinator)
-                && (viewFunction instanceof UnionCombinator || viewFunction instanceof StateCombinator)) {
-            Combinator viewCombinator = extractLastExpression(viewFunction, Combinator.class);
+                && (viewFunction instanceof UnionCombinator || viewFunction instanceof StateCombinator
+                        || viewFunction instanceof CombineCombinator)) {
+            Combinator viewCombinator = extractRollupCombinator((Combinator) viewFunction);
             return Objects.equals(queryAggregateFunction,
                     viewCombinator.getNestedFunction().withChildren(viewCombinator.getArguments()));
         }

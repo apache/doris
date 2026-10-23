@@ -61,10 +61,10 @@ import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -92,7 +92,7 @@ public class RebalanceTest {
     private final TabletInvertedIndex invertedIndex = new LocalTabletInvertedIndex();
     private Map<Tag, LoadStatisticForTag> statisticMap;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         db = new Database(1, "test db");
@@ -114,6 +114,7 @@ public class RebalanceTest {
 
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
@@ -127,9 +128,9 @@ public class RebalanceTest {
         Mockito.when(mockGtm.isPreviousTransactionsFinished(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyList())).thenReturn(true);
 
         // Test mock validation
-        Assert.assertEquals(111,
+        Assertions.assertEquals(111,
                 Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
-        Assert.assertTrue(
+        Assertions.assertTrue(
                 Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
 
         List<Long> beIds = Lists.newArrayList(10001L, 10002L, 10003L, 10004L);
@@ -160,7 +161,7 @@ public class RebalanceTest {
         generateStatisticMap();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -195,8 +196,16 @@ public class RebalanceTest {
             for (int i = 0; i < 3; i++) {
                 backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
             }
-            rebalancer.addPrioBackends(backends, 1000);
-            Assert.assertTrue(rebalancer.hasPrioBackends());
+            long beforeMs = System.currentTimeMillis();
+            rebalancer.addPrioBackends(backends, 86400L);
+            long afterMs = System.currentTimeMillis();
+
+            Assertions.assertTrue(rebalancer.hasPrioBackends());
+            for (Backend backend : backends) {
+                long expireTimeMs = rebalancer.prioBackends.get(backend.getId());
+                Assertions.assertTrue(expireTimeMs >= beforeMs + 86400000L);
+                Assertions.assertTrue(expireTimeMs <= afterMs + 86400000L);
+            }
         } // CHECKSTYLE IGNORE THIS LINE
 
         // remove
@@ -204,11 +213,34 @@ public class RebalanceTest {
             List<Backend> backends = Lists.newArrayList(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
             rebalancer.removePrioBackends(backends);
             if (i == 2) {
-                Assert.assertFalse(rebalancer.hasPrioBackends());
+                Assertions.assertFalse(rebalancer.hasPrioBackends());
             } else {
-                Assert.assertTrue(rebalancer.hasPrioBackends());
+                Assertions.assertTrue(rebalancer.hasPrioBackends());
             }
         }
+    }
+
+    @Test
+    public void testFilterByPrioBackends() {
+        DiskRebalancer rebalancer = new DiskRebalancer(systemInfoService, invertedIndex, null);
+        Backend priorityBackend = RebalancerTestUtil.createBackend(10086L, 2048, 0);
+        Backend expiredBackend = RebalancerTestUtil.createBackend(10087L, 2048, 0);
+        rebalancer.addPrioBackends(Lists.newArrayList(priorityBackend, expiredBackend), 86400L);
+
+        long priorityExpireTimeMs = rebalancer.prioBackends.get(priorityBackend.getId());
+        rebalancer.prioBackends.put(expiredBackend.getId(), System.currentTimeMillis() - 86400000L);
+
+        BackendLoadStatistic priority = new BackendLoadStatistic(
+                priorityBackend.getId(), Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        BackendLoadStatistic expired = new BackendLoadStatistic(
+                expiredBackend.getId(), Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        BackendLoadStatistic ordinary = new BackendLoadStatistic(
+                10088L, Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+
+        Assertions.assertEquals(Collections.singletonList(priority),
+                rebalancer.filterByPrioBackends(Lists.newArrayList(ordinary, expired, priority)));
+        Assertions.assertEquals(Collections.singletonMap(priorityBackend.getId(), priorityExpireTimeMs),
+                rebalancer.prioBackends);
     }
 
     @Test
@@ -263,7 +295,7 @@ public class RebalanceTest {
         List<AgentTask> tasks = batchTask.getAllTasks();
         List<Long> needCheckTablets = tasks.stream().map(AgentTask::getTabletId).collect(Collectors.toList());
         LOG.info("created tasks for tablet: {}", needCheckTablets);
-        needCheckTablets.forEach(t -> Assert.assertEquals(4, invertedIndex.getReplicasByTabletId(t).size()));
+        needCheckTablets.forEach(t -> Assertions.assertEquals(4, invertedIndex.getReplicasByTabletId(t).size()));
 
         for (Long tabletId : needCheckTablets) {
             TabletSchedCtx tabletSchedCtx = alternativeTablets.stream()
@@ -286,8 +318,8 @@ public class RebalanceTest {
 
         // NeedCheckTablets are redundant, TabletChecker will add them to TabletScheduler
         tabletChecker.runAfterCatalogReady();
-        needCheckTablets.forEach(t -> Assert.assertEquals(4, invertedIndex.getReplicasByTabletId(t).size()));
-        needCheckTablets.forEach(t -> Assert.assertTrue(tabletScheduler.containsTablet(t)));
+        needCheckTablets.forEach(t -> Assertions.assertEquals(4, invertedIndex.getReplicasByTabletId(t).size()));
+        needCheckTablets.forEach(t -> Assertions.assertTrue(tabletScheduler.containsTablet(t)));
 
         // TabletScheduler handle redundant tablet
         tabletScheduler.runAfterCatalogReady();
@@ -295,23 +327,23 @@ public class RebalanceTest {
         // One replica is set to DECOMMISSION, still 4 replicas
         needCheckTablets.forEach(t -> {
             List<Replica> replicas = invertedIndex.getReplicasByTabletId(t);
-            Assert.assertEquals(4, replicas.size());
+            Assertions.assertEquals(4, replicas.size());
             Replica decommissionedReplica = replicas.stream()
                     .filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION)
                     .collect(MoreCollectors.onlyElement());
-            Assert.assertEquals(111, decommissionedReplica.getPreWatermarkTxnId());
-            Assert.assertEquals(112, decommissionedReplica.getPostWatermarkTxnId());
+            Assertions.assertEquals(111, decommissionedReplica.getPreWatermarkTxnId());
+            Assertions.assertEquals(112, decommissionedReplica.getPostWatermarkTxnId());
         });
 
         // Delete replica should change invertedIndex too
         tabletScheduler.runAfterCatalogReady();
-        needCheckTablets.forEach(t -> Assert.assertEquals(3, invertedIndex.getReplicasByTabletId(t).size()));
+        needCheckTablets.forEach(t -> Assertions.assertEquals(3, invertedIndex.getReplicasByTabletId(t).size()));
 
         // Check moves completed
         rebalancer.selectAlternativeTablets();
         rebalancer.updateLoadStatistic(statisticMap);
         AtomicLong succeeded = Deencapsulation.getField(rebalancer, "counterBalanceMoveSucceeded");
-        Assert.assertEquals(needCheckTablets.size(), succeeded.get());
+        Assertions.assertEquals(needCheckTablets.size(), succeeded.get());
     }
 
     // Test for OPENSOURCE-192: PartitionRebalancer should not generate moves
@@ -372,25 +404,21 @@ public class RebalanceTest {
 
         // Verify: moves were generated (test is meaningful)
         Map<Long, Pair<PartitionRebalancer.TabletMove, Long>> moves = rebalancer.getMovesInProgress();
-        Assert.assertFalse("Should generate moves for skewed SSD partition", moves.isEmpty());
+        Assertions.assertFalse(moves.isEmpty(), "Should generate moves for skewed SSD partition");
 
         // Verify: no move targets BE 20003 (HDD-only) or any of the HDD BEs from setUp (10001-10004)
         for (Map.Entry<Long, Pair<PartitionRebalancer.TabletMove, Long>> entry : moves.entrySet()) {
             PartitionRebalancer.TabletMove move = entry.getValue().first;
-            Assert.assertNotEquals("Move should not target HDD-only BE for SSD tablet",
-                    Long.valueOf(20003L), move.toBe);
-            Assert.assertFalse("Move should not target any BE without SSD",
-                    move.toBe == 10001L || move.toBe == 10002L
-                            || move.toBe == 10003L || move.toBe == 10004L);
+            Assertions.assertNotEquals(Long.valueOf(20003L), move.toBe, "Move should not target HDD-only BE for SSD tablet");
+            Assertions.assertFalse(move.toBe == 10001L || move.toBe == 10002L
+                            || move.toBe == 10003L || move.toBe == 10004L, "Move should not target any BE without SSD");
         }
 
         // Verify: all moves go from BE 20001 (most loaded) to BE 20002 (least loaded with SSD)
         for (Map.Entry<Long, Pair<PartitionRebalancer.TabletMove, Long>> entry : moves.entrySet()) {
             PartitionRebalancer.TabletMove move = entry.getValue().first;
-            Assert.assertEquals("Source should be the most loaded SSD BE",
-                    Long.valueOf(20001L), move.fromBe);
-            Assert.assertEquals("Dest should be the least loaded SSD BE",
-                    Long.valueOf(20002L), move.toBe);
+            Assertions.assertEquals(Long.valueOf(20001L), move.fromBe, "Source should be the most loaded SSD BE");
+            Assertions.assertEquals(Long.valueOf(20002L), move.toBe, "Dest should be the least loaded SSD BE");
         }
         LOG.info("testPartitionRebalancerSkipBEWithoutMedium success");
     }
@@ -405,17 +433,17 @@ public class RebalanceTest {
         m.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
         // Maintenance won't clean up the entries of cache
         m.maintain();
-        Assert.assertEquals(3, m.size());
+        Assertions.assertEquals(3, m.size());
 
         // Reset the expireAfterAccess, the whole cache map will be cleared.
         m.updateMapping(statisticMap, 1);
-        Assert.assertEquals(0, m.size());
+        Assertions.assertEquals(0, m.size());
 
         m.getCache(Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, Pair.of(null, -1L));
         try {
             Thread.sleep(1000);
             m.maintain();
-            Assert.assertEquals(0, m.size());
+            Assertions.assertEquals(0, m.size());
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

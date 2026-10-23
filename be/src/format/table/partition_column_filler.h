@@ -33,7 +33,7 @@ namespace doris {
 inline Status fill_partition_column_from_path_value(
         IColumn& column, const SlotDescriptor& slot_desc, const std::string& value, size_t rows,
         bool explicit_null_marker, DataTypeSerDe::FormatOptions text_format_options = {}) {
-    auto data_type = slot_desc.get_data_type_ptr();
+    auto data_type = slot_desc.type();
     auto text_serde = data_type->get_serde();
     uint64_t num_deserialized = 0;
 

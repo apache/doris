@@ -53,7 +53,7 @@ public class MaxComputeConnectorContractTest {
 
     @Test
     public void declaredWriteCapabilitiesMatchAndPassContractValidator() {
-        MaxComputeDorisConnector connector = new MaxComputeDorisConnector(validProps(), null);
+        MaxComputeDorisConnector connector = new MaxComputeDorisConnector(validProps(), MCTestProperties.context());
 
         ConnectorWritePlanProvider writeProvider = connector.getWritePlanProvider();
         Assertions.assertNotNull(writeProvider, "MaxCompute connector must expose a write plan provider");

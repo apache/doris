@@ -193,7 +193,7 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
             if (newCondition != oldCondition
                     || newTrueValue != ifExpr.getTrueValue()
                     || newFalseValue != ifExpr.getFalseValue()) {
-                return new If(newCondition, newTrueValue, newFalseValue);
+                return ifExpr.withChildren(ImmutableList.of(newCondition, newTrueValue, newFalseValue));
             } else {
                 return ifExpr;
             }

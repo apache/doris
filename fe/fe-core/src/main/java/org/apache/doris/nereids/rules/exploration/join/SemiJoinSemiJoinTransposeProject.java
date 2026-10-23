@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,7 +69,6 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscomProject.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> join.left().isAllSlots())
                 // the transpose swaps the bottom semi join to the top, so the mark slot
                 // produced by the bottom mark join would be produced by the new top semi
                 // join. if the top semi join references the mark slot in its conjuncts,
@@ -80,11 +80,16 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi
                             = topProject.child();
-                    LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
-                    LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> abProject = topSemi.left();
-                    GroupPlan a = bottomSemi.left();
-                    GroupPlan b = bottomSemi.right();
-                    GroupPlan c = topSemi.right();
+                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
+                            normalizedProject = ProjectJoinReorderHelper.normalize(topSemi.left());
+                    if (!normalizedProject.isPresent()) {
+                        return null;
+                    }
+                    LogicalJoin<Plan, Plan> bottomSemi = normalizedProject.get().child();
+                    LogicalProject<LogicalJoin<Plan, Plan>> abProject = normalizedProject.get();
+                    Plan a = bottomSemi.left();
+                    Plan b = bottomSemi.right();
+                    Plan c = topSemi.right();
                     Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
                     // if bottom semi join is mark join, we need remove the mark join slot creating by bottom semi join
                     // from the project list before swapping the bottom semi to top semi

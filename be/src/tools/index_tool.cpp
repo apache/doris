@@ -45,13 +45,17 @@
 #pragma clang diagnostic pop
 #endif
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "storage/index/inverted/query/conjunction_query.h"
+#include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/query/logical/node.h"
 #include "storage/tablet/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;
@@ -121,8 +125,31 @@ std::vector<std::string> split(const std::string& s, char delimiter) {
     return tokens;
 }
 
-void search(lucene::store::Directory* dir, std::string& field, std::string& token,
-            std::string& pred) {
+// Finds the rows of `field` that hold every term of `token`, whose terms are separated by '|'.
+doris::Status match_all(const FulltextIndexSearcherPtr& searcher, const std::wstring& field,
+                        const std::string& token, const std::shared_ptr<roaring::Roaring>& result) {
+    doris::OlapReaderStatistics stats;
+    doris::RuntimeState runtime_state;
+    doris::TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
+    doris::io::IOContext io_ctx;
+
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    const doris::index_query::logical::Node leaf {
+            .value = doris::index_query::logical::TermSet {.field = {},
+                                                           .terms = split(token, '|'),
+                                                           .require_all = true,
+                                                           .min_should_match = 0}};
+    return run_clucene_leaf(context, field, leaf, nullptr, /*scoring=*/false, searcher, result);
+}
+
+doris::Status search(lucene::store::Directory* dir, std::string& field, std::string& token,
+                     std::string& pred) {
     lucene::index::IndexReader* reader = lucene::index::IndexReader::open(dir);
 
     lucene::index::IndexReader* newreader = reader->reopen();
@@ -169,34 +196,11 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
     }
 
     int32_t total = 0;
+    doris::Status status;
     if (pred == "match_all") {
-        roaring::Roaring result;
-        std::vector<std::string> terms = split(token, '|');
-
-        doris::OlapReaderStatistics stats;
-        doris::RuntimeState runtime_state;
-        doris::TQueryOptions query_options;
-        query_options.inverted_index_max_expansions = 50;
-        runtime_state.set_query_options(query_options);
-        doris::io::IOContext io_ctx;
-
-        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
-        context->runtime_state = &runtime_state;
-        context->stats = &stats;
-        context->io_ctx = &io_ctx;
-
-        ConjunctionQuery conjunct_query(s, context);
-        InvertedIndexQueryInfo query_info;
-        query_info.field_name = field_ws;
-        for (auto& term : terms) {
-            doris::segment_v2::TermInfo term_info;
-            term_info.term = term;
-            query_info.term_infos.push_back(term_info);
-        }
-        conjunct_query.add(query_info);
-        conjunct_query.search(result);
-
-        total += result.cardinality();
+        auto result = std::make_shared<roaring::Roaring>();
+        status = match_all(s, field_ws, token, result);
+        total += result->cardinality();
     } else {
         roaring::Roaring result;
         s->_search(query.get(), [&result](const int32_t docid, const float_t /*score*/) {
@@ -208,11 +212,15 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         });
         total += result.cardinality();
     }
-    std::cout << "Term queried count:" << total << std::endl;
+    // A failed query may have an incomplete result, so it prints no count.
+    if (status.ok()) {
+        std::cout << "Term queried count:" << total << std::endl;
+    }
 
     s->close();
     reader->close();
     _CLLDELETE(reader);
+    return status;
 }
 
 void check_terms_stats(lucene::store::Directory* dir) {
@@ -346,6 +354,8 @@ int main(int argc, char** argv) {
             std::cerr << "invalid params for term_query " << std::endl;
             return -1;
         }
+        // MATCH_ALL builds a RuntimeState, which registers memory trackers.
+        doris::ExecEnv::GetInstance()->init_mem_tracker();
         auto fs = doris::io::global_local_filesystem();
         std::unique_ptr<DorisCompoundReader> reader;
         try {
@@ -375,8 +385,14 @@ int main(int argc, char** argv) {
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                                   << file_str << std::endl;
                         std::cout << "==================================" << std::endl;
-                        search(reader.get(), FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                        const doris::Status st = search(reader.get(), FLAGS_column_name, FLAGS_term,
+                                                        FLAGS_pred_type);
                         reader->close();
+                        if (!st.ok()) {
+                            std::cerr << "error occurred when search file: " << f.file_name
+                                      << ", error:" << st << std::endl;
+                            return -1;
+                        }
                     } catch (CLuceneError& err) {
                         std::cerr << "error occurred when search file: " << f.file_name
                                   << ", error:" << err.what() << std::endl;
@@ -398,8 +414,14 @@ int main(int argc, char** argv) {
                           << FLAGS_idx_file_name << std::endl;
                 std::cout << "==================================" << std::endl;
                 try {
-                    search(reader.get(), FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                    const doris::Status st =
+                            search(reader.get(), FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
                     reader->close();
+                    if (!st.ok()) {
+                        std::cerr << "error occurred when search file: " << FLAGS_idx_file_name
+                                  << ", error:" << st << std::endl;
+                        return -1;
+                    }
                 } catch (CLuceneError& err) {
                     std::cerr << "error occurred when search file: " << FLAGS_idx_file_name
                               << ", error:" << err.what() << std::endl;

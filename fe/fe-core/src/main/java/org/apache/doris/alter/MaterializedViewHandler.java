@@ -205,6 +205,12 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.hasColumnSeqMapping()) {
                 throw new DdlException("Can not add materialized view when table use column sequence mapping");
             }
+            if (createMvCommand.isIfNotExists()
+                    && olapTable.hasMaterializedIndex(createMvCommand.getMVName())) {
+                LOG.info("materialized view[{}] already exists on table[{}], skip creating it",
+                        createMvCommand.getMVName(), olapTable.getName());
+                return;
+            }
             // check no duplicate column name in full schema
             Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : olapTable.getFullSchema()) {
@@ -449,7 +455,7 @@ public class MaterializedViewHandler extends AlterHandler {
             // per-iteration because Tablet.addReplica(...) below needs the tablet present
             // in the inverted index.
             TabletMeta mvTabletMeta = new TabletMeta(
-                    dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium);
+                    dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium, false /* isChangelog */);
             List<Tablet> mvTabletsForPartition = Lists.newArrayListWithCapacity(baseIndex.getTablets().size());
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             for (Tablet baseTablet : baseIndex.getTablets()) {

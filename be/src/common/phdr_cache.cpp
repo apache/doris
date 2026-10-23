@@ -228,6 +228,10 @@ int iteratePHDRCache(int (*callback)(dl_phdr_info* info, size_t size, void* data
 
 } // namespace
 
+// ASAN's slow unwinder can reach this interposer while dlsym is freeing its previous error
+// string. Resolving the original function with dlsym here would reenter that cleanup and
+// free the same string twice. Keep ASAN on the system implementation instead.
+#if !defined(ADDRESS_SANITIZER)
 extern "C"
 #ifndef __clang__
         [[gnu::visibility("default")]] [[gnu::externally_visible]]
@@ -240,6 +244,7 @@ extern "C"
 
     return iteratePHDRCache(callback, data, 0);
 }
+#endif
 
 extern "C"
 #ifndef __clang__

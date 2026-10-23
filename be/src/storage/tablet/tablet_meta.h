@@ -66,7 +66,7 @@ class TColumn;
 //      |           +------------------------+|
 //      +-------------------------------------+
 
-enum TabletState {
+enum class TabletState {
     // Tablet is under alter table, rollup, clone
     TABLET_NOTREADY,
 
@@ -83,6 +83,12 @@ enum TabletState {
     // Files have been removed, tablet has been shutdown completely.
     TABLET_SHUTDOWN
 };
+
+inline constexpr TabletState TABLET_NOTREADY = TabletState::TABLET_NOTREADY;
+inline constexpr TabletState TABLET_RUNNING = TabletState::TABLET_RUNNING;
+inline constexpr TabletState TABLET_TOMBSTONED = TabletState::TABLET_TOMBSTONED;
+inline constexpr TabletState TABLET_STOPPED = TabletState::TABLET_STOPPED;
+inline constexpr TabletState TABLET_SHUTDOWN = TabletState::TABLET_SHUTDOWN;
 
 class DataDir;
 class TabletMeta;
@@ -126,7 +132,9 @@ public:
 
 // UT
 #ifdef BE_TEST
-    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {
+        _disable_auto_compaction.store(tablet_schema->disable_auto_compaction());
+    }
 #endif
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
@@ -194,6 +202,10 @@ public:
 
     TabletSchema* mutable_tablet_schema();
 
+    // This mutable tablet property must not modify the shared, cached schema.
+    bool disable_auto_compaction() const { return _disable_auto_compaction.load(); }
+    void set_disable_auto_compaction(bool value) { _disable_auto_compaction.store(value); }
+
     const RowsetMetaMapContainer& all_rs_metas() const;
     RowsetMetaMapContainer& all_mutable_rs_metas();
     Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
@@ -222,6 +234,9 @@ public:
 
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset();
+
+    // Clear stale rowset metadata without changing the delete bitmap cache.
+    void clear_stale_rs_metas();
 
     void clear_rowsets();
 
@@ -273,10 +288,12 @@ public:
         _binlog_config = std::move(binlog_config);
     }
     TabletRolePB tablet_role() const { return _tablet_role; }
-    bool is_row_binlog_tablet() const {
-        return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
-    }
+    bool is_changelog_tablet() const { return _tablet_role == TabletRolePB::TABLET_ROLE_CHANGELOG; }
     void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
+    int64_t changelog_tablet_id() const { return _changelog_tablet_id; }
+    void set_changelog_tablet_id(int64_t changelog_tablet_id) {
+        _changelog_tablet_id = changelog_tablet_id;
+    }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -330,9 +347,29 @@ public:
         _ttl_seconds = ttl_seconds;
     }
 
+    // Absolute timestamp (seconds since epoch) at which this tablet's data stops being kept
+    // in the file cache TTL queue, or 0 when the tablet has no TTL or the deadline has
+    // already passed. The deadline is anchored at the tablet creation time, so every tablet
+    // of a table shares one deadline regardless of when each rowset was written.
+    //
+    // This is the single definition of that deadline. The load, compaction, schema change,
+    // query and warm up paths all stamp the cache blocks they create with this value, and
+    // BlockFileCacheTtlMgr expires those blocks by the very same value, so a block's
+    // recorded expiration time always agrees with the sweep that acts on it.
+    int64_t file_cache_ttl_expiration_time() const;
+
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
     EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
+
+    bool has_inverted_index_storage_format() const {
+        return _inverted_index_storage_format.has_value();
+    }
+
+    InvertedIndexStorageFormatPB inverted_index_storage_format() const {
+        return _inverted_index_storage_format.value_or(
+                _schema->get_inverted_index_storage_format());
+    }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -355,11 +392,13 @@ private:
     TabletUid _tablet_uid;
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
-    TabletState _tablet_state = TABLET_NOTREADY;
+    TabletState _tablet_state = TabletState::TABLET_NOTREADY;
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
     TabletSchemaSPtr _schema;
     Cache::Handle* _handle = nullptr;
+    // Scheduling reads this without _meta_lock; persist it in the existing schema PB field.
+    std::atomic<bool> _disable_auto_compaction {false};
 
     RowsetMetaMapContainer _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
@@ -383,6 +422,7 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
+    int64_t _changelog_tablet_id = 0;
 
     // meta for compaction
     std::string _compaction_policy;
@@ -403,6 +443,9 @@ private:
     // Persisted storage format for this tablet (e.g. V2, V3). Used to derive
     // schema-level defaults such as external ColumnMeta usage.
     TStorageFormat::type _storage_format = TStorageFormat::V2;
+    // The schema KV is shared by (index_id, schema_version). Keep the tablet's
+    // immutable file format outside that shared identity.
+    std::optional<InvertedIndexStorageFormatPB> _inverted_index_storage_format;
 
     mutable std::shared_mutex _meta_lock;
 };

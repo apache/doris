@@ -25,7 +25,7 @@
 
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
@@ -35,8 +35,8 @@ namespace doris {
 
 using segment_v2::PrimaryKeyModelRowRetriever;
 
-// The row-binlog retriever probes the primary key index for every incoming row to decide the binlog
-// operator and, when needed, to read the old row.
+// The changelog retriever probes the primary key index for every incoming row to decide the
+// changelog operator and, when needed, to read the old row.
 class HistoricalRowRetrieverTest : public MowTransformTestBase {
 protected:
     // Keeps the converted key column accessors alive for as long as the retriever needs them.
@@ -89,8 +89,8 @@ protected:
         ctx->tablet_schema = schema;
         ctx->partial_update_info = info;
         ctx->write_type = DataWriteType::TYPE_DIRECT;
-        ctx->write_binlog_opt().enable = true;
-        ctx->write_binlog_opt().set_need_before(need_before);
+        ctx->write_changelog_opt().enable = true;
+        ctx->write_changelog_opt().set_need_before(need_before);
     }
 
     // A block holding the key column and the sequence column, in that order.
@@ -137,8 +137,8 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
     ASSERT_TRUE(st.ok()) << st;
 
     ASSERT_EQ(retriever.get_operators().size(), 2);
-    EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_UPDATE);
-    EXPECT_EQ(retriever.get_operators()[1], ROW_BINLOG_APPEND);
+    EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
+    EXPECT_EQ(retriever.get_operators()[1], ChangelogOp::APPEND);
     // a read-only probe: the load's delete bitmap must stay untouched
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U);
 
@@ -151,7 +151,7 @@ TEST_F(HistoricalRowRetrieverTest, UpdateReadsHistoryAndAppendTakesDefault) {
 }
 
 // A delete-signed row: without the BEFORE image there is nothing to read back, with it the old row
-// must still be fetched so __BEFORE__* can be filled.
+// must still be fetched so the BEFORE columns can be filled.
 TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted) {
     for (bool need_before : {false, true}) {
         auto schema = create_mow_schema(/*has_seq=*/false);
@@ -175,7 +175,7 @@ TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted
         ASSERT_TRUE(st.ok()) << st;
 
         ASSERT_EQ(retriever.get_operators().size(), 1);
-        EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_DELETE);
+        EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::DELETE);
 
         Block before_block = schema->create_storage_block({1});
         st = retriever.build_before_block(&before_block, {1}, 0, 1);
@@ -189,7 +189,7 @@ TEST_F(HistoricalRowRetrieverTest, DeleteReadsHistoryOnlyWhenBeforeImageIsWanted
 }
 
 // A row that loses on sequence: the writers would stop reading the old row here, the retriever must
-// not — the surviving old row is what the binlog reports. This is the retriever's
+// not — the surviving old row is what the changelog reports. This is the retriever's
 // `use_defaults_for_seq_loser = false`.
 TEST_F(HistoricalRowRetrieverTest, RowLosingOnSequenceStillReadsTheStoredRow) {
     auto schema = create_mow_schema(/*has_seq=*/true); // k(0) v(1) seq(2) delete_sign(3)
@@ -214,7 +214,7 @@ TEST_F(HistoricalRowRetrieverTest, RowLosingOnSequenceStillReadsTheStoredRow) {
     ASSERT_TRUE(st.ok()) << st;
 
     ASSERT_EQ(retriever.get_operators().size(), 1);
-    EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_UPDATE);
+    EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
     EXPECT_EQ(mow->delete_bitmap->cardinality(), 0U); // MarkDeleted::NONE: nothing is marked
 
     Block before_block = schema->create_storage_block({1});
@@ -248,7 +248,7 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
                 retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
         ASSERT_TRUE(retriever.retrieve_historical_row(nullptr, 0, 1).ok());
         ASSERT_EQ(retriever.get_operators().size(), 1);
-        EXPECT_EQ(retriever.get_operators()[0], ROW_BINLOG_UPDATE);
+        EXPECT_EQ(retriever.get_operators()[0], ChangelogOp::UPDATE);
 
         Block after_block = schema->create_storage_block();
         after_block.replace_by_position(0, first.get_by_position(0).column);
@@ -272,7 +272,7 @@ TEST_F(HistoricalRowRetrieverTest, PerFlushRetrieverKeepsNoStateFromTheLastBlock
             next_retriever.prepare_lookup_plan_from_source_columns(keys.get(), nullptr, mow).ok());
     ASSERT_TRUE(next_retriever.retrieve_historical_row(nullptr, 0, 1).ok());
     ASSERT_EQ(next_retriever.get_operators().size(), 1);
-    EXPECT_EQ(next_retriever.get_operators()[0], ROW_BINLOG_APPEND);
+    EXPECT_EQ(next_retriever.get_operators()[0], ChangelogOp::APPEND);
 
     Block before_block = schema->create_storage_block({1});
     ASSERT_TRUE(next_retriever.build_before_block(&before_block, {1}, 0, 1).ok());
@@ -316,18 +316,18 @@ TEST_F(HistoricalRowRetrieverTest, ReviseOperatorWithOldDeleteSign) {
     ASSERT_TRUE(retriever._fill_old_delete_signs(old_value_block, read_index, 4).ok());
     ASSERT_EQ((std::vector<signed char> {1, 0, 0, 1}), retriever._old_delete_signs);
 
-    retriever._operators = {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE,
-                            ROW_BINLOG_DELETE};
+    retriever._operators = {ChangelogOp::UPDATE, ChangelogOp::UPDATE, ChangelogOp::UPDATE,
+                            ChangelogOp::DELETE};
     // a planned read is what tells revise() that old rows were looked up at all
     RowsetId rowset_id;
     rowset_id.init(1);
     retriever._row_fetcher->plan_fixed_read(RowLocation(rowset_id, 0, 0), 0);
     ASSERT_TRUE(retriever.revise_operators_by_old_delete_sign(4).ok());
 
-    EXPECT_EQ(ROW_BINLOG_APPEND, retriever._operators[0]);
-    EXPECT_EQ(ROW_BINLOG_UPDATE, retriever._operators[1]);
-    EXPECT_EQ(ROW_BINLOG_UPDATE, retriever._operators[2]);
-    EXPECT_EQ(ROW_BINLOG_DELETE, retriever._operators[3]);
+    EXPECT_EQ(ChangelogOp::APPEND, retriever._operators[0]);
+    EXPECT_EQ(ChangelogOp::UPDATE, retriever._operators[1]);
+    EXPECT_EQ(ChangelogOp::UPDATE, retriever._operators[2]);
+    EXPECT_EQ(ChangelogOp::DELETE, retriever._operators[3]);
 }
 
 } // namespace doris

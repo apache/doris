@@ -17,11 +17,13 @@
 #pragma once
 #include <memory>
 
+#include "exprs/function/geo/ByteOrderValues.h"
+
 namespace doris {
 
-enum byteOrder { wkbXDR = 0, wkbNDR = 1 };
+enum class byteOrder { wkbXDR = 0, wkbNDR = 1 };
 
-enum wkbType {
+enum class wkbType : int {
     wkbPoint = 1,
     wkbLine = 2,
     wkbPolygon = 3,
@@ -34,8 +36,7 @@ enum wkbType {
 } // namespace doris
 
 struct ToBinaryContext {
-    // WKBConstants::wkbwkbXDR | WKBConstants::wkbNDR
-    int byteOrder;
+    doris::ByteOrderValues::EndianType byteOrder;
 
     unsigned char buf[8];
 

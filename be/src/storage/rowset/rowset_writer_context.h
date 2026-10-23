@@ -36,10 +36,11 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/historical_row_retriever.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -73,7 +74,13 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
-
+    // Set only by compaction, alongside its extended tablet_schema.
+    VariantCompactionPathsSPtr variant_compaction_paths;
+    // Immutable inverted-index file format inherited from the owner tablet.
+    std::optional<InvertedIndexStorageFormatPB> inverted_index_storage_format;
+    // Whether the owner tablet persists the format in its top-level metadata.
+    // This is derived from TabletMeta and keeps rowset metadata consistent with it.
+    bool persist_inverted_index_storage_format = false;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -84,6 +91,7 @@ struct RowsetWriterContext {
     int64_t txn_id {0};
     int64_t txn_expiration {0}; // For cloud mode
     PUniqueId load_id;
+    std::shared_ptr<AtomicStatus> load_cancel_status;
     TabletUid tablet_uid {0, 0};
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
@@ -123,7 +131,11 @@ struct RowsetWriterContext {
     /// begin file cache opts
     bool write_file_cache = false;
     bool is_hot_data = false;
-    uint64_t file_cache_ttl_sec = 0;
+    // Absolute timestamp (seconds since epoch) after which the cache blocks written by
+    // this rowset stop being TTL protected; 0 means no TTL. Always set it from
+    // BaseTablet::file_cache_ttl_expiration_time() so every writer agrees with the
+    // deadline BlockFileCacheTtlMgr sweeps by.
+    uint64_t file_cache_expiration_time = 0;
     uint64_t approximate_bytes_to_write = 0;
     // If true, compaction output only writes index files to file cache, not data files
     bool compaction_output_write_index_only = false;
@@ -184,7 +196,7 @@ struct RowsetWriterContext {
     std::string job_id;
 
     // Per-segment LSNs allocated before memtable flush. The same storage feeds
-    // both the base row LSN column and row-binlog LSN column.
+    // both the base row LSN column and changelog LSN column.
     std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map = nullptr;
     bool _need_allocate_lsn = false;
 
@@ -273,9 +285,7 @@ struct RowsetWriterContext {
             append_info.rowset_id = rowset_id.to_string();
             append_info.first_segment_id = first_segment_id;
             append_info.txn_id = txn_id;
-            append_info.expiration_time = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
-                                                  ? newest_write_timestamp + file_cache_ttl_sec
-                                                  : 0;
+            append_info.expiration_time = file_cache_expiration_time;
             fs = std::make_shared<io::PackedFileSystem>(fs, append_info);
         }
 
@@ -294,7 +304,7 @@ struct RowsetWriterContext {
     io::FileWriterOptions get_file_writer_options(FileType file_type = FileType::SEGMENT_FILE) {
         io::FileWriterOptions opts {.write_file_cache = write_file_cache,
                                     .is_cold_data = is_hot_data,
-                                    .file_cache_expiration_time = file_cache_ttl_sec,
+                                    .file_cache_expiration_time = file_cache_expiration_time,
                                     .approximate_bytes_to_write = approximate_bytes_to_write};
 
         if (config::enable_file_cache_write_index_file_only) {
@@ -313,31 +323,31 @@ struct RowsetWriterContext {
         return opts;
     }
 
-    struct BinlogOptions {
+    struct ChangelogOptions {
     public:
         bool enable = false;
 
         void set_need_before(bool need_before) {
             this->_need_before = need_before;
-            _segment_write_binlog_opt.write_before = need_before;
+            _segment_write_changelog_opt.write_before = need_before;
         }
 
-        segment_v2::SegmentWriteBinlogOptions& write_binlog_config() {
-            return _segment_write_binlog_opt;
+        segment_v2::SegmentWriteChangelogOptions& write_changelog_config() {
+            return _segment_write_changelog_opt;
         }
 
-        const segment_v2::SegmentWriteBinlogOptions& write_binlog_config() const {
-            return _segment_write_binlog_opt;
+        const segment_v2::SegmentWriteChangelogOptions& write_changelog_config() const {
+            return _segment_write_changelog_opt;
         }
 
     private:
         bool _need_before = false;
-        segment_v2::SegmentWriteBinlogOptions _segment_write_binlog_opt;
-    } _write_binlog_opt;
+        segment_v2::SegmentWriteChangelogOptions _segment_write_changelog_opt;
+    } _write_changelog_opt;
 
-    BinlogOptions& write_binlog_opt() { return _write_binlog_opt; }
+    ChangelogOptions& write_changelog_opt() { return _write_changelog_opt; }
 
-    const BinlogOptions& write_binlog_opt() const { return _write_binlog_opt; }
+    const ChangelogOptions& write_changelog_opt() const { return _write_changelog_opt; }
 };
 
 inline segment_v2::HistoricalRowRetrieverContext

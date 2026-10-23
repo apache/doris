@@ -19,10 +19,13 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -42,7 +45,7 @@ public class TabletHealthProcDirTest extends TestWithFeService {
 
     @Override
     protected int backendNum() {
-        return 1;
+        return 2;
     }
 
     @Override
@@ -61,7 +64,6 @@ public class TabletHealthProcDirTest extends TestWithFeService {
 
     @Test
     public void testCloudModeCountsTabletAsHealthy() throws Exception {
-        String originDeployMode = Config.deploy_mode;
         createTable("CREATE TABLE tbl_proc_health (k INT) DISTRIBUTED BY HASH(k) BUCKETS 1"
                 + " PROPERTIES ('replication_num' = '1')");
 
@@ -80,8 +82,10 @@ public class TabletHealthProcDirTest extends TestWithFeService {
                 Env.getCurrentSystemInfo().getAllBackendIds(true)).status;
         Assertions.assertEquals(TabletStatus.UNRECOVERABLE, localStatus);
 
-        Config.deploy_mode = "cloud";
-        try (MockedStatic<Partition> mockedPartition = Mockito.mockStatic(Partition.class, Mockito.CALLS_REAL_METHODS)) {
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<Partition> mockedPartition = Mockito.mockStatic(Partition.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedPartition.when(() -> Partition.getVisibleVersions(Mockito.anyList())).thenAnswer(invocation -> {
                 List<? extends Partition> partitions = invocation.getArgument(0);
                 return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
@@ -91,12 +95,121 @@ public class TabletHealthProcDirTest extends TestWithFeService {
             int tabletNumIdx = TabletHealthProcDir.TITLE_NAMES.indexOf("TabletNum");
             int healthyNumIdx = TabletHealthProcDir.TITLE_NAMES.indexOf("HealthyNum");
             int unrecoverableNumIdx = TabletHealthProcDir.TITLE_NAMES.indexOf("UnrecoverableNum");
+            int changelogMismatchNumIdx = TabletHealthProcDir.TITLE_NAMES.indexOf("ChangelogMismatchNum");
+            int changelogRedundantNumIdx = TabletHealthProcDir.TITLE_NAMES.indexOf("ChangelogRedundantNum");
 
+            Assertions.assertEquals(TabletHealthProcDir.TITLE_NAMES.size(), row.size());
             Assertions.assertEquals("1", row.get(tabletNumIdx));
             Assertions.assertEquals("1", row.get(healthyNumIdx));
             Assertions.assertEquals("0", row.get(unrecoverableNumIdx));
+            Assertions.assertEquals("0", row.get(changelogMismatchNumIdx));
+            Assertions.assertEquals("0", row.get(changelogRedundantNumIdx));
+        }
+    }
+
+    @Test
+    public void testChangelogBackendMismatchIsNotCountedAsColocateMismatch() throws Exception {
+        ChangelogTabletPair pair = createChangelogTabletPair("tbl_proc_backend_mismatch");
+        Replica changelogReplica = pair.changelogTablet.getReplicas().get(0);
+        long originalBackendId = changelogReplica.getBackendIdWithoutException();
+        long otherBackendId = Env.getCurrentSystemInfo().getAllBackendIds(true).stream()
+                .filter(backendId -> backendId != originalBackendId)
+                .findFirst()
+                .orElseThrow();
+        changelogReplica.setBackendId(otherBackendId);
+        try {
+            assertChangelogProcClassification(pair.changelogTablet.getId(), 1, 0);
         } finally {
-            Config.deploy_mode = originDeployMode;
+            changelogReplica.setBackendId(originalBackendId);
+        }
+    }
+
+    @Test
+    public void testChangelogPathMismatchIsNotCountedAsColocateMismatch() throws Exception {
+        ChangelogTabletPair pair = createChangelogTabletPair("tbl_proc_path_mismatch");
+        Replica baseReplica = pair.baseTablet.getReplicas().get(0);
+        Replica changelogReplica = pair.changelogTablet.getReplicas().get(0);
+        long originalBasePathHash = baseReplica.getPathHash();
+        long originalChangelogPathHash = changelogReplica.getPathHash();
+        baseReplica.setPathHash(70001L);
+        changelogReplica.setPathHash(70002L);
+        try {
+            assertChangelogProcClassification(pair.changelogTablet.getId(), 1, 0);
+        } finally {
+            baseReplica.setPathHash(originalBasePathHash);
+            changelogReplica.setPathHash(originalChangelogPathHash);
+        }
+    }
+
+    @Test
+    public void testChangelogRedundantIsNotCountedAsColocateRedundant() throws Exception {
+        ChangelogTabletPair pair = createChangelogTabletPair("tbl_proc_redundant");
+        Replica existingReplica = pair.changelogTablet.getReplicas().get(0);
+        long otherBackendId = Env.getCurrentSystemInfo().getAllBackendIds(true).stream()
+                .filter(backendId -> backendId != existingReplica.getBackendIdWithoutException())
+                .findFirst()
+                .orElseThrow();
+        Replica redundantReplica = new LocalReplica(pair.changelogTablet.getId() + 1000L, otherBackendId,
+                ReplicaState.NORMAL, pair.partition.getVisibleVersion(), 0);
+        redundantReplica.setPathHash(70002L);
+        pair.changelogTablet.addReplica(redundantReplica, false);
+
+        assertChangelogProcClassification(pair.changelogTablet.getId(), 0, 1);
+    }
+
+    private ChangelogTabletPair createChangelogTabletPair(String tableName) throws Exception {
+        createTableWithChangelog("CREATE TABLE " + tableName + " (k INT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'changelog.enable'='true')");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableName);
+        Partition partition = table.getPartitions().iterator().next();
+        MaterializedIndex changelogIndex = partition.getMaterializedIndices(IndexExtState.ALL, true).stream()
+                .filter(MaterializedIndex::isChangelog)
+                .findFirst()
+                .orElseThrow();
+        Tablet baseTablet = partition.getBaseIndex().getTablets().get(0);
+        Tablet changelogTablet = changelogIndex.getTablets().get(0);
+        Assertions.assertEquals(baseTablet.getId(), changelogTablet.getChangelogBaseTabletId());
+        Assertions.assertEquals(changelogTablet.getId(), baseTablet.getChangelogTabletId());
+        return new ChangelogTabletPair(partition, baseTablet, changelogTablet);
+    }
+
+    private void assertChangelogProcClassification(long changelogTabletId,
+            int expectedMismatchNum, int expectedRedundantNum) throws Exception {
+        ProcResult healthResult = new TabletHealthProcDir(Env.getCurrentEnv()).fetchResult();
+        List<String> row = findDbRow(healthResult, db.getId());
+        Assertions.assertEquals(TabletHealthProcDir.TITLE_NAMES.size(), row.size());
+        Assertions.assertEquals(String.valueOf(expectedMismatchNum),
+                row.get(TabletHealthProcDir.TITLE_NAMES.indexOf("ChangelogMismatchNum")));
+        Assertions.assertEquals(String.valueOf(expectedRedundantNum),
+                row.get(TabletHealthProcDir.TITLE_NAMES.indexOf("ChangelogRedundantNum")));
+        Assertions.assertEquals("0", row.get(TabletHealthProcDir.TITLE_NAMES.indexOf("ColocateMismatchNum")));
+        Assertions.assertEquals("0", row.get(TabletHealthProcDir.TITLE_NAMES.indexOf("ColocateRedundantNum")));
+
+        ProcResult incompleteResult = new IncompleteTabletsProcNode(db).fetchResult();
+        Assertions.assertEquals(IncompleteTabletsProcNode.TITLE_NAMES.size(),
+                incompleteResult.getRows().get(0).size());
+        Assertions.assertEquals(expectedMismatchNum == 0 ? "" : String.valueOf(changelogTabletId),
+                incompleteResult.getRows().get(0).get(
+                        IncompleteTabletsProcNode.TITLE_NAMES.indexOf("ChangelogMismatchTablets")));
+        Assertions.assertEquals(expectedRedundantNum == 0 ? "" : String.valueOf(changelogTabletId),
+                incompleteResult.getRows().get(0).get(
+                        IncompleteTabletsProcNode.TITLE_NAMES.indexOf("ChangelogRedundantTablets")));
+        Assertions.assertEquals("", incompleteResult.getRows().get(0).get(
+                IncompleteTabletsProcNode.TITLE_NAMES.indexOf("ColocateMismatchTablets")));
+        Assertions.assertEquals("", incompleteResult.getRows().get(0).get(
+                IncompleteTabletsProcNode.TITLE_NAMES.indexOf("ColocateRedundantTablets")));
+    }
+
+    private static class ChangelogTabletPair {
+        private final Partition partition;
+        private final Tablet baseTablet;
+        private final Tablet changelogTablet;
+
+        private ChangelogTabletPair(Partition partition, Tablet baseTablet, Tablet changelogTablet) {
+            this.partition = partition;
+            this.baseTablet = baseTablet;
+            this.changelogTablet = changelogTablet;
         }
     }
 

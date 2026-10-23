@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("predefined_typed_to_sparse", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = "parse_to_variant"
     def checkTypedArrays = { String table ->
         qt_sql """select id, cast(var['array_decimal_1'] as array<decimalv3(26, 9)>),
@@ -41,7 +39,6 @@ suite("predefined_typed_to_sparse", "p0,nonConcurrent") {
             cast(var['char_1'] as text)"""
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_doc_mode = false """
-    sql """ set enable_variant_schema_auto_cast = false """
     def count = new Random().nextInt(10) + 1
 
      def load_json_data = {table_name, file_name ->
@@ -244,5 +241,5 @@ suite("predefined_typed_to_sparse", "p0,nonConcurrent") {
     qt_full_values """select * from ${tableName} order by id"""
     qt_sql """select ${typedValues} from ${tableName} order by id"""
 
-    }
+
 }

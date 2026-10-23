@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * Boolean type in Nereids.
@@ -33,8 +37,11 @@ public class BooleanType extends PrimitiveType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof DecimalV2Type) {
+            // DECIMALV2 is deprecated, so every cast involving it is conservatively non-injective.
+            return false;
+        }
         return target instanceof BooleanType || target.isIntegralType() || target.isFloatLikeType()
-                || (target instanceof DecimalV2Type && ((DecimalV2Type) target).getRange() >= 1)
                 || (target instanceof DecimalV3Type && ((DecimalV3Type) target).getRange() >= 1)
                 || target.isStringLikeType();
     }
@@ -52,5 +59,10 @@ public class BooleanType extends PrimitiveType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(BooleanLiteral.FALSE);
     }
 }

@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.base.Preconditions;
@@ -45,6 +45,8 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
+    private static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
+
     private boolean convertDateToNull = false;
     private boolean isDoris = false;
 
@@ -57,14 +59,19 @@ public class JdbcMySQLClient extends JdbcClient {
         try {
             conn = super.getConnection();
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'server_identity'");
             if (rs.next()) {
-                String versionComment = rs.getString("Value");
-                isDoris = isDorisCompatibleVersionComment(versionComment);
+                isDoris = isDorisServerIdentity(rs.getString("Value"));
+            } else {
+                close(rs);
+                rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+                if (rs.next()) {
+                    isDoris = isDorisCompatibleVersionComment(rs.getString("Value"));
+                }
             }
         } catch (SQLException | JdbcClientException e) {
             closeClient();
-            throw new JdbcClientException("Failed to initialize JdbcMySQLClient: %s", e.getMessage());
+            throw jdbcException("Failed to initialize JdbcMySQLClient", e);
         } finally {
             close(rs, stmt, conn);
         }
@@ -76,14 +83,20 @@ public class JdbcMySQLClient extends JdbcClient {
         this.dbType = dbType;
     }
 
+    static boolean isDorisServerIdentity(String serverIdentity) {
+        return APACHE_DORIS_SERVER_IDENTITY.equalsIgnoreCase(serverIdentity);
+    }
+
     static boolean isDorisCompatibleVersionComment(String versionComment) {
         if (Strings.isNullOrEmpty(versionComment)) {
             return false;
         }
         String lowerVersionComment = versionComment.toLowerCase(Locale.ROOT);
+        // Enterprise releases can omit the optional "(Cloud Mode)" suffix.
         return lowerVersionComment.contains("doris")
                 || lowerVersionComment.contains("selectdb")
                 || lowerVersionComment.contains("velodb")
+                || lowerVersionComment.contains("enterprise version enterprise-")
                 || (lowerVersionComment.contains("enterprise version")
                     && lowerVersionComment.contains("cloud mode"));
     }
@@ -98,7 +111,7 @@ public class JdbcMySQLClient extends JdbcClient {
                     tableCommentBuilder.add(Strings.nullToEmpty(rs.getString("REMARKS")));
                 }
             } catch (SQLException e) {
-                throw new JdbcClientException(
+                throw jdbcException(
                     "failed to get table's comment for remote database: `%s`, remote table: `%s`",
                     e, remoteDbName, remoteTableName);
             }
@@ -132,7 +145,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 }
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
+            throw jdbcException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, conn);
         }
@@ -150,7 +163,7 @@ public class JdbcMySQLClient extends JdbcClient {
             rs = databaseMetaData.getTables(remoteDbName, null, remoteTableName, tableTypes);
             resultSetConsumer.accept(rs);
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             close(rs, conn);
         }
@@ -191,8 +204,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -213,8 +226,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 primaryKeys.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME"));
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc primary key info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(rs, conn);
         }
@@ -301,8 +314,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 if (convertDateToNull) {
                     fieldSchema.setAllowNull(true);
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // MySQL TIMESTAMP is an instant; DATETIME below remains a wall-clock value.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "DATETIME": {
                 // mysql can support microsecond
@@ -336,8 +349,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "LONGBLOB":
             case "BINARY":
             case "VARBINARY":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;
@@ -391,8 +403,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 fieldToType.put(fieldName, typeName);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
-                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+            throw jdbcException("failed to get jdbc columns info for remote table `%s.%s`",
+                    e, remoteDbName, remoteTableName);
         } finally {
             close(resultSet, stmt, conn);
         }

@@ -72,6 +72,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -1718,6 +1719,77 @@ TEST_F(IcebergReaderTest, v1_position_delete_read_error_releases_cache_entry) {
     EXPECT_NE(status.to_string().find(delete_file.path), std::string::npos);
 }
 
+// An inflated size breaks footer reads, proving the v1 position-delete path consumes the FE file_size.
+TEST_F(IcebergReaderTest, v1_position_delete_consumes_delete_file_size) {
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path("data.parquet");
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(0);
+
+    RuntimeProfile profile("test_profile");
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+
+    IcebergParquetReader iceberg_reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz,
+                                        &io_ctx, &runtime_state, cache.get());
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(IcebergReaderMixin<ParquetReader>::POSITION_DELETE);
+    delete_file.__set_path(mixed_position_delete_file());
+    delete_file.__set_file_size(1 << 30); // wrong on purpose: must reach the reader
+
+    const auto status =
+            iceberg_reader.TEST_position_delete_base("file:///tmp/data.parquet", {delete_file});
+
+    ASSERT_FALSE(status.ok());
+}
+
+// An inflated size must break the read, proving the v1 equality-delete path consumes the FE file_size.
+TEST_F(IcebergReaderTest, v1_equality_delete_consumes_delete_file_size) {
+    const doris::test::ScopedTempDirectory test_dir("doris_v1_eq_delete_size_test");
+    const auto delete_file_path = (test_dir.path() / "equality-delete.parquet").string();
+    write_iceberg_int_equality_delete_parquet_file(delete_file_path, "id", 0, 2);
+
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path("data.parquet");
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(0);
+
+    RuntimeProfile profile("test_profile");
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+
+    IcebergParquetReader iceberg_reader(&kv_cache, &profile, scan_params, scan_range, 1024, &ctz,
+                                        &io_ctx, &runtime_state, cache.get());
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(IcebergReaderMixin<ParquetReader>::EQUALITY_DELETE);
+    delete_file.__set_path(delete_file_path);
+    delete_file.__set_field_ids({0});
+    delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    delete_file.__set_file_size(1 << 30); // wrong on purpose: must reach the reader
+
+    const auto status = iceberg_reader.TEST_read_equality_delete_file(delete_file);
+
+    ASSERT_FALSE(status.ok());
+}
+
 TEST_F(IcebergReaderTest, v1_rejects_missing_required_field_without_initial_default) {
     schema::external::TField field;
     field.__set_name("required_added");
@@ -2856,7 +2928,7 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
 
     Block block;
     for (const auto* slot : tuple_descriptor->slots()) {
-        const auto& type = slot->get_data_type_ptr();
+        const auto& type = slot->type();
         block.insert({type->create_column(), type, slot->col_name()});
     }
     size_t read_rows = 0;
@@ -2864,11 +2936,9 @@ TEST_F(IcebergReaderTest, v1_orc_keeps_file_id_mode_inside_array_and_map) {
     const auto status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(read_rows, 1);
-    EXPECT_EQ(tuple_descriptor->slots()[0]->get_data_type_ptr()->to_string(
-                      *block.get_by_position(0).column, 0),
+    EXPECT_EQ(tuple_descriptor->slots()[0]->type()->to_string(*block.get_by_position(0).column, 0),
               "[{\"a\":7}]");
-    EXPECT_EQ(tuple_descriptor->slots()[1]->get_data_type_ptr()->to_string(
-                      *block.get_by_position(1).column, 0),
+    EXPECT_EQ(tuple_descriptor->slots()[1]->type()->to_string(*block.get_by_position(1).column, 0),
               "{1:{\"a\":8}}");
 
     std::filesystem::remove_all(test_dir);

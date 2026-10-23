@@ -19,8 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 
 public class UserIdentityTest {
@@ -31,17 +31,17 @@ public class UserIdentityTest {
         userIdent.setIsAnalyzed();
 
         String str = "'" + "cmy" + "'@'192.%'";
-        Assert.assertEquals(str, userIdent.toString());
+        Assertions.assertEquals(str, userIdent.toString());
 
         UserIdentity userIdent2 = UserIdentity.fromString(str);
-        Assert.assertEquals(userIdent2.toString(), userIdent.toString());
+        Assertions.assertEquals(userIdent2.toString(), userIdent.toString());
 
         String str2 = "'walletdc_write'@['cluster-leida.orp.all']";
         userIdent = UserIdentity.fromString(str2);
-        Assert.assertNotNull(userIdent);
-        Assert.assertTrue(userIdent.isDomain());
+        Assertions.assertNotNull(userIdent);
+        Assertions.assertTrue(userIdent.isDomain());
         userIdent.setIsAnalyzed();
-        Assert.assertEquals(str2, userIdent.toString());
+        Assertions.assertEquals(str2, userIdent.toString());
     }
 
 }

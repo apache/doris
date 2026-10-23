@@ -90,10 +90,12 @@ Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
         FROM_FE_STRING_CASE(TYPE_DATETIME);
         FROM_FE_STRING_CASE(TYPE_DATEV2);
         FROM_FE_STRING_CASE(TYPE_DATETIMEV2);
+        FROM_FE_STRING_CASE(TYPE_TIMESTAMP_NS);
         FROM_FE_STRING_CASE(TYPE_TIMESTAMPTZ);
         FROM_FE_STRING_CASE(TYPE_BOOLEAN);
         FROM_FE_STRING_CASE(TYPE_IPV4);
         FROM_FE_STRING_CASE(TYPE_IPV6);
+        FROM_FE_STRING_CASE(TYPE_UUID);
         FROM_FE_STRING_CASE(TYPE_DECIMALV2);
         FROM_FE_STRING_CASE(TYPE_DECIMAL32);
         FROM_FE_STRING_CASE(TYPE_DECIMAL64);
@@ -359,6 +361,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return valid_datetime(value_str, column.frac());
     case FieldType::OLAP_FIELD_TYPE_BOOL:
@@ -367,6 +370,8 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
         return valid_ipv4(value_str);
     case FieldType::OLAP_FIELD_TYPE_IPV6:
         return valid_ipv6(value_str);
+    case FieldType::OLAP_FIELD_TYPE_UUID:
+        return valid_uuid(value_str);
     default:
         LOG(WARNING) << "unknown field type. [type=" << int(field_type) << "]";
     }

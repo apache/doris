@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.Optional;
 
 public class JdbcClickHouseConnectorClientTest {
 
@@ -46,6 +47,19 @@ public class JdbcClickHouseConnectorClientTest {
     }
 
     @Test
+    void testPrefixedDriverVersions() {
+        for (String version : new String[] {"clickhouse-jdbc 0.3.2-patch11 (revision: 27f8951)",
+                "clickhouse-jdbc 0.4.2 (revision: 1513b27)"}) {
+            Assertions.assertFalse(JdbcClickHouseConnectorClient.isNewClickHouseDriverVersion(version));
+            Assertions.assertFalse(JdbcClickHouseConnectorClient.isDatabaseTermCatalog(version, true));
+        }
+        Assertions.assertTrue(JdbcClickHouseConnectorClient.isNewClickHouseDriverVersion(
+                "clickhouse-jdbc 0.5.0 (revision: test)"));
+        Assertions.assertTrue(JdbcClickHouseConnectorClient.isDatabaseTermCatalog(
+                "clickhouse-jdbc 1.0.0", true));
+    }
+
+    @Test
     void testDatabaseTermFollowsDriverMetadata() {
         Assertions.assertFalse(JdbcClickHouseConnectorClient.isDatabaseTermCatalog("0.9.8", false));
         Assertions.assertTrue(JdbcClickHouseConnectorClient.isDatabaseTermCatalog("0.7.1", true));
@@ -66,5 +80,17 @@ public class JdbcClickHouseConnectorClientTest {
         Assertions.assertArrayEquals(
                 new String[] {"TABLE", "VIEW", "SYSTEM TABLE", "REMOTE TABLE", "MATERIALIZED VIEW"},
                 createClient().getTableTypes());
+    }
+
+    @Test
+    void testUuidMapsToNativeType() {
+        JdbcFieldInfo field = new JdbcFieldInfo("u", Optional.of("UUID"), 0,
+                Optional.empty(), Optional.empty(), Optional.empty());
+        JdbcFieldInfo arrayField = new JdbcFieldInfo("a", Optional.of("Array(Nullable(UUID))"), 0,
+                Optional.empty(), Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals("UUID", createClient().jdbcTypeToConnectorType(field).getTypeName());
+        Assertions.assertEquals("UUID", createClient().jdbcTypeToConnectorType(arrayField)
+                .getChildren().get(0).getTypeName());
     }
 }

@@ -428,9 +428,9 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getCompressionType(), localTbl.getStorageFormat(),
                                     localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
-                                    !indexMeta.isRowBinlogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
+                                    !indexMeta.isChangelogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
                                     localTbl.storeRowColumn(),
-                                    localTbl.getBaseSchemaVersion(), localTbl.getBinlogConfig(),
+                                    localTbl.getBaseSchemaVersion(), localTbl.getTabletBinlogConfig(),
                                     localTbl.getCompactionPolicy(),
                                     localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     localTbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -445,12 +445,13 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.storageDictPageSize(), false,
                                     localTbl.getColumnSeqMapping(),
                                     localTbl.getVerticalCompactionNumColumnsPerGroup(),
-                                    indexMeta.isRowBinlogIndex()
-                                            ? OlapFile.TabletRolePB.TABLET_ROLE_ROW_BINLOG
+                                    indexMeta.isChangelogIndex()
+                                            ? OlapFile.TabletRolePB.TABLET_ROLE_CHANGELOG
                                             : OlapFile.TabletRolePB.TABLET_ROLE_DATA));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD,
+                                indexMeta.isChangelogIndex());
                         Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
                                 restoreTablet.getReplicaByBackendId(-1));

@@ -21,6 +21,7 @@ suite("test_pythonudaf_forbidden_module") {
 
     def pyPath = """${context.file.parent}/udaf_scripts/python_udaf_forbidden_module.zip"""
     scp_udf_file_to_all_be(pyPath)
+    scp_udf_file_to_all_fe(pyPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     def forbiddenCases = [
         [name: "os", function: "py_forbidden_os_udaf", symbol: "os.ForbiddenUDAF"],

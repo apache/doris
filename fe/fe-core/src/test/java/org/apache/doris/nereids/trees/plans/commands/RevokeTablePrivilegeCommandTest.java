@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
@@ -94,5 +95,33 @@ public class RevokeTablePrivilegeCommandTest extends TestWithFeService {
         LogicalPlan revokeplan2 = nereidsParser.parseSingle(revokeSql);
         Assertions.assertTrue(revokeplan2 instanceof RevokeTablePrivilegeCommand);
         Assertions.assertDoesNotThrow(() -> ((RevokeTablePrivilegeCommand) revokeplan2).run(connectContext, null));
+    }
+
+    @Test
+    public void testObjectName() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String[][] cases = {
+                {"REVOKE SELECT_PRIV ON test FROM 'jack'", "test.*"},
+                {"REVOKE SELECT_PRIV ON test.test_table FROM 'jack'", "test.test_table"},
+                {"REVOKE SELECT_PRIV ON internal.test.test_table FROM 'jack'", "internal.test.test_table"},
+        };
+        for (String[] c : cases) {
+            LogicalPlan plan = nereidsParser.parseSingle(c[0]);
+            Assertions.assertTrue(plan instanceof RevokeTablePrivilegeCommand, c[0]);
+            Assertions.assertEquals(c[1], ((RevokeTablePrivilegeCommand) plan).getTablePattern().toString(), c[0]);
+        }
+    }
+
+    @Test
+    public void testObjectNameWithTooManyParts() {
+        NereidsParser nereidsParser = new NereidsParser();
+        for (String name : new String[] {"a.b.c.d", "*.*.*.*", "a.b.c.d.e"}) {
+            String sql = "REVOKE SELECT_PRIV ON " + name + " FROM 'jack'";
+            ParseException exception = Assertions.assertThrows(ParseException.class,
+                    () -> nereidsParser.parseSingle(sql), sql);
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "Privilege object name should be db, db.tbl or ctl.db.tbl, but got: " + name),
+                    exception.getMessage());
+        }
     }
 }

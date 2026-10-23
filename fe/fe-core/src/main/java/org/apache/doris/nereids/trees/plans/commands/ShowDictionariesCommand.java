@@ -19,12 +19,15 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.dictionary.DictionaryManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -73,14 +76,31 @@ public class ShowDictionariesCommand extends ShowCommand {
 
         DictionaryManager dictionaryManager = ctx.getEnv().getDictionaryManager();
         List<Dictionary> queryDicts = Lists.newArrayList();
+        String dbName = ctx.getDatabase();
         // getDictionaries() already have read lock
-        Map<String, Dictionary> dbDictionaries = dictionaryManager.getDictionaries(ctx.getDatabase());
+        Map<String, Dictionary> dbDictionaries = dictionaryManager.getDictionaries(dbName);
         for (Map.Entry<String, Dictionary> entry : dbDictionaries.entrySet()) {
             String dictionaryName = entry.getKey();
             // Apply wild condition filtering if wild pattern is provided
-            if (wild == null || matcher.match(dictionaryName)) {
-                queryDicts.add(entry.getValue());
+            if (wild != null && !matcher.match(dictionaryName)) {
+                continue;
             }
+            // Dictionaries are authorized like tables of the internal catalog. Hide the ones the user
+            // may not show, the same way SHOW TABLES hides tables, so the source table name, status
+            // and data distribution are not exposed to users without privileges on the dictionary.
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                    dbName, dictionaryName, PrivPredicate.SHOW)) {
+                continue;
+            }
+            queryDicts.add(entry.getValue());
+        }
+
+        // An empty id list means "all dictionaries" to the BE status RPC (get_dictionary_status in
+        // BackendService.thrift), so an empty visible set must return before status collection:
+        // otherwise it fans RPCs to every alive BE for dictionaries this user may not see, logs
+        // them as missing, and a bad response from any BE would fail the whole command.
+        if (queryDicts.isEmpty()) {
+            return new ShowResultSet(getMetaData(), rows);
         }
 
         // ignore its return value because we dont update it, just show.

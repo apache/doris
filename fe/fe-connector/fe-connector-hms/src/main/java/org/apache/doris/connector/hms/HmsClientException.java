@@ -21,6 +21,7 @@ package org.apache.doris.connector.hms;
  * Exception thrown when an HMS client operation fails.
  */
 public class HmsClientException extends RuntimeException {
+    private HmsPartitionBatchStats partitionBatchStats;
 
     public HmsClientException(String message) {
         super(message);
@@ -30,7 +31,21 @@ public class HmsClientException extends RuntimeException {
         super(message, cause);
     }
 
+    public HmsClientException(String message, HmsPartitionBatchStats partitionBatchStats) {
+        super(message);
+        this.partitionBatchStats = partitionBatchStats;
+    }
+
     public HmsClientException(String formatString, Object... args) {
         super(String.format(formatString, args));
+    }
+
+    public HmsPartitionBatchStats getPartitionBatchStats() {
+        return partitionBatchStats;
+    }
+
+    HmsClientException withPartitionBatchStats(HmsPartitionBatchStats stats) {
+        this.partitionBatchStats = stats;
+        return this;
     }
 }

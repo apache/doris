@@ -115,6 +115,23 @@ public class OssObjStorage implements ObjStorage<OSS> {
         return properties.getSupportedSchemes();
     }
 
+    ObjectStorageUri parseUri(String path) {
+        ObjectStorageUri uri = ObjectStorageUri.parse(path, isUsePathStyle(), getSupportedSchemes());
+        if (path.regionMatches(true, 0, "http://", 0, 7)
+                || path.regionMatches(true, 0, "https://", 0, 8)) {
+            return uri;
+        }
+        int dot = uri.bucket().indexOf('.');
+        if (dot <= 0) {
+            return uri;
+        }
+        // HMS can retain legacy bucket.endpoint locations even when BE paths are normalized.
+        // Rewrite only in the OSS provider: S3 bucket names may contain dots. Preserve raw keys
+        // so encoded partition separators and literal '+' characters still identify the same objects.
+        return ObjectStorageUri.parse("oss://" + uri.bucket().substring(0, dot) + "/" + uri.key(),
+                isUsePathStyle(), getSupportedSchemes());
+    }
+
     @Override
     public OSS getClient() throws IOException {
         return getClient(properties.getBucket());
@@ -199,7 +216,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         ListObjectsRequest request = new ListObjectsRequest(uri.bucket());
         request.setPrefix(uri.key());
         if (options != null) {
@@ -233,7 +250,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public RemoteObject headObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         try {
             ObjectMetadata metadata = getClient(uri.bucket()).getObjectMetadata(uri.bucket(), uri.key());
             return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
@@ -250,7 +267,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void putObject(String remotePath, RequestBody requestBody) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentLength(requestBody.contentLength());
         try (InputStream content = requestBody.content()) {
@@ -264,7 +281,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void deleteObject(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         try {
             getClient(uri.bucket()).deleteObject(uri.bucket(), uri.key());
         } catch (OSSException e) {
@@ -279,8 +296,8 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void copyObject(String srcPath, String dstPath) throws IOException {
-        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, isUsePathStyle(), getSupportedSchemes());
-        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri src = parseUri(srcPath);
+        ObjectStorageUri dst = parseUri(dstPath);
         try {
             getClient(src.bucket()).copyObject(new CopyObjectRequest(
                     src.bucket(), src.key(), dst.bucket(), dst.key()));
@@ -292,7 +309,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public String initiateMultipartUpload(String remotePath) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         try {
             InitiateMultipartUploadResult result = getClient(uri.bucket()).initiateMultipartUpload(
                     new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
@@ -306,7 +323,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     @Override
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             RequestBody body) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         try (InputStream content = body.content()) {
             com.aliyun.oss.model.UploadPartRequest request = new com.aliyun.oss.model.UploadPartRequest();
             request.setBucketName(uri.bucket());
@@ -326,7 +343,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
     @Override
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         List<PartETag> partEtags = parts.stream()
                 .map(part -> new PartETag(part.partNumber(), part.etag()))
                 .collect(Collectors.toList());
@@ -341,7 +358,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         try {
             getClient(uri.bucket()).abortMultipartUpload(new AbortMultipartUploadRequest(
                     uri.bucket(), uri.key(), uploadId));
@@ -353,7 +370,7 @@ public class OssObjStorage implements ObjStorage<OSS> {
 
     @Override
     public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
-        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, isUsePathStyle(), getSupportedSchemes());
+        ObjectStorageUri uri = parseUri(remotePath);
         try {
             GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
             if (fromByte > 0) {

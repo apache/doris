@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TStringLiteral;
 import org.apache.doris.thrift.TTimeV2Literal;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TUUIDLiteral;
 import org.apache.doris.thrift.TVarBinaryLiteral;
 
 import com.google.common.collect.Lists;
@@ -64,6 +65,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Visitor that converts any {@link Expr} node into its Thrift {@link TExprNode}
@@ -203,6 +205,18 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     }
 
     @Override
+    public Void visitTimeStampNsLiteral(TimeStampNsLiteral expr, TExprNode msg) {
+        msg.node_type = TExprNodeType.DATE_LITERAL;
+        msg.date_literal = new TDateLiteral(expr.getStringValue());
+        try {
+            expr.checkValueValid();
+        } catch (AnalysisException e) {
+            LOG.warn("meet invalid value when plan to translate " + expr + " to thrift node");
+        }
+        return null;
+    }
+
+    @Override
     public Void visitTimeV2Literal(TimeV2Literal expr, TExprNode msg) {
         msg.node_type = TExprNodeType.TIMEV2_LITERAL;
         msg.timev2_literal = new TTimeV2Literal(expr.getValue());
@@ -239,6 +253,14 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     public Void visitIPv6Literal(IPv6Literal expr, TExprNode msg) {
         msg.node_type = TExprNodeType.IPV6_LITERAL;
         msg.ipv6_literal = new TIPv6Literal(expr.getValue());
+        return null;
+    }
+
+    @Override
+    public Void visitUuidLiteral(UuidLiteral expr, TExprNode msg) {
+        msg.node_type = TExprNodeType.UUID_LITERAL;
+        UUID value = UUID.fromString(expr.getValue());
+        msg.uuid_literal = new TUUIDLiteral(value.getMostSignificantBits(), value.getLeastSignificantBits());
         return null;
     }
 
@@ -433,6 +455,9 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     public Void visitCastExpr(CastExpr expr, TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(TExprOpcode.CAST);
+        if (expr.isStrict()) {
+            msg.setIsStrictCast(true);
+        }
         return null;
     }
 
@@ -468,7 +493,9 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
 
-        if (ConnectContext.get() != null) {
+        if (expr.isShortCircuitEvaluation()) {
+            msg.setShortCircuitEvaluation(true);
+        } else if (ConnectContext.get() != null) {
             msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
         }
         return null;

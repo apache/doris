@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.changelog.ChangelogRepairReason;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
@@ -58,6 +59,7 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -187,6 +189,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private Set<Long> colocateBackendsSet = null;
     private int tabletOrderIdx = -1;
+    private long changelogBaseTabletId = -1L;
+    private ChangelogRepairReason changelogRepairReason = ChangelogRepairReason.NONE;
+    private Map<Long, Long> changelogRequiredDestPathHashByBackend = Maps.newHashMap();
+    private Map<Long, Long> changelogObservedPathHashByBackend = Maps.newHashMap();
 
     private SystemInfoService infoService;
 
@@ -390,6 +396,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return createTime;
     }
 
+    public long getVisibleVersion() {
+        return visibleVersion;
+    }
+
     public long getCommittedVersion() {
         return visibleVersion;
     }
@@ -553,12 +563,88 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return false;
     }
 
+    /*
+     * Changelog repair must use the backend selected by its base tablet. A replica on an
+     * unrelated backend at the same host is only a temporary conflict: allow cloning to the
+     * required backend first, then remove the unrelated replica after the clone is complete.
+     */
+    public boolean filterChangelogRequiredDestBE(long beId) {
+        if (!changelogRequiredDestPathHashByBackend.containsKey(beId)) {
+            return true;
+        }
+        Backend backend = infoService.getBackend(beId);
+        if (backend == null) {
+            return true;
+        }
+        String host = backend.getHost();
+        for (Replica replica : tablet.getReplicas()) {
+            long replicaBeId = replica.getBackendIdWithoutException();
+            if (replicaBeId == beId) {
+                return true;
+            }
+            Backend replicaBackend = infoService.getBackend(replicaBeId);
+            if (replicaBackend == null) {
+                continue;
+            }
+            if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest
+                    && host.equals(replicaBackend.getHost())
+                    && changelogRequiredDestPathHashByBackend.containsKey(replicaBeId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void setColocateGroupBackendIds(Set<Long> backendsSet) {
         this.colocateBackendsSet = backendsSet;
     }
 
     public Set<Long> getColocateBackendsSet() {
         return colocateBackendsSet;
+    }
+
+    public void setChangelogBaseTabletId(long baseTabletId) {
+        this.changelogBaseTabletId = baseTabletId;
+    }
+
+    public long getChangelogBaseTabletId() {
+        return changelogBaseTabletId;
+    }
+
+    public boolean isChangelogRepair() {
+        return changelogBaseTabletId > 0;
+    }
+
+    public void setChangelogRepairReason(ChangelogRepairReason repairReason) {
+        this.changelogRepairReason = repairReason;
+    }
+
+    public ChangelogRepairReason getChangelogRepairReason() {
+        return changelogRepairReason;
+    }
+
+    public void setChangelogRequiredDestPathHashByBackend(Map<Long, Long> requiredDestPathHashByBackend) {
+        this.changelogRequiredDestPathHashByBackend = Maps.newHashMap(requiredDestPathHashByBackend);
+    }
+
+    public boolean hasChangelogRequiredDestPathHash() {
+        return !changelogRequiredDestPathHashByBackend.isEmpty();
+    }
+
+    public long getChangelogRequiredDestPathHash(long backendId) {
+        return changelogRequiredDestPathHashByBackend.getOrDefault(backendId, -1L);
+    }
+
+    public Map<Long, Long> getChangelogRequiredDestPathHashByBackend() {
+        return changelogRequiredDestPathHashByBackend;
+    }
+
+    public void setChangelogObservedPathHashByBackend(Map<Long, Long> observedPathHashByBackend) {
+        this.changelogObservedPathHashByBackend = Maps.newHashMap(observedPathHashByBackend);
+    }
+
+    public Map<Long, Long> getChangelogObservedPathHashByBackend() {
+        return changelogObservedPathHashByBackend;
     }
 
     public void setTabletOrderIdx(int idx) {
@@ -1322,7 +1408,31 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(committedVersion));
         result.add(Strings.nullToEmpty(errMsg));
+        result.add(changelogRepairReason.name());
+        result.add(String.valueOf(changelogBaseTabletId));
+        result.add(formatBackendPathMap(changelogRequiredDestPathHashByBackend));
+        result.add(formatBackendPathMap(changelogObservedPathHashByBackend));
         return result;
+    }
+
+    private static String formatBackendPathMap(Map<Long, Long> pathHashByBackend) {
+        List<Long> backendIds = Lists.newArrayList(pathHashByBackend.keySet());
+        Collections.sort(backendIds);
+        StringBuilder result = new StringBuilder();
+        for (long backendId : backendIds) {
+            if (result.length() > 0) {
+                result.append(",");
+            }
+            result.append(backendId).append(":").append(pathHashByBackend.get(backendId));
+        }
+        return result.toString();
+    }
+
+    public String getChangelogRepairInfo() {
+        return "reason: " + changelogRepairReason.name()
+                + ", base tablet id: " + changelogBaseTabletId
+                + ", expected locations: " + formatBackendPathMap(changelogRequiredDestPathHashByBackend)
+                + ", observed locations: " + formatBackendPathMap(changelogObservedPathHashByBackend);
     }
 
     /*

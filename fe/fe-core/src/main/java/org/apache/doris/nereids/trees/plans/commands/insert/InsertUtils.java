@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
@@ -67,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -442,7 +444,7 @@ public class InsertUtils {
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
-                                    targetType, rewriteContext, strictCast);
+                                    targetType, rewriteContext, strictCast, sameNameColumn);
                         }
                     }
                 } else {
@@ -463,7 +465,7 @@ public class InsertUtils {
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
-                                    rewriteContext, strictCast);
+                                    rewriteContext, strictCast, columns.get(i));
                         }
                     }
                 }
@@ -473,7 +475,7 @@ public class InsertUtils {
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
     }
 
-    private static List<Column> connectorWriteSchema(TableIf table, boolean full) {
+    static List<Column> connectorWriteSchema(TableIf table, boolean full) {
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getStatementContext() != null) {
             Optional<List<Column>> pinned =
@@ -535,7 +537,7 @@ public class InsertUtils {
                     if (expr.child(0).getDataType() instanceof AggStateType) {
                         expr = ConvertAggStateCast.convert((Cast) expr);
                     } else {
-                        expr = FoldConstantRuleOnFE.evaluate(expr, context);
+                        expr = foldConstantAfterBind(expr, context);
                     }
                 }
                 return expr;
@@ -596,6 +598,24 @@ public class InsertUtils {
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
             NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
             boolean strictCast) {
+        addColumnValue(analyzer, optimizedRowConstructor, value, targetType, rewriteContext, strictCast, null);
+    }
+
+    private static void addColumnValue(Optional<ExpressionAnalyzer> analyzer,
+            ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
+            NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
+            boolean strictCast, Column targetColumn) {
+        if (targetColumn != null && targetColumn.getConnectorStringWriteType() != null) {
+            // Preserve textual input until binding can apply the connector's semantic conversion.
+            if (!analyzer.isPresent()) {
+                optimizedRowConstructor.add(value);
+                return;
+            }
+            value = (NamedExpression) analyzer.get().analyze(value,
+                    new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
+            Expression input = value instanceof Alias ? value.child(0) : value;
+            value = new Alias(ConnectorWriteValueConverter.convert(targetColumn, input), value.getName());
+        }
         if (targetType != null) {
             // In strict cast/insert mode, we don't cast to target varchar type here,
             // we cast to varchar max here and do substring accordingly in BindSink.
@@ -612,9 +632,15 @@ public class InsertUtils {
             );
             value = rewriteContext == null
                     ? value
-                    : (NamedExpression) FoldConstantRuleOnFE.evaluate(value, rewriteContext);
+                    : (NamedExpression) foldConstantAfterBind(value, rewriteContext);
         }
         optimizedRowConstructor.add(value);
+    }
+
+    private static Expression foldConstantAfterBind(
+            Expression expression, ExpressionRewriteContext rewriteContext) {
+        return MoreFieldsThread.keepFunctionSignature(
+                () -> FoldConstantRuleOnFE.evaluate(expression, rewriteContext));
     }
 
     private static NamedExpression castValue(Expression value, DataType targetType) {

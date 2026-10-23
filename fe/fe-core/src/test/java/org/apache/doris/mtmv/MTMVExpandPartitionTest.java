@@ -31,9 +31,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
@@ -66,7 +66,7 @@ public class MTMVExpandPartitionTest {
     private Map<String, PartitionItem> dailyBasePartitions;
     private Map<String, PartitionItem> monthlyMvPartitions;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         dailyBasePartitions = Maps.newHashMap();
         dailyBasePartitions.put("p20210101", buildRange("2021-01-01", "2021-01-02"));
@@ -92,8 +92,8 @@ public class MTMVExpandPartitionTest {
                 queryUsed, monthlyMvPartitions, Sets.newHashSet(rangeTable));
 
         Set<String> expanded = result.get(RANGE_TABLE_QUALIFIERS);
-        Assert.assertNotNull(expanded);
-        Assert.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"), expanded);
+        Assertions.assertNotNull(expanded);
+        Assertions.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"), expanded);
     }
 
     @Test
@@ -105,8 +105,8 @@ public class MTMVExpandPartitionTest {
                 queryUsed, monthlyMvPartitions, Sets.newHashSet(rangeTable));
 
         Set<String> expanded = result.get(RANGE_TABLE_QUALIFIERS);
-        Assert.assertNotNull(expanded);
-        Assert.assertEquals(
+        Assertions.assertNotNull(expanded);
+        Assertions.assertEquals(
                 Sets.newHashSet("p20210101", "p20210102", "p20210103", "p20210201", "p20210202"),
                 expanded);
     }
@@ -119,7 +119,7 @@ public class MTMVExpandPartitionTest {
         Map<List<String>, Set<String>> result = MTMVPartitionExpander.expandToMvPartitionGranularity(
                 queryUsed, monthlyMvPartitions, Sets.newHashSet(rangeTable));
 
-        Assert.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"),
+        Assertions.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"),
                 result.get(RANGE_TABLE_QUALIFIERS));
     }
 
@@ -134,7 +134,7 @@ public class MTMVExpandPartitionTest {
         Map<List<String>, Set<String>> result = MTMVPartitionExpander.expandToMvPartitionGranularity(
                 queryUsed, mvPartitionsWithGap, Sets.newHashSet(rangeTable));
 
-        Assert.assertTrue(result.get(RANGE_TABLE_QUALIFIERS).isEmpty());
+        Assertions.assertTrue(result.get(RANGE_TABLE_QUALIFIERS).isEmpty());
     }
 
     @Test
@@ -158,16 +158,16 @@ public class MTMVExpandPartitionTest {
         Map<List<String>, Set<String>> sparseResult = MTMVPartitionExpander.expandToMvPartitionGranularity(
                 sparseFilter, mvPartitions, Sets.newHashSet(manyPartitionTable));
 
-        Assert.assertEquals(30, sparseResult.get(RANGE_TABLE_QUALIFIERS).size());
-        Assert.assertTrue(sparseResult.get(RANGE_TABLE_QUALIFIERS).contains("p30"));
-        Assert.assertTrue(sparseResult.get(RANGE_TABLE_QUALIFIERS).contains("p59"));
+        Assertions.assertEquals(30, sparseResult.get(RANGE_TABLE_QUALIFIERS).size());
+        Assertions.assertTrue(sparseResult.get(RANGE_TABLE_QUALIFIERS).contains("p30"));
+        Assertions.assertTrue(sparseResult.get(RANGE_TABLE_QUALIFIERS).contains("p59"));
 
         Map<List<String>, Set<String>> broadFilter = Maps.newHashMap();
         broadFilter.put(RANGE_TABLE_QUALIFIERS, basePartitions.keySet());
         Map<List<String>, Set<String>> broadResult = MTMVPartitionExpander.expandToMvPartitionGranularity(
                 broadFilter, mvPartitions, Sets.newHashSet(manyPartitionTable));
 
-        Assert.assertEquals(basePartitions.keySet(), broadResult.get(RANGE_TABLE_QUALIFIERS));
+        Assertions.assertEquals(basePartitions.keySet(), broadResult.get(RANGE_TABLE_QUALIFIERS));
     }
 
     @Test
@@ -179,8 +179,8 @@ public class MTMVExpandPartitionTest {
                 queryUsed, monthlyMvPartitions, Sets.newHashSet(listTable));
 
         Set<String> expanded = result.get(LIST_TABLE_QUALIFIERS);
-        Assert.assertNotNull(expanded);
-        Assert.assertEquals(Sets.newHashSet("p1"), expanded);
+        Assertions.assertNotNull(expanded);
+        Assertions.assertEquals(Sets.newHashSet("p1"), expanded);
     }
 
     @Test
@@ -192,8 +192,8 @@ public class MTMVExpandPartitionTest {
                 queryUsed, monthlyMvPartitions, Sets.newHashSet(rangeTable));
 
         Set<String> expanded = result.get(RANGE_TABLE_QUALIFIERS);
-        Assert.assertNotNull(expanded);
-        Assert.assertTrue(expanded.isEmpty());
+        Assertions.assertNotNull(expanded);
+        Assertions.assertTrue(expanded.isEmpty());
     }
 
     @Test
@@ -208,8 +208,8 @@ public class MTMVExpandPartitionTest {
                 queryUsed, janOnlyMv, Sets.newHashSet(rangeTable));
 
         Set<String> expanded = result.get(RANGE_TABLE_QUALIFIERS);
-        Assert.assertNotNull(expanded);
-        Assert.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"), expanded);
+        Assertions.assertNotNull(expanded);
+        Assertions.assertEquals(Sets.newHashSet("p20210101", "p20210102", "p20210103"), expanded);
     }
 
     @Test
@@ -221,7 +221,7 @@ public class MTMVExpandPartitionTest {
         Map<List<String>, Set<String>> result = MTMVPartitionExpander.expandToMvPartitionGranularity(
                 queryUsed, monthlyMvPartitions, Sets.newHashSet(rangeTable));
 
-        Assert.assertNull(result.get(RANGE_TABLE_QUALIFIERS));
+        Assertions.assertNull(result.get(RANGE_TABLE_QUALIFIERS));
     }
 
     @Test
@@ -229,7 +229,7 @@ public class MTMVExpandPartitionTest {
         Map<List<String>, Set<String>> result = MTMVPartitionExpander.expandToMvPartitionGranularity(
                 Maps.newHashMap(), monthlyMvPartitions, Sets.newHashSet(rangeTable));
 
-        Assert.assertTrue(result.isEmpty());
+        Assertions.assertTrue(result.isEmpty());
     }
 
     // --- helpers ---

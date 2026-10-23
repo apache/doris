@@ -29,6 +29,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -60,9 +61,11 @@ namespace doris {
     M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
     M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
     M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_TIMESTAMP_NS, ColumnTimeStampNs, Int64)  \
     M(PrimitiveType::TYPE_TIMESTAMPTZ, ColumnTimeStampTz, UInt64)  \
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
-    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
+    M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)                  \
+    M(PrimitiveType::TYPE_UUID, ColumnUUID, UUIDValueType)
 
 Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
@@ -104,7 +107,7 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
-        // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
+        // org.apache.doris.jni.spi.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
         return Status::InternalError("Unsupported type {} in java side", data_type->get_name());
     }
     auto mutable_doris_column = IColumn::mutate(std::move(doris_column));
@@ -148,6 +151,9 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_VARBINARY:
         status = _fill_varbinary_column(address, data_column, num_rows);
         break;
+    case PrimitiveType::TYPE_VARIANT:
+        status = _fill_variant_v2_column(address, data_column, num_rows);
+        break;
     default:
         status = Status::InvalidArgument("Unsupported type {} in jni scanner",
                                          data_type->get_name());
@@ -176,6 +182,26 @@ Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
             varbinary_col.insert_data(src, static_cast<size_t>(len));
         }
     }
+    return Status::OK();
+}
+
+Status JniDataBridge::_fill_variant_v2_column(TableMetaAddress& address,
+                                              MutableColumnPtr& doris_column, size_t num_rows) {
+    const auto metadata_count = static_cast<size_t>(address.next_meta_as_long());
+    const auto* metadata_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* metadata_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
+    const auto* metadata_ids = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* value_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* value_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
+
+    auto& variant_column = assert_cast<ColumnVariantV2&>(*doris_column);
+    variant_column.insert_encoded_rows({
+            .metadata_bytes = {metadata_bytes, metadata_offsets[metadata_count]},
+            .metadata_offsets = {metadata_offsets, metadata_count + 1},
+            .meta_ids = {metadata_ids, num_rows},
+            .value_bytes = {value_bytes, value_offsets[num_rows]},
+            .value_offsets = {value_offsets, num_rows + 1},
+    });
     return Status::OK();
 }
 
@@ -292,6 +318,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
         return "ipv4";
     case TYPE_IPV6:
         return "ipv6";
+    case TYPE_UUID:
+        return "uuid";
     case TYPE_VARCHAR:
         [[fallthrough]];
     case TYPE_CHAR:
@@ -310,6 +338,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
         buffer << "datetimev2(" << type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << type->get_scale() << ")";
         return buffer.str();
@@ -358,6 +388,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     }
     case TYPE_VARBINARY:
         return "varbinary";
+    case TYPE_VARIANT:
+        return "variant";
     // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
     case TYPE_BITMAP:
         [[fallthrough]];
@@ -396,6 +428,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         return "ipv4";
     case TYPE_IPV6:
         return "ipv6";
+    case TYPE_UUID:
+        return "uuid";
     case TYPE_VARCHAR: {
         buffer << "varchar("
                << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
@@ -414,6 +448,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         buffer << "datetimev2(" << data_type->get_scale() << ")";
         return buffer.str();
     }
+    case TYPE_TIMESTAMP_NS:
+        return "timestamp_ns";
     case TYPE_TIMESTAMPTZ: {
         buffer << "timestamptz(" << data_type->get_scale() << ")";
         return buffer.str();
@@ -433,6 +469,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
                << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
                << ")";
         return buffer.str();
+    case TYPE_VARIANT:
+        return "variant";
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();

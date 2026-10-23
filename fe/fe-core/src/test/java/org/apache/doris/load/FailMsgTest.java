@@ -17,8 +17,8 @@
 
 package org.apache.doris.load;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -43,10 +43,10 @@ public class FailMsgTest {
         FailMsg failMsg1 = new FailMsg();
         failMsg1.readFields(dis);
 
-        Assert.assertEquals(failMsg1.getMsg(), "Job failed");
-        Assert.assertEquals(failMsg1.getCancelType(), FailMsg.CancelType.ETL_QUALITY_UNSATISFIED);
+        Assertions.assertEquals(failMsg1.getMsg(), "Job failed");
+        Assertions.assertEquals(failMsg1.getCancelType(), FailMsg.CancelType.ETL_QUALITY_UNSATISFIED);
 
-        Assert.assertEquals(failMsg1, failMsg);
+        Assertions.assertEquals(failMsg1, failMsg);
 
         dis.close();
         file.delete();

@@ -43,23 +43,26 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-loader</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
 
-        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
-             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
-             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
-             this plugin's own bundled jar and link against THIS plugin's Caffeine (below). PaimonLatestSnapshotCache
-             is backed by MetaCacheEntry, which needs Caffeine at runtime — see the caffeine dependency next. -->
+        <!-- Shared declarative metadata-cache framework used by Paimon metadata caches. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-cache</artifactId>
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Caffeine: the runtime library the shared meta-cache framework (fe-connector-cache's MetaCacheEntry/
-             CacheFactory) links against. fe-connector-cache declares Caffeine `provided` (compiles against, never
+        <!-- Caffeine: the runtime library the shared meta-cache framework links against.
+             fe-connector-cache declares Caffeine `provided` (compiles against, never
              bundles), so each consuming plugin must carry its own Caffeine. Unlike the iceberg plugin (which gets
              2.9.3 transitively from iceberg-core), paimon has no Caffeine on its classpath, so declare it here so
              it is bundled into the paimon plugin zip. Pinned to 2.9.3 to match the version fe-connector-cache is
@@ -116,6 +119,14 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
             <version>${paimon.version}</version>
+        </dependency>
+
+        <!-- REST catalogs discover OSS through Paimon's FileIOLoader SPI; the optional Jindo
+             runtime jars alone only supply the Hadoop implementation, not this adapter. The SDK/native
+             jars stay in the host so Paimon and Iceberg cannot load the native library twice. -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
         </dependency>
 
         <!-- FIX-C (build 968994, Class C): the paimon-hive metastore-client closure
@@ -355,6 +366,13 @@ under the License.
     <build>
         <finalName>doris-fe-connector-paimon</finalName>
         <plugins>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Hive's Kryo expression serializer reflects into collections, as in the FE JVM. -->
+                    <argLine>@{argLine} --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
             <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>

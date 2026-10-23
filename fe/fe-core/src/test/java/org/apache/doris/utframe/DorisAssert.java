@@ -37,7 +37,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.lang3.StringUtils;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.IOException;
 import java.util.Map;
@@ -165,7 +165,7 @@ public class DorisAssert {
                 Thread.sleep(100);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
     }
 
@@ -184,15 +184,15 @@ public class DorisAssert {
         }
 
         public void explainContains(String... keywords) throws Exception {
-            Assert.assertTrue(explainQuery(), Stream.of(keywords).allMatch(explainQuery()::contains));
+            Assertions.assertTrue(Stream.of(keywords).allMatch(explainQuery()::contains), explainQuery());
         }
 
         public void explainContains(String keywords, int count) throws Exception {
-            Assert.assertEquals(StringUtils.countMatches(explainQuery(), keywords), count);
+            Assertions.assertEquals(StringUtils.countMatches(explainQuery(), keywords), count);
         }
 
         public void explainWithout(String s) throws Exception {
-            Assert.assertFalse(explainQuery().contains(s));
+            Assertions.assertFalse(explainQuery().contains(s));
         }
 
         public String explainQuery() throws Exception {

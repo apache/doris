@@ -32,6 +32,22 @@ suite('multi_distinct_window') {
     insert into multi values (1, 2, 'a'),(1, 2, 'a'), (2, 2, 'a'), (3, 2, 'a');
     """
 
+    sql """
+    drop table if exists multi_not_null;
+    CREATE TABLE multi_not_null (
+        id int NOT NULL,
+        v1 int NOT NULL,
+        v2 varchar NOT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id) COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+
+    insert into multi_not_null values (1, 10, 'a'), (2, 20, 'b');
+    """
+
     qt_count "select id, count(distinct v1) over() from multi order by id;"
 
     qt_count_partition "select id, v1, count(distinct v1) over(partition by id) from multi order by id;"
@@ -41,6 +57,28 @@ suite('multi_distinct_window') {
     qt_sum_partition "select id, v1, sum(distinct v1) over(partition by id) from multi order by id;"
 
     qt_distinct_group_concat "select id, v1, group_concat(distinct v2) over() from multi order by id;"
+
+    qt_sum_empty_frame """
+        select id,
+               sum(distinct v1) over (
+                   order by id rows between 1 preceding and 1 preceding),
+               multi_distinct_sum(v1) over (
+                   order by id rows between 1 preceding and 1 preceding),
+               count(distinct v1) over (
+                   order by id rows between 1 preceding and 1 preceding)
+        from multi_not_null
+        order by id;
+    """
+
+    qt_group_concat_empty_frame """
+        select id,
+               group_concat(distinct v2) over (
+                   order by id rows between 1 preceding and 1 preceding),
+               multi_distinct_group_concat(v2) over (
+                   order by id rows between 1 preceding and 1 preceding)
+        from multi_not_null
+        order by id;
+    """
 
     test {
         sql """select id, count(distinct v1, v2) over() from multi order by id;"""

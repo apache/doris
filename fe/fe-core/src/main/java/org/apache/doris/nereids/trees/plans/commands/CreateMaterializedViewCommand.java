@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
@@ -107,6 +108,7 @@ import java.util.stream.Collectors;
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
     private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER";
+    private final boolean ifNotExists;
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -118,9 +120,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private KeysType mvKeysType;
     private OriginStatement originStatement;
 
-    public CreateMaterializedViewCommand(TableNameInfo name, LogicalPlan logicalPlan,
+    public CreateMaterializedViewCommand(boolean ifNotExists, TableNameInfo name, LogicalPlan logicalPlan,
                                          Map<String, String> properties) {
         super(PlanType.CREATE_MATERIALIZED_VIEW_COMMAND);
+        this.ifNotExists = ifNotExists;
         this.name = name;
         this.logicalPlan = logicalPlan;
         this.properties = properties;
@@ -141,6 +144,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public String getMVName() {
@@ -659,6 +666,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         }
 
         private void validateAggFunnction(AggregateFunction aggregateFunction) {
+            if (aggregateFunction instanceof CombineCombinator) {
+                throw new AnalysisException("Synchronous materialized view does not support aggregate "
+                        + "combine function: " + aggregateFunction.getName());
+            }
             // if aggregate function use a value column of agg table,
             // the value columns' agg type must be consistent with aggregate function
             // we do it in two steps:

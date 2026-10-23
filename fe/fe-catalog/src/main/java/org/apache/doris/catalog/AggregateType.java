@@ -86,10 +86,12 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DATETIME);
         primitiveTypeList.add(PrimitiveType.DATEV2);
         primitiveTypeList.add(PrimitiveType.DATETIMEV2);
+        primitiveTypeList.add(PrimitiveType.TIMESTAMP_NS);
         primitiveTypeList.add(PrimitiveType.TIMESTAMPTZ);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);
+        primitiveTypeList.add(PrimitiveType.UUID);
         compatibilityMap.put(MIN, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
@@ -108,10 +110,12 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.DATETIME);
         primitiveTypeList.add(PrimitiveType.DATEV2);
         primitiveTypeList.add(PrimitiveType.DATETIMEV2);
+        primitiveTypeList.add(PrimitiveType.TIMESTAMP_NS);
         primitiveTypeList.add(PrimitiveType.TIMESTAMPTZ);
         primitiveTypeList.add(PrimitiveType.CHAR);
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);
+        primitiveTypeList.add(PrimitiveType.UUID);
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();

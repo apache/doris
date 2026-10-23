@@ -169,7 +169,8 @@ Status ParsedPartitionBoundaries::parse(
             if (tb.__isset.range_start) {                                                         \
                 auto parsed = parse_texpr_node(tb.range_start);                                   \
                 if (parsed) {                                                                     \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, *parsed));            \
+                    static_cast<void>(                                                            \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, *parsed));         \
                 } else {                                                                          \
                     DORIS_CHECK(is_nullable);                                                     \
                     range_has_null = true;                                                        \
@@ -182,8 +183,8 @@ Status ParsedPartitionBoundaries::parse(
                 /* TPartitionBoundary.range_end_inclusive comment); single-column RANGE */        \
                 /* keeps the natural OPEN upper bound matching Doris semantics.         */        \
                 SQLFilterOp upper_op = (tb.__isset.range_end_inclusive && tb.range_end_inclusive) \
-                                               ? FILTER_LESS_OR_EQUAL                             \
-                                               : FILTER_LESS;                                     \
+                                               ? SQLFilterOp::FILTER_LESS_OR_EQUAL                \
+                                               : SQLFilterOp::FILTER_LESS;                        \
                 static_cast<void>(cvr.add_range(upper_op, *parsed));                              \
             }                                                                                     \
             if (range_has_null) {                                                                 \
@@ -208,6 +209,7 @@ Status ParsedPartitionBoundaries::parse(
             BUILD_BOUNDARY_CVR(DATETIME)
             BUILD_BOUNDARY_CVR(DATEV2)
             BUILD_BOUNDARY_CVR(DATETIMEV2)
+            BUILD_BOUNDARY_CVR(TIMESTAMP_NS)
             BUILD_BOUNDARY_CVR(TIMESTAMPTZ)
             BUILD_BOUNDARY_CVR(VARCHAR)
             BUILD_BOUNDARY_CVR(STRING)
@@ -477,6 +479,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_INPUT_COLUMNS(DATETIME)
         BUILD_INPUT_COLUMNS(DATEV2)
         BUILD_INPUT_COLUMNS(DATETIMEV2)
+        BUILD_INPUT_COLUMNS(TIMESTAMP_NS)
         BUILD_INPUT_COLUMNS(TIMESTAMPTZ)
         BUILD_INPUT_COLUMNS(VARCHAR)
         BUILD_INPUT_COLUMNS(STRING)
@@ -572,20 +575,24 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             if (direction == TTargetExprMonotonicity::MONOTONIC_DECREASING) {                   \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, hi_projected));     \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, hi_projected));  \
                 }                                                                               \
                 if (!lo_open[i]) {                                                              \
                     auto lo_projected = projected_value(lo_result_col, lo_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, lo_projected));       \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LESS_OR_EQUAL, lo_projected));    \
                 }                                                                               \
             } else {                                                                            \
                 if (!lo_open[i]) {                                                              \
                     auto lo_projected = projected_value(lo_result_col, lo_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, lo_projected));     \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LARGER_OR_EQUAL, lo_projected));  \
                 }                                                                               \
                 if (!hi_open[i]) {                                                              \
                     auto hi_projected = projected_value(hi_result_col, hi_result_row[i]);       \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, hi_projected));       \
+                    static_cast<void>(                                                          \
+                            cvr.add_range(SQLFilterOp::FILTER_LESS_OR_EQUAL, hi_projected));    \
                 }                                                                               \
             }                                                                                   \
             ParsedBoundary projected_boundary;                                                  \
@@ -615,6 +622,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_PROJECTED_CVR(DATETIME)
         BUILD_PROJECTED_CVR(DATEV2)
         BUILD_PROJECTED_CVR(DATETIMEV2)
+        BUILD_PROJECTED_CVR(TIMESTAMP_NS)
         BUILD_PROJECTED_CVR(TIMESTAMPTZ)
         BUILD_PROJECTED_CVR(VARCHAR)
         BUILD_PROJECTED_CVR(STRING)
@@ -626,6 +634,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_PROJECTED_CVR(BOOLEAN)
         BUILD_PROJECTED_CVR(IPV4)
         BUILD_PROJECTED_CVR(IPV6)
+        BUILD_PROJECTED_CVR(UUID)
     default:
         break;
     }
@@ -641,13 +650,13 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 static std::optional<SQLFilterOp> convert_opcode_to_filter_op(TExprOpcode::type op) {
     switch (op) {
     case TExprOpcode::LE:
-        return FILTER_LESS_OR_EQUAL;
+        return SQLFilterOp::FILTER_LESS_OR_EQUAL;
     case TExprOpcode::LT:
-        return FILTER_LESS;
+        return SQLFilterOp::FILTER_LESS;
     case TExprOpcode::GE:
-        return FILTER_LARGER_OR_EQUAL;
+        return SQLFilterOp::FILTER_LARGER_OR_EQUAL;
     case TExprOpcode::GT:
-        return FILTER_LARGER;
+        return SQLFilterOp::FILTER_LARGER;
     default:
         return std::nullopt;
     }

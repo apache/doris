@@ -18,24 +18,18 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.MetadataTableType;
-import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
-import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -81,6 +75,105 @@ public class IcebergPartitionUtilsTest {
     // ---- serializePartitionValue: legacy type matrix (direct, package-private) ----
 
     @Test
+    public void binaryBucketPartitionsCarryTheTransformedType() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "b", Types.BinaryType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("b", 16).build();
+        Table table = tableWith(schema, spec);
+        for (Integer bucket : Arrays.asList(3, 7, null)) {
+            PartitionData data = new PartitionData(spec.partitionType());
+            data.set(0, bucket);
+            table.newAppend().appendFile(DataFiles.builder(spec).withPath("bucket-" + bucket + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withPartition(data).withFileSizeInBytes(100)
+                    .withRecordCount(1).build()).commit();
+        }
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(table);
+        Assertions.assertEquals(3, partitions.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            Assertions.assertEquals(Collections.singletonList(org.apache.doris.connector.spi.ConnectorType.of("INT")),
+                    partition.getPartitionValueTypes());
+        }
+    }
+
+    @Test
+    public void listBinaryIdentityPartitionsPreservesBytesAndNulls() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("binary_partitions", Collections.emptyMap());
+        Namespace ns = Namespace.of("db");
+        catalog.createNamespace(ns);
+        Schema schema = new Schema(Types.NestedField.optional(1, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "f", Types.FixedType.ofLength(2)));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("b").identity("f").build();
+        Table table = catalog.createTable(TableIdentifier.of(ns, "tbl"), schema, spec);
+        for (int i = 0; i < 3; i++) {
+            PartitionData data = new PartitionData(spec.partitionType());
+            data.set(0, i == 2 ? null : ByteBuffer.wrap(i == 0 ? new byte[] {(byte) 0xff}
+                    : new byte[] {(byte) 0xff, 0}));
+            data.set(1, ByteBuffer.wrap(new byte[] {0, (byte) 0x80}));
+            table.newAppend().appendFile(DataFiles.builder(spec).withPath("file-" + i + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withPartition(data).withFileSizeInBytes(100)
+                    .withRecordCount(1).build()).commit();
+        }
+        List<ConnectorPartitionInfo> parts = IcebergPartitionUtils.listPartitions(table);
+        Assertions.assertEquals(3, parts.size());
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("b=0xff/f=0x0080", "b=0xff00/f=0x0080",
+                "b=null/f=0x0080")), parts.stream().map(ConnectorPartitionInfo::getPartitionName)
+                .collect(Collectors.toSet()));
+        Assertions.assertEquals(Arrays.asList(true, false), parts.stream()
+                .filter(part -> part.getPartitionName().startsWith("b=null/"))
+                .findFirst().get().getPartitionValueNullFlags());
+    }
+
+    @Test
+    public void listUuidIdentityPartitionsUsesTypedCanonicalValues() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "u", Types.UUIDType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("u").build();
+        Table table = tableWith(schema, spec);
+        List<UUID> values = Arrays.asList(UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"),
+                UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"), null);
+        for (int i = 0; i < values.size(); i++) {
+            PartitionData data = new PartitionData(spec.partitionType());
+            data.set(0, values.get(i));
+            table.newAppend().appendFile(DataFiles.builder(spec).withPath("uuid-" + i + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withPartition(data).withFileSizeInBytes(100)
+                    .withRecordCount(1).build()).commit();
+        }
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(table);
+        Assertions.assertEquals(3, partitions.size());
+        Set<UUID> actual = new HashSet<>();
+        for (ConnectorPartitionInfo partition : partitions) {
+            Assertions.assertEquals(Collections.singletonList(org.apache.doris.connector.spi.ConnectorType.of("UUID")),
+                    partition.getPartitionValueTypes());
+            if (partition.getPartitionValueNullFlags().get(0)) {
+                actual.add(null);
+            } else {
+                String value = partition.getPartitionValues().get("u");
+                Assertions.assertFalse(value.startsWith("0x"), "UUID partition values must be parseable UUID text");
+                actual.add(UUID.fromString(value));
+                Assertions.assertEquals("u=" + value, partition.getPartitionName());
+            }
+        }
+        Assertions.assertEquals(new HashSet<>(values), actual);
+    }
+
+    @Test
+    public void uuidIdentityPartitionRetainsCanonicalText() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "key", Types.UUIDType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("key").build();
+        Table table = tableWith(schema, spec);
+        PartitionData data = new PartitionData(spec.partitionType());
+        UUID value = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        data.set(0, value);
+        Assertions.assertEquals("00112233-4455-6677-8899-aabbccddeeff",
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        data, spec, table.schema(), ZoneOffset.UTC).get("key"));
+        Assertions.assertEquals(value.toString(),
+                IcebergPartitionUtils.serializePartitionValue(Types.UUIDType.get(), value, ZoneOffset.UTC));
+        data.set(0, null);
+        Assertions.assertNull(IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                data, spec, table.schema(), ZoneOffset.UTC).get("key"));
+    }
+
+    @Test
     public void serializePrimitiveValuesUseToString() {
         Assertions.assertEquals("true",
                 IcebergPartitionUtils.serializePartitionValue(Types.BooleanType.get(), Boolean.TRUE, ZoneOffset.UTC));
@@ -124,10 +217,9 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void serializeTimestamptzShiftsToSessionZone() {
-        // timestamptz (shouldAdjustToUTC) -> the stored UTC instant is rendered in the session zone.
-        // 2021-01-01T00:00:00Z in Asia/Shanghai (+08) = 2021-01-01T08:00:00. MUTATION: ignoring the zone -> red.
-        Assertions.assertEquals("2021-01-01T08:00:00",
+    public void serializeTimestamptzRetainsExplicitUtcOffset() {
+        // A session-local rendering would conflate the two instants of a DST overlap.
+        Assertions.assertEquals("2021-01-01T00:00:00Z",
                 IcebergPartitionUtils.serializePartitionValue(Types.TimestampType.withZone(),
                         1609459200_000_000L, SHANGHAI));
     }
@@ -141,12 +233,14 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void serializeBinaryThrowsUnsupported() {
-        // Legacy throws UnsupportedOperationException for BINARY/FIXED (utf8 round-trip would corrupt data);
-        // callers catch it and drop the field. MUTATION: silently returning a string -> red.
-        Assertions.assertThrows(UnsupportedOperationException.class, () ->
-                IcebergPartitionUtils.serializePartitionValue(Types.BinaryType.get(),
-                        java.nio.ByteBuffer.wrap(new byte[] {1}), ZoneOffset.UTC));
+    public void serializeBinaryPreservesOnlyRemainingBytes() {
+        ByteBuffer bytes = ByteBuffer.wrap(new byte[] {42, 0, (byte) 0xff, 7});
+        bytes.position(1);
+        bytes.limit(3);
+        Assertions.assertEquals("0x00ff", IcebergPartitionUtils.serializePartitionValue(
+                Types.BinaryType.get(), bytes, ZoneOffset.UTC));
+        Assertions.assertEquals(1, bytes.position());
+        Assertions.assertEquals(3, bytes.limit());
     }
 
     // ---- getIdentityPartitionColumns ----
@@ -165,7 +259,8 @@ public class IcebergPartitionUtilsTest {
                 .build();
         Table table = tableWith(schema, spec);
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Only the two identity columns, CASE-PRESERVED (#65094 read-path alignment), in spec order; the
         // bucket(id) transform is excluded. MUTATION: including non-identity transforms -> "id_bucket"/"id"
@@ -191,11 +286,99 @@ public class IcebergPartitionUtilsTest {
         table.updateSpec().removeField("payload").addField("int_col").commit();
         Assertions.assertEquals(2, table.specs().size());
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols =
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Both specs contribute, in first-seen (spec id) order. MUTATION: iterating table.spec() instead of
         // table.specs() -> ["int_col"] -> red. MUTATION: dropping the LinkedHashSet dedup -> duplicates -> red.
         Assertions.assertEquals(Arrays.asList("payload", "int_col"), cols);
+    }
+
+    @Test
+    public void identityPartitionColumnsUseAuthoritativeScanSchemaAfterCaseRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").build();
+        Table table = tableWith(schema, spec);
+        Schema pinnedSchema = table.schema();
+
+        table.updateSchema().renameColumn("P", "p").commit();
+
+        Assertions.assertEquals(Collections.singletonList("P"),
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, pinnedSchema));
+        Assertions.assertEquals(Collections.singletonList("p"),
+                IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema()));
+    }
+
+    // ---- toPartitionFieldKeys ----
+
+    @Test
+    public void staticPartitionKeysResolveTheSourceColumnToThePartitionField() {
+        // ADD PARTITION KEY id AS id_identity: the engine's PARTITION clause names the SOURCE column "id", while
+        // the BE sink matches static_partition_values against the partition FIELD name and the commit row filter
+        // resolves that field to its source column. Both consumers therefore need the field-keyed spec.
+        // MUTATION: passing the engine's spelling through -> BE sees no static column (write silently becomes
+        // dynamic) and the commit filter stops matching -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("id", "id_identity")
+                .identity("region")
+                .build();
+
+        Map<String, String> canonical = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("id", "7")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"), canonical);
+
+        // A field name (the un-renamed spelling, and the bucket-style field name a caller may already hold) is
+        // canonicalized to itself, and the lookup folds case like every Doris identifier.
+        Map<String, String> mixed = new HashMap<>();
+        mixed.put("REGION", "us");
+        mixed.put("ID_IDENTITY", "8");
+        Map<String, String> expected = new HashMap<>();
+        expected.put("region", "us");
+        expected.put("id_identity", "8");
+        Assertions.assertEquals(expected, IcebergPartitionUtils.toPartitionFieldKeys(mixed, schema, spec));
+
+        // A name the current spec does not know is kept verbatim: the callers own the fail-loud guard for it.
+        Map<String, String> unknown = IcebergPartitionUtils.toPartitionFieldKeys(
+                new HashMap<>(Collections.singletonMap("ghost", "1")), schema, spec);
+        Assertions.assertEquals(Collections.singletonMap("ghost", "1"), unknown);
+    }
+
+    @Test
+    public void staticPartitionKeysPreferTheIdentitySourceOverACaseFoldedFieldAlias() {
+        // A partition field may carry a name that collides with another column's name in a different case
+        // (`identity(other, "ID")` beside `identity(id, "id_identity")`), because the spec builder checks names
+        // case-SENSITIVELY. The engine's PARTITION name is the SOURCE column, so the key must follow the identity
+        // field over that source rather than the earlier alias.
+        // MUTATION: matching field names first -> the key becomes "ID" (source "other") -> BE stamps and the commit
+        // filters the WRONG partition -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "other", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("other", "ID")
+                .identity("id", "id_identity")
+                .build();
+
+        Assertions.assertEquals(Collections.singletonMap("id_identity", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
+    }
+
+    @Test
+    public void staticPartitionKeysFindTheIdentityFieldRegardlessOfFieldOrder() {
+        // bucket(8, id) may be declared before identity(id); the static target is still the identity field.
+        // MUTATION: taking the first source match -> the bucket field's name is returned -> red.
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("id", 8).identity("id").build();
+
+        Assertions.assertEquals(Collections.singletonMap("id", "7"),
+                IcebergPartitionUtils.toPartitionFieldKeys(
+                        new HashMap<>(Collections.singletonMap("id", "7")), schema, spec));
     }
 
     // ---- getIdentityPartitionInfoMap ----
@@ -215,7 +398,8 @@ public class IcebergPartitionUtilsTest {
         pd.set(1, 2);          // id_bucket = 2 (non-identity -> skipped)
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC);
 
         // Only the identity column survives, key CASE-PRESERVED (#65094 read-path alignment). MUTATION:
         // emitting id_bucket -> size 2 -> red. MUTATION: re-lowercasing the key -> "p" != "P" -> red.
@@ -233,10 +417,32 @@ public class IcebergPartitionUtilsTest {
         pd.set(0, null);       // genuine null partition value
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC);
 
         Assertions.assertTrue(info.containsKey("p"));
         Assertions.assertNull(info.get("p"));
+    }
+
+    @Test
+    public void identityPartitionInfoMapUsesAuthoritativeScanSchemaAfterCaseRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "P", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("P").build();
+        Table table = tableWith(schema, spec);
+        Schema pinnedSchema = table.schema();
+
+        table.updateSchema().renameColumn("P", "p").commit();
+
+        PartitionData pd = new PartitionData(spec.partitionType());
+        pd.set(0, 7);
+        Assertions.assertEquals(Collections.singletonMap("P", "7"),
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, pinnedSchema, ZoneOffset.UTC));
+        Assertions.assertEquals(Collections.singletonMap("p", "7"),
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(
+                        pd, spec, table.schema(), ZoneOffset.UTC));
     }
 
     // ---- getPartitionDataJson ----
@@ -362,11 +568,8 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void partitionDataObjectJsonRejectsBinaryAndFixedPartitionValues() {
-        // WHY: this text transport cannot round-trip raw bytes. Legacy fails loud rather than let BE
-        // materialize a corrupted or silently-NULL partition value — and silent is exactly what would happen,
-        // since the struct serde swallows parse failures. MUTATION: emitting a utf8 rendering (or letting
-        // getPartitionValues' null-on-unsupported through) -> no throw -> red.
+    public void partitionDataObjectJsonPreservesBinaryAndFixedPartitionValues() {
+        // Arbitrary bytes use hex so the nullable struct serde cannot silently replace them with NULL.
         for (Types.NestedField field : outputFields(
                 Types.NestedField.required(2, "p", Types.BinaryType.get()),
                 Types.NestedField.required(2, "p", Types.FixedType.ofLength(2)))) {
@@ -378,21 +581,14 @@ public class IcebergPartitionUtilsTest {
             Types.NestedField out = Types.NestedField.optional(
                     spec.fields().get(0).fieldId(), "p", field.type());
 
-            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> IcebergPartitionUtils.getPartitionDataObjectJson(
-                            pd, spec, outputFields(out), false, ZoneOffset.UTC));
-            Assertions.assertTrue(e.getMessage().contains("partition field 'p'"), e.getMessage());
-            Assertions.assertTrue(e.getMessage().contains(field.type().toString()), e.getMessage());
+            Assertions.assertEquals("{\"p\":\"0x00FF\"}", IcebergPartitionUtils.getPartitionDataObjectJson(
+                    pd, spec, outputFields(out), false, ZoneOffset.UTC));
         }
     }
 
     @Test
-    public void partitionDataObjectJsonRejectsUuidOnlyWhenVarbinaryMappingIsOn() {
-        // WHY: enable.mapping.varbinary makes UUID a VARBINARY column, which this text transport cannot carry
-        // either — but with the flag OFF a UUID is a plain string and MUST still work. So the guard is
-        // conditional, and a test that only checks the throw would not catch over-rejection.
-        // MUTATION: rejecting UUID unconditionally -> the flag-off case -> red; never rejecting it -> the
-        // flag-on case -> red.
+    public void partitionDataObjectJsonPreservesUuidRegardlessOfLegacyFlag() {
+        // UUID is a fixed 16-byte value under both legacy flag settings.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.required(2, "p", Types.UUIDType.get()));
@@ -403,15 +599,11 @@ public class IcebergPartitionUtilsTest {
         Types.NestedField out = Types.NestedField.optional(
                 spec.fields().get(0).fieldId(), "p", Types.UUIDType.get());
 
-        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergPartitionUtils.getPartitionDataObjectJson(
-                        pd, spec, outputFields(out), true, ZoneOffset.UTC));
-        Assertions.assertTrue(e.getMessage().contains("partition field 'p'"), e.getMessage());
-        Assertions.assertTrue(e.getMessage().contains("uuid"), e.getMessage());
-
-        Assertions.assertEquals("{\"p\":\"" + uuid + "\"}", IcebergPartitionUtils.getPartitionDataObjectJson(
-                        pd, spec, outputFields(out), false, ZoneOffset.UTC),
-                "with varbinary mapping off a UUID partition is a plain string and must still render");
+        for (boolean flag : new boolean[] {false, true}) {
+            Assertions.assertEquals("{\"p\":\"00000000-0000-0000-0000-00000000002a\"}",
+                    IcebergPartitionUtils.getPartitionDataObjectJson(
+                            pd, spec, outputFields(out), flag, ZoneOffset.UTC));
+        }
     }
 
     @Test
@@ -425,6 +617,68 @@ public class IcebergPartitionUtilsTest {
 
         Assertions.assertEquals("[null]",
                 IcebergPartitionUtils.getPartitionDataJson(pd, spec, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void partitionDataJsonRejectsFieldWhoseSourceColumnWasDropped() {
+        // From branch-4.x #68481: once the source column of a historical identity field is dropped, the field has no
+        // type and its value cannot be serialized. The JSON is the partition of the delete files BE writes for DML,
+        // so it must fail rather than carry a null entry. MUTATION: restoring the null fallback -> "[null]" -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void partitionDataJsonKeepsNullOfFieldWhoseSourceColumnWasDropped() {
+        // A null needs no type: the void field a v1 table keeps for a removed partition field is always null, and a
+        // historical NULL partition is one, so both still serialize after the source column is dropped.
+        // MUTATION: serializing a null by its type -> UnsupportedOperationException -> red.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", Types.IntegerType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").build());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, null);
+
+        Assertions.assertEquals("[null]", IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+    }
+
+    @Test
+    public void rawPartitionKeyIdentifiesTupleThatCannotBeSerialized() {
+        // The scanned-partition count keys such a tuple by its raw values: binary as hex (a ByteBuffer has no
+        // content-based toString), and a null apart from the string "null".
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "p", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(3, "s", Types.StringType.get()));
+        Table table = tableWith(schema, PartitionSpec.builderFor(schema).identity("p").identity("b").identity("s")
+                .build());
+        table.updateSpec().removeField("p").removeField("b").commit();
+        table.updateSchema().deleteColumn("p").deleteColumn("b").commit();
+        PartitionSpec historical = table.specs().get(0);
+        PartitionData pd = new PartitionData(historical.partitionType());
+        pd.set(0, 7);
+        pd.set(1, ByteBuffer.wrap(new byte[] {0x61, 0x62}));
+        pd.set(2, null);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> IcebergPartitionUtils.getPartitionDataJson(pd, historical, ZoneOffset.UTC));
+        Assertions.assertEquals("[\"7\",\"0x6162\",null]", IcebergPartitionUtils.getRawPartitionKey(pd));
+        pd.set(2, "null");
+        Assertions.assertEquals("[\"7\",\"0x6162\",\"null\"]", IcebergPartitionUtils.getRawPartitionKey(pd));
     }
 
     // ---- parsePartitionValueFromString: legacy IcebergUtils.parsePartitionValueFromString matrix (T04) ----
@@ -494,9 +748,20 @@ public class IcebergPartitionUtilsTest {
     public void parseTimestamptzIsInterpretedInSessionZone() {
         // timestamptz (shouldAdjustToUTC): the wall-clock string is read in the session zone, stored as UTC
         // micros. 2021-01-01T08:00:00 Asia/Shanghai (+08) = 2021-01-01T00:00:00Z. Inverse of
-        // serializeTimestamptzShiftsToSessionZone. MUTATION: ignoring the zone -> 8h off -> red.
+        // serializeTimestamptzRetainsExplicitUtcOffset. MUTATION: ignoring the zone -> 8h off -> red.
         Assertions.assertEquals(1609459200_000_000L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-01-01 08:00:00", Types.TimestampType.withZone(), SHANGHAI));
+    }
+
+    @Test
+    public void parseSkippedLocalTimeMatchesWriterTransitionInstant() {
+        ZoneId zone = ZoneId.of("America/New_York");
+        Assertions.assertEquals(1615705200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-03-14 02:30:00.123456", Types.TimestampType.withZone(), zone));
+        Assertions.assertEquals(1615707000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-03-14 02:30:00.123456-05:00", Types.TimestampType.withZone(), zone));
+        Assertions.assertEquals(1615689000_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
+                "2021-03-14 02:30:00.123456", Types.TimestampType.withoutZone(), zone));
     }
 
     @Test
@@ -504,6 +769,17 @@ public class IcebergPartitionUtilsTest {
         // BE may send sub-second precision; the micros fraction must survive (not be truncated to seconds).
         Assertions.assertEquals(1609459200_123456L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-01-01 00:00:00.123456", Types.TimestampType.withoutZone(), ZoneOffset.UTC));
+    }
+
+    @Test
+    public void parseTimeIsInverseOfSerialize() {
+        // From branch-4.x #68481: a DELETE on a file of a historical TIME partition commits its delete file under
+        // the partition parsed back from partition_data_json, so the parse must accept what serialize renders.
+        long micros = 3661_123_456L;
+        String serialized = IcebergPartitionUtils.serializePartitionValue(Types.TimeType.get(), micros, ZoneOffset.UTC);
+        Assertions.assertEquals("01:01:01.123456", serialized);
+        Assertions.assertEquals(Long.valueOf(micros), IcebergPartitionUtils.parsePartitionValueFromString(
+                serialized, Types.TimeType.get(), ZoneOffset.UTC));
     }
 
     @Test
@@ -1099,13 +1375,11 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void listPartitionsDegradesToEmptyWhenPartitionSourceColumnDropped() {
+    public void listPartitionsDegradesWhenDroppedPartitionSourceCannotBeRepresented() {
         // Partition-evolution regression (external_table_p0/iceberg/test_iceberg_partition_evolution): a
-        // HISTORICAL spec references a source column that was later DROPPED, while the CURRENT spec stays
-        // partitioned on a surviving column. Building the PARTITIONS metadata table unifies the partition type
-        // across ALL specs, so iceberg throws ValidationException ("Cannot find source column for partition
-        // field: ...") for the orphaned field. listPartitions is display/enforcement metadata only (never the
-        // read set), so it must degrade to an empty (UNPARTITIONED) list instead of failing the whole query.
+        // HISTORICAL spec references a source column that is later DROPPED, while the CURRENT spec stays
+        // partitioned on a surviving column. Iceberg 1.11 removes the historical field from the unified
+        // partition type, so distinct old buckets become unrepresentable and must not be reported as null.
         InMemoryCatalog catalog = new InMemoryCatalog();
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
@@ -1119,37 +1393,94 @@ public class IcebergPartitionUtilsTest {
                 Collections.singletonMap("format-version", "2"));
         // A data file under the original (bucket-on-region) spec so the PARTITIONS metadata scan has a row whose
         // spec must be unified.
-        table.newAppend().appendFile(DataFiles.builder(table.spec())
-                .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
-                .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build()).commit();
+        table.newAppend()
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                        .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build())
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                        .withPartitionPath("region_bucket=2").withFormat(FileFormat.PARQUET).build())
+                .commit();
         // Evolve: drop the bucket(region) partition field and add identity(id) — the CURRENT spec stays
         // PARTITIONED (on the surviving id column), so listPartitions passes the isUnpartitioned() early-return
         // and genuinely reaches the metadata scan (guards this test against a vacuous unpartitioned pass).
         table.updateSpec().removeField("region_bucket").addField("id").commit();
         table.newAppend().appendFile(DataFiles.builder(table.spec())
-                .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPath("s3://b/db1/t/f2.parquet").withFileSizeInBytes(100).withRecordCount(1)
                 .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+        IcebergPartitionCache cache = new IcebergPartitionCache(100, 1000);
+        List<String> beforeDrop = IcebergPartitionUtils.listPartitions(catalog.loadTable(id), id, cache).stream()
+                .map(ConnectorPartitionInfo::getPartitionName).sorted().collect(Collectors.toList());
+        Assertions.assertEquals(Arrays.asList("id=5", "region_bucket=1", "region_bucket=2"), beforeDrop);
+        long snapshotBeforeDrop = table.currentSnapshot().snapshotId();
         // Drop the source column referenced only by the historical spec, leaving that spec dangling.
         table.updateSchema().deleteColumn("region").commit();
         Table evolved = catalog.loadTable(id);
+        Assertions.assertEquals(snapshotBeforeDrop, evolved.currentSnapshot().snapshotId(),
+                "schema-only evolution must keep the same snapshot and exercise the cache-key boundary");
         Assertions.assertTrue(evolved.spec().isPartitioned(),
                 "current spec must stay partitioned so listPartitions reaches the metadata scan, not the "
                         + "unpartitioned early-return (otherwise this test would pass vacuously)");
 
-        // Precondition — prove the raw iceberg partition-metadata scan genuinely throws ValidationException here
-        // (guards against a future iceberg that tolerates the dangling spec, which would make this test vacuous).
-        Assertions.assertThrows(ValidationException.class, () -> {
-            Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(
-                    evolved, MetadataTableType.PARTITIONS);
-            try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
-                tasks.forEach(t -> { });
-            }
-        });
+        Assertions.assertTrue(IcebergPartitionUtils.listPartitions(evolved, id, cache).isEmpty(),
+                "unrepresentable historical buckets must degrade to an empty partition display");
+        Assertions.assertEquals(2, cache.loadCountForTest(),
+                "a schema-only commit must not reuse partition metadata cached under the preceding schema");
+    }
 
-        // The fix: listPartitions swallows exactly that failure and reports UNPARTITIONED (empty), so a
-        // full-table select on such a table is not blocked by uncomputable display metadata. MUTATION:
-        // rethrowing (or removing the catch) -> this throws instead of returning empty -> red.
-        Assertions.assertTrue(IcebergPartitionUtils.listPartitions(evolved).isEmpty());
+    @Test
+    public void listPartitionsIgnoresUnrepresentableSpecWithoutLiveFiles() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        TableIdentifier id = TableIdentifier.of("db1", "live_specs_only");
+        Table table = catalog.createTable(id, schema,
+                PartitionSpec.builderFor(schema).bucket("region", 8).build(),
+                Collections.singletonMap("format-version", "2"));
+        table.updateSpec().removeField("region_bucket").addField("id").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/live_specs_only/f.parquet")
+                .withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+        table.updateSchema().deleteColumn("region").commit();
+
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(
+                catalog.loadTable(id), id, null);
+
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals("id=5", partitions.get(0).getPartitionName(),
+                "an unrepresentable historical spec with no live files must not hide live partitions");
+    }
+
+    @Test
+    public void listPartitionsReadsValuesFromUnifiedPartitionStructByFieldId() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        TableIdentifier id = TableIdentifier.of("db1", "unified_partition_values");
+        Table table = catalog.createTable(id, schema,
+                PartitionSpec.builderFor(schema).bucket("region", 8).build(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build()).commit();
+        table.updateSpec().removeField("region_bucket").addField("id").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+
+        List<ConnectorPartitionInfo> partitions = IcebergPartitionUtils.listPartitions(
+                catalog.loadTable(id), id, null);
+        List<String> names = partitions.stream().map(ConnectorPartitionInfo::getPartitionName)
+                .sorted().collect(java.util.stream.Collectors.toList());
+
+        Assertions.assertEquals(Arrays.asList("id=5", "region_bucket=1"), names);
     }
 
     @Test
@@ -1197,4 +1528,108 @@ public class IcebergPartitionUtilsTest {
         // remote-name lookup misses -> red.
         Assertions.assertFalse(values.containsKey("pt"));
     }
+
+    @Test
+    public void timestampPartitionsRoundTripNegativeEpochAndDstOverlap() {
+        for (long micros : new long[] {-1L, 1699173000123456L, 1699176600123456L}) {
+            String encoded = IcebergPartitionUtils.serializePartitionValue(
+                    Types.TimestampType.withZone(), micros, ZoneId.of("America/Los_Angeles"));
+            Assertions.assertEquals(micros, IcebergPartitionUtils.parsePartitionValueFromString(
+                    encoded, Types.TimestampType.withZone(), SHANGHAI));
+        }
+    }
+
+    @Test
+    public void timestampPartitionsRoundTripInEverySessionZone() {
+        for (ZoneId zone : Arrays.asList(ZoneOffset.UTC, SHANGHAI, ZoneId.of("America/New_York"))) {
+            for (Types.TimestampType type : Arrays.asList(
+                    Types.TimestampType.withZone(), Types.TimestampType.withoutZone())) {
+                // 1636263000123456 and 1636266600123456 are both 01:30:00.123456 in New York.
+                for (long micros : new long[] {-1L, -1_000_001L, 1636263000123456L, 1636266600123456L}) {
+                    String encoded = IcebergPartitionUtils.serializePartitionValue(type, micros, zone);
+                    Assertions.assertEquals(micros, IcebergPartitionUtils.parsePartitionValueFromString(
+                            encoded, type, zone), type + " " + zone + " " + micros);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void parseCommittedTimestampsHonorTheirExplicitOffsets() {
+        for (ZoneId zone : Arrays.asList(ZoneOffset.UTC, SHANGHAI, ZoneId.of("America/New_York"))) {
+            // BE commits carry an offset, so the session zone must not reinterpret either fold instant.
+            for (String value : Arrays.asList("2021-11-07 01:30:00.123456-04:00",
+                    "2021-11-07 01:30:00.123456-05:00", "1969-12-31 23:59:59.999999+00:00")) {
+                java.time.Instant instant = java.time.OffsetDateTime.parse(value.replace(' ', 'T')).toInstant();
+                long expected = instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000;
+                Assertions.assertEquals(expected, IcebergPartitionUtils.parsePartitionValueFromString(
+                        value, Types.TimestampType.withZone(), zone), value + " " + zone);
+            }
+            Assertions.assertEquals(-1L, IcebergPartitionUtils.parsePartitionValueFromString(
+                    "1969-12-31 23:59:59.999999", Types.TimestampType.withoutZone(), zone));
+        }
+    }
+
+    @Test
+    public void parseBinaryAndUuidPartitionValuesFromCommits() {
+        byte[] bytes = new byte[] {0, (byte) 0xde, (byte) 0xad, (byte) 0xff};
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(bytes.length))) {
+            Assertions.assertEquals(ByteBuffer.wrap(bytes), IcebergPartitionUtils.parsePartitionValueFromString(
+                    "0x00deadff", type, ZoneOffset.UTC));
+            Assertions.assertEquals("0x00deadff", IcebergPartitionUtils.serializePartitionValue(
+                    type, ByteBuffer.wrap(bytes), ZoneOffset.UTC));
+        }
+        Assertions.assertEquals(ByteBuffer.allocate(0), IcebergPartitionUtils.parsePartitionValueFromString(
+                "0x", Types.BinaryType.get(), ZoneOffset.UTC));
+        UUID uuid = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        Assertions.assertEquals(uuid, IcebergPartitionUtils.parsePartitionValueFromString(
+                "0x00112233445566778899aabbccddeeff", Types.UUIDType.get(), ZoneOffset.UTC));
+        Assertions.assertEquals(uuid, IcebergPartitionUtils.parsePartitionValueFromString(
+                uuid.toString(), Types.UUIDType.get(), ZoneOffset.UTC));
+        // A wrong byte count or a value without the 0x prefix must not become a different partition.
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergPartitionUtils.parsePartitionValueFromString(
+                        "0xdead", Types.FixedType.ofLength(4), ZoneOffset.UTC));
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                IcebergPartitionUtils.parsePartitionValueFromString(
+                        "0xdead", Types.UUIDType.get(), ZoneOffset.UTC));
+        for (String malformed : Arrays.asList("DEAD", "0xD", "0xGG")) {
+            Assertions.assertThrows(IllegalArgumentException.class, () ->
+                    IcebergPartitionUtils.parsePartitionValueFromString(
+                            malformed, Types.BinaryType.get(), ZoneOffset.UTC), malformed);
+        }
+    }
+
+    @Test
+    public void buildRangeTimestamptzBoundsCarryUtcOffset() {
+        // Transform ordinals describe UTC boundaries; the offset keeps fe-core from reading them in the session zone.
+        Map<String, String> uppers = new HashMap<>();
+        uppers.put("hour", "1970-01-01 01:00:00+00:00");
+        uppers.put("day", "1970-01-02 00:00:00+00:00");
+        uppers.put("month", "1970-02-01 00:00:00+00:00");
+        uppers.put("year", "1971-01-01 00:00:00+00:00");
+        for (Map.Entry<String, String> entry : uppers.entrySet()) {
+            IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                    "ts_" + entry.getKey() + "=0", "0", entry.getKey(), Types.TimestampType.withZone(), 1L, 1L);
+            Assertions.assertEquals(Collections.singletonList("1970-01-01 00:00:00+00:00"), rb.getLowerBound());
+            Assertions.assertEquals(Collections.singletonList(entry.getValue()), rb.getUpperBound());
+        }
+    }
+
+    @Test
+    public void buildRangeYearZeroUsesProlepticYear() {
+        // Year-of-era formatting would render both year zero and year one as 0001.
+        Map<org.apache.iceberg.types.Type, String> suffixes = new HashMap<>();
+        suffixes.put(Types.DateType.get(), "");
+        suffixes.put(Types.TimestampType.withoutZone(), " 00:00:00");
+        suffixes.put(Types.TimestampType.withZone(), " 00:00:00+00:00");
+        for (Map.Entry<org.apache.iceberg.types.Type, String> entry : suffixes.entrySet()) {
+            IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                    "y=-1970", "-1970", "year", entry.getKey(), 1L, 1L);
+            Assertions.assertEquals(Collections.singletonList("0000-01-01" + entry.getValue()), rb.getLowerBound());
+            Assertions.assertEquals(Collections.singletonList("0001-01-01" + entry.getValue()), rb.getUpperBound());
+        }
+    }
+
 }

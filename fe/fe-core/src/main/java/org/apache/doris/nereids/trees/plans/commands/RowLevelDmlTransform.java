@@ -29,6 +29,8 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.function.BooleanSupplier;
 
 /**
  * Per-table strategy that turns a row-level DML ({@code DELETE}/{@code UPDATE}/{@code MERGE INTO}) against an
@@ -43,7 +45,7 @@ import java.util.Optional;
  */
 public interface RowLevelDmlTransform {
 
-    /** Whether this transform handles the given target table (a connector-capability probe). */
+    /** Whether this transform handles the table's row-change representation and write operations. */
     boolean handles(TableIf table);
 
     /** Reject unsupported table modes (e.g. copy-on-write) for the operation, mirroring legacy command checks. */
@@ -59,15 +61,13 @@ public interface RowLevelDmlTransform {
     /** Locate and validate the required physical sink in the planned plan (throws with the legacy messages). */
     PhysicalSink<?> requirePhysicalSink(NereidsPlanner planner, RowLevelDmlOp op);
 
-    /** The label prefix; the shell appends {@code _<hi>_<lo>}. Frozen for profile/txn parity. */
-    String labelPrefix(RowLevelDmlOp op);
+    /** The connector-owned label prefix; the shell appends {@code _<hi>_<lo>}. */
+    String labelPrefix(TableIf table, RowLevelDmlOp op);
 
-    /**
-     * Legacy optimistic-conflict-detection wiring (kept live until P6.7): build the connector-specific
-     * conflict filter from the analyzed plan and stash it on the executor for its {@code beforeExec}.
-     */
-    void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table,
-            RowLevelDmlOp op);
+    /** Whether planning must disable external-table batch mode so every source split is available. */
+    default boolean requiresExternalTableBatchModeDisabled() {
+        return false;
+    }
 
     /** Finalize the sink (op-specific; e.g. attaching rewritable delete-file metadata for the BE). */
     void finalizeSink(BaseExternalTableInsertExecutor executor, RowLevelDmlOp op, PlanFragment fragment,
@@ -79,4 +79,23 @@ public interface RowLevelDmlTransform {
      * when no target-only conjunct survives.
      */
     Optional<ConnectorPredicate> extractWriteConstraint(Plan analyzedPlan, TableIf table);
+
+    /**
+     * Whole-file "metadata delete" fast path for {@code DELETE}, attempted once the analyzed plan is available
+     * and before the row-level (position-delete) plan is executed.
+     *
+     * <p>The implementation asks the connector whether the statement's predicate can be honoured by dropping
+     * whole data files ({@code ConnectorWriteOps.deleteUsingMetadata}). A returned count means the connector
+     * already committed the remote delete, so {@link RowLevelDmlCommand} reports the result and skips the scan,
+     * the sink and the connector transaction entirely. Returning empty — the default for transforms whose
+     * connector has no such path — runs the ordinary row-level delete.</p>
+     *
+     * <p>Callers must only invoke this for a DELETE whose statement scope is exactly its predicate (no
+     * {@code PARTITION(...)} clause), because a predicate that silently ignores another row restriction would
+     * delete too much.</p>
+     */
+    default OptionalLong deleteUsingMetadata(ConnectContext ctx, RowLevelDmlArgs args, Plan analyzedPlan,
+            BooleanSupplier isCancelled) {
+        return OptionalLong.empty();
+    }
 }

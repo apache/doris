@@ -80,9 +80,10 @@
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/compaction/base_compaction.h"
 #include "storage/compaction/cumulative_compaction.h"
-#include "storage/compaction/cumulative_compaction_binlog_policy.h"
+#include "storage/compaction/cumulative_compaction_changelog_policy.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/compaction/full_compaction.h"
@@ -201,7 +202,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             VLOG_NOTICE << "tablet " << tablet_id << " is not cooldown replica";
             return;
         }
-        if (tablet->tablet_state() == TABLET_SHUTDOWN) [[unlikely]] {
+        if (tablet->tablet_state() == TabletState::TABLET_SHUTDOWN) [[unlikely]] {
             LOG_INFO("tablet {} has been dropped, don't do cooldown", tablet_id);
             return;
         }
@@ -1009,18 +1010,18 @@ Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_ve
 }
 
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
-    if (is_row_binlog_tablet() && compaction_type != CompactionType::CUMU_BINLOG_COMPACTION) {
+    if (is_changelog_tablet() && compaction_type != CompactionType::CHANGELOG_COMPACTION) {
         return false;
     }
 
-    if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
+    if (compaction_type == CompactionType::BASE_COMPACTION &&
+        tablet_state() != TabletState::TABLET_RUNNING) {
         // base compaction can only be done for tablet in TABLET_RUNNING state.
         // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
         return false;
     }
 
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION &&
-        (!config::enable_feature_binlog || !is_row_binlog_tablet())) {
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION && !is_changelog_tablet()) {
         return false;
     }
 
@@ -1030,11 +1031,12 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
 
     // In TABLET_NOTREADY, we keep last 10 versions in new tablet so base tablet max_version
     // not merged in new tablet and then we can do compaction
-    return tablet_state() == TABLET_RUNNING || tablet_state() == TABLET_NOTREADY;
+    return tablet_state() == TabletState::TABLET_RUNNING ||
+           tablet_state() == TabletState::TABLET_NOTREADY;
 }
 
 uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) {
-    if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+    if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         std::shared_lock rdlock(_meta_lock);
         return _calc_cumulative_compaction_score(_cumulative_compaction_policy);
     }
@@ -1068,7 +1070,7 @@ bool Tablet::suitable_for_compaction(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
     if ((compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-         compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) &&
+         compaction_type == CompactionType::CHANGELOG_COMPACTION) &&
         cumulative_compaction_policy != nullptr) {
         std::lock_guard wrlock(_meta_lock);
         if (_cumulative_compaction_policy == nullptr ||
@@ -1082,13 +1084,13 @@ bool Tablet::suitable_for_compaction(
     std::shared_lock rdlock(_meta_lock);
     int32_t score = -1;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
-        compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+        compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         score = _calc_cumulative_compaction_score(cumulative_compaction_policy);
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-        DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
+        DCHECK(compaction_type == CompactionType::BASE_COMPACTION);
         score = _calc_base_compaction_score();
     } else {
-        DCHECK(false) << "Unknown compaction type: " << compaction_type;
+        DCHECK(false) << "Unknown compaction type: " << static_cast<int>(compaction_type);
     }
     return score > 0;
 }
@@ -1256,15 +1258,17 @@ Status Tablet::_contains_version(const Version& version) {
     return Status::OK();
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction(
+        std::optional<int64_t> changelog_ttl_cutoff_tso) {
+    if (is_changelog_tablet()) {
+        return pick_candidate_rowsets_to_changelog_compaction(changelog_ttl_cutoff_tso);
+    }
     std::shared_lock rlock(_meta_lock);
     return pick_candidate_rowsets_to_cumulative_compaction_unlocked();
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction_unlocked() {
-    if (is_row_binlog_tablet()) {
-        return pick_candidate_rowsets_to_binlog_compaction();
-    }
+    DORIS_CHECK(!is_changelog_tablet());
 
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
@@ -1330,7 +1334,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
     return candidate_rowsets;
 }
 
-std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction() {
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_changelog_compaction(
+        std::optional<int64_t> changelog_ttl_cutoff_tso) {
     auto [visible_version, _] = get_visible_version_and_time();
     int64_t now = UnixSeconds();
     std::vector<RowsetSharedPtr> candidate_rowsets;
@@ -1339,12 +1344,14 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_binlog_compaction
     {
         std::shared_lock rlock(_meta_lock);
         bool filter_new_rowset =
-                _rs_version_map.size() <= config::binlog_compaction_file_count_threshold;
+                _rs_version_map.size() <= config::changelog_compaction_file_count_threshold;
         for (const auto& [version, rs] : _rs_version_map) {
             max_version = std::max(max_version, version.second);
-            if (filter_new_rowset && rs->rowset_meta()->is_singleton_delta() &&
+            bool expired = changelog_ttl_cutoff_tso.has_value() &&
+                           changelog_rowset_expired(*rs->rowset_meta(), *changelog_ttl_cutoff_tso);
+            if (!expired && filter_new_rowset && rs->rowset_meta()->is_singleton_delta() &&
                 rs->rowset_meta()->newest_write_timestamp() +
-                                config::binlog_compaction_wait_timesec_after_visible >
+                                config::changelog_compaction_wait_timesec_after_visible >
                         now) {
                 continue;
             }
@@ -1397,7 +1404,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     return candidate_rowsets;
 }
 
-std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
+std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time(bool allow_unknown) const {
     // some old tablet has bug, its partition_id is 0, fe couldn't update its visible version.
     // so let this tablet's visible version become int64 max.
     auto version_info = _visible_version.load();
@@ -1405,7 +1412,7 @@ std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
         return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
                                version_info->update_ts);
     } else {
-        return std::make_tuple(std::numeric_limits<int64_t>::max(),
+        return std::make_tuple(allow_unknown ? std::numeric_limits<int64_t>::max() : -1,
                                std::numeric_limits<int64_t>::max());
     }
 }
@@ -1555,8 +1562,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
     }
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
-    if (tablet_state() != TABLET_RUNNING) {
-        LOG(INFO) << "tablet is under state=" << tablet_state()
+    if (tablet_state() != TabletState::TABLET_RUNNING) {
+        LOG(INFO) << "tablet is under state=" << static_cast<int>(tablet_state())
                   << ", not running, skip do checkpoint"
                   << ", tablet=" << tablet_id();
         return false;
@@ -1696,7 +1703,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // If the tablet is in running state, it must not be doing schema-change. so if we can not
         // access its rowsets, it means that the tablet is bad and needs to be reported to the FE
         // for subsequent repairs (through the cloning task)
-        if (tablet_state() == TABLET_RUNNING) {
+        if (tablet_state() == TabletState::TABLET_RUNNING) {
             tablet_info->__set_used(false);
         }
         // For other states, FE knows that the tablet is in a certain change process, so here
@@ -1705,7 +1712,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // and perform state modification operations.
     }
 
-    if (tablet_state() == TABLET_RUNNING) {
+    if (tablet_state() == TabletState::TABLET_RUNNING) {
         if (has_version_cross || is_io_error_too_times() || !data_dir()->is_used()) {
             LOG(INFO) << "report " << tablet_id() << " as bad, version_cross=" << has_version_cross
                       << ", ioe times=" << get_io_error_times() << ", data_dir used "
@@ -1724,11 +1731,11 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     // There are two cases when tablet state is TABLET_NOTREADY
     // case 1: tablet is doing schema change. Fe knows it's state, doing nothing.
     // case 2: tablet has finished schema change, but failed. Fe will perform recovery.
-    if (tablet_state() == TABLET_NOTREADY && is_alter_failed()) {
+    if (tablet_state() == TabletState::TABLET_NOTREADY && is_alter_failed()) {
         tablet_info->__set_used(false);
     }
 
-    if (tablet_state() == TABLET_SHUTDOWN) {
+    if (tablet_state() == TabletState::TABLET_SHUTDOWN) {
         tablet_info->__set_used(false);
     }
 
@@ -1770,7 +1777,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
         tablet_info->__set_cooldown_meta_id(_tablet_meta->cooldown_meta_id().to_thrift());
     }
-    if (tablet_state() == TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
+    if (tablet_state() == TabletState::TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
@@ -1864,7 +1871,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::FULL_COMPACTION) {
-        DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
+        DCHECK(compaction_type == CompactionType::FULL_COMPACTION);
 
         compaction = std::make_shared<FullCompaction>(tablet->_engine, tablet);
         Status res = compaction->prepare_compact();
@@ -1880,7 +1887,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
             return Status::OK();
         }
-    } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) {
+    } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION) {
         compaction = std::make_shared<CumulativeCompaction>(tablet->_engine, tablet);
         Status res = compaction->prepare_compact();
 
@@ -1888,7 +1895,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             permits = 0;
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
-                return Status::InternalError("prepare binlog compaction with err: {}",
+                return Status::InternalError("prepare changelog compaction with err: {}",
                                              res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
@@ -1897,7 +1904,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             return Status::OK();
         }
     } else {
-        DCHECK(false) << "Unknown compaction type: " << compaction_type;
+        DCHECK(false) << "Unknown compaction type: " << static_cast<int>(compaction_type);
     }
 
     // Time series policy does not rely on permits, it uses goal size to control memory
@@ -2029,8 +2036,8 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
-    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
-        context.write_binlog_opt().enable = true;
+    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_changelog()) {
+        context.write_changelog_opt().enable = true;
     }
     return create_transient_rowset_writer(context, rowset.rowset_id())
             .transform([&](auto&& writer) {
@@ -2058,6 +2065,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
     context.tablet_schema_hash = schema_hash();
+    context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.rowset_type = tablet_meta()->preferred_rowset_type();
     // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
     // alpha rowset, then set the newly created rowset to storage engine's default rowset.
@@ -2074,8 +2082,8 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 
-    if (context.write_binlog_opt().enable) {
-        context.write_binlog_opt().set_need_before(
+    if (context.write_changelog_opt().enable) {
+        context.write_changelog_opt().set_need_before(
                 tablet_meta()->binlog_config().need_historical_value());
     }
 }
@@ -2191,7 +2199,7 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     {
         std::unique_lock meta_wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        if (tablet_state() == TABLET_RUNNING) {
+        if (tablet_state() == TabletState::TABLET_RUNNING) {
             RETURN_IF_ERROR(delete_rowsets({std::move(old_rowset)}, false));
             add_rowsets({std::move(new_rowset)});
             // TODO(plat1ko): process primary key
@@ -2374,7 +2382,7 @@ Status Tablet::_follow_cooldowned_data() {
     {
         std::lock_guard wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        if (tablet_state() != TABLET_RUNNING) {
+        if (tablet_state() != TabletState::TABLET_RUNNING) {
             return Status::InternalError<false>("tablet not running");
         }
 
@@ -2580,8 +2588,8 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
     gc_pb.set_resource_id(resource);
     gc_pb.set_tablet_id(tablet_id());
     gc_pb.set_num_segments(num_segments);
-    auto st =
-            _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, gc_key, gc_pb.SerializeAsString());
+    auto st = _data_dir->get_meta()->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, gc_key,
+                                         gc_pb.SerializeAsString());
     if (!st.ok()) {
         LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
                      << " rowset_id=" << rowset_id << " resource_id=" << resource;
@@ -2590,7 +2598,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
 }
 
 Status Tablet::remove_all_remote_rowsets() {
-    DCHECK(tablet_state() == TABLET_SHUTDOWN);
+    DCHECK(tablet_state() == TabletState::TABLET_SHUTDOWN);
     std::set<std::string> resource_ids;
     for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         if (!rs_meta->is_local()) {
@@ -2605,7 +2613,7 @@ Status Tablet::remove_all_remote_rowsets() {
     for (auto& resource_id : resource_ids) {
         gc_pb.add_resource_ids(resource_id);
     }
-    return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key,
+    return _data_dir->get_meta()->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, tablet_gc_key,
                                       gc_pb.SerializeAsString());
 }
 
@@ -2630,17 +2638,17 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 
-    // For binlog<Row> publish, sync current rowset delete bitmap deltas to binlog tablet.
-    // so row binlog reads can skip rows deleted by MOW conflict resolution.
-    const bool build_row_binlog = txn_info->attach_row_binlog.rowset != nullptr;
+    // For changelog publish, sync current rowset delete bitmap deltas to changelog tablet.
+    // so changelog reads can skip rows deleted by MOW conflict resolution.
+    const bool build_changelog = txn_info->attach_changelog.rowset != nullptr;
     const RowsetId cur_build_rid = txn_info->rowset->rowset_id();
-    const RowsetId binlog_rid =
-            build_row_binlog ? txn_info->attach_row_binlog.rowset->rowset_id() : cur_build_rid;
-    auto* row_binlog_delete_bitmap = txn_info->attach_row_binlog.delete_bitmap.get();
-    if (build_row_binlog) {
-        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta() != nullptr);
-        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta()->is_row_binlog());
-        DCHECK(row_binlog_delete_bitmap != nullptr);
+    const RowsetId changelog_rid =
+            build_changelog ? txn_info->attach_changelog.rowset->rowset_id() : cur_build_rid;
+    auto* changelog_delete_bitmap = txn_info->attach_changelog.delete_bitmap.get();
+    if (build_changelog) {
+        DCHECK(txn_info->attach_changelog.rowset->rowset_meta() != nullptr);
+        DCHECK(txn_info->attach_changelog.rowset->rowset_meta()->is_changelog());
+        DCHECK(changelog_delete_bitmap != nullptr);
     }
 
     // update version without write lock, compaction and publish_txn
@@ -2652,12 +2660,12 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
             _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
                                                 bitmap);
 
-            if (build_row_binlog && std::get<0>(key) == cur_build_rid) {
+            if (build_changelog && std::get<0>(key) == cur_build_rid) {
                 const DeleteBitmap::SegmentId& sid = std::get<1>(key);
-                // Merge current delete bitmap deltas to binlog tablet because publish-phase
-                // partial-update and seq replace will influence the binlog rowset.
-                row_binlog_delete_bitmap->merge({binlog_rid, sid, cast_set<uint64_t>(cur_version)},
-                                                bitmap);
+                // Merge current delete bitmap deltas to changelog tablet because publish-phase
+                // partial-update and seq replace will influence the changelog rowset.
+                changelog_delete_bitmap->merge(
+                        {changelog_rid, sid, cast_set<uint64_t>(cur_version)}, bitmap);
             }
         }
     }
@@ -2685,7 +2693,7 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
     if (!skip) {
         _skip_cumu_compaction = false;
         _skip_base_compaction = false;
-        _skip_binlog_compaction = false;
+        _skip_changelog_compaction = false;
         return;
     }
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -2695,9 +2703,9 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
         _skip_base_compaction = true;
         _skip_base_compaction_ts = start;
     } else {
-        DCHECK(compaction_type == CompactionType::CUMU_BINLOG_COMPACTION);
-        _skip_binlog_compaction = true;
-        _skip_binlog_compaction_ts = start;
+        DCHECK(compaction_type == CompactionType::CHANGELOG_COMPACTION);
+        _skip_changelog_compaction = true;
+        _skip_changelog_compaction_ts = start;
     }
 }
 
@@ -2708,9 +2716,9 @@ bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now)
     } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
                now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
-    } else if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION &&
-               _skip_binlog_compaction &&
-               now < _skip_binlog_compaction_ts + config::skip_tablet_compaction_second) {
+    } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION &&
+               _skip_changelog_compaction &&
+               now < _skip_changelog_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     }
     return false;
@@ -2763,8 +2771,15 @@ bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
     return !_data_dir->reach_capacity_limit(total_binlog_size);
 }
 
-void Tablet::set_binlog_config(BinlogConfig binlog_config) {
+Status Tablet::set_binlog_config(BinlogConfig binlog_config) {
+    std::lock_guard wlock(_meta_lock);
+    if (binlog_config.config_version() < tablet_meta()->binlog_config().config_version()) {
+        return Status::InvalidArgument("Outdated binlog configuration for tablet {}: {} < {}",
+                                       tablet_id(), binlog_config.config_version(),
+                                       tablet_meta()->binlog_config().config_version());
+    }
     tablet_meta()->set_binlog_config(binlog_config);
+    return Status::OK();
 }
 
 void Tablet::gc_binlogs(int64_t version) {
@@ -2840,7 +2855,8 @@ void Tablet::gc_binlogs(int64_t version) {
         return true;
     };
 
-    auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
+    auto status =
+            meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
     if (!status.ok()) {
         LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
         return;
@@ -2862,7 +2878,8 @@ void Tablet::gc_binlogs(int64_t version) {
         }
     }
     if (!remove_binlog_files_failed) {
-        static_cast<void>(meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys));
+        static_cast<void>(meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX,
+                                       wait_for_deleted_binlog_keys));
     }
 }
 
