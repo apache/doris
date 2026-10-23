@@ -30,6 +30,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -569,6 +570,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                                 _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 RETURN_IF_ERROR(_complete_current_split());
                 _has_prepared_split = false;
                 block->clear_column_data(cast_set<int64_t>(_projected_columns.size()));
@@ -659,6 +662,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
                                               config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
+            LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                      << ", path=" << _current_range.path << ", reason=NOT_FOUND";
             RETURN_IF_ERROR(_complete_current_split());
             continue;
         }
@@ -692,6 +697,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             if (ignored_split_status == IgnoredSplitStatus::NOT_FOUND) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                LOG(INFO) << "Skip missing file: query_id=" << print_id(_state->query_id())
+                          << ", path=" << _current_range.path << ", reason=NOT_FOUND";
                 RETURN_IF_ERROR(_complete_current_split());
                 continue;
             }
