@@ -123,22 +123,31 @@ public class HboJoinConditions {
             operands.add(left.get());
             operands.add(right.get());
             String name = conjunct instanceof NullSafeEqual ? "NullSafeEqual" : "EqualTo";
-            Integer leftSide = sideOf(join, conjunct.child(0));
-            Integer rightSide = sideOf(join, conjunct.child(1));
-            if (leftSide == null || rightSide == null || leftSide.equals(rightSide)) {
+            if (isCommutative(join.getJoinType())) {
+                // an inner join has no preserved side: order the pair by identity, which is canonical in
+                // both orientations, and choose one global orientation of the whole set below
                 String first = left.get().compareTo(right.get()) <= 0 ? left.get() : right.get();
                 String second = first.equals(left.get()) ? right.get() : left.get();
                 String pair = name + "(col(" + first + "),col(" + second + "))";
                 forward.add(pair);
                 backward.add(pair);
-            } else {
-                forward.add(leftSide == 0
-                        ? name + "(col(" + left.get() + "),col(" + right.get() + "))"
-                        : name + "(col(" + right.get() + "),col(" + left.get() + "))");
-                backward.add(leftSide == 0
-                        ? name + "(col(" + right.get() + "),col(" + left.get() + "))"
-                        : name + "(col(" + left.get() + "),col(" + right.get() + "))");
+                continue;
             }
+            Integer leftSide = sideOf(join, conjunct.child(0));
+            Integer rightSide = sideOf(join, conjunct.child(1));
+            // an outer join preserves one side: the operand of the left child is written first. A pair
+            // which cannot name a side (both operands from one side), or whose two operands are the same
+            // column, reads the same whichever occurrence is the preserved one, so the join has no key.
+            if (leftSide == null || rightSide == null || leftSide.equals(rightSide)
+                    || left.get().equals(right.get())) {
+                return Optional.empty();
+            }
+            forward.add(leftSide == 0
+                    ? name + "(col(" + left.get() + "),col(" + right.get() + "))"
+                    : name + "(col(" + right.get() + "),col(" + left.get() + "))");
+            backward.add(leftSide == 0
+                    ? name + "(col(" + right.get() + "),col(" + left.get() + "))"
+                    : name + "(col(" + left.get() + "),col(" + right.get() + "))");
         }
         if (forward.isEmpty()) {
             return Optional.empty();
@@ -160,25 +169,7 @@ public class HboJoinConditions {
         parts.add(String.valueOf(join.getJoinType()));
         parts.addAll(pairs);
         parts.add("operands:[" + String.join(",", operands) + "]");
-        if (join.getJoinType() != JoinType.INNER_JOIN) {
-            // an outer join preserves one side, so the side a relation is on is part of the key: it names
-            // the columns each side produces, which are the same while a group is estimated and while the
-            // chosen plan is printed (the slots carry the tables they come from)
-            Plan joinPlan = (Plan) join;
-            parts.add("sides:[" + sideOperands(joinPlan.child(0)) + "|" + sideOperands(joinPlan.child(1)) + "]");
-        }
         return Optional.of(parts);
-    }
-
-    /** The columns one side of an outer join produces, sorted: which side a relation is on is identity. */
-    private static String sideOperands(Plan side) {
-        Set<String> identities = new TreeSet<>();
-        for (Slot slot : side.getOutput()) {
-            if (slot instanceof SlotReference) {
-                operandIdentity(slot).ifPresent(identities::add);
-            }
-        }
-        return String.join(",", identities);
     }
 
     /** Whether the operands of an equality are interchangeable without changing the row count. */
