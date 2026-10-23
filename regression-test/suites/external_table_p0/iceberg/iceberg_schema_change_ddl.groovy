@@ -359,7 +359,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     // can't drop partitioned column
     test {
         sql """ ALTER TABLE ${partition_table_name} DROP COLUMN name """
-        exception "Cannot drop column which is used by"
+        exception "Failed to drop column"
     }
 
     // add new columns to partitioned table

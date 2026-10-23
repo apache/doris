@@ -17,33 +17,19 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties.DelegatedTokenMode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
-import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.UpdateRequirement;
-import org.apache.iceberg.UpdateRequirements;
 import org.apache.iceberg.catalog.BaseSessionCatalog;
 import org.apache.iceberg.catalog.BaseViewSessionCatalog;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.ImmutableTableCommit;
 import org.apache.iceberg.catalog.SupportsNamespaces;
-import org.apache.iceberg.catalog.TableCommit;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
-import org.apache.iceberg.exceptions.ForbiddenException;
-import org.apache.iceberg.exceptions.NoSuchTableException;
-import org.apache.iceberg.exceptions.NotAuthorizedException;
-import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -116,46 +102,6 @@ class IcebergSessionCatalogAdapter {
                     .asViewCatalog(toIcebergSessionContext(context, delegatedTokenMode)));
         }
         return Optional.empty();
-    }
-
-    /** Submit only DROP through the transaction endpoint, with conditions from the exact validated base. */
-    void commitSchemaDrop(SessionContext context, TableIdentifier identifier, TableMetadata base, TableMetadata update)
-            throws UserException {
-        if (!sessionCatalog.isPresent() || !(sessionCatalog.get() instanceof RESTSessionCatalog)) {
-            throw new UserException("Iceberg REST schema DROP requires a retained REST session catalog");
-        }
-        RESTSessionCatalog rest = (RESTSessionCatalog) sessionCatalog.get();
-        org.apache.iceberg.catalog.SessionCatalog.SessionContext icebergContext = hasDelegatedCredential(context)
-                ? toIcebergSessionContext(context, delegatedTokenMode)
-                : org.apache.iceberg.catalog.SessionCatalog.SessionContext.createEmpty();
-        List<UpdateRequirement> requirements = new ArrayList<>(
-                UpdateRequirements.forUpdateTable(base, update.changes()));
-        requirements.add(new UpdateRequirement.AssertLastAssignedPartitionId(base.lastAssignedPartitionId()));
-        TableCommit commit = ImmutableTableCommit.builder().identifier(identifier).requirements(requirements)
-                .updates(update.changes()).build();
-        try {
-            // Transactions use contextual authentication, rather than a loaded table's tableSession.
-            rest.commitTransaction(icebergContext, Collections.singletonList(commit));
-        } catch (UnsupportedOperationException e) {
-            throw new UserException("Iceberg REST schema DROP requires the transaction commit endpoint: "
-                    + e.getMessage(), e);
-        } catch (NoSuchTableException e) {
-            // Legacy services may not advertise endpoints and return 404 for an unsupported transaction path.
-            throw new UserException("Iceberg REST schema DROP transaction endpoint or table not found: "
-                    + identifier + ", " + e.getMessage(), e);
-        } catch (ForbiddenException | NotAuthorizedException e) {
-            throw new UserException("Iceberg REST schema DROP requires transaction commit permission for the "
-                    + "catalog or delegated user session; table-specific credentials are not used: "
-                    + e.getMessage(), e);
-        }
-        try {
-            // Invalidate through the bound catalog: the default catalog owns its own SDK session ID.
-            // commitTransaction does not update the loaded operations handle; later callers must reload.
-            catalog(context).invalidateTable(identifier);
-        } catch (RuntimeException e) {
-            throw new UserException("Iceberg REST schema DROP committed, but metadata cache invalidation failed for "
-                    + identifier + "; refresh the table before another operation: " + e.getMessage(), e);
-        }
     }
 
     @VisibleForTesting

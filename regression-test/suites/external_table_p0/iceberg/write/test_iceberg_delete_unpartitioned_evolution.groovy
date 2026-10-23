@@ -53,24 +53,6 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         """), actual)
     }
 
-    // A DROP precondition must not leave a partition dependency on another ordinary column.
-    spark_iceberg """drop table if exists demo.${dbName}.ordinary_consecutive_drops"""
-    spark_iceberg """
-        create table demo.${dbName}.ordinary_consecutive_drops (id bigint, a bigint, b bigint)
-        using iceberg tblproperties ('format-version' = '2')
-    """
-    spark_iceberg """insert into demo.${dbName}.ordinary_consecutive_drops values (1, 10, 100), (2, 20, 200)"""
-    sql """refresh database ${dbName}"""
-    def expectedConsecutiveDrops = spark_iceberg """
-        select a from demo.${dbName}.ordinary_consecutive_drops order by a
-    """
-    sql """alter table ordinary_consecutive_drops drop column b"""
-    sql """alter table ordinary_consecutive_drops drop column id"""
-    assertSparkDorisResultEquals(expectedConsecutiveDrops, sql("""
-        select a from ordinary_consecutive_drops order by a
-    """))
-    qt_ordinary_consecutive_drops """select a from ordinary_consecutive_drops order by a"""
-
     // REPLACE retains historical spec 0 while writing new files under an unpartitioned spec.
     // Spark's replace transaction exercises the same Iceberg metadata transition as Trino RTAS.
     spark_iceberg """drop table if exists demo.${dbName}.replace_to_unpartitioned"""
@@ -88,11 +70,6 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         as select * from demo.${dbName}.replace_to_unpartitioned
     """
     sql """refresh table ${dbName}.replace_to_unpartitioned"""
-    // Even an ordinary column is unsafe to DROP through REST after partition IDs were allocated.
-    test {
-        sql """alter table replace_to_unpartitioned drop column metric"""
-        exception "partition field history"
-    }
     def replacedSpecs = sql """select distinct spec_id from replace_to_unpartitioned\$data_files"""
     assertEquals(1, replacedSpecs.size())
     assertTrue((replacedSpecs[0][0] as int) > 0)
@@ -153,11 +130,6 @@ suite("test_iceberg_delete_unpartitioned_evolution",
         """
         spark_iceberg """insert into demo.${dbName}.${table} values (1, 7, 10), (2, 7, 20), (3, null, 30)"""
         spark_iceberg """alter table demo.${dbName}.${table} drop partition field partition_key"""
-        sql """refresh database ${dbName}"""
-        test {
-            sql """alter table ${table} drop column partition_key"""
-            exception "used by an old partition spec"
-        }
         spark_iceberg """alter table demo.${dbName}.${table} drop column partition_key"""
         spark_iceberg """insert into demo.${dbName}.${table} values (4, 40)"""
         sql """refresh database ${dbName}"""

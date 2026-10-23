@@ -66,6 +66,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
@@ -116,8 +117,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataOps.class);
     private static final String PROP_LOCATION = "location";
-    // Iceberg partition field IDs start at 1000; the SDK keeps this boundary package-private.
-    private static final int INITIAL_PARTITION_FIELD_ID = 1000;
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
@@ -126,8 +125,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     // catalog types it is the catalog itself when it implements ViewCatalog. Empty when views are unsupported
     // or disabled.
     private final Optional<ViewCatalog> defaultViewCatalog;
-    // Session-aware catalog capability for ordinary metadata calls. DROP selects its session mode from the
-    // immutable properties retained with the writable table generation.
+    // Session-aware catalog capability for ordinary metadata calls.
     private final IcebergUserSessionCatalog userSessionCatalog;
     private IcebergSessionCatalogAdapter sessionCatalogAdapter;
     private ExecutionAuthenticator executionAuthenticator;
@@ -957,9 +955,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropColumn(ExternalTable dorisTable, String columnName, long updateTime) throws UserException {
-        SessionContext context = SessionContext.current();
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            dropColumnSafely(lease, dorisTable, ColumnPath.of(columnName), context);
+            dropColumnSafely(lease, ColumnPath.of(columnName));
         }
         refreshAfterColumnDrop(dorisTable, updateTime);
     }
@@ -970,21 +967,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             dropColumn(dorisTable, columnPath.getTopLevelName(), updateTime);
             return;
         }
-        SessionContext context = SessionContext.current();
         try (IcebergExternalMetaCache.WritableTableLease lease = acquireWritableTable(dorisTable)) {
-            dropColumnSafely(lease, dorisTable, columnPath, context);
+            dropColumnSafely(lease, columnPath);
         }
         refreshAfterColumnDrop(dorisTable, updateTime);
     }
 
-    private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease,
-            ExternalTable dorisTable, ColumnPath path, SessionContext context)
+    private void dropColumnSafely(IcebergExternalMetaCache.WritableTableLease lease, ColumnPath path)
             throws UserException {
         try {
             // A refresh can perform authenticated catalog IO just like the eventual commit. Keep target
             // validation, refresh and commit inside the one catalog generation retained by this lease.
             lease.getAuthenticator().execute(() -> {
-                commitColumnDrop(lease, dorisTable, path, context);
+                commitColumnDrop(lease, path);
                 return null;
             });
         } catch (UserException e) {
@@ -1005,11 +1000,18 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void commitColumnDrop(IcebergExternalMetaCache.WritableTableLease lease,
-            ExternalTable dorisTable, ColumnPath path, SessionContext context) throws UserException {
+    private void commitColumnDrop(IcebergExternalMetaCache.WritableTableLease lease, ColumnPath path)
+            throws UserException {
         Table table = lease.getTable();
         if (!path.isNested()) {
             validateRowLineageColumnMutation(table, path.getTopLevelName(), "drop");
+        }
+        if (lease.getRuntimeContext().getMetastoreProperties() instanceof IcebergRestProperties) {
+            // Preserve the ordinary SDK REST endpoint, table authentication and cache handling.
+            // REST requirements cannot atomically fence the retained-spec set; that fix is separate.
+            ResolvedColumnPath resolvedPath = resolveDropPath(table.schema(), path);
+            table.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
+            return;
         }
         TableOperations operations = ((HasTableOperations) table).operations();
         TableMetadata loaded = operations.current();
@@ -1023,15 +1025,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         ResolvedColumnPath resolvedPath = validatePinnedDropIdentity(
                 table.name(), path, loaded, loadedSubtreeIds, base);
         validateNotUsedByRetainedPartitionSpec(base, resolvedPath);
-        if (isRestTableOperations(operations)
-                && base.lastAssignedPartitionId() >= INITIAL_PARTITION_FIELD_ID) {
-            // An old SDK writer may restore an expired spec using recycled field IDs without advancing
-            // the partition counter. REST has no full-metadata CAS to protect that missing history.
-            throw new UserException("Cannot safely drop column from an Iceberg REST table"
-                    + " with partition field history: " + resolvedPath.getFullPath()
-                    + "; DROP requires a table that has never allocated partition field IDs");
-        }
-
         // Stage the standard SDK update against exactly the validated base. Recapturing operations.current()
         // here could instead delete a same-name replacement published on a shared handle after refresh.
         CapturingTableOperations schemaCapture = new CapturingTableOperations(operations, base);
@@ -1041,18 +1034,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         stagedTable.updateSchema().deleteColumn(resolvedPath.getFullPath()).commit();
         TableMetadata schemaUpdate = schemaCapture.committed();
-        if (isRestTableOperations(operations)) {
-            // This table has never allocated partition IDs, so a new SDK reference must advance the counter.
-            // Use the mode captured with this table generation, even if ALTER has changed the live catalog.
-            IcebergRestProperties restProperties = (IcebergRestProperties)
-                    lease.getRuntimeContext().getMetastoreProperties();
-            sessionCatalogAdapter.commitSchemaDrop(
-                    restProperties.isIcebergRestUserSessionEnabled() ? context : SessionContext.empty(),
-                    getTableIdentifier(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()), base, schemaUpdate);
-            return;
+        // Like IcebergTransaction, reread the file because Hadoop can reuse a metadata version
+        // after drop/recreate while refresh() retains the old cached object.
+        TableMetadata currentFile = TableMetadataParser.read(operations.io(), base.metadataFileLocation());
+        if (!Objects.equals(base.uuid(), currentFile.uuid())) {
+            throw concurrentDropTargetChange(table.name(), path);
         }
-
-        // Direct catalogs atomically reject metadata changes after the validated refresh through their CAS.
+        // Catalogs with full metadata CAS reject changes after the validated refresh.
         operations.commit(base, schemaUpdate);
     }
 
@@ -1095,14 +1083,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 + tableName + "." + path.getFullPath());
     }
 
-    private static boolean isRestTableOperations(TableOperations operations) {
-        return "RESTTableOperations".equalsIgnoreCase(operations.getClass().getSimpleName());
-    }
-
     private static void validateNotUsedByRetainedPartitionSpec(
             TableMetadata metadata, ResolvedColumnPath columnPath) throws UserException {
-        Set<Integer> droppedFieldIds = TypeUtil.indexById(
-                Types.StructType.of(columnPath.getField())).keySet();
+        Set<Integer> droppedFieldIds = fieldSubtreeIds(columnPath);
         // Every retained spec resolves partition types by source field ID against the current schema,
         // including the default spec and historical specs without live files.
         boolean usedByRetainedSpec = metadata.specs().stream()

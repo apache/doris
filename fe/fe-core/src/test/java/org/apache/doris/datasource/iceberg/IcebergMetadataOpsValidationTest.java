@@ -1599,6 +1599,7 @@ public class IcebergMetadataOpsValidationTest {
                 Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
         Mockito.when(lease.getTable()).thenReturn(icebergTable);
         Mockito.when(lease.getAuthenticator()).thenReturn(authenticator);
+        Mockito.when(lease.getRuntimeContext()).thenReturn(Mockito.mock(IcebergRuntimeContext.class));
         mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(dorisTable, expectedOps))
                 .thenReturn(lease);
         return lease;
