@@ -61,7 +61,7 @@ class ResultUtils {
      * ambiguity.
      */
     private static final Pattern NESTED_BINARY_TOKEN = Pattern.compile(
-            "(?i)(?<![0-9a-zA-Z'"\\])0x(?:[0-9a-f]{2})+(?![0-9a-fA-F])")
+            /(?i)(?<![0-9a-zA-Z'"\\])0x(?:[0-9a-f]{2})+(?![0-9a-fA-F])/)
 
     static List<List<Object>> normalizeRows(List<List<Object>> rows) {
         List<List<Object>> normalizedRows = new ArrayList<>()
