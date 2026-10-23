@@ -9410,6 +9410,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             dataSourceMapProperties.putAll(visitPropertyItemList(ctx.propertyItemList()));
         }
 
+        // Load expressions can apply SET_VAR hints. Capture SQL before they change key decoding.
+        String auditSql = buildRoutineLoadAuditSql(ctx);
         Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
         if (ctx.loadProperty() != null) {
             for (DorisParser.LoadPropertyContext oneLoadPropertyContext : ctx.loadProperty()) {
@@ -9426,7 +9428,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties,
-                buildRoutineLoadAuditSql(ctx));
+                auditSql);
     }
 
     private String buildRoutineLoadAuditSql(DorisParser.AlterRoutineLoadContext ctx) {

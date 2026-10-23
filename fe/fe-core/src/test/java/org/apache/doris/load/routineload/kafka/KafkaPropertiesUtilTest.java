@@ -34,7 +34,9 @@ public class KafkaPropertiesUtilTest {
             "ssl.keystore.password", "ssl.keystore.key", "ssl.key.pem", "ssl.key.password",
             "sasl.oauthbearer.assertion.private.key.pem", "sasl.oauthbearer.assertion.private.key.passphrase",
             "password", "secret_key", "session_token", "property.sasl.oauthbearer.credentials",
-            "token", "property.token", "property.credentials"
+            "token", "property.token", "property.credentials",
+            "sasl.password\0ignored", "property.sasl.password\0ignored", "PrOpErTy.SaSl.PaSsWoRd\0ignored",
+            "property.sasl.jaas.config\0ignored", "property.ssl.key.pem\0ignored"
     })
     public void testMaskSensitivePropertiesWithoutChangingInput(String key) {
         Map<String, String> properties = Map.of(key, "synthetic-secret");
@@ -58,6 +60,13 @@ public class KafkaPropertiesUtilTest {
 
         Assertions.assertEquals(properties, masked);
         Assertions.assertNotSame(properties, masked);
+    }
+
+    @Test
+    public void testClassifyOnlyEffectiveNativePropertyName() {
+        Assertions.assertFalse(KafkaPropertiesUtil.isSensitiveKey("property.client.id\0.password"));
+        Assertions.assertEquals(Map.of("property.client.id\0ignored", "client-value"),
+                KafkaPropertiesUtil.maskProperties(Map.of("property.client.id\0ignored", "client-value")));
     }
 
     @Test

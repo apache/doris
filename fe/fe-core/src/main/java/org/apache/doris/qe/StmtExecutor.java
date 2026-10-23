@@ -701,7 +701,7 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
+                    DebugUtil.printId(queryId), getStmtForLogging());
         }
         queryRetry(queryId);
     }
@@ -940,7 +940,7 @@ public class StmtExecutor {
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
+            LOG.debug("Nereids start to execute query:\n {}", getStmtForLogging());
         }
         context.setQueryId(queryId);
         context.setStartTime();
@@ -2535,8 +2535,9 @@ public class StmtExecutor {
         }
     }
 
-    private String getStmtForLoggingBeforeParse() {
-        return getStmtForLoggingBeforeParse(originStmt == null ? null : originStmt.originStmt);
+    private String getStmtForLogging() {
+        // Reuse SQL captured by the parsed command before later session mode changes.
+        return getStmtForLogging(originStmt == null ? null : originStmt.originStmt);
     }
 
     private String getStmtForLoggingBeforeParse(String stmt) {

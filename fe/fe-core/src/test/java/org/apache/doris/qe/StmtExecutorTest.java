@@ -39,11 +39,14 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -1292,9 +1295,49 @@ public class StmtExecutorTest extends TestWithFeService {
         getStmtForLogging.setAccessible(true);
         Assertions.assertEquals("", getStmtForLogging.invoke(executor, ""));
 
-        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
-        getStmtForLoggingBeforeParse.setAccessible(true);
-        Assertions.assertEquals("", getStmtForLoggingBeforeParse.invoke(executor));
+        Method getCurrentStmtForLogging = StmtExecutor.class.getDeclaredMethod("getStmtForLogging");
+        getCurrentStmtForLogging.setAccessible(true);
+        Assertions.assertEquals("", getCurrentStmtForLogging.invoke(executor));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testParsedRoutineLoadLogsKeepOriginalSqlMode(boolean originalNoBackslashMode) throws Exception {
+        String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA "
+                + "('property.sasl.\\password' = 'synthetic-value')";
+        long originalMode = connectContext.getSessionVariable().getSqlMode();
+        boolean originalPrintRequest = Config.enable_print_request_before_execution;
+        try {
+            connectContext.getSessionVariable().setSqlMode(originalNoBackslashMode
+                    ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : SqlModeHelper.MODE_DEFAULT);
+            AlterRoutineLoadCommand command = Mockito.spy(
+                    (AlterRoutineLoadCommand) new NereidsParser().parseSingle(sql));
+            // Keep real execution and its INFO/DEBUG logs; only skip the Kafka job mutation.
+            Mockito.doNothing().when(command).run(Mockito.any(), Mockito.any());
+            LogicalPlanAdapter statement = new LogicalPlanAdapter(command, new StatementContext());
+            statement.setOrigStmt(new OriginStatement(sql, 0));
+            // An earlier SET in a pre-parsed batch changes the mode before this command executes.
+            connectContext.getSessionVariable().setSqlMode(originalNoBackslashMode
+                    ? SqlModeHelper.MODE_DEFAULT : SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            Config.enable_print_request_before_execution = true;
+            connectContext.getState().reset();
+            try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class)) {
+                StmtExecutor executor = new StmtExecutor(connectContext, statement);
+                executor.execute();
+
+                String expected = originalNoBackslashMode ? sql : sql.replace("'synthetic-value'", "'******'");
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.INFO, expected));
+                Assertions.assertTrue(appender.contains(org.apache.logging.log4j.Level.DEBUG, expected));
+                if (!originalNoBackslashMode) {
+                    Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.INFO, "synthetic-value"));
+                    Assertions.assertFalse(appender.contains(org.apache.logging.log4j.Level.DEBUG, "synthetic-value"));
+                }
+                Mockito.verify(command).run(connectContext, executor);
+            }
+        } finally {
+            Config.enable_print_request_before_execution = originalPrintRequest;
+            connectContext.getSessionVariable().setSqlMode(originalMode);
+        }
     }
 
     @Test
@@ -1368,9 +1411,11 @@ public class StmtExecutorTest extends TestWithFeService {
                 "CREATE EXTERNAL RESOURCE \"broken_ai_resource\" PROPERTIES (\"ai.api_key\" = \""
                         + AI_RESOURCE_LOG_SECRET + "\"");
 
-        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod("getStmtForLoggingBeforeParse");
+        Method getStmtForLoggingBeforeParse = StmtExecutor.class.getDeclaredMethod(
+                "getStmtForLoggingBeforeParse", String.class);
         getStmtForLoggingBeforeParse.setAccessible(true);
-        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor));
+        Assertions.assertEquals(MASKED_STMT_FALLBACK, getStmtForLoggingBeforeParse.invoke(executor,
+                executor.getOriginStmtInString()));
     }
 
     @Test

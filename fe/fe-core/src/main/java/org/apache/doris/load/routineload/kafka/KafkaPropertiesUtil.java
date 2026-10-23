@@ -40,6 +40,11 @@ public final class KafkaPropertiesUtil {
     }
 
     public static boolean isSensitiveKey(String key) {
+        // librdkafka passes property names to its C API, which stops at the first NUL.
+        int nulIndex = key.indexOf('\0');
+        if (nulIndex >= 0) {
+            key = key.substring(0, nulIndex);
+        }
         String lowerKey = key.toLowerCase(Locale.ROOT);
         if (lowerKey.startsWith("property.")) {
             lowerKey = lowerKey.substring("property.".length());

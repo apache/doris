@@ -32,6 +32,7 @@ import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
@@ -86,6 +87,38 @@ public class RoutineLoadAuditEncryptionTest {
         String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA ("
                 + "' PrOpErTy.SaSl.PaSsWoRd ' = 'synthetic-password')";
         Assertions.assertEquals(sql.replace("'synthetic-password'", "'******'"), encrypt(sql));
+    }
+
+    @Test
+    public void testMaskNativeNulCredentialAlias() {
+        String sql = "ALTER ROUTINE LOAD FOR db.job FROM KAFKA ("
+                + "'property.sasl.password\\0ignored' = 'synthetic-secret', 'property.client.id' = 'client-value')";
+        SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) new NereidsParser().parseSingle(sql);
+            Assertions.assertEquals("synthetic-secret",
+                    command.getDataSourceMapProperties().get("property.sasl.password\0ignored"));
+            Assertions.assertEquals(sql.replace("'synthetic-secret'", "'******'"), command.geneEncryptionSQL(sql));
+            return null;
+        });
+    }
+
+    @Test
+    public void testCaptureAuditBeforeLoadExpressionChangesSqlMode() {
+        String sql = "ALTER ROUTINE LOAD FOR db.job "
+                + "COLUMNS (c = (SELECT /*+ SET_VAR(sql_mode='NO_BACKSLASH_ESCAPES') */ 1)) "
+                + "FROM KAFKA ('property.sasl.\\password' = 'synthetic-secret')";
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setSqlMode(SqlModeHelper.MODE_DEFAULT);
+        context.setStatementContext(new StatementContext(context, new OriginStatement(sql, 0)));
+        context.setThreadLocalInfo();
+        try {
+            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) new NereidsParser().parseSingle(sql);
+            Assertions.assertTrue(SqlModeHelper.hasNoBackSlashEscapes());
+            Assertions.assertEquals("synthetic-secret", command.getDataSourceMapProperties().get("property.sasl.password"));
+            Assertions.assertEquals(sql.replace("'synthetic-secret'", "'******'"), command.geneEncryptionSQL(sql));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

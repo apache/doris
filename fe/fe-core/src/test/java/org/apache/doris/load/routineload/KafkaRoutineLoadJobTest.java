@@ -115,6 +115,7 @@ public class KafkaRoutineLoadJobTest {
     public void testModifyAndReplayPropertiesMaskSecrets() throws UserException {
         Map<String, String> sensitiveProperties = Maps.newHashMap();
         sensitiveProperties.put("property.sasl.password", "synthetic-sasl-password");
+        sensitiveProperties.put("property.sasl.password\0ignored", "synthetic-nul-password");
         sensitiveProperties.put("property.ssl.key.password", "synthetic-ssl-password");
         sensitiveProperties.put("property.sasl.jaas.config", "synthetic-jaas-config");
         sensitiveProperties.put("property.sasl.oauthbearer.config", "synthetic-oauth-config");
