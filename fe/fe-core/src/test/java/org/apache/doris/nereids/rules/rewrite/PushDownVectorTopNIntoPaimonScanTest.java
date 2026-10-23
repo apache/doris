@@ -126,11 +126,10 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         cascadesContext = Mockito.mock(CascadesContext.class);
         // The rewrite's pre-flight (PaimonVectorSearch.vectorScanEligible) requires a
         // rust-capable BE via the all-backend capability negotiation, mirroring
-        // PaimonScanNodeTest's routing fixture — and the VECTOR capability bit on
-        // top of the batch one, since an older rust-capable BE would reject the
-        // vector payload ("missing paimon_split").
+        // PaimonScanNodeTest's routing fixture — the vector protocol rides the
+        // same bit, since the rust reader and the vector protocol ship together.
         Backend rustBackend = GsonUtils.GSON.fromJson(
-                "{\"supportsPaimonRustReader\":true,\"supportsPaimonRustVectorReader\":true}",
+                "{\"supportsPaimonRustReader\":true}",
                 Backend.class);
         systemInfo = Mockito.mock(SystemInfoService.class);
         Mockito.when(systemInfo.getAllClusterBackends(true))
@@ -824,24 +823,6 @@ public class PushDownVectorTopNIntoPaimonScanTest {
         Assertions.assertNotSame(scan, ((LogicalFileScan) ((LogicalProject<?>) rewritten.child(0)).child(0)));
         Assertions.assertTrue(((LogicalFileScan) ((LogicalProject<?>) rewritten.child(0)).child(0))
                 .getAnnTopN().isPresent());
-    }
-
-    @Test
-    public void testBackendWithoutVectorCapabilityNotPushedDown() {
-        // Rolling upgrade: a BE that reports the batch rust bit but not the vector
-        // bit would reject the rewritten payload ("missing paimon_split"), so the
-        // rewrite must decline and leave the query on the ordinary path it can
-        // still run. Re-stub the shared SystemInfoService with such a BE.
-        Backend legacyBackend = GsonUtils.GSON.fromJson(
-                "{\"supportsPaimonRustReader\":true}", Backend.class);
-        Mockito.when(systemInfo.getAllClusterBackends(true))
-                .thenReturn(ImmutableList.of(legacyBackend));
-        LogicalFileScan scan = paimonScan(ImmutableMap.of(
-                "pk-vector.index.columns", "vec",
-                "fields.vec.pk-vector.distance.metric", "l2"));
-        Alias dis = new Alias(new L2DistanceApproximate(vecSlot(scan), queryVector()), "dis");
-        assertNotPushedDown(topN(
-                new LogicalProject<>(ImmutableList.of(idSlot(scan), dis), scan), dis, true));
     }
 
     @Test

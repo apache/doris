@@ -148,10 +148,10 @@ public class PaimonScanNodeTest {
         // read false and bypass the cache under test.
         sv.enableExternalScanTaskReuse = true;
         // These routing fixtures bypass scan initialization and use an upgraded eligible
-        // BE. The vector bit rides along: the vector gates negotiate it independently
-        // of the batch one, and the vector-split tests below need both.
+        // BE. The vector protocol rides the same rust bit — the rust reader and the
+        // vector protocol ship in the same release.
         Backend backend = GsonUtils.GSON.fromJson(
-                "{\"supportsPaimonRustReader\":true,\"supportsPaimonRustVectorReader\":true}",
+                "{\"supportsPaimonRustReader\":true}",
                 Backend.class);
         new MockUp<FederationBackendPolicy>() {
             @mockit.Mock

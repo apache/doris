@@ -63,43 +63,6 @@ public class BackendPaimonRustCapabilityTest {
         Assert.assertFalse(GsonUtils.GSON.fromJson("{}", Backend.class).isPaimonRustReaderSupported());
     }
 
-    @Test
-    public void testVectorCapabilityNegotiatedIndependentlyOfBatchSupport() {
-        // Rolling upgrade: a BE advertising only the batch rust bit keeps batch
-        // support and loses the vector protocol — the one-way vector rewrite must
-        // be gated on this bit specifically (an older rust-capable BE would reject
-        // the rewritten payload as "missing paimon_split").
-        Backend backend = new Backend(1, "127.0.0.1", 9050);
-        BackendHbResponse batchOnly = heartbeat();
-        batchOnly.setPaimonRustReaderSupported(true);
-        Assert.assertFalse(batchOnly.isPaimonRustVectorReaderSupported());
-        backend.handleHbResponse(batchOnly, false);
-        Assert.assertTrue(backend.isPaimonRustReaderSupported());
-        Assert.assertFalse(backend.isPaimonRustVectorReaderSupported());
-
-        BackendHbResponse bothBits = heartbeat();
-        bothBits.setPaimonRustReaderSupported(true);
-        bothBits.setPaimonRustVectorReaderSupported(true);
-        BackendHbResponse replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(bothBits), BackendHbResponse.class);
-        Assert.assertTrue(replay.isPaimonRustVectorReaderSupported());
-        backend.handleHbResponse(replay, false);
-        Assert.assertTrue(backend.isPaimonRustReaderSupported());
-        Assert.assertTrue(backend.isPaimonRustVectorReaderSupported());
-        Backend restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(backend), Backend.class);
-        Assert.assertTrue(restored.isPaimonRustVectorReaderSupported());
-
-        // A later heartbeat without the vector bit (downgrade) clears it again.
-        BackendHbResponse downgrade = heartbeat();
-        downgrade.setPaimonRustReaderSupported(true);
-        backend.handleHbResponse(downgrade, false);
-        Assert.assertTrue(backend.isPaimonRustReaderSupported());
-        Assert.assertFalse(backend.isPaimonRustVectorReaderSupported());
-
-        TBackendInfo thrift = new TBackendInfo();
-        Assert.assertFalse(thrift.isSetSupportsPaimonRustVectorReader());
-        Assert.assertFalse(GsonUtils.GSON.fromJson("{}", Backend.class).isPaimonRustVectorReaderSupported());
-    }
-
     private BackendHbResponse heartbeat() {
         return new BackendHbResponse(1, 9060, 8040, 8060, 1000, 1000, "test-version", Tag.VALUE_MIX,
                 0, 0, false, 8070);

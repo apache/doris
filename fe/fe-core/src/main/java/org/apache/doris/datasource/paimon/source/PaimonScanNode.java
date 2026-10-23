@@ -1078,7 +1078,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // is the loud backstop for shapes the raw-table pre-flight cannot see.
             boolean vectorSchemaIncompatible = false;
             if (vectorSearchSplit) {
-                canUseRust = canUseRust && rustEligibility.vectorEligible()
+                canUseRust = canUseRust && rustEligibility.eligible()
                         && PaimonRustReaderCapabilities.hasFullNestedProjection(desc);
                 if (canUseRust) {
                     if (rustReaderCapabilities == null) {
@@ -1166,9 +1166,6 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
                 if (!rustEligibility.allBackendsRustCapable) {
                     reasons.add("backend_without_rust_support");
-                }
-                if (vectorSearchSplit && !rustEligibility.allBackendsVectorCapable) {
-                    reasons.add("backend_without_vector_support");
                 }
                 if (vectorSearchSplit
                         && !PaimonRustReaderCapabilities.hasFullNestedProjection(desc)) {
