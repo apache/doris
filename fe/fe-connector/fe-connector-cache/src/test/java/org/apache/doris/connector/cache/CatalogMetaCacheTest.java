@@ -25,12 +25,189 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Queue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 class CatalogMetaCacheTest {
     private static final CacheSpec SPEC = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 100);
+
+    @Test
+    void deferredCleanupDetachesImmediatelyAndPreservesRecreatedValues() throws Exception {
+        Object guard = new Object();
+        AtomicInteger removals = new AtomicInteger();
+        AtomicInteger lockedRemovals = new AtomicInteger();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, Object> cache = owner.create(MetaCacheDefinition.<String, Object>builder(
+                    "deferred", SPEC, ignored -> ScopePath.table("db", "t"))
+                    .removalListener((key, value, cause) -> {
+                        if (Thread.holdsLock(guard)) {
+                            lockedRemovals.incrementAndGet();
+                        }
+                        removals.incrementAndGet();
+                    }).build());
+            Object old = new Object();
+            Object recreated = new Object();
+            cache.put("t", old);
+            MetaCacheCleanup.runDeferred(() -> {
+                synchronized (guard) {
+                    MetaCacheCleanup.runDeferred(() -> owner.invalidateTable("db", "t"));
+                    Assertions.assertNull(cache.getIfPresent("t"));
+                    Assertions.assertEquals(0, removals.get());
+                    try {
+                        // New publication can finish while physical cleanup of the old scope is pending.
+                        worker.submit(() -> cache.put("t", recreated)).get(10, TimeUnit.SECONDS);
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                    Assertions.assertSame(recreated, cache.getIfPresent("t"));
+                }
+            });
+            Assertions.assertEquals(1, removals.get());
+            Assertions.assertSame(recreated, cache.getIfPresent("t"));
+            MetaCacheCleanup.runDeferred(() -> {
+                synchronized (guard) {
+                    Assertions.assertTrue(cache.observe("t", recreated).get().invalidateIfCurrent(() -> true));
+                    Assertions.assertNull(cache.getIfPresent("t"));
+                    Assertions.assertEquals(1, removals.get());
+                }
+            });
+            Assertions.assertEquals(2, removals.get());
+            Assertions.assertEquals(0, lockedRemovals.get());
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    void deferredCleanupDrainsAfterFailureAndKeepsOriginalException() {
+        AtomicInteger cleaned = new AtomicInteger();
+        IllegalStateException original = new IllegalStateException("action");
+        IllegalArgumentException cleanupFailure = new IllegalArgumentException("cleanup");
+        Assertions.assertSame(original, Assertions.assertThrows(IllegalStateException.class, () ->
+                MetaCacheCleanup.runDeferred(() -> {
+                    MetaCacheCleanup.execute(() -> {
+                        throw cleanupFailure;
+                    });
+                    MetaCacheCleanup.execute(cleaned::incrementAndGet);
+                    throw original;
+                })));
+        Assertions.assertEquals(1, cleaned.get());
+        Assertions.assertArrayEquals(new Throwable[] {cleanupFailure}, original.getSuppressed());
+        // The thread-local context is cleared even after failure.
+        MetaCacheCleanup.execute(cleaned::incrementAndGet);
+        Assertions.assertEquals(2, cleaned.get());
+    }
+
+    @Test
+    void observationRejectsReplacementScopeChangeAndSameInstanceReinsertion() {
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+        try {
+            MetaCache<String, Object> cache = owner.create(MetaCacheDefinition.<String, Object>builder(
+                    "observed", SPEC, ignored -> ScopePath.table("db", "t")).build());
+            Object old = new Object();
+            cache.put("t", old);
+            MetaCache.Observation first = cache.observe("t", old).get();
+            cache.put("t", new Object());
+            Assertions.assertFalse(first.invalidateIfCurrent(() -> true));
+            cache.put("t", old);
+            Assertions.assertFalse(first.invalidateIfCurrent(() -> true));
+            MetaCache.Observation beforeRefresh = cache.observe("t", old).get();
+            owner.invalidateTable("db", "t");
+            cache.put("t", old);
+            Assertions.assertFalse(beforeRefresh.invalidateIfCurrent(() -> true));
+            MetaCache.Observation current = cache.observe("t", old).get();
+            Assertions.assertFalse(current.invalidateIfCurrent(() -> false));
+            Assertions.assertSame(old, cache.getIfPresent("t"));
+            Assertions.assertTrue(current.invalidateIfCurrent(() -> true));
+            Assertions.assertNull(cache.getIfPresent("t"));
+            cache.put("t", old);
+            MetaCache.Observation beforeClose = cache.observe("t", old).get();
+            owner.close();
+            Assertions.assertFalse(beforeClose.invalidateIfCurrent(() -> true));
+        } finally {
+            owner.close();
+        }
+    }
+
+    @Test
+    void nestedObservationLeavesNamesIntactWhenObjectWasReplaced() {
+        try (CatalogMetaCache namesOwner = CatalogMetaCache.unmanaged();
+                CatalogMetaCache objectsOwner = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, Object> names = namesOwner.create(MetaCacheDefinition.<String, Object>builder(
+                    "names", SPEC, ignored -> ScopePath.catalog()).build());
+            MetaCache<String, Object> objects = objectsOwner.create(MetaCacheDefinition.<String, Object>builder(
+                    "objects", SPEC, ignored -> ScopePath.catalog()).build());
+            Object snapshot = new Object();
+            Object old = new Object();
+            names.put("db", snapshot);
+            objects.put("t", old);
+            MetaCache.Observation nameObservation = names.observe("db", snapshot).get();
+            MetaCache.Observation objectObservation = objects.observe("t", old).get();
+            Object replacement = new Object();
+            objects.put("t", replacement);
+            AtomicInteger actions = new AtomicInteger();
+            Assertions.assertFalse(nameObservation.invalidateIfCurrent(() ->
+                    objectObservation.invalidateIfCurrent(() -> {
+                        actions.incrementAndGet();
+                        return true;
+                    })));
+            Assertions.assertSame(snapshot, names.getIfPresent("db"));
+            Assertions.assertSame(replacement, objects.getIfPresent("t"));
+            Assertions.assertEquals(0, actions.get());
+            MetaCache.Observation currentObject = objects.observe("t", replacement).get();
+            Assertions.assertThrows(IllegalStateException.class, () -> nameObservation.invalidateIfCurrent(() ->
+                    currentObject.invalidateIfCurrent(() -> {
+                        throw new IllegalStateException("dependency cleanup failed");
+                    })));
+            Assertions.assertNull(names.getIfPresent("db"));
+            Assertions.assertNull(objects.getIfPresent("t"));
+        }
+    }
+
+    @Test
+    void observedRemovalFencesPreexistingBulkAndSingleLoads() throws Exception {
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            MetaCache<String, Object> cache = owner.create(MetaCacheDefinition.<String, Object>builder(
+                    "objects", SPEC, ignored -> ScopePath.table("db", "t")).build());
+            Object old = new Object();
+            cache.put("t", old);
+            try (MetaCache.BulkLoad<String, Object> bulk = cache.beginBulkLoad(ScopePath.database("db"))) {
+                MetaCache.Observation observation = cache.observe("t", old).get();
+                Assertions.assertTrue(observation.invalidateIfCurrent(() -> true));
+                Assertions.assertFalse(bulk.publish("t", old));
+                Assertions.assertNull(cache.getIfPresent("t"));
+            }
+            Future<Object> load = worker.submit(() -> cache.get("t", key -> {
+                started.countDown();
+                try {
+                    Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                return old;
+            }));
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            Object current = new Object();
+            cache.put("t", current);
+            Assertions.assertTrue(cache.observe("t", current).get().invalidateIfCurrent(() -> true));
+            release.countDown();
+            Assertions.assertSame(old, load.get(10, TimeUnit.SECONDS));
+            Assertions.assertNull(cache.getIfPresent("t"));
+        } finally {
+            release.countDown();
+            worker.shutdownNow();
+        }
+    }
 
     @Test
     void unmanagedOwnershipMustBeSelectedExplicitly() throws Exception {

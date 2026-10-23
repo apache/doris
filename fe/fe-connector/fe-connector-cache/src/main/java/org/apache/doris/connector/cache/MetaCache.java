@@ -18,7 +18,10 @@
 package org.apache.doris.connector.cache;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -87,6 +90,34 @@ public final class MetaCache<K, V> {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         return delegate.compareAndSet(nonNullKey, definition.scope(nonNullKey), expectedValue, updatedValue,
                 Objects.requireNonNull(commitAction, "commitAction can not be null"));
+    }
+
+    /** Captures an exact retained registration without loading or holding locks across a remote read. */
+    public Optional<Observation> observe(K key, Object expectedValue) {
+        K nonNullKey = Objects.requireNonNull(key, "key");
+        return delegate.observe(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(expectedValue, "expectedValue"));
+    }
+
+    /**
+     * A short guarded action may nest observations in parent-to-child order. It must not perform I/O,
+     * re-enter this cache, or invalidate this cache's owner. Returning false leaves this entry unchanged.
+     * Conditional invalidation still removes the observed value if its dependency cleanup throws.
+     */
+    public static final class Observation {
+        private final BiFunction<Boolean, BooleanSupplier, Boolean> operation;
+
+        Observation(BiFunction<Boolean, BooleanSupplier, Boolean> operation) {
+            this.operation = operation;
+        }
+
+        public boolean runIfCurrent(BooleanSupplier action) {
+            return operation.apply(false, Objects.requireNonNull(action, "action"));
+        }
+
+        public boolean invalidateIfCurrent(BooleanSupplier action) {
+            return operation.apply(true, Objects.requireNonNull(action, "action"));
+        }
     }
 
     public void invalidateKey(K key) {

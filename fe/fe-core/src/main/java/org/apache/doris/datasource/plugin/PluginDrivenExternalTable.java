@@ -119,8 +119,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
+        PluginDrivenExternalCatalog owner = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = owner.getConnector();
+        ExternalDatabase<?> database = getDb();
+        Optional<Runnable> observation = database.observeTableLookup(this, () -> {
+            try {
+                connector.invalidateTable(db.getRemoteName(), getRemoteName());
+            } finally {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(this);
+            }
+        });
         String dbName = db != null ? db.getRemoteName() : "";
-        return metadata.getTableHandle(session, dbName, getRemoteName());
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
+        if (!handle.isPresent()) {
+            observation.ifPresent(Runnable::run);
+        }
+        return handle;
     }
 
     /**

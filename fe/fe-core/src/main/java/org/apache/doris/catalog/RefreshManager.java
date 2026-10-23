@@ -209,7 +209,7 @@ public class RefreshManager {
             try {
                 invalidateAllConnectorCachesIfPresent(catalog);
             } finally {
-                if (log.isInvalidateTableLookup() && catalog.getLowerCaseTableNames() == 2) {
+                if (log.isInvalidateTableLookup() && catalog.getLowerCaseTableNames() != 0) {
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(log.getCatalogId(), dbId, localDbName);
                 } else {
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTable(
@@ -234,7 +234,7 @@ public class RefreshManager {
                         db.get().invalidateTableLookup(localTableName);
                     }
                 } finally {
-                    if (log.isInvalidateTableLookup() && catalog.getLowerCaseTableNames() == 2) {
+                    if (log.isInvalidateTableLookup() && catalog.getLowerCaseTableNames() != 0) {
                         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
                                 log.getCatalogId(), dbId, db.get().getFullName());
                     } else {
@@ -321,7 +321,7 @@ public class RefreshManager {
 
     private void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime,
             boolean invalidateTableLookup) {
-        boolean invalidateDatabase = invalidateTableLookup && table.getCatalog().getLowerCaseTableNames() == 2;
+        boolean invalidateDatabase = invalidateTableLookup && table.getCatalog().getLowerCaseTableNames() != 0;
         table.unsetObjectCreated();
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);

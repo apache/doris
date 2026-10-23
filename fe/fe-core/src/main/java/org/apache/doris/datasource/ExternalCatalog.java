@@ -1190,6 +1190,14 @@ public abstract class ExternalCatalog
         this.dbIdNameIndex = new IdNameIndex("external database");
     }
 
+    /** Cache-only identity fence for a read through a retained database instance. */
+    public Optional<FeMetaCacheEntry.Observation> observeDatabase(ExternalDatabase<?> database) {
+        if (!initialized || databases == null) {
+            return Optional.empty();
+        }
+        return databases.observe(database.getFullName(), database);
+    }
+
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
         buildMetaCache();
         // Test helpers only seed object/id state and keep names cache cold unless the test fills it explicitly.

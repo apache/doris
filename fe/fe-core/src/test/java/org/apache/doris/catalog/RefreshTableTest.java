@@ -106,6 +106,8 @@ public class RefreshTableTest extends TestWithFeService {
         Assertions.assertTrue(l3 >= l2);
         TestExternalTable refreshed = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
         Assertions.assertNotSame(table, refreshed);
+        // information_schema reads UPDATE_TIME without forcing schema loading.
+        Assertions.assertTrue(refreshed.getUpdateTime() >= l3);
         Assertions.assertSame(refreshed, test1.getDbNullable("db1").getTableNullable(refreshed.getId()));
         refreshed.getFullSchema();
         // Schema loading updates the replacement table, not the invalidated table object.

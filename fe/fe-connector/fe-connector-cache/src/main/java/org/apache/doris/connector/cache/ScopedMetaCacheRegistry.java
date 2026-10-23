@@ -268,6 +268,26 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         invalidated.forEach(scope -> tryPrune(scope.existing));
     }
 
+    ScopeObservation observe(ScopeSnapshot snapshot) {
+        return new ScopeObservation(snapshot);
+    }
+
+    final class ScopeObservation {
+        private final ScopeSnapshot snapshot;
+        private final PublicationState publicationState;
+
+        private ScopeObservation(ScopeSnapshot snapshot) {
+            this.snapshot = snapshot;
+            this.publicationState = snapshot.leafNode().descendantPublication.get();
+        }
+
+        boolean runIfCurrent(BooleanSupplier action) {
+            return publicationGate.readBoolean(() -> snapshot.isCurrent(ScopedMetaCacheRegistry.this)
+                    && snapshot.leafNode().descendantPublication.get() == publicationState
+                    && action.getAsBoolean());
+        }
+    }
+
     public ScopeMetrics metrics() {
         ScopeMetricsAccumulator accumulator = new ScopeMetricsAccumulator();
         collectMetrics(root, accumulator);
@@ -459,12 +479,16 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     private void cleanDetachedState(ScopeState state) {
+        MetaCacheCleanup.execute(() -> cleanDetachedStateNow(state));
+    }
+
+    private void cleanDetachedStateNow(ScopeState state) {
         state.entries.forEach((address, ownershipToken) -> {
             if (state.entries.remove(address, ownershipToken)) {
                 address.removeExpected(ownershipToken);
             }
         });
-        state.children.values().forEach(child -> cleanDetachedState(child.current.get()));
+        state.children.values().forEach(child -> cleanDetachedStateNow(child.current.get()));
         state.children.clear();
     }
 

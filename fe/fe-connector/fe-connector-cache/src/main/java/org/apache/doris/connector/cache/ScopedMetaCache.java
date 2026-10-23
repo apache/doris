@@ -270,6 +270,44 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
+    Optional<MetaCache.Observation> observe(K key, ScopePath path, Object expectedValue) {
+        VersionedValue<K, V> value = currentVersionedValue(key, path);
+        if (value == null || value.value != expectedValue) {
+            return Optional.empty();
+        }
+        ScopedMetaCacheRegistry.ScopeObservation scope = registry.observe(value.scopeSnapshot);
+        return Optional.of(new MetaCache.Observation((invalidate, action) -> deferRemovals(() -> {
+            BooleanSupplier commit = () -> scope.runIfCurrent(() -> {
+                synchronized (value.keyNode) {
+                    if (closed.get() || data.getIfPresent(key) != value || !value.isCurrent(registry, keyNodes)) {
+                        return false;
+                    }
+                    boolean invalidateValue = invalidate;
+                    try {
+                        if (!action.getAsBoolean()) {
+                            invalidateValue = false;
+                            return false;
+                        }
+                        return true;
+                    } finally {
+                        // Once authorized, a throwing dependency cleanup must not retain this stale value.
+                        if (invalidateValue) {
+                            exactInvalidationSequence = exactInvalidationSequence.add(BigInteger.ONE);
+                            if (!activeBulkStarts.isEmpty()) {
+                                exactInvalidations.put(key, exactInvalidationSequence);
+                            }
+                            replaceKeyState(value.keyNode);
+                            value.keyNode.loadPublicationState.set(new Object());
+                            removeCurrentVersion(key, value);
+                        }
+                    }
+                }
+            });
+            return invalidate ? bulkInvalidationGate.write(commit::getAsBoolean)
+                    : bulkInvalidationGate.readBoolean(commit);
+        })));
+    }
+
     public V getIfPresent(K key, ScopePath path) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
@@ -1118,7 +1156,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             DeferredRemoval<K, V> removal;
             while ((removal = removalDeferral.removals.pollFirst()) != null) {
                 try {
-                    completeRemoval(removal.versioned, removal.cause, removal.budgetEviction);
+                    DeferredRemoval<K, V> detached = removal;
+                    MetaCacheCleanup.execute(() ->
+                            completeRemoval(detached.versioned, detached.cause, detached.budgetEviction));
                 } catch (RuntimeException | Error e) {
                     if (failure == null) {
                         failure = e;

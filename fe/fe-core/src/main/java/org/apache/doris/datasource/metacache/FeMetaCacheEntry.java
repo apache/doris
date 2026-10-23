@@ -34,12 +34,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -251,6 +253,49 @@ public class FeMetaCacheEntry<K, V> {
         } finally {
             synchronized (stripe) {
                 endAction(stripe, token);
+            }
+        }
+    }
+
+    public Optional<Observation> observe(K key, Object expectedValue) {
+        StripeState<K> stripe = stripeState(key);
+        synchronized (stripe) {
+            return data.observe(key, expectedValue)
+                    .map(value -> new Observation(value, stripe, () -> bumpAction(stripe, key)));
+        }
+    }
+
+    /** Orders conditional removal with both cache publication and auxiliary identity actions. */
+    public static final class Observation {
+        private final MetaCache.Observation value;
+        private final Object stripe;
+        private final Runnable invalidateActions;
+
+        private Observation(MetaCache.Observation value, Object stripe, Runnable invalidateActions) {
+            this.value = value;
+            this.stripe = stripe;
+            this.invalidateActions = invalidateActions;
+        }
+
+        public boolean runIfCurrent(BooleanSupplier action) {
+            synchronized (stripe) {
+                return value.runIfCurrent(action);
+            }
+        }
+
+        public boolean invalidateIfCurrent(BooleanSupplier action) {
+            synchronized (stripe) {
+                return value.invalidateIfCurrent(() -> {
+                    boolean invalidate = true;
+                    try {
+                        invalidate = action.getAsBoolean();
+                        return invalidate;
+                    } finally {
+                        if (invalidate) {
+                            invalidateActions.run();
+                        }
+                    }
+                });
             }
         }
     }

@@ -47,6 +47,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
@@ -218,9 +220,10 @@ public class RefreshManagerTest {
         Assertions.assertTrue(database.getTableNamesWithLock().isEmpty());
     }
 
-    @Test
-    public void testExplicitRefreshReplayInvalidatesDatabaseInCaseInsensitiveMode() {
-        useMutableCatalog(2);
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    public void testExplicitRefreshReplayInvalidatesDatabaseInCaseInsensitiveMode(int mode) {
+        useMutableCatalog(mode);
         Assertions.assertNotNull(database.getTableNullable(TABLE_NAME));
         ExternalObjectLog log = ExternalObjectLog.createForExplicitRefreshTable(
                 CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L);
@@ -232,9 +235,10 @@ public class RefreshManagerTest {
         Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
     }
 
-    @Test
-    public void testExplicitRefreshReplayInvalidatesColdDatabaseInCaseInsensitiveMode() {
-        useMutableCatalog(2);
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    public void testExplicitRefreshReplayInvalidatesColdDatabaseInCaseInsensitiveMode(int mode) {
+        useMutableCatalog(mode);
         catalog.setInitializedForTest(false);
 
         new RefreshManager().replayRefreshTable(ExternalObjectLog.createForExplicitRefreshTable(
@@ -243,9 +247,10 @@ public class RefreshManagerTest {
         Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
     }
 
-    @Test
-    public void testExplicitRefreshReplayInvalidatesConnectorDatabaseInCaseInsensitiveMode() {
-        PluginCatalogFixture fixture = usePluginCatalog(2);
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2})
+    public void testExplicitRefreshReplayInvalidatesConnectorDatabaseInCaseInsensitiveMode(int mode) {
+        PluginCatalogFixture fixture = usePluginCatalog(mode);
         ExternalTable oldTable = new ExternalTable(TABLE_ID, TABLE_NAME, TABLE_NAME,
                 fixture.catalog, fixture.database, TableIf.TableType.PLUGIN_EXTERNAL_TABLE);
         String otherSpelling = TABLE_NAME.toUpperCase(java.util.Locale.ROOT);
