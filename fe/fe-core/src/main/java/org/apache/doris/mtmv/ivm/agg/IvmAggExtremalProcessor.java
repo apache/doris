@@ -351,12 +351,16 @@ abstract class IvmAggExtremalProcessor extends IvmAggFunctionProcessor {
                         new WhenClause(insertedPairNull, oldValue),
                         new WhenClause(sameValue, oldValue)),
                 leastOrGreatest(ImmutableList.of(oldValue, insertedValue)));
+        // The count follows the better extreme: equal extremes add the two counts; otherwise the
+        // better side's count is already complete, because no row of that value exists on the
+        // other side (its own extreme differs).
         Expression count = new CaseWhen(
                 ImmutableList.of(
                         new WhenClause(oldPairNull, insertedCount),
                         new WhenClause(insertedPairNull, oldCount),
-                        new WhenClause(sameValue, new Add(oldCount, insertedCount))),
-                oldCount);
+                        new WhenClause(sameValue, new Add(oldCount, insertedCount)),
+                        new WhenClause(new EqualTo(value, oldValue), oldCount)),
+                insertedCount);
         Expression pair = new CreateNamedStruct(
                 new StringLiteral("value"), nonNullField(value),
                 new StringLiteral("count"), nonNullField(count));
