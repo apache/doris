@@ -2983,6 +2983,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return Math.floorMod(GROUP_COMMIT_FOLLOWER_INDEX.getAndIncrement(), followerCount);
     }
 
+    private void checkGroupCommitStreamLoadAuth(TStreamLoadPutRequest request) throws AuthenticationException {
+        // Explicit group commit skips loadTxnBegin, so authenticate and authorize the standard Stream Load
+        // request here before it can be forwarded or planned. Requests with load_sql use the separate HTTP
+        // Stream path, whose planner performs its own authorization and whose internal caller uses a token.
+        if (!Strings.isNullOrEmpty(request.getLoadSql()) || !request.isSetGroupCommitMode()
+                || request.getGroupCommitMode().equalsIgnoreCase("off_mode")) {
+            return;
+        }
+
+        if (request.isSetAuthCode()) {
+            // TODO: deprecated, removed in 3.1, use token instead.
+        } else if (Strings.isNullOrEmpty(request.getToken())) {
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
+                    toForwardedCertificateInfo(request.getCertBasedAuth()));
+        } else {
+            checkTokenOrThrow(request.getToken());
+        }
+    }
+
     private TStreamLoadPutResult forwardGroupCommitStreamLoad(TStreamLoadPutRequest request) {
         HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
         List<Frontend> followers = Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER).stream()
@@ -3052,14 +3072,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         String groupCommitMode = request.getGroupCommitMode();
-        if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
-                && Config.enable_forward_group_commit_stream_load_to_follower) {
-            TStreamLoadPutResult result = forwardGroupCommitStreamLoad(request);
-            if (result != null) {
-                return result;
-            }
-        }
-
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
@@ -3067,6 +3079,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
 
         try {
+            checkGroupCommitStreamLoadAuth(request);
+            if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
+                    && Config.enable_forward_group_commit_stream_load_to_follower) {
+                TStreamLoadPutResult forwardedResult = forwardGroupCommitStreamLoad(request);
+                if (forwardedResult != null) {
+                    return forwardedResult;
+                }
+            }
+
             streamLoadHandler.setCloudCluster();
 
             List<TPipelineWorkloadGroup> tWorkloadGroupList = null;
