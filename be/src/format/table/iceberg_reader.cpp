@@ -765,9 +765,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (file_column == nullptr) {
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, table_col_name,
                                                                      _expand_columns[i].type));
-            // The old data file predates this equality key. Keep it in the expand block so the
-            // synthesized-column hook can materialize its logical initial default before reader
-            // filtering, but do not advertise it to Parquet as a physical child.
+            // The old data file predates this equality key. Its logical initial default is appended
+            // after the read; do not advertise it to Parquet as a physical child.
             new_expand_col_names.push_back(table_col_name);
             continue;
         }
@@ -806,7 +805,6 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         .missing_value = nullptr,
                         .source_block_name = std::move(projected_root_name),
                 });
-                _register_derived_equality_delete_column(table_col_name, _expand_columns[i].type);
                 continue;
             }
             ColumnPtr missing_value;
@@ -827,7 +825,6 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         .missing_value = std::move(missing_value),
                         .source_block_name = root_carrier->second,
                 });
-                _register_derived_equality_delete_column(table_col_name, _expand_columns[i].type);
                 continue;
             }
             physical_root_carriers.emplace(file_column->name, table_col_name);
@@ -1188,9 +1185,8 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
         if (file_column == nullptr) {
             RETURN_IF_ERROR(_register_missing_equality_delete_column(field_id, table_col_name,
                                                                      _expand_columns[i].type));
-            // The old data file predates this equality key. Keep it in the expand block so the
-            // synthesized-column hook can materialize its logical initial default before ORC's
-            // block-size checks. Adding it to column_names/table_info_node would mark it as an
+            // The old data file predates this equality key. Its logical initial default is appended
+            // after the read. Adding it to column_names/table_info_node would mark it as an
             // existing ORC child and make OrcReader read a column that is not present in the file.
             new_expand_col_names.push_back(table_col_name);
             continue;

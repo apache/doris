@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 #include <parquet/arrow/writer.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -57,6 +58,10 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format/column_descriptor.h"
 #include "format/format_common.h"
 #include "format/orc/orc_memory_stream_test.h"
@@ -3251,18 +3256,72 @@ TEST_F(IcebergReaderTest, nested_equality_delete_filters_current_and_dropped_fie
 // root, and both must still be filled. Example: data (1,{10}), (2,{20}), (3,{30}) with an equality
 // delete on payload.existing = 20 must return (1,{10}) and (3,{30}).
 // NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+// Scan conjunct `id != 1` over the id slot of `tuple_descriptor`. With another column to read, it
+// makes the V1 readers materialize lazily and filter part of the batch before the lazy columns.
+struct IdFilter {
+    VExprContextSPtrs conjuncts;
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_conjuncts;
+};
+
+Status create_id_not_one_filter(const DescriptorTbl* descriptor_table,
+                                const TupleDescriptor* tuple_descriptor,
+                                RuntimeState* runtime_state, IdFilter* filter) {
+    runtime_state->set_desc_tbl(descriptor_table);
+    const auto& slots = tuple_descriptor->slots();
+    const auto id_slot = std::ranges::find_if(
+            slots, [](const SlotDescriptor* slot) { return slot->col_name() == "id"; });
+    DORIS_CHECK(id_slot != slots.end());
+
+    TFunctionName function_name;
+    function_name.__set_db_name("");
+    function_name.__set_function_name("ne");
+    TFunction function;
+    function.__set_name(function_name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({create_type_desc(TYPE_INT), create_type_desc(TYPE_INT)});
+    function.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+    function.__set_has_var_args(false);
+    TExprNode predicate_node;
+    predicate_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+    predicate_node.__set_node_type(TExprNodeType::BINARY_PRED);
+    predicate_node.__set_opcode(TExprOpcode::NE);
+    predicate_node.__set_fn(function);
+    predicate_node.__set_num_children(2);
+    predicate_node.__set_is_nullable(true);
+    VExprSPtr root = VectorizedFnCall::create_shared(predicate_node);
+    root->add_child(VSlotRef::create_shared(*id_slot));
+    TExprNode literal_node;
+    literal_node.__set_node_type(TExprNodeType::INT_LITERAL);
+    literal_node.__set_type(create_type_desc(TYPE_INT));
+    TIntLiteral int_literal;
+    int_literal.__set_value(1);
+    literal_node.__set_int_literal(int_literal);
+    literal_node.__set_is_nullable(false);
+    root->add_child(VLiteral::create_shared(literal_node));
+
+    auto context = VExprContext::create_shared(root);
+    RowDescriptor row_descriptor(const_cast<TupleDescriptor*>(tuple_descriptor));
+    RETURN_IF_ERROR(context->prepare(runtime_state, row_descriptor));
+    RETURN_IF_ERROR(context->open(runtime_state));
+    filter->conjuncts = {context};
+    filter->slot_id_to_conjuncts = {{(*id_slot)->id(), {context}}};
+    return Status::OK();
+}
+
 void check_nested_equality_key_keeps_projected_root_struct(TFileFormatType::type file_format,
                                                            bool payload_first,
                                                            const cctz::time_zone* timezone,
-                                                           FileMetaCache* meta_cache) {
+                                                           FileMetaCache* meta_cache,
+                                                           bool filter_out_first_id = false) {
     {
         const bool is_parquet = file_format == TFileFormatType::FORMAT_PARQUET;
         const std::string format_name = is_parquet ? "parquet" : "orc";
         const std::string order_name = payload_first ? "payload_first" : "id_first";
-        SCOPED_TRACE(format_name + " " + order_name);
-        const auto test_dir =
-                std::filesystem::temp_directory_path() /
-                ("doris_v1_nested_equality_projected_root_" + format_name + "_" + order_name);
+        const std::string filter_name = filter_out_first_id ? "_filtered" : "";
+        SCOPED_TRACE(format_name + " " + order_name + filter_name);
+        const auto test_dir = std::filesystem::temp_directory_path() /
+                              ("doris_v1_nested_equality_projected_root_" + format_name + "_" +
+                               order_name + filter_name);
         std::filesystem::remove_all(test_dir);
         std::filesystem::create_directories(test_dir);
         const auto data_file = (test_dir / ("data." + format_name)).string();
@@ -3325,6 +3384,12 @@ void check_nested_equality_key_keeps_projected_root_struct(TFileFormatType::type
         RuntimeProfile profile("test_profile");
         RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
         runtime_state.set_timezone("UTC");
+        IdFilter filter;
+        if (filter_out_first_id) {
+            ASSERT_TRUE(create_id_not_one_filter(descriptor_table, tuple_descriptor, &runtime_state,
+                                                 &filter)
+                                .ok());
+        }
         io::IOContext io_ctx;
         ShardedKVCache kv_cache(8);
         const uint32_t id_position = payload_first ? 1 : 0;
@@ -3362,6 +3427,8 @@ void check_nested_equality_key_keeps_projected_root_struct(TFileFormatType::type
             context.tuple_descriptor = tuple_descriptor;
             context.params = &scan_params;
             context.range = &scan_range;
+            context.conjuncts = &filter.conjuncts;
+            context.slot_id_to_filter_conjuncts = &filter.slot_id_to_conjuncts;
             status = reader.init_reader(&context);
             ASSERT_TRUE(status.ok()) << status;
             status = reader.get_next_block(&block, &read_rows, &eof);
@@ -3374,22 +3441,32 @@ void check_nested_equality_key_keeps_projected_root_struct(TFileFormatType::type
             context.tuple_descriptor = tuple_descriptor;
             context.params = &scan_params;
             context.range = &scan_range;
+            context.conjuncts = &filter.conjuncts;
+            context.slot_id_to_filter_conjuncts = &filter.slot_id_to_conjuncts;
             status = reader.init_reader(&context);
             ASSERT_TRUE(status.ok()) << status;
             status = reader.get_next_block(&block, &read_rows, &eof);
         }
 
+        // The equality delete removes id 2; the filter, when set, removes id 1.
+        const std::vector<std::string> expected_ids = filter_out_first_id
+                                                              ? std::vector<std::string> {"3"}
+                                                              : std::vector<std::string> {"1", "3"};
+        const std::vector<std::string> expected_payloads =
+                filter_out_first_id
+                        ? std::vector<std::string> {"{\"existing\":30}"}
+                        : std::vector<std::string> {"{\"existing\":10}", "{\"existing\":30}"};
         ASSERT_TRUE(status.ok()) << status;
-        ASSERT_EQ(read_rows, 2);
-        ASSERT_EQ(block.rows(), 2);
+        ASSERT_EQ(read_rows, expected_ids.size());
+        ASSERT_EQ(block.rows(), expected_ids.size());
         const auto& id_column = *block.get_by_position(id_position).column;
         const auto& payload_column = *block.get_by_position(payload_position).column;
-        ASSERT_EQ(id_column.size(), 2);
-        ASSERT_EQ(payload_column.size(), 2);
-        EXPECT_EQ(int_type->to_string(id_column, 0), "1");
-        EXPECT_EQ(int_type->to_string(id_column, 1), "3");
-        EXPECT_EQ(payload_type->to_string(payload_column, 0), "{\"existing\":10}");
-        EXPECT_EQ(payload_type->to_string(payload_column, 1), "{\"existing\":30}");
+        ASSERT_EQ(id_column.size(), expected_ids.size());
+        ASSERT_EQ(payload_column.size(), expected_ids.size());
+        for (size_t row = 0; row < expected_ids.size(); ++row) {
+            EXPECT_EQ(int_type->to_string(id_column, row), expected_ids[row]);
+            EXPECT_EQ(payload_type->to_string(payload_column, row), expected_payloads[row]);
+        }
         std::filesystem::remove_all(test_dir);
     }
 }
@@ -3414,6 +3491,19 @@ TEST_F(IcebergReaderTest, v1_orc_nested_equality_key_keeps_projected_root_struct
                                                           &timezone_obj, cache.get());
 }
 
+// A filter on id makes the reader read payload lazily; the key taken from the projected payload
+// must follow the rows that survive the filter.
+TEST_F(IcebergReaderTest, v1_parquet_nested_equality_key_from_projected_root_after_lazy_filter) {
+    check_nested_equality_key_keeps_projected_root_struct(TFileFormatType::FORMAT_PARQUET, false,
+                                                          &timezone_obj, cache.get(), true);
+}
+
+TEST_F(IcebergReaderTest,
+       v1_parquet_nested_equality_key_from_projected_root_listed_first_after_lazy_filter) {
+    check_nested_equality_key_keeps_projected_root_struct(TFileFormatType::FORMAT_PARQUET, true,
+                                                          &timezone_obj, cache.get(), true);
+}
+
 // Data `id INT, payload STRUCT<existing INT, k INT>` holds (1,{10,100}), (2,{20,200}) and
 // (3,{30,300}). An equality delete on `delete_field_ids` (2 = payload.existing, 3 = payload.k)
 // with the row {20,200} removes id 2. `projected_children` lists the payload children the query
@@ -3424,7 +3514,8 @@ void check_two_child_root_equality_delete(const std::string& case_name,
                                           const std::vector<int32_t>& delete_field_ids,
                                           const std::vector<std::string>& expected_payloads,
                                           const cctz::time_zone* timezone,
-                                          FileMetaCache* meta_cache) {
+                                          FileMetaCache* meta_cache,
+                                          bool filter_out_first_id = false) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / ("doris_v1_two_child_root_" + case_name);
     std::filesystem::remove_all(test_dir);
@@ -3485,6 +3576,12 @@ void check_two_child_root_equality_delete(const std::string& case_name,
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
     runtime_state.set_timezone("UTC");
+    IdFilter filter;
+    if (filter_out_first_id) {
+        ASSERT_TRUE(create_id_not_one_filter(descriptor_table, tuple_descriptor, &runtime_state,
+                                             &filter)
+                            .ok());
+    }
     io::IOContext io_ctx;
     ShardedKVCache kv_cache(8);
     const bool payload_projected = !projected_children.empty();
@@ -3514,6 +3611,8 @@ void check_two_child_root_equality_delete(const std::string& case_name,
     context.tuple_descriptor = tuple_descriptor;
     context.params = &scan_params;
     context.range = &scan_range;
+    context.conjuncts = &filter.conjuncts;
+    context.slot_id_to_filter_conjuncts = &filter.slot_id_to_conjuncts;
     auto status = reader.init_reader(&context);
     ASSERT_TRUE(status.ok()) << status;
     size_t read_rows = 0;
@@ -3521,18 +3620,24 @@ void check_two_child_root_equality_delete(const std::string& case_name,
     status = reader.get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(status.ok()) << status;
 
-    ASSERT_EQ(read_rows, 2);
-    ASSERT_EQ(block.rows(), 2);
+    // The equality delete removes id 2; the filter, when set, removes id 1.
+    const std::vector<std::string> expected_ids = filter_out_first_id
+                                                          ? std::vector<std::string> {"3"}
+                                                          : std::vector<std::string> {"1", "3"};
+    ASSERT_EQ(read_rows, expected_ids.size());
+    ASSERT_EQ(block.rows(), expected_ids.size());
     const auto& id_column = *block.get_by_position(0).column;
-    ASSERT_EQ(id_column.size(), 2);
-    EXPECT_EQ(int_type->to_string(id_column, 0), "1");
-    EXPECT_EQ(int_type->to_string(id_column, 1), "3");
+    ASSERT_EQ(id_column.size(), expected_ids.size());
+    for (size_t row = 0; row < expected_ids.size(); ++row) {
+        EXPECT_EQ(int_type->to_string(id_column, row), expected_ids[row]);
+    }
     if (payload_projected) {
         const auto& payload_column = *block.get_by_position(1).column;
-        ASSERT_EQ(payload_column.size(), 2);
-        ASSERT_EQ(expected_payloads.size(), 2);
-        EXPECT_EQ(payload_type->to_string(payload_column, 0), expected_payloads[0]);
-        EXPECT_EQ(payload_type->to_string(payload_column, 1), expected_payloads[1]);
+        ASSERT_EQ(payload_column.size(), expected_ids.size());
+        ASSERT_EQ(expected_payloads.size(), expected_ids.size());
+        for (size_t row = 0; row < expected_ids.size(); ++row) {
+            EXPECT_EQ(payload_type->to_string(payload_column, row), expected_payloads[row]);
+        }
     }
     std::filesystem::remove_all(test_dir);
 }
@@ -3557,6 +3662,186 @@ TEST_F(IcebergReaderTest, v1_parquet_equality_key_outside_projected_struct_rerea
     check_two_child_root_equality_delete("reread_root", {"existing"}, {3},
                                          {"{\"existing\":10}", "{\"existing\":30}"}, &timezone_obj,
                                          cache.get());
+}
+
+// The same two layouts under a filter on id, which makes the carrier and payload lazy columns: the
+// keys extracted from them must follow the rows that survive the filter.
+TEST_F(IcebergReaderTest, v1_parquet_equality_keys_share_unprojected_root_after_lazy_filter) {
+    check_two_child_root_equality_delete("shared_carrier_filtered", {}, {2, 3}, {}, &timezone_obj,
+                                         cache.get(), true);
+}
+
+TEST_F(IcebergReaderTest, v1_parquet_equality_keys_come_from_projected_root_after_lazy_filter) {
+    check_two_child_root_equality_delete("projected_root_filtered", {"existing", "k"}, {2, 3},
+                                         {"{\"existing\":30, \"k\":300}"}, &timezone_obj,
+                                         cache.get(), true);
+}
+
+// Data `id INT, v INT, unused INT` holds (1,10,0), (2,20,0) and (3,30,0). The table also has
+// added_column (field 3) with initial default 7, which the file predates. An equality delete on
+// (id, v, added_column) with the row (2, 20, 7) removes id 2, so the key that the reader has no
+// column for must still carry its default; the filter, when set, removes id 1.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+void check_missing_equality_key_delete(TFileFormatType::type file_format, bool filter_out_first_id,
+                                       const cctz::time_zone* timezone, FileMetaCache* meta_cache) {
+    const bool is_parquet = file_format == TFileFormatType::FORMAT_PARQUET;
+    const std::string format_name = is_parquet ? "parquet" : "orc";
+    const std::string filter_name = filter_out_first_id ? "_filtered" : "";
+    SCOPED_TRACE(format_name + filter_name);
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          ("doris_v1_missing_equality_key_" + format_name + filter_name);
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / ("data." + format_name)).string();
+    const auto delete_file = (test_dir / ("equality-delete." + format_name)).string();
+    if (is_parquet) {
+        write_iceberg_three_int_parquet_file(data_file, "id", 0, {1, 2, 3}, "v", 1, {10, 20, 30},
+                                             "unused", 2, {0, 0, 0});
+        write_iceberg_three_int_parquet_file(delete_file, "id", 0, {2}, "v", 1, {20},
+                                             "added_column", 3, {7});
+    } else {
+        write_iceberg_three_int_orc_file(data_file, "id", 0, {1, 2, 3}, "v", 1, {10, 20, 30},
+                                         "unused", 2, {0, 0, 0});
+        write_iceberg_three_int_orc_file(delete_file, "id", 0, {2}, "v", 1, {20}, "added_column", 3,
+                                         {7});
+    }
+
+    schema::external::TStructField current_root;
+    current_root.__set_fields({make_external_int_field("id", 0, std::nullopt),
+                               make_external_int_field("v", 1, std::nullopt),
+                               make_external_int_field("unused", 2, std::nullopt),
+                               make_external_int_field("added_column", 3, "7")});
+    schema::external::TSchema current_schema;
+    current_schema.__set_schema_id(100);
+    current_schema.__set_root_field(std::move(current_root));
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(file_format);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({current_schema});
+
+    TIcebergDeleteFileDesc delete_descriptor;
+    delete_descriptor.__set_content(2);
+    delete_descriptor.__set_path(delete_file);
+    delete_descriptor.__set_field_ids({0, 1, 3});
+    delete_descriptor.__set_file_format(file_format);
+    TIcebergFileDesc iceberg_descriptor;
+    iceberg_descriptor.__set_format_version(2);
+    iceberg_descriptor.__set_original_file_path(data_file);
+    iceberg_descriptor.__set_delete_files({delete_descriptor});
+    TTableFormatFileDesc table_format_descriptor;
+    table_format_descriptor.__set_iceberg_params(std::move(iceberg_descriptor));
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_table_format_params(std::move(table_format_descriptor));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_two_int_tuple_descriptor(&object_pool, {{{"id", 0}, {"v", 1}}},
+                                                &descriptor_table, &tuple_descriptor)
+                        .ok());
+    ASSERT_NE(tuple_descriptor, nullptr);
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    IdFilter filter;
+    if (filter_out_first_id) {
+        ASSERT_TRUE(create_id_not_one_filter(descriptor_table, tuple_descriptor, &runtime_state,
+                                             &filter)
+                            .ok());
+    }
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    std::vector<ColumnDescriptor> column_descriptors(2);
+    column_descriptors[0].name = "id";
+    column_descriptors[1].name = "v";
+    std::unordered_map<std::string, uint32_t> block_positions = {{"id", 0}, {"v", 1}};
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    Block block;
+    block.insert({int_type->create_column(), int_type, "id"});
+    block.insert({int_type->create_column(), int_type, "v"});
+    size_t read_rows = 0;
+    bool eof = false;
+
+    Status status;
+    if (is_parquet) {
+        IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, timezone,
+                                    &io_ctx, &runtime_state, meta_cache);
+        io::FileReaderSPtr file_reader;
+        ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &file_reader).ok());
+        reader.set_file_reader(file_reader);
+        ParquetInitContext context;
+        context.column_descs = &column_descriptors;
+        context.col_name_to_block_idx = &block_positions;
+        context.tuple_descriptor = tuple_descriptor;
+        context.params = &scan_params;
+        context.range = &scan_range;
+        context.conjuncts = &filter.conjuncts;
+        context.slot_id_to_filter_conjuncts = &filter.slot_id_to_conjuncts;
+        status = reader.init_reader(&context);
+        ASSERT_TRUE(status.ok()) << status;
+        status = reader.get_next_block(&block, &read_rows, &eof);
+    } else {
+        IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                                "UTC", &io_ctx, meta_cache);
+        OrcInitContext context;
+        context.column_descs = &column_descriptors;
+        context.col_name_to_block_idx = &block_positions;
+        context.tuple_descriptor = tuple_descriptor;
+        context.params = &scan_params;
+        context.range = &scan_range;
+        context.conjuncts = &filter.conjuncts;
+        context.slot_id_to_filter_conjuncts = &filter.slot_id_to_conjuncts;
+        status = reader.init_reader(&context);
+        ASSERT_TRUE(status.ok()) << status;
+        status = reader.get_next_block(&block, &read_rows, &eof);
+    }
+
+    ASSERT_TRUE(status.ok()) << status;
+    const std::vector<std::pair<std::string, std::string>> expected_rows =
+            filter_out_first_id
+                    ? std::vector<std::pair<std::string, std::string>> {{"3", "30"}}
+                    : std::vector<std::pair<std::string, std::string>> {{"1", "10"}, {"3", "30"}};
+    ASSERT_EQ(read_rows, expected_rows.size());
+    ASSERT_EQ(block.columns(), 2);
+    ASSERT_EQ(block.rows(), expected_rows.size());
+    for (size_t row = 0; row < expected_rows.size(); ++row) {
+        EXPECT_EQ(int_type->to_string(*block.get_by_position(0).column, row),
+                  expected_rows[row].first);
+        EXPECT_EQ(int_type->to_string(*block.get_by_position(1).column, row),
+                  expected_rows[row].second);
+    }
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, v1_parquet_missing_equality_key_matches_initial_default) {
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, false, &timezone_obj,
+                                      cache.get());
+}
+
+TEST_F(IcebergReaderTest,
+       v1_parquet_missing_equality_key_matches_initial_default_after_lazy_filter) {
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_PARQUET, true, &timezone_obj,
+                                      cache.get());
+}
+
+TEST_F(IcebergReaderTest, v1_orc_missing_equality_key_matches_initial_default) {
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, false, &timezone_obj,
+                                      cache.get());
+}
+
+TEST_F(IcebergReaderTest, v1_orc_missing_equality_key_matches_initial_default_after_lazy_filter) {
+    check_missing_equality_key_delete(TFileFormatType::FORMAT_ORC, true, &timezone_obj,
+                                      cache.get());
 }
 
 // Keep the shared V1 Parquet/ORC reader setup together so both rolling-upgrade scan-semantics
