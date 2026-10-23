@@ -171,12 +171,12 @@ public interface IcebergCatalogOps {
 
     /**
      * Modifies a primitive {@code column} (type/comment/nullable) of {@code dbName.tableName}, optional move.
-     * {@code commentSpecified} carries the #65329 "omit-preserves-metadata" semantics: an omitted COMMENT keeps
-     * the column's current doc rather than clearing it (parity with {@link #modifyNestedColumn} and legacy
-     * {@code IcebergMetadataOps.modifyColumn}).
+     * {@code nullableSpecified} / {@code commentSpecified} carry the #65329 "omit-preserves-metadata" semantics:
+     * an omitted NULL keeps the column's current requiredness and an omitted COMMENT keeps its current doc
+     * (parity with {@link #modifyNestedColumn} and legacy {@code IcebergMetadataOps.modifyColumn}).
      */
-    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, boolean commentSpecified,
-            ConnectorColumnPosition position);
+    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, boolean nullableSpecified,
+            boolean commentSpecified, ConnectorColumnPosition position);
 
     /** Reorders the columns of {@code dbName.tableName} to match {@code newOrder} (full ordered name list). */
     void reorderColumns(String dbName, String tableName, List<String> newOrder);
@@ -571,7 +571,7 @@ public interface IcebergCatalogOps {
 
         @Override
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
-                boolean commentSpecified, ConnectorColumnPosition position) {
+                boolean nullableSpecified, boolean commentSpecified, ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
                 Schema schema = table.schema();
                 Types.NestedField current = IcebergNestedColumnEvolution.findTopLevelField(
@@ -625,7 +625,8 @@ public interface IcebergCatalogOps {
                         updateSchema.updateColumnDoc(currentName, targetComment);
                     }
                 }
-                if (column.isNullable()) {
+                // #65329: only an explicit NULL widens the column; an omitted NULL keeps it required.
+                if (nullableSpecified && column.isNullable()) {
                     updateSchema.makeColumnOptional(currentName);
                 }
                 IcebergNestedColumnEvolution.applyTopLevelPosition(
