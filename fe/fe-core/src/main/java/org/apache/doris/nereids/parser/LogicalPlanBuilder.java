@@ -70,6 +70,7 @@ import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaPropertiesUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
@@ -942,6 +943,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColocateGroupName;
@@ -1143,6 +1145,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -5314,7 +5317,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    protected String parsePropertyKey(PropertyKeyContext item) {
+    private String parsePropertyKey(PropertyKeyContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant()).trim();
         }
@@ -9422,7 +9425,41 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties);
+        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties,
+                buildRoutineLoadAuditSql(ctx));
+    }
+
+    private String buildRoutineLoadAuditSql(DorisParser.AlterRoutineLoadContext ctx) {
+        // Capture masking while the property keys still have the same SQL mode as execution.
+        // Keep only this statement when the request contains multiple statements: the audit caller
+        // can pass the entire request if its separate statement splitter disagrees with Nereids.
+        ParserRuleContext statement = ctx;
+        while (statement.getParent() != null
+                && !(statement.getParent() instanceof MultiStatementsContext)
+                && !(statement.getParent() instanceof SingleStatementContext)) {
+            statement = statement.getParent();
+        }
+        int start = 0;
+        int stop = ctx.start.getInputStream().size() - 1;
+        if (statement.getParent() instanceof MultiStatementsContext
+                && ((MultiStatementsContext) statement.getParent()).statement().size() > 1) {
+            start = statement.start.getStartIndex();
+            stop = statement.stop.getStopIndex();
+        }
+        String sql = ctx.start.getInputStream().getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
+        TreeMap<Pair<Integer, Integer>, String> replacements = new TreeMap<>(new Pair.PairComparator<>());
+        if (ctx.propertyItemList() != null) {
+            for (DorisParser.PropertyItemContext property : ctx.propertyItemList().properties) {
+                if (KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key))) {
+                    // ANTLR positions count code points; Java string rewriting uses UTF-16 offsets.
+                    int valueStart = sql.offsetByCodePoints(0, property.value.start.getStartIndex() - start);
+                    int valueEnd = sql.offsetByCodePoints(0, property.value.stop.getStopIndex() - start + 1);
+                    replacements.put(Pair.of(valueStart, valueEnd - 1),
+                            "'" + KafkaPropertiesUtil.SENSITIVE_PROPERTY_MASK + "'");
+                }
+            }
+        }
+        return BaseViewInfo.rewriteSql(replacements, sql);
     }
 
     @Override

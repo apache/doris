@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DatasourcePrintableMap;
-import org.apache.doris.load.routineload.kafka.KafkaPropertiesUtil;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.DmlStatementBodyContext;
 import org.apache.doris.nereids.DorisParser.DmlStatementContext;
@@ -103,20 +102,6 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     public SetVarOp visitSetLdapAdminPassword(DorisParser.SetLdapAdminPasswordContext ctx) {
         encryptPassword(ctx.pwd.getStartIndex(), ctx.pwd.getStopIndex());
         return super.visitSetLdapAdminPassword(ctx);
-    }
-
-    @Override
-    public LogicalPlan visitAlterRoutineLoad(DorisParser.AlterRoutineLoadContext ctx) {
-        if (ctx.propertyItemList() != null) {
-            for (DorisParser.PropertyItemContext property : ctx.propertyItemList().properties) {
-                if (KafkaPropertiesUtil.isSensitiveKey(parsePropertyKey(property.key))) {
-                    indexInSqlToString.put(Pair.of(property.value.start.getStartIndex(),
-                            property.value.stop.getStopIndex()),
-                            "'" + KafkaPropertiesUtil.SENSITIVE_PROPERTY_MASK + "'");
-                }
-            }
-        }
-        return super.visitAlterRoutineLoad(ctx);
     }
 
     // create catalog clause

@@ -89,6 +89,8 @@ public class AlterRoutineLoadCommand extends AlterCommand implements NeedAuditEn
     private RoutineLoadDesc routineLoadDesc;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
+    // Captured during parsing; logging must not reinterpret SQL using a later session mode.
+    private final String auditSql;
     private boolean isPartialUpdate;
 
     // save analyzed job properties.
@@ -102,7 +104,8 @@ public class AlterRoutineLoadCommand extends AlterCommand implements NeedAuditEn
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
                                    Map<String, LoadProperty> loadPropertyMap,
                                    Map<String, String> jobProperties,
-                                   Map<String, String> dataSourceMapProperties) {
+                                   Map<String, String> dataSourceMapProperties,
+                                   String auditSql) {
         super(PlanType.ALTER_ROUTINE_LOAD_COMMAND);
         Objects.requireNonNull(labelNameInfo, "labelNameInfo is null");
         Objects.requireNonNull(jobProperties, "jobProperties is null");
@@ -111,6 +114,7 @@ public class AlterRoutineLoadCommand extends AlterCommand implements NeedAuditEn
         this.loadPropertyMap = loadPropertyMap == null ? Maps.newHashMap() : loadPropertyMap;
         this.jobProperties = jobProperties;
         this.dataSourceMapProperties = dataSourceMapProperties;
+        this.auditSql = Objects.requireNonNull(auditSql, "auditSql is null");
         this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "false")
             .equalsIgnoreCase("true");
     }
@@ -118,7 +122,8 @@ public class AlterRoutineLoadCommand extends AlterCommand implements NeedAuditEn
     public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
-        this(labelNameInfo, Maps.newHashMap(), jobProperties, dataSourceMapProperties);
+        // Programmatically constructed commands have no original SQL to include in audit logs.
+        this(labelNameInfo, Maps.newHashMap(), jobProperties, dataSourceMapProperties, "");
     }
 
     public String getDbName() {
@@ -357,5 +362,10 @@ public class AlterRoutineLoadCommand extends AlterCommand implements NeedAuditEn
     @Override
     public boolean needAuditEncryption() {
         return true;
+    }
+
+    @Override
+    public String geneEncryptionSQL(String sql) {
+        return auditSql;
     }
 }
