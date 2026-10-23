@@ -1082,6 +1082,7 @@ Status IcebergTableReader::materialize_virtual_columns(Block* table_block) {
             RETURN_IF_ERROR(_materialize_iceberg_rowid(table_block, column_idx));
             break;
         case format::TableVirtualColumnType::INVALID:
+        case format::TableVirtualColumnType::PAIMON_BLOB:
             break;
         }
     }

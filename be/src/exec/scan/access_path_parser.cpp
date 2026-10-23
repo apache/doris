@@ -439,6 +439,10 @@ Status build_nested_children_from_access_node(format::ColumnDefinition* column,
     }
 
     switch (nested_type->get_primitive_type()) {
+    case TYPE_FILE:
+        // FILE has a fixed six-child schema. Keep the whole value in the scan projection;
+        // element_at selects its public field after the reader materializes the FILE column.
+        return Status::OK();
     case TYPE_STRUCT:
         return build_struct_children_from_access_node(
                 column, assert_cast<const DataTypeStruct&>(*nested_type), node, path, schema_column,
