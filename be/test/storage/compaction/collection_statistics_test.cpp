@@ -680,6 +680,45 @@ TEST_F(CollectionStatisticsDetailedTest, IdfCalculationWithDifferentFrequencies)
     EXPECT_GT(rare_idf, 0);
 }
 
+// Scanners of one tablet each copy the tablet's statistics, so they must score identically.
+TEST_F(CollectionStatisticsDetailedTest, CopyCollectedFromScoresLikeSource) {
+    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_tokens(L"content", 5000);
+    stats_->set_term_doc_freq(L"content", L"jobs", 37);
+
+    CollectionStatistics copy;
+    copy.copy_collected_from(*stats_);
+
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_idf(L"content", L"jobs"),
+                    stats_->get_or_calculate_idf(L"content", L"jobs"));
+    EXPECT_FLOAT_EQ(copy.get_or_calculate_avg_dl(L"content"),
+                    stats_->get_or_calculate_avg_dl(L"content"));
+
+    // The copy does not share the source's counters or derived caches.
+    stats_->set_term_doc_freq(L"content", L"jobs", 900);
+    CollectionStatistics recopied;
+    recopied.copy_collected_from(*stats_);
+    EXPECT_NE(recopied.get_or_calculate_idf(L"content", L"jobs"),
+              copy.get_or_calculate_idf(L"content", L"jobs"));
+}
+
+TEST_F(CollectionStatisticsTest, TabletCollectionStatisticsCollectsOnceAndCopiesToEveryCaller) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    auto expr_contexts = create_match_expr_contexts();
+    TabletCollectionStatistics tablet_statistics({});
+
+    CollectionStatistics first;
+    CollectionStatistics second;
+    EXPECT_TRUE(
+            tablet_statistics
+                    .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr, &first)
+                    .ok());
+    EXPECT_TRUE(
+            tablet_statistics
+                    .copy_to(runtime_state_.get(), tablet_schema, expr_contexts, nullptr, &second)
+                    .ok());
+}
+
 TEST_F(CollectionStatisticsTest, CollectWithCastWrappedSlotRef) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
