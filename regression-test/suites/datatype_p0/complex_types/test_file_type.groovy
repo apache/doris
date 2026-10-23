@@ -75,6 +75,17 @@ suite("test_file_type") {
     try {
         for (def foldMode in [false, true]) {
             sql "SET enable_fold_constant_by_be = ${foldMode}"
+            quickTest("to_json_values_${foldMode}", fileQuery("""
+                SELECT id, f, CAST(TO_JSON(f) AS STRING), TO_JSON(f)
+                FROM test_file_type_values ORDER BY id
+            """))
+            quickTest("to_json_nested_${foldMode}", fileQuery("""
+                SELECT id, TO_JSON(files), TO_JSON(holder), TO_JSON(lookup)
+                FROM test_file_type_nested ORDER BY id
+            """))
+            quickTest("to_json_inline_${foldMode}", fileQuery("""
+                SELECT id, TO_JSON(f) FROM test_file_type_inline_values ORDER BY id
+            """))
             quickTest("constant_container_metadata_${foldMode}", """
                 SELECT COUNT(*), MIN(array_uri), MAX(map_uri), MIN(struct_uri)
                 FROM (
