@@ -41,11 +41,13 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -600,13 +602,28 @@ public class GroupStructInfo {
         }
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;
-            out.text(String.join(".", slot.getQualifier()));
+            // each component with its own boundary: a qualifier component may itself contain the
+            // separator, so `[cat,x.y,z]` and `[cat,x,y.z]` have to stay apart
+            List<String> qualifier = slot.getQualifier();
+            out.count(qualifier.size());
+            for (String component : qualifier) {
+                out.text(component);
+            }
             out.text(slot.getName());
-            // a variant column read through a sub path (`v['age']`) is a different column
-            out.text(String.join("\u0000", slot.getSubPath()));
+            // a variant column read through a sub path (`v['age']`) is a different column: the base
+            // column (`[]`) and the empty key (`[""]`) are different paths
+            List<String> subPath = slot.getSubPath();
+            out.count(subPath.size());
+            for (String component : subPath) {
+                out.text(component);
+            }
         } else if (expression instanceof Literal) {
             Literal literal = (Literal) expression;
-            out.text(String.valueOf(literal.getDataType()));
+            // a string literal's type carries the length of the value it was created from (`VARCHAR(4)`
+            // for '%x_%', `VARCHAR(7)` for '%long_%'): the folded key must not, or the constant
+            // agnostic key would still differ between two patterns of different lengths
+            out.text(mode == LiteralMode.NO_LITERAL && literal instanceof StringLiteral
+                    ? "VARCHAR" : String.valueOf(literal.getDataType()));
             if (literal instanceof ArrayLiteral) {
                 // the elements are literals of their own: each one is written with its boundary instead
                 // of being concatenated into the text of the whole array
@@ -3036,6 +3053,11 @@ public class GroupStructInfo {
             // `COUNT(DISTINCT v)` and `COUNT(v)` have equal children; the flag is outside them, and it
             // decides which values are counted, i.e. how many rows a predicate above the aggregation keeps
             return className + "<distinct>";
+        }
+        if (expression instanceof ForEachCombinator) {
+            // the combinator and its arguments are the same for min_foreach and max_foreach; the nested
+            // aggregate function is a field, not a child, so its identity has to be written here
+            return className + '<' + ((ForEachCombinator) expression).getName() + '>';
         }
         if (expression instanceof Bound) {
             String path = ((Bound) expression).path;
