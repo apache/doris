@@ -74,6 +74,100 @@ class CatalogMetaCacheTest {
     }
 
     @Test
+    void conditionalInvalidationRejectsExactReplacementAndNewScopeGeneration() {
+        try (CatalogMetaCache root = CatalogMetaCache.unmanaged()) {
+            ScopePath table = ScopePath.table("db", "a").in(ScopePath.Coordinates.LOCAL);
+            ScopePath names = ScopePath.tableCollection("db").in(ScopePath.Coordinates.LOCAL);
+            MetaCache<String, Object> objects = root.create(MetaCacheDefinition.<String, Object>builder(
+                    "objects", SPEC, key -> table).build());
+            MetaCache<String, String> listings = root.create(MetaCacheDefinition.<String, String>builder(
+                    "names", SPEC, key -> names).build());
+            Object old = new Object();
+            objects.put("a", old);
+            listings.put("all", "a,b");
+            MetaCache.Observation replaced = objects.observe("a", old).orElseThrow();
+            Object replacement = new Object();
+            objects.put("a", replacement);
+            Assertions.assertFalse(replaced.invalidateScopes(Arrays.asList(table, names)));
+            Assertions.assertSame(replacement, objects.getIfPresent("a"));
+            Assertions.assertEquals("a,b", listings.getIfPresent("all"));
+            MetaCache.Observation refreshed = objects.observe("a", replacement).orElseThrow();
+            root.invalidateScope(table);
+            objects.put("a", old);
+            Assertions.assertFalse(refreshed.invalidateScopes(Arrays.asList(table, names)));
+            Assertions.assertSame(old, objects.getIfPresent("a"));
+            Assertions.assertEquals("a,b", listings.getIfPresent("all"));
+            Assertions.assertTrue(objects.observe("a", old).orElseThrow()
+                    .invalidateScopes(Arrays.asList(table, names)));
+            Assertions.assertNull(objects.getIfPresent("a"));
+            Assertions.assertNull(listings.getIfPresent("all"));
+        }
+    }
+
+    @Test
+    void conditionalInvalidationRejectsNewContentAndRetiredRegistration() {
+        try (CatalogMetaCache root = CatalogMetaCache.unmanaged()) {
+            CatalogMetaCache domain = root.openDomain("fe", ScopePath.Coordinates.LOCAL,
+                    getClass().getClassLoader());
+            MetaCache<String, Object> objects = domain.create(MetaCacheDefinition.<String, Object>builder(
+                    "objects", SPEC, key -> ScopePath.table("db", key)).build());
+            Object table = new Object();
+            objects.put("a", table);
+            MetaCache.Observation beforeContent = objects.observe("a", table).orElseThrow();
+            root.invalidateScope(ScopePath.tableMetadata("db", "a").in(ScopePath.Coordinates.LOCAL));
+            Assertions.assertFalse(beforeContent.invalidateScopes(Collections.singletonList(
+                    ScopePath.table("db", "a").in(ScopePath.Coordinates.LOCAL))));
+            Assertions.assertSame(table, objects.getIfPresent("a"));
+            MetaCache.Observation retired = objects.observe("a", table).orElseThrow();
+            domain.close();
+            MetaCache<String, Object> replacement = root.openDomain("fe", ScopePath.Coordinates.LOCAL,
+                    getClass().getClassLoader()).create(MetaCacheDefinition.<String, Object>builder(
+                            "objects", SPEC, key -> ScopePath.table("db", key)).build());
+            replacement.put("a", table);
+            Assertions.assertFalse(retired.invalidateScopes(Collections.singletonList(
+                    ScopePath.table("db", "a").in(ScopePath.Coordinates.LOCAL))));
+            Assertions.assertSame(table, replacement.getIfPresent("a"));
+        }
+    }
+
+    @Test
+    void conditionalInvalidationCoversDependenciesAndFencesAnOldLoad() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (CatalogMetaCache root = CatalogMetaCache.unmanaged()) {
+            ScopePath local = ScopePath.table("db", "a").in(ScopePath.Coordinates.LOCAL);
+            ScopePath remote = ScopePath.table("DB", "A").in(ScopePath.Coordinates.REMOTE);
+            MetaCache<String, Object> objects = root.create(MetaCacheDefinition.<String, Object>builder(
+                    "objects", SPEC, key -> local).build());
+            Object table = new Object();
+            objects.put("a", table);
+            MetaCache<String, String> dependencies = root.create(MetaCacheDefinition.<String, String>builder(
+                    "remote", SPEC, key -> remote).build());
+            java.util.concurrent.Future<String> old = executor.submit(() -> dependencies.get("a", key -> {
+                started.countDown();
+                try {
+                    Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+                return "old";
+            }));
+            Assertions.assertTrue(started.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(objects.observe("a", table).orElseThrow()
+                    .invalidateScopes(Arrays.asList(local, remote)));
+            release.countDown();
+            Assertions.assertEquals("old", old.get(10, TimeUnit.SECONDS));
+            Assertions.assertNull(dependencies.getIfPresent("a"));
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void unmanagedOwnershipMustBeSelectedExplicitly() throws Exception {
         Assertions.assertTrue(Modifier.isPrivate(CatalogMetaCache.class.getDeclaredConstructor().getModifiers()));
         try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {

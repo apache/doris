@@ -50,6 +50,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
+import org.apache.doris.datasource.metacache.CatalogMetadataChanges;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.systable.PartitionsSysTable;
@@ -120,8 +121,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
+        Optional<CatalogMetadataChanges.MissingTableObservation> observation =
+                CatalogMetadataChanges.observeTableLookup(this);
         String dbName = db != null ? db.getRemoteName() : "";
-        return metadata.getTableHandle(session, dbName, getRemoteName());
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(session, dbName, getRemoteName());
+        if (!handle.isPresent()) {
+            observation.ifPresent(CatalogMetadataChanges.MissingTableObservation::missing);
+        }
+        return handle;
     }
 
     /**

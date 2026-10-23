@@ -35,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -311,6 +312,10 @@ public class FeMetaCacheEntry<K, V> {
                 endAction(stripe, token);
             }
         }
+    }
+
+    public Optional<MetaCache.Observation> observe(K key, Object expectedValue) {
+        return useCache(() -> data.observe(key, expectedValue, () -> !retired), Optional::empty);
     }
 
     public V getIfPresent(K key) {

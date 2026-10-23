@@ -67,4 +67,27 @@ suite("test_hive_catalog_owner_refresh", "p0,external") {
     sql "CREATE TABLE hive_owner_source.fe_cache_owner_refresh_db.owner_target (recreated_col BIGINT)"
     sql "REFRESH TABLE hive_owner_target.fe_cache_owner_refresh_db.owner_target"
     qt_schema_after_recreation "DESC hive_owner_target.fe_cache_owner_refresh_db.owner_target"
+
+    sql "DROP CATALOG IF EXISTS hive_owner_observed"
+    sql """CREATE CATALOG hive_owner_observed PROPERTIES (
+        'type' = 'hms',
+        'hadoop.username' = 'hadoop',
+        'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+        'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfsPort}',
+        'schema.cache.ttl-second' = '0'
+    )"""
+    sql "CREATE TABLE hive_owner_source.fe_cache_owner_refresh_db.owner_observed (observed_col INT)"
+    // Schema/HMS table reads are live, while the FE table-name and object caches stay enabled.
+    order_qt_observed_names_before """SHOW TABLES FROM hive_owner_observed.fe_cache_owner_refresh_db
+        LIKE 'owner_observed'"""
+    qt_observed_schema_before "DESC hive_owner_observed.fe_cache_owner_refresh_db.owner_observed"
+    sql "DROP TABLE hive_owner_source.fe_cache_owner_refresh_db.owner_observed"
+    test {
+        sql "SELECT * FROM hive_owner_observed.fe_cache_owner_refresh_db.owner_observed"
+        // MVCC observes absence before a later schema lookup reports the now-missing cached object.
+        exception "failed to load schema cache value"
+    }
+    order_qt_observed_names_after """SHOW TABLES FROM hive_owner_observed.fe_cache_owner_refresh_db
+        LIKE 'owner_observed'"""
+
 }

@@ -17,8 +17,11 @@
 
 package org.apache.doris.connector.cache;
 
+import java.util.Collection;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -29,10 +32,12 @@ public final class MetaCache<K, V> {
     private final String engine;
     private final String registrationName;
     private final CacheCallbackContext callbacks;
+    private final CatalogMetaCache rootOwner;
 
     MetaCache(MetaCacheDefinition<K, V> definition, String engine, String registrationName,
-            CacheCallbackContext callbacks, ScopedMetaCache<K, V> delegate) {
+            CacheCallbackContext callbacks, ScopedMetaCache<K, V> delegate, CatalogMetaCache rootOwner) {
         this.callbacks = callbacks;
+        this.rootOwner = rootOwner;
         this.engine = engine;
         this.registrationName = registrationName;
         this.definition = Objects.requireNonNull(definition, "definition can not be null");
@@ -75,6 +80,45 @@ public final class MetaCache<K, V> {
         K nonNullKey = Objects.requireNonNull(key, "key can not be null");
         return delegate.getWithPublicationAction(nonNullKey, definition.scope(nonNullKey),
                 keyToLoad -> callbacks.call(() -> loader.apply(keyToLoad)), publicationCoordinator);
+    }
+
+    /**
+     * Observes an exact retained instance without loading it. The token also tracks scope invalidations below
+     * its resource, exact-key replacement and physical registration retirement. It holds no publication lock.
+     */
+    public Optional<Observation> observe(K key, Object expectedValue) {
+        return observe(key, expectedValue, () -> true);
+    }
+
+    /**
+     * Also fences logical registration retirement. The predicate is evaluated under the publication writer;
+     * it must only read lifecycle state, never block, acquire locks, call user code or re-enter a cache.
+     */
+    public Optional<Observation> observe(K key, Object expectedValue, BooleanSupplier registrationCurrent) {
+        return delegate.observe(Objects.requireNonNull(key, "key"), definition.scope(key),
+                Objects.requireNonNull(expectedValue, "expectedValue"),
+                Objects.requireNonNull(registrationCurrent, "registrationCurrent"))
+                .map(observation -> new Observation(rootOwner, observation));
+    }
+
+    public static final class Observation {
+        private final CatalogMetaCache rootOwner;
+        private final ScopedMetaCacheRegistry.CacheObservation observation;
+
+        private Observation(CatalogMetaCache rootOwner, ScopedMetaCacheRegistry.CacheObservation observation) {
+            this.rootOwner = rootOwner;
+            this.observation = observation;
+        }
+
+        /** Requires both exact instances to remain current in the same publication write phase. */
+        public Observation and(Observation other) {
+            return new Observation(rootOwner, observation.and(other.observation));
+        }
+
+        /** Checks the observed state and detaches all dependencies in one publication write phase. */
+        public boolean invalidateScopes(Collection<ScopePath> scopes) {
+            return rootOwner.invalidateScopesIfCurrent(scopes, observation);
+        }
     }
 
     public V getIfPresent(K key) {

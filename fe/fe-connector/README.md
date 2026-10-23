@@ -55,6 +55,14 @@ name lists; explicit lookup refresh also invalidates the target identity and par
 written journals persist local/remote identities and the operation's lookup flag. Old records widen only
 the remote scope when a cache-only lookup cannot recover the remote identity.
 
+A definitive absent base-table handle can repair this FE's stale lookup state through the same dependency
+planner, without writing a DDL journal. Before the remote read, FE observes both the exact retained table
+and its matching names snapshot. Checking those observations and detaching dependencies share one publication
+write phase. Replacement, name refresh, content invalidation or logical registration retirement makes the
+old observation ineligible, so a delayed negative result cannot clear a recreated table. Cold names,
+system/session-bypassed reads and remote failures do not authorize shared-cache repair. Connector handle
+lookups must return absence only for a missing table and propagate other failures.
+
 The root captures an immutable resource normalization policy. With case-insensitive table lookup (mode 2),
 LOCAL table scopes fold case while cache keys and displayed names retain their original spelling; REMOTE
 scopes retain the connector's case semantics. Registration, bulk-load parents and invalidation use the same

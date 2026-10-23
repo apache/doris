@@ -17,10 +17,14 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +37,31 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - AtomicInteger-based node rotation (P0-3)
  */
 public class EsConnectorRestClientTest {
+
+    @Test
+    public void indexAbsenceRequiresNotFoundResponse() throws Exception {
+        AtomicInteger status = new AtomicInteger(200);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/t/_mapping", exchange -> {
+            exchange.sendResponseHeaders(status.get(), -1);
+            exchange.close();
+        });
+        server.start();
+        EsConnectorRestClient client = new EsConnectorRestClient(
+                new String[]{"http://127.0.0.1:" + server.getAddress().getPort()}, null, null, false, null);
+        try {
+            Assertions.assertTrue(client.existIndex("t"));
+            status.set(404);
+            Assertions.assertFalse(client.existIndex("t"));
+            for (int failure : new int[]{401, 403, 500}) {
+                status.set(failure);
+                Assertions.assertThrows(DorisConnectorException.class, () -> client.existIndex("t"));
+            }
+        } finally {
+            server.stop(0);
+        }
+        Assertions.assertThrows(DorisConnectorException.class, () -> client.existIndex("t"));
+    }
 
     @Test
     public void testConstructorWithAuth() throws Exception {

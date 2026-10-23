@@ -25,3 +25,11 @@ after_col	text	Yes	true	\N
 -- !schema_after_recreation --
 recreated_col	bigint	Yes	true	\N	
 
+-- !observed_names_before --
+owner_observed
+
+-- !observed_schema_before --
+observed_col	int	Yes	true	\N	
+
+-- !observed_names_after --
+

@@ -33,6 +33,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -401,6 +402,21 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             return Optional.empty();
         }
         return Optional.ofNullable(tables.getIfPresent(tableName));
+    }
+
+    /** Captures only the shared base-table instance; transient and bypassed reads cannot repair it. */
+    public Optional<MetaCache.Observation> observeTableLookup(ExternalTable table) {
+        if (!initialized || cacheEntriesReleased || extCatalog.shouldBypassSchemaCache(SessionContext.current())) {
+            return Optional.empty();
+        }
+        // Transient system/session tables are not this database's retained base-table instance.
+        NameCacheValue names = getTableNamesValue(false);
+        if (names == null || !table.getRemoteName().equals(names.remoteNameOfLocalName(table.getName()))) {
+            return Optional.empty();
+        }
+        // Name refresh can change the canonical spelling without replacing the old exact table key.
+        return tableNames.observe("", names).flatMap(nameObservation ->
+                tables.observe(table.getName(), table).map(nameObservation::and));
     }
 
     /**

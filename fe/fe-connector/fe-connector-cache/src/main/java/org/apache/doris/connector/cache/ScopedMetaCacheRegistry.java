@@ -216,30 +216,83 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         Objects.requireNonNull(paths, "paths can not be null");
         Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");
         checkOpen();
-        List<InvalidatedScope> invalidated = publicationGate.write(() -> {
-            List<List<ScopeNode>> resolvedScopes = new ArrayList<>(paths.size());
-            Set<ScopeNode> targets = Collections.newSetFromMap(new IdentityHashMap<>());
-            Set<ScopeNode> publicationNodes = Collections.newSetFromMap(new IdentityHashMap<>());
-            for (ScopePath path : paths) {
-                Objects.requireNonNull(path, "path can not be null");
-                List<ScopeNode> existing = resolveExisting(path);
-                publicationNodes.addAll(existing);
-                if (existing.size() == path.depth() + 1) {
-                    ScopeNode target = existing.get(existing.size() - 1);
-                    if (targets.add(target)) {
-                        resolvedScopes.add(existing);
-                    }
+        List<InvalidatedScope> invalidated = publicationGate.write(() -> detachScopes(paths));
+        afterStateReplacement.run();
+        cleanInvalidatedScopes(invalidated);
+    }
+
+    CacheObservation observe(ScopeSnapshot snapshot, BooleanSupplier exactValueCurrent) {
+        return new CacheObservation(this, snapshot, exactValueCurrent);
+    }
+
+    boolean invalidateIfCurrent(List<ScopePath> paths, CacheObservation observation) {
+        Objects.requireNonNull(paths, "paths can not be null");
+        if (observation.registry != this) {
+            throw new IllegalArgumentException("Observation belongs to another metadata cache registry");
+        }
+        // The predicate reads only framework state: no cache lookup, callbacks, locks or remote I/O.
+        List<InvalidatedScope> invalidated = publicationGate.write(() -> observation.isCurrent()
+                ? detachScopes(paths) : null);
+        if (invalidated == null) {
+            return false;
+        }
+        cleanInvalidatedScopes(invalidated);
+        return true;
+    }
+
+    private List<InvalidatedScope> detachScopes(List<ScopePath> paths) {
+        List<List<ScopeNode>> resolvedScopes = new ArrayList<>(paths.size());
+        Set<ScopeNode> targets = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<ScopeNode> publicationNodes = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (ScopePath path : paths) {
+            Objects.requireNonNull(path, "path can not be null");
+            List<ScopeNode> existing = resolveExisting(path);
+            publicationNodes.addAll(existing);
+            if (existing.size() == path.depth() + 1) {
+                ScopeNode target = existing.get(existing.size() - 1);
+                if (targets.add(target)) {
+                    resolvedScopes.add(existing);
                 }
             }
-            bumpPublicationStates(new ArrayList<>(publicationNodes));
-            List<InvalidatedScope> result = new ArrayList<>(resolvedScopes.size());
-            resolvedScopes.forEach(existing -> result.add(new InvalidatedScope(
-                    existing, replaceState(existing.get(existing.size() - 1)))));
-            return result;
-        });
-        afterStateReplacement.run();
+        }
+        bumpPublicationStates(new ArrayList<>(publicationNodes));
+        List<InvalidatedScope> result = new ArrayList<>(resolvedScopes.size());
+        resolvedScopes.forEach(existing -> result.add(new InvalidatedScope(
+                existing, replaceState(existing.get(existing.size() - 1)))));
+        return result;
+    }
+
+    private void cleanInvalidatedScopes(List<InvalidatedScope> invalidated) {
         invalidated.forEach(scope -> cleanDetachedState(scope.oldState));
         invalidated.forEach(scope -> tryPrune(scope.existing));
+    }
+
+    static final class CacheObservation {
+        private final ScopedMetaCacheRegistry registry;
+        private final ScopeSnapshot snapshot;
+        private final PublicationState publicationState;
+        private final BooleanSupplier exactValueCurrent;
+
+        private CacheObservation(ScopedMetaCacheRegistry registry, ScopeSnapshot snapshot,
+                BooleanSupplier exactValueCurrent) {
+            this.registry = registry;
+            this.snapshot = snapshot;
+            this.publicationState = snapshot.leafNode().descendantPublication.get();
+            this.exactValueCurrent = exactValueCurrent;
+        }
+
+        CacheObservation and(CacheObservation other) {
+            if (registry != other.registry) {
+                throw new IllegalArgumentException("Observations must belong to the same registry");
+            }
+            return registry.observe(snapshot, () -> isCurrent() && other.isCurrent());
+        }
+
+        private boolean isCurrent() {
+            return snapshot.isCurrent(registry)
+                    && snapshot.leafNode().descendantPublication.get() == publicationState
+                    && exactValueCurrent.getAsBoolean();
+        }
     }
 
     public ScopeMetrics metrics() {

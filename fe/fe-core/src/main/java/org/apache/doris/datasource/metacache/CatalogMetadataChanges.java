@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheCallbackContext;
 import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.ScopePath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -57,6 +58,34 @@ public final class CatalogMetadataChanges {
         return change.withRemoteNames(table.getRemoteDbName(), table.getRemoteName());
     }
 
+    public static Optional<MissingTableObservation> observeTableLookup(ExternalTable table) {
+        ExternalDatabase<?> database = table.getDb();
+        return database.observeTableLookup(table)
+                .map(observation -> new MissingTableObservation(table, observation));
+    }
+
+    /** A read observation repairs only this FE; it is not a committed external DDL journal record. */
+    public static final class MissingTableObservation {
+        private final ExternalCatalog catalog;
+        private final ExternalObjectLog change;
+        private final MetaCache.Observation observation;
+
+        private MissingTableObservation(ExternalTable table, MetaCache.Observation observation) {
+            this.catalog = table.getCatalog();
+            this.change = table(table, true, 0);
+            this.observation = observation;
+        }
+
+        public void missing() {
+            List<ScopePath> scopes = new ArrayList<>();
+            try {
+                plan(catalog, change, scopes);
+            } finally {
+                observation.invalidateScopes(scopes);
+            }
+        }
+    }
+
     public static void apply(ExternalCatalog catalog, ExternalObjectLog change) {
         apply(catalog, java.util.Collections.singletonList(change));
     }
@@ -68,7 +97,7 @@ public final class CatalogMetadataChanges {
         try {
             for (ExternalObjectLog change : changes) {
                 try {
-                    plan(catalog, change, scopes);
+                    updateCachedTable(plan(catalog, change, scopes), change);
                 } catch (RuntimeException error) {
                     if (failure == null) {
                         failure = error;
@@ -106,7 +135,19 @@ public final class CatalogMetadataChanges {
         }
     }
 
-    private static void plan(ExternalCatalog catalog, ExternalObjectLog change, List<ScopePath> scopes) {
+    private static void updateCachedTable(Optional<? extends ExternalTable> table, ExternalObjectLog change) {
+        table.ifPresent(value -> {
+            if (change.getPartitionNames() == null) {
+                value.unsetObjectCreated();
+            }
+            if (change.getLastUpdateTime() > 0) {
+                value.setUpdateTime(change.getLastUpdateTime());
+            }
+        });
+    }
+
+    private static Optional<? extends ExternalTable> plan(
+            ExternalCatalog catalog, ExternalObjectLog change, List<ScopePath> scopes) {
         Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(change.getDbName());
         Optional<? extends ExternalTable> table = Strings.isNullOrEmpty(change.getTableName())
                 ? Optional.empty() : db.flatMap(database -> database.getTableForReplay(change.getTableName()));
@@ -136,14 +177,6 @@ public final class CatalogMetadataChanges {
             remote.add(remoteDb == null ? ScopePath.catalog() : ScopePath.database(remoteDb));
             remote.add(ScopePath.databaseCollection());
         } else {
-            table.ifPresent(value -> {
-                if (!partitions) {
-                    value.unsetObjectCreated();
-                }
-                if (change.getLastUpdateTime() > 0) {
-                    value.setUpdateTime(change.getLastUpdateTime());
-                }
-            });
             scopes.add(id(ScopePath.table(Long.toString(dbId), Long.toString(tableId))));
             if (!partitions) {
                 if (db.isPresent() && (change.isInvalidateTableLookup() || change.getNewTableName() != null)) {
@@ -208,6 +241,7 @@ public final class CatalogMetadataChanges {
         } finally {
             remote.forEach(scope -> scopes.add(scope.in(ScopePath.Coordinates.REMOTE)));
         }
+        return table;
     }
 
     private static void addCanonicalTableScopes(ExternalCatalog catalog, ExternalDatabase<?> database,

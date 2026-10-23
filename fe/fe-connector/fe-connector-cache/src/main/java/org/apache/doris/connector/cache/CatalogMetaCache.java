@@ -192,7 +192,7 @@ public final class CatalogMetaCache implements AutoCloseable {
                             nonNullDefinition.cacheSpec(), nonNullDefinition.removalListener(),
                             nonNullDefinition.discardListener(),
                             nonNullDefinition.refreshAfterWrite(), nonNullDefinition.refreshExecutor(),
-                            entryBudget == null ? null : nonNullDefinition.sizeEstimator(), entryBudget));
+                            entryBudget == null ? null : nonNullDefinition.sizeEstimator(), entryBudget), rootOwner);
             entries.put(nonNullDefinition.name(), created);
             allEntries.put(created.registrationName(), created);
             if (isClosed()) {
@@ -254,9 +254,18 @@ public final class CatalogMetaCache implements AutoCloseable {
 
     /** One barrier covers local and remote dependencies, even when their object caches are cold. */
     public void invalidateScopes(Collection<ScopePath> scopes) {
+        registry.invalidate(projectScopes(scopes));
+    }
+
+    boolean invalidateScopesIfCurrent(Collection<ScopePath> scopes,
+            ScopedMetaCacheRegistry.CacheObservation observation) {
+        return registry.invalidateIfCurrent(projectScopes(scopes), observation);
+    }
+
+    private List<ScopePath> projectScopes(Collection<ScopePath> scopes) {
         List<ScopePath> projected = new ArrayList<>(scopes.size());
         scopes.forEach(scope -> projected.add(project(scope)));
-        registry.invalidate(projected);
+        return projected;
     }
 
     private ScopePath project(ScopePath scope) {

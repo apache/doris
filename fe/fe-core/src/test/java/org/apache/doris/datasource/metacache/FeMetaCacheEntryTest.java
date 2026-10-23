@@ -19,6 +19,7 @@ package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.ScopePath;
 
 import org.junit.jupiter.api.Assertions;
@@ -121,6 +122,38 @@ public class FeMetaCacheEntryTest {
         } finally {
             finishAction.countDown();
             worker.shutdownNow();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testObservationRejectsLogicalRetirementBeforePhysicalRelease() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch finishLoad = new CountDownLatch(1);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            FeMetaCacheEntry<String, Object> entry = FeMetaCacheEntry.sharedLookup(owner,
+                    ScopePath::database, ScopePath.catalog(), "objects",
+                    key -> new Object(), ENABLED, executor, false, 8, null);
+            Object original = entry.get("db");
+            MetaCache.Observation observation = entry.observe("db", original).get();
+            Future<Object> load = executor.submit(() -> entry.get("other", key -> {
+                loadStarted.countDown();
+                await(finishLoad);
+                return new Object();
+            }));
+            Assertions.assertTrue(loadStarted.await(3L, TimeUnit.SECONDS));
+            entry.close();
+            Assertions.assertFalse(owner.entries().isEmpty(), "accepted load pins the physical registration");
+            Assertions.assertFalse(observation.invalidateScopes(List.of(
+                    ScopePath.database("db").in(ScopePath.Coordinates.LOCAL))));
+            Assertions.assertSame(original, ((MetaCache<String, ?>) owner.entries().get("objects")).getIfPresent("db"));
+            finishLoad.countDown();
+            load.get(3L, TimeUnit.SECONDS);
+            Assertions.assertTrue(owner.entries().isEmpty());
+        } finally {
+            finishLoad.countDown();
             executor.shutdownNow();
         }
     }

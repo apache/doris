@@ -276,6 +276,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
+    Optional<ScopedMetaCacheRegistry.CacheObservation> observe(K key, ScopePath path, Object expectedValue,
+            BooleanSupplier registrationCurrent) {
+        VersionedValue<K, V> value = currentVersionedValue(key, path);
+        if (value == null || value.value != expectedValue) {
+            return Optional.empty();
+        }
+        return Optional.of(registry.observe(value.scopeSnapshot,
+                () -> registrationCurrent.getAsBoolean() && !closed.get() && value.isCurrent(registry, keyNodes)));
+    }
+
     public V getIfPresent(K key, ScopePath path) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
