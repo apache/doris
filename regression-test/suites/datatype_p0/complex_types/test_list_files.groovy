@@ -22,10 +22,11 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ObjectMetadata
 
 suite("test_list_files", "p0,external") {
+    boolean usePathStyle = getS3Provider().equalsIgnoreCase("S3")
     def client = AmazonS3ClientBuilder.standard()
             .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(getS3Endpoint(), getS3Region()))
             .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials(getS3AK(), getS3SK())))
-            .withPathStyleAccessEnabled(true).build()
+            .withPathStyleAccessEnabled(usePathStyle).build()
     String bucket = getS3BucketName()
     String prefix = "list-files/${UUID.randomUUID()}/"
     String root = "s3://${bucket}/${prefix}"
@@ -45,7 +46,7 @@ suite("test_list_files", "p0,external") {
         sql """CREATE RESOURCE list_files_s3 PROPERTIES(
             "type"="s3", "s3.endpoint"="${getS3Endpoint()}", "s3.region"="${getS3Region()}",
             "s3.access_key"="${getS3AK()}", "s3.secret_key"="${getS3SK()}",
-            "s3.bucket"="${bucket}", "s3.root.path"="unused", "use_path_style"="true")"""
+            "s3.bucket"="${bucket}", "s3.root.path"="unused", "use_path_style"="${usePathStyle}")"""
         def listing = { String path, String recursive ->
             """list_files("resource"="list_files_s3", "uri"="${path}"${recursive})"""
         }
