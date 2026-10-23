@@ -541,4 +541,39 @@ suite("test_mtmv_base_partition_read_scope") {
         notContains "UNION"
     }
     order_qt_group_split """SELECT d, SUM(v) FROM group_split_base WHERE d = '2020-01-01' GROUP BY d"""
+
+    // A many-to-one group expression has the same effect even when the keys differ: kept holds January 2
+    // and old January 1, which are different keys, but date_trunc(d,'year') puts both in the year 2020
+    // group. The union of the MV's year-2020 aggregate and the base branch's is two rows rather than one.
+    sql """drop materialized view if exists group_split_expr_mv"""
+    sql """drop table if exists group_split_expr_base"""
+    sql """
+        CREATE TABLE group_split_expr_base (d DATE NOT NULL, k INT NOT NULL, v INT NOT NULL)
+        DUPLICATE KEY(d, k) PARTITION BY LIST(d, k) (
+            PARTITION p_kept VALUES IN (("2020-01-02", 1), ("2038-01-01", 1)),
+            PARTITION p_bridge VALUES IN (("2038-01-01", 2)),
+            PARTITION p_old VALUES IN (("2020-01-01", 2)))
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO group_split_expr_base VALUES
+        ("2020-01-02", 1, 2), ("2020-01-01", 2, 1), ("2038-01-01", 1, 5), ("2038-01-01", 2, 7)"""
+    sql """INSERT INTO group_split_expr_base
+        SELECT CAST("2038-01-01" AS DATE), 1, 0 FROM numbers("number" = "10000")"""
+    sql """
+        CREATE MATERIALIZED VIEW group_split_expr_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES ("replication_num" = "1",
+            "partition_sync_limit" = "2", "partition_sync_time_unit" = "YEAR")
+        AS SELECT d, SUM(v) AS s FROM group_split_expr_base GROUP BY d
+    """
+    waitingMTMVTaskFinishedByMvName("group_split_expr_mv")
+    sql """ANALYZE TABLE group_split_expr_base WITH SYNC"""
+    sql """set enable_materialized_view_rewrite = true"""
+    explain {
+        sql("select date_trunc(d, 'year') as y, sum(v) from group_split_expr_base "
+                + "where d in ('2020-01-01', '2020-01-02') group by date_trunc(d, 'year')")
+        notContains "UNION"
+    }
+    order_qt_group_split_expr """SELECT DATE_TRUNC(d, 'year') AS y, SUM(v) FROM group_split_expr_base
+        WHERE d IN ('2020-01-01', '2020-01-02') GROUP BY DATE_TRUNC(d, 'year')"""
 }
