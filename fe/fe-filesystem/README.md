@@ -173,6 +173,12 @@ matching BE/Cloud support. Filesystem plugins cannot independently extend the re
 The filesystem plugin API is 5.0 and connector plugin API is 15.0 because shared authentication types
 changed. Plugins must be rebuilt against the matching host APIs.
 
+Native OAuth accepts only the Google Storage service-base HTTPS endpoints recognized by
+`GcsEndpoint` (port 443, without a bucket, path, or query). Arbitrary S3-compatible endpoints
+and raw `fs.gs.auth.*` overrides are not supported in native mode. HMAC authentication retains
+its existing endpoint behavior. BE error-log downloads use IAM `signBlob`; FE presigned
+uploads remain unsupported with native OAuth.
+
 ### Overlapping provider matches
 
 The binding registry preserves the existing provider order and `fs.<x>.support` flag semantics.

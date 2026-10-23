@@ -820,6 +820,29 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         }
     }
 
+    // Retain the prerequisite regression: an unpaired static key must not commit a rename.
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(vault_name);
+        req.mutable_vault()->set_alter_name("rename_must_not_commit");
+        req.mutable_vault()->mutable_obj_info()->set_ak("unpaired-key");
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+
+        InstanceInfoPB stored_instance;
+        get_test_instance(stored_instance);
+        ASSERT_EQ(stored_instance.storage_vault_names(0), vault_name);
+        StorageVaultPB stored_vault;
+        get_test_vault("2", stored_vault);
+        ASSERT_EQ(stored_vault.name(), vault_name);
+    }
+
     // A rejected credential update must not commit a rename that was applied
     // earlier in the request.
     {
