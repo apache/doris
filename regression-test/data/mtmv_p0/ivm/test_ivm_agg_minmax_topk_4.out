@@ -3,7 +3,7 @@
 a	10	20	2
 b	5	5	1
 
--- !state_initial --
+-- !order_state_initial --
 a	a	10	20	2	2	[{"value":10, "count":1}, {"value":20, "count":1}]	[{"value":20, "count":1}, {"value":10, "count":1}]	20	10	0	2	[regression-fake-sequence]
 b	b	5	5	1	2	[{"value":5, "count":1}]	[{"value":5, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 
@@ -11,7 +11,7 @@ b	b	5	5	1	2	[{"value":5, "count":1}]	[{"value":5, "count":1}]	\N	\N	0	2	[regress
 a	10	30	3
 b	5	5	1
 
--- !state_after_insert --
+-- !order_state_after_insert --
 a	a	10	30	3	3	[{"value":10, "count":1}, {"value":20, "count":1}]	[{"value":30, "count":1}, {"value":20, "count":1}]	20	20	0	3	[regression-fake-sequence]
 b	b	5	5	1	2	[{"value":5, "count":1}]	[{"value":5, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 
@@ -20,7 +20,7 @@ a	10	30	3
 b	5	5	1
 c	\N	\N	0
 
--- !state_after_null_group --
+-- !order_state_after_null_group --
 a	a	10	30	3	3	[{"value":10, "count":1}, {"value":20, "count":1}]	[{"value":30, "count":1}, {"value":20, "count":1}]	20	20	0	3	[regression-fake-sequence]
 b	b	5	5	1	2	[{"value":5, "count":1}]	[{"value":5, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 c	c	\N	\N	0	1	[]	[]	\N	\N	0	4	[regression-fake-sequence]
@@ -40,7 +40,7 @@ a	30	30	1
 b	5	5	1
 c	\N	\N	0
 
--- !state_after_fallback --
+-- !order_state_after_fallback --
 a	a	30	30	1	1	[{"value":30, "count":1}]	[{"value":30, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 b	b	5	5	1	1	[{"value":5, "count":1}]	[{"value":5, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 c	c	\N	\N	0	1	[]	[]	\N	\N	0	2	[regression-fake-sequence]
@@ -50,7 +50,7 @@ a	30	30	1
 b	1	5	2
 c	\N	\N	0
 
--- !state_after_rebuild_insert --
+-- !order_state_after_rebuild_insert --
 a	a	30	30	1	1	[{"value":30, "count":1}]	[{"value":30, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 b	b	1	5	2	2	[{"value":1, "count":1}, {"value":5, "count":1}]	[{"value":5, "count":1}, {"value":1, "count":1}]	\N	\N	0	3	[regression-fake-sequence]
 c	c	\N	\N	0	1	[]	[]	\N	\N	0	2	[regression-fake-sequence]

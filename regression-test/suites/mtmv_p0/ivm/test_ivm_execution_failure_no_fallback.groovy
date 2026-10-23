@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
     // Cloud mode: the failure injections target DatabaseTransactionMgr.commitTransaction.failed
@@ -61,23 +59,6 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
         AS SELECT id, v1 FROM ivm_exec_fail_t
     """
 
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT Status, RefreshMode, IvmFallbackReason, ErrorMsg
-                FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}'
-                  AND MvName = 'ivm_exec_fail_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        return taskResult[0]
-    }
-
     sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_exec_fail_mv")
     order_qt_execution_failure_initial """
@@ -91,7 +72,7 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllFEs(commitFailureDebugPoint)
         sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK"""
-        failedTask = latestTask()
+        failedTask = latestIvmTask("ivm_exec_fail_mv")
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(commitFailureDebugPoint)
     }
@@ -110,7 +91,7 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
                 rpcFailureFilterDebugPoint, [mv_name: "ivm_exec_fail_mv"])
         GetDebugPoint().enableDebugPointForAllFEs(rpcFailureDebugPoint, [execute: 1])
         sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK"""
-        retryTask = latestTask()
+        retryTask = latestIvmTask("ivm_exec_fail_mv")
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(rpcFailureFilterDebugPoint)
         GetDebugPoint().disableDebugPointForAllFEs(rpcFailureDebugPoint)

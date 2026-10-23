@@ -18,8 +18,6 @@
 // K = 1 on a scalar aggregate (no GROUP BY): the state is the extreme plus its count, the logical
 // equivalent of the old min-count state. Deleting a duplicate extreme is incremental; deleting the
 // last one exhausts the state.
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_agg_minmax_topk_3") {
     sql """set enable_materialized_view_rewrite = false;"""
@@ -53,43 +51,28 @@ suite("test_ivm_agg_minmax_topk_3") {
         AS SELECT MIN(score) AS mn FROM ivm_topk_3_t
     """
 
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT Status, IvmFallbackReason FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_topk_3_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        return taskResult[0]
-    }
-
     sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
     order_qt_initial """SELECT mn FROM ivm_topk_3_mv"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_3_mv""")
+    ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_3_mv""")
 
     // Deleting one of the duplicate extremes only decrements its count.
     sql """DELETE FROM ivm_topk_3_t WHERE id = 1"""
     sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
-    def afterDuplicate = latestTask()
+    def afterDuplicate = latestIvmTask("ivm_topk_3_mv")
     assertEquals("SUCCESS", afterDuplicate.Status.toString())
     order_qt_after_duplicate """SELECT mn FROM ivm_topk_3_mv"""
-    ivm_hidden_qt("state_after_duplicate", """SELECT * FROM ivm_topk_3_mv""")
+    ivm_hidden_qt("order_state_after_duplicate", """SELECT * FROM ivm_topk_3_mv""")
 
     // Deleting the last row at the extreme exhausts K = 1 and needs a complete rebuild.
     sql """DELETE FROM ivm_topk_3_t WHERE id = 2"""
     sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL"""
-    def exhausted = latestTask()
+    def exhausted = latestIvmTask("ivm_topk_3_mv")
     assertEquals("FAILED", exhausted.Status.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", exhausted.IvmFallbackReason.toString())
     sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL FALLBACK"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
     order_qt_after_fallback """SELECT mn FROM ivm_topk_3_mv"""
-    ivm_hidden_qt("state_after_fallback", """SELECT * FROM ivm_topk_3_mv""")
+    ivm_hidden_qt("order_state_after_fallback", """SELECT * FROM ivm_topk_3_mv""")
 }

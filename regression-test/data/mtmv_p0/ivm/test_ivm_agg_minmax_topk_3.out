@@ -2,18 +2,18 @@
 -- !initial --
 10
 
--- !state_initial --
+-- !order_state_initial --
 0	10	3	3	[{"value":10, "count":2}]	10	0	2	[regression-fake-sequence]
 
 -- !after_duplicate --
 10
 
--- !state_after_duplicate --
+-- !order_state_after_duplicate --
 0	10	2	2	[{"value":10, "count":1}]	10	0	3	[regression-fake-sequence]
 
 -- !after_fallback --
 20
 
--- !state_after_fallback --
+-- !order_state_after_fallback --
 0	20	1	1	[{"value":20, "count":1}]	20	0	2	[regression-fake-sequence]
 

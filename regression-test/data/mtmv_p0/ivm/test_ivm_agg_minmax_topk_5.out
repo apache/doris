@@ -3,7 +3,7 @@
 a	10
 b	10
 
--- !state_initial --
+-- !order_state_initial --
 a	a	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
 b	b	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
 
@@ -11,7 +11,7 @@ b	b	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
 a	10
 b	10
 
--- !state_after_swap --
+-- !order_state_after_swap --
 a	a	10	1	1	[{"value":10, "count":1}]	10	0	3	[regression-fake-sequence]
 b	b	10	1	1	[{"value":10, "count":1}]	10	0	3	[regression-fake-sequence]
 

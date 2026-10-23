@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 // Join delta cancellation: one UPDATE moves rows between groups, so each group sees the same value
 // deleted and inserted in the same batch. The delete and insert must cancel instead of consuming the
@@ -72,32 +70,17 @@ suite("test_ivm_agg_minmax_topk_5") {
         GROUP BY t2.flag
     """
 
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT Status, IvmFallbackReason FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_topk_5_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        return taskResult[0]
-    }
-
     sql """REFRESH MATERIALIZED VIEW ivm_topk_5_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("ivm_topk_5_mv")
-    order_qt_initial """SELECT flag, mn FROM ivm_topk_5_mv ORDER BY flag"""
-    ivm_hidden_qt("state_initial", """SELECT * FROM ivm_topk_5_mv""")
+    order_qt_initial """SELECT flag, mn FROM ivm_topk_5_mv"""
+    ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_5_mv""")
 
     // Swap the two rows between the groups. Each group gets a delete and an insert of the same value
     // in one batch, so the count must stay 1 and the extreme must survive without a fallback.
     sql """UPDATE ivm_topk_5_t2 SET flag = IF(id = 1, 'b', 'a') WHERE id IN (1, 3)"""
     sql """REFRESH MATERIALIZED VIEW ivm_topk_5_mv INCREMENTAL"""
-    def afterSwap = latestTask()
+    def afterSwap = latestIvmTask("ivm_topk_5_mv")
     assertEquals("SUCCESS", afterSwap.Status.toString())
-    order_qt_after_swap """SELECT flag, mn FROM ivm_topk_5_mv ORDER BY flag"""
-    ivm_hidden_qt("state_after_swap", """SELECT * FROM ivm_topk_5_mv""")
+    order_qt_after_swap """SELECT flag, mn FROM ivm_topk_5_mv"""
+    ivm_hidden_qt("order_state_after_swap", """SELECT * FROM ivm_topk_5_mv""")
 }

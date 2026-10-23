@@ -17,22 +17,22 @@ __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
 -- !initial --
 a	10	20
 
--- !state_initial --
+-- !order_state_initial --
 a	a	10	20	2	2	[{"value":10, "count":1}]	[{"value":20, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 
 -- !after_insert --
 a	5	20
 
--- !state_after_insert --
+-- !order_state_after_insert --
 a	a	5	20	3	3	[{"value":5, "count":1}]	[{"value":20, "count":1}]	\N	\N	0	3	[regression-fake-sequence]
 
 -- !after_multi_insert --
 a	1	20
 
--- !state_after_multi_insert --
+-- !order_state_after_multi_insert --
 a	a	1	20	5	5	[{"value":1, "count":2}]	[{"value":20, "count":1}]	\N	\N	0	4	[regression-fake-sequence]
 
--- !mow_state_initial --
+-- !order_mow_state_initial --
 0	10	2	2	[{"value":10, "count":1}]	\N	0	2	[regression-fake-sequence]
 
 -- !mow_after_delete --
@@ -41,6 +41,6 @@ a	a	1	20	5	5	[{"value":1, "count":2}]	[{"value":20, "count":1}]	\N	\N	0	4	[regre
 -- !mow_after_fallback --
 20
 
--- !mow_state_after_fallback --
+-- !order_mow_state_after_fallback --
 0	20	1	1	[{"value":20, "count":1}]	\N	0	2	[regression-fake-sequence]
 

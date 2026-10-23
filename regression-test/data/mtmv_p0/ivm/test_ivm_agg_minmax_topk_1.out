@@ -17,31 +17,31 @@ __DORIS_SEQUENCE_COL__	bigint	Yes	false	\N	NONE
 -- !initial --
 a	10	40
 
--- !state_initial --
+-- !order_state_initial --
 a	a	10	40	5	5	[{"value":10, "count":2}, {"value":20, "count":1}]	[{"value":40, "count":1}, {"value":30, "count":1}]	20	30	0	2	[regression-fake-sequence]
 
 -- !after_insert --
 a	5	40
 
--- !state_after_insert --
+-- !order_state_after_insert --
 a	a	5	40	6	6	[{"value":5, "count":1}, {"value":10, "count":2}]	[{"value":40, "count":1}, {"value":30, "count":1}]	10	30	0	3	[regression-fake-sequence]
 
 -- !after_delete_one --
 a	5	40
 
--- !state_after_delete_one --
+-- !order_state_after_delete_one --
 a	a	5	40	5	5	[{"value":5, "count":1}, {"value":10, "count":1}]	[{"value":40, "count":1}, {"value":30, "count":1}]	10	30	0	4	[regression-fake-sequence]
 
 -- !after_delete_extreme --
 a	5	40
 
--- !state_after_delete_extreme --
+-- !order_state_after_delete_extreme --
 a	a	5	40	4	4	[{"value":5, "count":1}]	[{"value":40, "count":1}, {"value":30, "count":1}]	10	30	0	5	[regression-fake-sequence]
 
 -- !after_delete_above_bound --
 a	5	40
 
--- !state_after_delete_above_bound --
+-- !order_state_after_delete_above_bound --
 a	a	5	40	3	3	[{"value":5, "count":1}]	[{"value":40, "count":1}, {"value":30, "count":1}]	10	30	0	6	[regression-fake-sequence]
 
 -- !after_exhaustion --
@@ -50,9 +50,9 @@ a	5	40
 -- !after_fallback --
 a	30	40
 
--- !state_after_fallback --
+-- !order_state_after_fallback --
 a	a	30	40	2	2	[{"value":30, "count":1}, {"value":40, "count":1}]	[{"value":40, "count":1}, {"value":30, "count":1}]	40	30	0	2	[regression-fake-sequence]
 
--- !state_after_alter --
+-- !order_state_after_alter --
 a	a	30	40	2	2	[{"value":30, "count":1}, {"value":40, "count":1}]	[{"value":40, "count":1}, {"value":30, "count":1}]	\N	\N	0	2	[regression-fake-sequence]
 
