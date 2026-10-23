@@ -89,8 +89,9 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     return Status::OK();
 }
 
-// Keep the single-use padding loop inline with its projection and LIMIT accounting.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+// Keep the single-use padding loop inline with its projection and LIMIT accounting; extracting
+// its final merge would split the block-swap invariant across functions.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity, readability-function-size)
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     // Peer scanners may have exhausted the shared LIMIT while this scanner waited to be
@@ -143,24 +144,36 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
                     RETURN_IF_ERROR(_merge_padding_block());
                     _origin_block.clear_column_data(row_descriptor.num_slots());
                 } else {
-                    if (_origin_block.rows() < _padding_block.rows()) {
+                    // With LIMIT 10, a padded row followed by five rows must not be swapped
+                    // behind the new block: returning five would hide the first row from peers.
+                    if (_shared_scan_limit == nullptr &&
+                        _origin_block.rows() < _padding_block.rows()) {
                         _padding_block.swap(_origin_block);
                     }
                     break;
                 }
             }
 
+            // A bounded scan must publish every surviving row before peers read on. For example,
+            // a one-row padding block and a five-row origin block together return six rows now,
+            // even when the origin alone reached the soft batch target.
+            if (_shared_scan_limit != nullptr && !_padding_block.empty() &&
+                !_origin_block.empty()) {
+                RETURN_IF_ERROR(_merge_padding_block());
+                _origin_block.clear_column_data(row_descriptor.num_slots());
+            }
             if (_origin_block.empty() && !_padding_block.empty()) {
                 _padding_block.swap(_origin_block);
             }
+            DCHECK(_shared_scan_limit == nullptr || _padding_block.empty());
         }
         RETURN_IF_ERROR(_do_projections(&_origin_block, block));
     } else {
         RETURN_IF_ERROR(get_block(state, block, eos));
     }
 
-    // Only rows actually produced by this call consume the shared LIMIT. In particular, padding
-    // kept for a later call must not make the context finish before that call can return it.
+    // Only rows actually produced by this call consume the shared LIMIT. In a projection scan,
+    // all surviving padding joins the output before this charge.
     // Exhausting the counter is not EOS either: the next call returns an empty block, and the
     // scan operator stops this scanner once it has cut the LIMIT.
     if (_shared_scan_limit != nullptr && block->rows() > 0) {
