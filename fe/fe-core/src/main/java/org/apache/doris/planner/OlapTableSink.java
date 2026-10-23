@@ -1204,8 +1204,8 @@ public class OlapTableSink extends DataSink {
     public static Multimap<Long, Long> getChangelogColocatedReplicaBackendPathMap(
             Tablet baseTablet, Tablet changelogTablet)
             throws UserException {
-        Multimap<Long, Long> baseBePathsMap = baseTablet.getNormalReplicaBackendPathMap();
-        Multimap<Long, Long> changelogBePathsMap = changelogTablet.getNormalReplicaBackendPathMap();
+        Multimap<Long, Long> baseBePathsMap = baseTablet.getLoadReplicaBackendPathMap();
+        Multimap<Long, Long> changelogBePathsMap = changelogTablet.getLoadReplicaBackendPathMap();
         changelogBePathsMap.entries().removeIf(
                 entry -> !baseBePathsMap.containsEntry(entry.getKey(), entry.getValue()));
         return changelogBePathsMap;
@@ -1237,7 +1237,7 @@ public class OlapTableSink extends DataSink {
                                         .getCurrentClusterId();
                             }
                             bePathsMap = ((CloudTablet) tablet)
-                                    .getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                                    .getLoadReplicaBackendPathMapByClusterId(cachedClusterId);
                         } else if (index.isChangelog()) {
                             long baseTabletId = tablet.getChangelogBaseTabletId();
                             Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
@@ -1246,13 +1246,13 @@ public class OlapTableSink extends DataSink {
                                     tablet.getId(), baseTabletId, partition.getId());
                             bePathsMap = getChangelogColocatedReplicaBackendPathMap(baseTablet, tablet);
                         } else {
-                            bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                            bePathsMap = tablet.getLoadReplicaBackendPathMap();
                         }
                         if (bePathsMap.keySet().size() < loadRequiredReplicaNum) {
                             errMsgBuilder.append("tablet ").append(tablet.getId())
-                                    .append(" alive replica num ").append(bePathsMap.keySet().size())
+                                    .append(" available replica num ").append(bePathsMap.keySet().size())
                                     .append(" < load required replica num ").append(loadRequiredReplicaNum)
-                                    .append(", alive backends: [")
+                                    .append(", available backends: [")
                                     .append(StringUtils.join(bePathsMap.keySet(), ","))
                                     .append("]");
                             if (!Config.isCloudMode()) {

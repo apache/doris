@@ -358,6 +358,14 @@ public class SystemInfoService {
         return true;
     }
 
+    public boolean checkBackendLoadAvailable(long backendId) {
+        Backend backend = getAllClusterBackendsNoException().get(backendId);
+        if (backend == null || !backend.isLoadAvailable()) {
+            return false;
+        }
+        return true;
+    }
+
     public boolean checkBackendAlive(long backendId) {
         Backend backend = getAllClusterBackendsNoException().get(backendId);
         if (backend == null || !backend.isAlive()) {

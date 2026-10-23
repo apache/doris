@@ -4917,20 +4917,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (tablet instanceof CloudTablet) {
                         CloudTablet cloudTablet = (CloudTablet) tablet;
                         if (hasBeEndpoint) {
-                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            bePathsMap = cloudTablet.getLoadReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             if (cachedClusterId == null) {
                                 cachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getCurrentClusterId();
                             }
-                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
+                            bePathsMap = cloudTablet.getLoadReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
                     } else if (tabletSnapshot.isChangelog()) {
                         bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
                                 tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        bePathsMap = tablet.getLoadReplicaBackendPathMap();
                     }
+                    checkLoadBackendPathNotEmpty(tableId, partitionId, tablet.getId(), bePathsMap);
                 } catch (UserException ex) {
                     errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                     result.setStatus(errorStatus);
@@ -5250,21 +5251,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (tablet instanceof CloudTablet) {
                         CloudTablet cloudTablet = (CloudTablet) tablet;
                         if (replaceHasBeEndpoint) {
-                            bePathsMap = cloudTablet.getNormalReplicaBackendPathMap(request.be_endpoint);
+                            bePathsMap = cloudTablet.getLoadReplicaBackendPathMap(request.be_endpoint);
                         } else {
                             if (replaceCachedClusterId == null) {
                                 replaceCachedClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getCurrentClusterId();
                             }
                             bePathsMap = cloudTablet
-                                    .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
+                                    .getLoadReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
                     } else if (tabletSnapshot.isChangelog()) {
                         bePathsMap = OlapTableSink.getChangelogColocatedReplicaBackendPathMap(
                                 tabletSnapshot.changelogBaseTablet, tablet);
                     } else {
-                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                        bePathsMap = tablet.getLoadReplicaBackendPathMap();
                     }
+                    checkLoadBackendPathNotEmpty(tableId, partitionId, tablet.getId(), bePathsMap);
                 } catch (UserException ex) {
                     errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
                     result.setStatus(errorStatus);
@@ -5378,6 +5380,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 location.setBaseTabletId(changelogBaseTablet.getId());
             }
             return location;
+        }
+    }
+
+    private static void checkLoadBackendPathNotEmpty(long tableId, long partitionId, long tabletId,
+            Multimap<Long, Long> backendPathMap) throws UserException {
+        // The legacy writer accepts an empty location and can omit the entire partition from commit infos.
+        // Reject it before the location is cached or returned so the load fails instead of losing rows silently.
+        if (backendPathMap.isEmpty()) {
+            throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
+                    String.format("no load available backend for tablet %d in partition %d of table %d",
+                            tabletId, partitionId, tableId));
         }
     }
 

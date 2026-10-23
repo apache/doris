@@ -27,6 +27,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -107,6 +108,17 @@ public class TabletTest {
         long newTabletId = 20000;
         tablet.setTabletId(newTabletId);
         Assertions.assertEquals("tabletId=" + newTabletId, tablet.toString());
+    }
+
+    @Test
+    public void testMetadataReplicaSelectionKeepsLoadDisabledBackendDuringDecommission() throws Exception {
+        infoService.getBackend(2L).setLoadDisabled(true);
+        replica3.updateLastFailedVersion(-1L);
+        replica3.setState(ReplicaState.DECOMMISSION);
+
+        Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L), Sets.newHashSet(tablet.getNormalReplicaBackendIds()));
+        Multimap<Long, Long> loadBackendPaths = tablet.getLoadReplicaBackendPathMap();
+        Assertions.assertEquals(Sets.newHashSet(1L, 3L), loadBackendPaths.keySet());
     }
 
     @Test
