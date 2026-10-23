@@ -40,6 +40,22 @@ TEST_F(FilterMapTest, test_basic_init) {
     EXPECT_DOUBLE_EQ(filter_map.filter_ratio(), 0.5);
 }
 
+// A filter-all map built without data (what RowGroupReader::_rebuild_filter_map produces for
+// batches whose rows were all filtered): it reports a filter, filters everything, and carries
+// no data - readers must decide through can_filter_all()/filter_all(), never by indexing it.
+TEST_F(FilterMapTest, test_filter_all_without_data) {
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(nullptr, 10, true).ok());
+
+    EXPECT_TRUE(filter_map.has_filter());
+    EXPECT_TRUE(filter_map.filter_all());
+    EXPECT_EQ(filter_map.filter_map_data(), nullptr);
+    EXPECT_EQ(filter_map.filter_map_size(), 10);
+    EXPECT_DOUBLE_EQ(filter_map.filter_ratio(), 1.0);
+    EXPECT_TRUE(filter_map.can_filter_all(10, 0));
+    EXPECT_TRUE(filter_map.can_filter_all(3, 7));
+}
+
 // Empty filter test
 TEST_F(FilterMapTest, test_empty_filter) {
     FilterMap filter_map;
