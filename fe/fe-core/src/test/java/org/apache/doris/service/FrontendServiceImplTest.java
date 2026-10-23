@@ -73,7 +73,10 @@ import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -951,6 +954,59 @@ public class FrontendServiceImplTest {
         } finally {
             closeTransactionValidationMock();
         }
+    }
+
+    @Test
+    public void testGroupCommitStreamLoadPutChecksAuthenticationAndLoadPrivilege() throws Exception {
+        String noLoadUser = "group_commit_no_load_user";
+        String noLoadPassword = "group_commit_test_password";
+        boolean originalForwardSetting = Config.enable_forward_group_commit_stream_load_to_follower;
+        Config.enable_forward_group_commit_stream_load_to_follower = false;
+        executeCommand("DROP USER IF EXISTS " + noLoadUser);
+        executeCommand("CREATE USER " + noLoadUser + " IDENTIFIED BY '" + noLoadPassword + "'");
+
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+            TStreamLoadPutResult badPassword = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "wrong_password", "missing_table"));
+            Assert.assertEquals(TStatusCode.ANALYSIS_ERROR, badPassword.getStatus().getStatusCode());
+            Assert.assertTrue(badPassword.getStatus().getErrorMsgs().get(0).contains("Access denied"));
+
+            TStreamLoadPutResult missingLoad = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest(noLoadUser, noLoadPassword, "missing_table"));
+            Assert.assertEquals(TStatusCode.ANALYSIS_ERROR, missingLoad.getStatus().getStatusCode());
+            String missingLoadError = missingLoad.getStatus().getErrorMsgs().get(0);
+            Assert.assertTrue(missingLoadError, missingLoadError.contains("Load_priv"));
+
+            FrontendServiceImpl tokenCheckingImpl = Mockito.spy(new FrontendServiceImpl(exeEnv));
+            TStreamLoadPutRequest badTokenRequest = groupCommitStreamLoadRequest("", "", "missing_table");
+            badTokenRequest.setToken("bad-token");
+            Mockito.doReturn(false).when(tokenCheckingImpl).checkToken("bad-token");
+            TStreamLoadPutResult badToken = tokenCheckingImpl.streamLoadPut(badTokenRequest);
+            Assert.assertEquals(TStatusCode.ANALYSIS_ERROR, badToken.getStatus().getStatusCode());
+            Assert.assertTrue(badToken.getStatus().getErrorMsgs().get(0).contains("Invalid token"));
+
+            TStreamLoadPutResult authorized = impl.streamLoadPut(
+                    groupCommitStreamLoadRequest("root", "", "missing_table"));
+            Assert.assertEquals(TStatusCode.NOT_FOUND, authorized.getStatus().getStatusCode());
+            Assert.assertTrue(authorized.getStatus().getErrorMsgs().get(0).contains("missing_table"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+            executeCommand("DROP USER IF EXISTS " + noLoadUser);
+            Config.enable_forward_group_commit_stream_load_to_follower = originalForwardSetting;
+        }
+    }
+
+    private static TStreamLoadPutRequest groupCommitStreamLoadRequest(String user, String password, String table) {
+        return new TStreamLoadPutRequest()
+                .setUser(user)
+                .setPasswd(password)
+                .setDb("test")
+                .setTbl(table)
+                .setUserIp("127.0.0.1")
+                .setLoadId(new TUniqueId(1L, 1L))
+                .setGroupCommitMode("async_mode");
     }
 
     private MockedStatic<Env> transactionValidationEnvMock;
