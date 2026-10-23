@@ -65,9 +65,10 @@ public:
     const std::string& uri() const { return uri_; }
 
     // The storage location this accessor reads and writes, built from its configuration without
-    // normalization: two accessors see the same objects iff their locations are equal. `uri()` is
-    // for display and may be normalized, e.g. S3 prefixes "a/b" and "a//b" have the same uri but
-    // hold different objects.
+    // normalization: two accessors with equal locations see the same objects. Different locations
+    // may still reach the same storage (e.g. HDFS confs that do not affect resolution), which only
+    // costs a second listing. `uri()` is for display and may be normalized, e.g. S3 prefixes "a/b"
+    // and "a//b" have the same uri but hold different objects.
     const std::string& location() const { return location_; }
 
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.

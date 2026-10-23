@@ -5454,6 +5454,32 @@ TEST(HdfsAccessorLocationTest, location) {
     EXPECT_EQ(accessor1.location(), accessor1_again.location());
     EXPECT_NE(accessor1.location(), accessor2.location());
     EXPECT_NE(accessor1.location(), accessor3.location());
+
+    // HA: the same logical nameservice and prefix resolve through each vault's hdfs_confs
+    auto make_ha_info = [&](std::vector<std::pair<std::string, std::string>> confs) {
+        auto info = make_info("hdfs://ns", "/warehouse");
+        for (auto& [key, value] : confs) {
+            auto* conf = info.mutable_build_conf()->add_hdfs_confs();
+            conf->set_key(key);
+            conf->set_value(value);
+        }
+        return info;
+    };
+    auto cluster_a = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                   {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
+                                   {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"}});
+    auto cluster_a_reordered = make_ha_info({{"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                             {"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                             {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
+    auto cluster_b = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                   {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"},
+                                   {"dfs.namenode.rpc-address.ns.nn2", "b2:8020"}});
+    HdfsAccessor accessor_a(cluster_a);
+    HdfsAccessor accessor_a_reordered(cluster_a_reordered);
+    HdfsAccessor accessor_b(cluster_b);
+    EXPECT_EQ(accessor_a.uri(), accessor_b.uri());
+    EXPECT_NE(accessor_a.location(), accessor_b.location());
+    EXPECT_EQ(accessor_a.location(), accessor_a_reordered.location());
 }
 #endif
 
