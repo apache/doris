@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.types.DataType;
@@ -1604,7 +1605,8 @@ public class GroupStructInfo {
         if (plan instanceof PhysicalFileScan) {
             PhysicalFileScan fileScan = (PhysicalFileScan) plan;
             return fileScanNode(fileScan.getTable(), HboScanDescriptor.relationIdentityOf(fileScan.getTableAlias()),
-                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
+                    fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent()
+                            || fileScan.getTableSample().isPresent(), ctx);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
             // the hbo information of this wrapper is the one of the relation it embeds: it is a catalog
@@ -1622,7 +1624,8 @@ public class GroupStructInfo {
                 PhysicalFileScan fileScan = (PhysicalFileScan) relation;
                 return fileScanNode(fileScan.getTable(),
                         HboScanDescriptor.relationIdentityOf(fileScan.getTableAlias()),
-                        fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
+                        fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent()
+                                || fileScan.getTableSample().isPresent(), ctx);
             }
             return invalidNode("storage layer aggregate over " + relation.getClass().getSimpleName(), ctx);
         }
@@ -1948,7 +1951,7 @@ public class GroupStructInfo {
             invalid(ctx, "temporary partition of " + scan.getTable().getNameWithFullQualifiers());
             return null;
         }
-        if (scan instanceof LogicalOlapScan && ((LogicalOlapScan) scan).getTableSample().isPresent()) {
+        if (isSampled(scan)) {
             // a table sample reads a random subset of the table, and a different one on every execution:
             // no row count recorded for such a scan can be reused, and a node above it inherits that
             invalid(ctx, "tablesample of " + scan.getTable().getNameWithFullQualifiers());
@@ -1971,6 +1974,21 @@ public class GroupStructInfo {
                     + " (" + e.getMessage() + ")");
             return null;
         }
+    }
+
+    /**
+     * Whether the scan reads a table sample. A logical scan is checked as well as a physical one: the
+     * storage layer aggregate embeds the physical scan, and a sample there is as unusable as one of a
+     * logical scan.
+     */
+    private static boolean isSampled(OlapScan scan) {
+        if (scan instanceof LogicalOlapScan) {
+            return ((LogicalOlapScan) scan).getTableSample().isPresent();
+        }
+        if (scan instanceof PhysicalOlapScan) {
+            return ((PhysicalOlapScan) scan).getTableSample().isPresent();
+        }
+        return false;
     }
 
     /** Whether the scan reads a temporary partition, see {@link #scanDescriptor}. */
