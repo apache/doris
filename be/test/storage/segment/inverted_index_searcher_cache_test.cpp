@@ -319,4 +319,35 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     delete index_searcher_cache;
 }
 
+// The non-NULL norm length sum of a field is computed once per cached searcher, kept apart from
+// the other fields' sums, and not kept when computing it fails.
+TEST(CluceneSearcherCacheValueTest, NonNullNormLengthSumIsComputedOncePerField) {
+    CluceneSearcherCacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+    int computed = 0;
+    auto compute = [&computed](uint64_t sum) {
+        return [&computed, sum](uint64_t* out) {
+            ++computed;
+            *out = sum;
+            return Status::OK();
+        };
+    };
+    uint64_t sum = 0;
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"a", compute(7), &sum).ok());
+    EXPECT_EQ(sum, 7);
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"a", compute(9), &sum).ok());
+    EXPECT_EQ(sum, 7);
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"b", compute(9), &sum).ok());
+    EXPECT_EQ(sum, 9);
+    EXPECT_EQ(computed, 2);
+
+    auto fail = [&computed](uint64_t*) {
+        ++computed;
+        return Status::Corruption("bad norms");
+    };
+    EXPECT_FALSE(value.non_null_norm_length_sum(L"c", fail, &sum).ok());
+    ASSERT_TRUE(value.non_null_norm_length_sum(L"c", compute(3), &sum).ok());
+    EXPECT_EQ(sum, 3);
+    EXPECT_EQ(computed, 4);
+}
+
 } // namespace doris::segment_v2

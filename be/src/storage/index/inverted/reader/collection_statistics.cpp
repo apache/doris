@@ -184,7 +184,6 @@ Status collect_hidden_docs(const RowsetSharedPtr& rowset, const RowsetSegmentVie
             data_io_ctx = *io_ctx;
         }
         data_io_ctx.is_inverted_index = false;
-        data_io_ctx.is_disposable = hidden_rows.disposable_file_cache;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
                 std::static_pointer_cast<BetaRowset>(rowset), seg.ref(), &cache_handle,
                 hidden_rows.use_segment_cache, false, &stats, &data_io_ctx));

@@ -72,13 +72,13 @@ using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 // the query returns them (`skip_delete_sign`, `show_hidden_columns`), and rows deleted by a delete
 // predicate (`enable_mow_light_delete`) are still counted, as the delete bitmap does not mark them.
 //
-// The cache flags carry the query's choices to the segment and column reads of the delete sign.
+// The cache flags carry the query's choices to the segment and column reads of the delete sign;
+// the file cache choices come with the I/O context.
 struct MowHiddenRows {
     std::shared_ptr<DeleteBitmap> delete_bitmap;
     int64_t version = -1;
     bool use_segment_cache = true;
     bool use_page_cache = true;
-    bool disposable_file_cache = false;
 };
 
 class CollectionStatistics {
@@ -207,7 +207,9 @@ void add_term_doc_frequency(
         const std::wstring& field, const std::wstring& logical_term, uint64_t doc_frequency);
 
 // The sum of the lengths the norms of a segment's documents other than the ascending `null_docs`
-// stand for. A NULL row is a document without tokens, though its norm stands for one.
+// stand for. A NULL row is a document without tokens, though its norm stands for one. Rows that are
+// indexed without tokens but are not NULL keep a norm that cannot be told from a one-token row's:
+// an analyzed empty string on both formats, and on SNII any text that yields no token.
 Status sum_non_null_norm_lengths(index_query::IndexSource& source,
                                  std::span<const uint32_t> null_docs, uint64_t* out);
 

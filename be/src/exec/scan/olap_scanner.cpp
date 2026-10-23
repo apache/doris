@@ -159,6 +159,14 @@ io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, Rea
     if (auto* query_ctx = state->get_query_ctx(); query_ctx != nullptr) {
         io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
     }
+    // The statistics read the index before the scan does, so they follow the query's file cache
+    // choices as the scan's reads do.
+    if (reader_type == ReaderType::READER_QUERY) {
+        const auto& query_options = state->query_options();
+        io_ctx.is_disposable = query_options.disable_file_cache;
+        io_ctx.inverted_index_snii_read_no_write_file_cache =
+                query_options.inverted_index_snii_read_no_write_file_cache;
+    }
     return io_ctx;
 }
 
@@ -297,8 +305,7 @@ Status OlapScanner::_prepare_impl() {
                     .version = _tablet_reader_params.version.second,
                     .use_segment_cache = !query_options.__isset.enable_segment_cache ||
                                          query_options.enable_segment_cache,
-                    .use_page_cache = _state->enable_page_cache(),
-                    .disposable_file_cache = query_options.disable_file_cache};
+                    .use_page_cache = _state->enable_page_cache()};
         }
         const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
         if (_tablet_collection_statistics != nullptr) {
