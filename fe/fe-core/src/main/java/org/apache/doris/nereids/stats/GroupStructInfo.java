@@ -85,6 +85,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.hash.Hashing;
+import com.google.common.primitives.UnsignedBytes;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -576,8 +577,24 @@ public class GroupStructInfo {
         out.text(expressionName(expression));
         List<Expression> children = expression.children();
         out.count(children.size());
-        for (Expression child : children) {
-            appendExpressionKey(out, child, mode);
+        if (isOrderInsensitive(expression)) {
+            // the renderer sorts the operands of a commutative expression, so the structural form has to
+            // be order independent as well: `t.a = t.b` and `t.b = t.a` keep their written order upstream
+            // (both operands are slots) and would otherwise hash differently while rendering one struct
+            List<byte[]> childKeys = new ArrayList<>(children.size());
+            for (Expression child : children) {
+                ShapeKeyWriter childKey = new ShapeKeyWriter();
+                appendExpressionKey(childKey, child, mode);
+                childKeys.add(childKey.toByteArray());
+            }
+            childKeys.sort(UnsignedBytes.lexicographicalComparator());
+            for (byte[] childKey : childKeys) {
+                out.bytes(childKey);
+            }
+        } else {
+            for (Expression child : children) {
+                appendExpressionKey(out, child, mode);
+            }
         }
         if (expression instanceof SlotReference) {
             SlotReference slot = (SlotReference) expression;
