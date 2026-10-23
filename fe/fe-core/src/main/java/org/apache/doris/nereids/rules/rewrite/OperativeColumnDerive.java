@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -43,6 +44,7 @@ import org.roaringbitmap.RoaringBitmap;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -96,6 +98,22 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
             }
         }
         return visitChildren(this, setOperation, context);
+    }
+
+    /**
+     * A consumer of a CTE copies the slots of the producer it reads, so a demand on one of its
+     * outputs is a demand on the slot of that producer. Translating it is what lets the demand of
+     * one anchor reach the producer of another one, e.g. a set operation over {@code c2} whose
+     * producer reads {@code c1} demands the column of {@code c1} as well.
+     */
+    @Override
+    public Plan visitLogicalCTEConsumer(LogicalCTEConsumer consumer, DeriveContext context) {
+        for (Map.Entry<Slot, Slot> consumerToProducer : consumer.getConsumerToProducerOutputMap().entrySet()) {
+            if (context.operativeSlotIds.contains(consumerToProducer.getKey().getExprId().asInt())) {
+                context.addOperativeSlotId(consumerToProducer.getValue().getExprId().asInt());
+            }
+        }
+        return consumer;
     }
 
     @Override

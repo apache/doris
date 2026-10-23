@@ -257,6 +257,49 @@ public class OperativeColumnDeriveTest extends TestWithFeService implements Memo
     }
 
     /**
+     * A demand has to cross the anchors of the CTEs a retained CTE depends on, not only reach the
+     * producer of the anchor it was stated at: here the set operation demands {@code c2}, whose
+     * producer reads {@code c1}, and the column of {@code c1} is the one whose statistics the set
+     * operation estimates. Without resolving the demand across the two anchors, the producer of
+     * {@code c1} is left without an operative slot and its statistics are only probed.
+     */
+    @Test
+    public void testDependentCteProducerKeepsTheDemandOfTheAnchorsItFeeds() {
+        CascadesContext cascadesContext = PlanChecker.from(connectContext)
+                .analyze("with c1 as (select sid from score), "
+                        + "c2 as (select sid from c1 union all select sid from c1) "
+                        + "select sid from c2 intersect select sid from c2")
+                .getCascadesContext();
+        List<LogicalCTEAnchor<?, ?>> anchors = cascadesContext.getRewritePlan()
+                .<LogicalCTEAnchor<?, ?>>collectToList(LogicalCTEAnchor.class::isInstance);
+        Assertions.assertEquals(2, anchors.size(), "the query keeps two retained CTEs");
+        // the anchor of c1 is the one whose consumer side contains the anchor of c2
+        LogicalCTEAnchor<?, ?> c1Anchor = anchors.stream()
+                .filter(anchor -> !anchor.child(1)
+                        .<LogicalCTEAnchor<?, ?>>collectToList(LogicalCTEAnchor.class::isInstance).isEmpty())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no anchor feeds another one"));
+
+        // without the seeded demand the producer of c1 remains without operative slots
+        Plan derivedWithoutDemand = c1Anchor.child(0).accept(
+                new OperativeColumnDerive(), new OperativeColumnDerive.DeriveContext());
+        Assertions.assertTrue(derivedWithoutDemand.<LogicalOlapScan>collectToList(
+                LogicalOlapScan.class::isInstance).get(0).getOperativeSlots().isEmpty());
+
+        OperativeColumnDerive.DeriveContext consumerDemand =
+                RewriteCteChildren.deriveConsumerDemand(c1Anchor, cascadesContext);
+        OperativeColumnDerive.DeriveContext deriveContext = new OperativeColumnDerive.DeriveContext();
+        RewriteCteChildren.seedProducerOperativeSlots(
+                c1Anchor, cascadesContext, consumerDemand, deriveContext);
+        List<LogicalOlapScan> producerScans = c1Anchor.child(0)
+                .accept(new OperativeColumnDerive(), deriveContext)
+                .<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance);
+        Assertions.assertEquals(ImmutableList.of("sid"), producerScans.get(0).getOperativeSlots().stream()
+                .map(NamedExpression::getName)
+                .collect(java.util.stream.Collectors.toList()));
+    }
+
+    /**
      * The slot of the producer that a consumer keeps can be replaced more than once while the
      * statement is rewritten. The seeded demand has to follow the whole replacement chain, so that
      * it names the slot that is current in the plan that is derived and not an intermediate one that

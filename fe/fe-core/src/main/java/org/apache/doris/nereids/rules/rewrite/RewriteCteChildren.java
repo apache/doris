@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -104,8 +105,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         // The demand is collected from the consumer side first, with a fresh derivation context: an
         // anchor is always at the top of the plan (see PullUpCteAnchor), so nothing above this anchor
         // demands anything and the context of the enclosing derivation would be empty anyway.
-        OperativeColumnDerive.DeriveContext consumerDemand = new OperativeColumnDerive.DeriveContext();
-        cteAnchor.child(1).accept(new OperativeColumnDerive(), consumerDemand);
+        OperativeColumnDerive.DeriveContext consumerDemand = deriveConsumerDemand(cteAnchor, cascadesContext);
         OperativeColumnDerive.DeriveContext deriveContext = new OperativeColumnDerive.DeriveContext();
         seedProducerOperativeSlots(cteAnchor, cascadesContext, consumerDemand, deriveContext);
         Plan derivedProducer = cteAnchor.child(0).accept(new OperativeColumnDerive(), deriveContext);
@@ -337,6 +337,42 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             return pushPlanUnderAnchor(filter);
         }
         return child;
+    }
+
+    /**
+     * Collects the demand that the plan above {@code cteAnchor} places on the columns of the CTE,
+     * resolved across the retained CTEs it depends on.
+     *
+     * <p>A demand is stated on the outputs of the consumer of this CTE, but a retained CTE may feed
+     * another one, e.g.
+     * <pre>
+     * WITH c1 AS (SELECT a FROM wide),
+     *      c2 AS (SELECT a FROM c1 UNION ALL SELECT a FROM c1)
+     * SELECT a FROM c2 INTERSECT SELECT a FROM c2
+     * </pre>
+     * where the set operation demands {@code c2}, whose producer reads {@code c1}. A consumer copies
+     * the slots of the producer it reads and {@link OperativeColumnDerive} translates a demand on a
+     * consumer output to the slot of that producer, so one walk resolves one hop of the chain; the
+     * walk is repeated with the ids found so far until no new slot is demanded, which lets the
+     * demand reach the producer of this anchor before its statistics are derived.
+     */
+    static OperativeColumnDerive.DeriveContext deriveConsumerDemand(
+            LogicalCTEAnchor<?, ?> cteAnchor, CascadesContext cascadesContext) {
+        RoaringBitmap demand = new RoaringBitmap();
+        int hops = 1 + cteAnchor.child(1)
+                .<LogicalCTEAnchor<?, ?>>collectToList(LogicalCTEAnchor.class::isInstance).size();
+        for (int hop = 0; hop < hops; hop++) {
+            OperativeColumnDerive.DeriveContext context = new OperativeColumnDerive.DeriveContext();
+            context.operativeSlotIds.or(demand);
+            cteAnchor.child(1).accept(new OperativeColumnDerive(), context);
+            if (context.operativeSlotIds.equals(demand)) {
+                break;
+            }
+            demand = context.operativeSlotIds;
+        }
+        OperativeColumnDerive.DeriveContext result = new OperativeColumnDerive.DeriveContext();
+        result.operativeSlotIds.or(demand);
+        return result;
     }
 
     /**
