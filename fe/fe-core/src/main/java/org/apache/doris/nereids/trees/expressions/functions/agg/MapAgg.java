@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -69,6 +70,11 @@ public class MapAgg extends NotNullableAggregateFunction
     public MapAgg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new MapAgg(getFunctionParams(distinct, children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        ExpressionUtils.checkFileKey(getArgument(0), "MAP_AGG key");
     }
 
     @Override

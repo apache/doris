@@ -73,7 +73,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_UINT64,                         /* 39, used as offset */
     TYPE_FIXED_LENGTH_OBJECT,            /* 40, represent fixed-length object on BE */
     TYPE_VARBINARY,                      /* 41, varbinary */
-    TYPE_TIMESTAMPTZ                     /* 42, timestamptz */
+    TYPE_TIMESTAMPTZ,                    /* 42, timestamptz */
+    // Preserve master wire identities; 43-44 are reserved.
+    TYPE_FILE = 45 /* file value with a URI reference and/or inline content */
 };
 
 } // namespace doris

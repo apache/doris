@@ -30,6 +30,7 @@
 #include "exprs/table_function/udf_table_function.h"
 #include "exprs/table_function/vexplode.h"
 #include "exprs/table_function/vexplode_bitmap.h"
+#include "exprs/table_function/vexplode_file.h"
 #include "exprs/table_function/vexplode_json_object.h"
 #include "exprs/table_function/vexplode_map.h"
 #include "exprs/table_function/vexplode_numbers.h"
@@ -50,6 +51,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
+                {"explode_file", TableFunctionCreator<VExplodeFileTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
                 {"json_each", TableFunctionCreator<VJsonEachTableFn> {}},
                 {"json_each_text", TableFunctionCreator<VJsonEachTextTableFn> {}},
