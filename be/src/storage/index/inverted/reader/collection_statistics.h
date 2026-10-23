@@ -35,6 +35,10 @@
 #include "storage/index/inverted/reader/predicate_collector.h"
 #include "storage/olap_common.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris {
 
 namespace index_query {
@@ -62,12 +66,19 @@ using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 // The rows of a merge-on-write tablet that its segments still hold but a scan at `version` does
 // not return: rows a later load overwrote or deleted, which the delete bitmap marks, and rows
-// written with the delete sign, which every query filters out. Compaction removes both, on each
+// written with the delete sign, which queries filter out. Compaction removes both, on each
 // replica at its own time, so statistics counting them would differ between the replicas of a
-// tablet, and so would every BM25 score.
+// tablet, and so would every BM25 score. Rows written with the delete sign are left out even when
+// the query returns them (`skip_delete_sign`, `show_hidden_columns`), and rows deleted by a delete
+// predicate (`enable_mow_light_delete`) are still counted, as the delete bitmap does not mark them.
+//
+// The cache flags carry the query's choices to the segment and column reads of the delete sign.
 struct MowHiddenRows {
     std::shared_ptr<DeleteBitmap> delete_bitmap;
     int64_t version = -1;
+    bool use_segment_cache = true;
+    bool use_page_cache = true;
+    bool disposable_file_cache = false;
 };
 
 class CollectionStatistics {
@@ -79,7 +90,8 @@ public:
     // With `hidden_rows`, the statistics describe only the rows a merge-on-write scan returns,
     // so every replica of a tablet scores alike whatever it has compacted: the hidden rows are
     // left out of the document count and the term document frequencies, and the token count is
-    // the sum of the document lengths the norms of the returned rows stand for.
+    // the sum of the document lengths the norms of the returned non-NULL rows stand for, or the
+    // returned row count for an index without norms.
     Status collect(RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
                    const TabletSchemaSPtr& tablet_schema,
                    const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx,
@@ -194,10 +206,17 @@ void add_term_doc_frequency(
                 logical_frequencies,
         const std::wstring& field, const std::wstring& logical_term, uint64_t doc_frequency);
 
+// The sum of the lengths the norms of a segment's documents other than the ascending `null_docs`
+// stand for. A NULL row is a document without tokens, though its norm stands for one.
+Status sum_non_null_norm_lengths(index_query::IndexSource& source,
+                                 std::span<const uint32_t> null_docs, uint64_t* out);
+
 // Turns a segment's scoring statistics into those of its documents other than the ascending
-// `hidden_docs`: their count, and the sum of the lengths their norms stand for, or their count
-// when the index has no norms.
+// `hidden_docs`: their count, and the sum of the lengths the norms of the non-NULL ones stand
+// for, or their count when the index has no norms. `non_null_length_sum` is the segment's
+// sum_non_null_norm_lengths(), and `null_docs` its NULL rows; both are unused without norms.
 Status exclude_hidden_docs(index_query::IndexSource& source, std::span<const uint32_t> hidden_docs,
+                           const roaring::Roaring& null_docs, uint64_t non_null_length_sum,
                            index_query::IndexScoringStats* stats);
 
 // Takes from a term's document frequency the documents of `hidden_docs` that hold it.

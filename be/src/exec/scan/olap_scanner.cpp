@@ -291,8 +291,14 @@ Status OlapScanner::_prepare_impl() {
         // at different times, so the statistics count only the rows the scan returns.
         std::optional<MowHiddenRows> hidden_rows;
         if (_tablet_reader_params.delete_bitmap != nullptr) {
-            hidden_rows = MowHiddenRows {.delete_bitmap = _tablet_reader_params.delete_bitmap,
-                                         .version = _tablet_reader_params.version.second};
+            const auto& query_options = _state->query_options();
+            hidden_rows = MowHiddenRows {
+                    .delete_bitmap = _tablet_reader_params.delete_bitmap,
+                    .version = _tablet_reader_params.version.second,
+                    .use_segment_cache = !query_options.__isset.enable_segment_cache ||
+                                         query_options.enable_segment_cache,
+                    .use_page_cache = _state->enable_page_cache(),
+                    .disposable_file_cache = query_options.disable_file_cache};
         }
         const MowHiddenRows* hidden_rows_ptr = hidden_rows ? &*hidden_rows : nullptr;
         if (_tablet_collection_statistics != nullptr) {

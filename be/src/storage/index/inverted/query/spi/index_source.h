@@ -53,12 +53,12 @@ inline constexpr std::array<float, 256> kByteNormLengths = [] {
     return lengths;
 }();
 
-// One field's index as the engine reads it: postings by term, the dictionary by pattern and
-// the documents still alive. Every source uses the Doris segment's document IDs.
 // How many of the ascending `docs` the cursor lists: leaping over the postings between them when
 // the docs are much rarer than the postings, otherwise decoding every posting once.
 Status count_listed_docs(PostingsCursor& cursor, std::span<const uint32_t> docs, uint64_t* out);
 
+// One field's index as the engine reads it: postings by term, the dictionary by pattern and
+// the documents still alive. Every source uses the Doris segment's document IDs.
 class IndexSource {
 public:
     virtual ~IndexSource() = default;
@@ -97,7 +97,6 @@ public:
     }
 
     // How many of the ascending `docs` hold a term, the term read as scoring_doc_freq reads it.
-    // The cost follows the smaller of `docs` and the term's postings.
     virtual Status scoring_doc_freq_among(std::string_view term, std::span<const uint32_t> docs,
                                           uint64_t* out);
 

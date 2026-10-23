@@ -26,6 +26,8 @@
 #include <cmath>
 #include <future>
 #include <memory>
+#include <roaring/roaring.hh>
+#include <set>
 #include <string>
 #include <thread>
 #include <variant>
@@ -49,6 +51,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/spi/fake_index_source.h"
@@ -73,6 +76,7 @@ namespace doris {
 using collection_statistics_detail::add_term_doc_frequency;
 using collection_statistics_detail::exclude_hidden_docs;
 using collection_statistics_detail::exclude_hidden_term_docs;
+using collection_statistics_detail::sum_non_null_norm_lengths;
 using collection_statistics_detail::resolve_snii_scoring_segment;
 using collection_statistics_detail::SniiScoringSegmentStats;
 
@@ -328,11 +332,18 @@ protected:
         test_dir_ = "./collection_statistics_test_" +
                     std::to_string(::testing::UnitTest::GetInstance()->random_seed());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_dir_).ok());
+        // Merge-on-write collection reads the null bitmap through the query cache.
+        previous_query_cache_ = ExecEnv::GetInstance()->get_inverted_index_query_cache();
+        query_cache_.reset(
+                segment_v2::InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(query_cache_.get());
     }
 
     void TearDown() override {
         stats_.reset();
         runtime_state_.reset();
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(previous_query_cache_);
+        query_cache_.reset();
         (void)io::global_local_filesystem()->delete_directory(test_dir_);
     }
 
@@ -447,9 +458,11 @@ protected:
         return tablet_schema;
     }
 
+    // Writes `rows`, the rows of `null_rows` as NULL whatever their value.
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
                                    const std::string& segment_path, size_t column_ordinal = 0,
-                                   const std::vector<std::string>& rows = {"alpha beta"}) {
+                                   const std::vector<std::string>& rows = {"alpha beta"},
+                                   const std::set<size_t>& null_rows = {}) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -474,8 +487,14 @@ protected:
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
         RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
                                                               index_metas[0]));
-        std::vector<Slice> values(rows.begin(), rows.end());
-        RETURN_IF_ERROR(column_writer->add_values(column.name(), values.data(), values.size()));
+        for (size_t row = 0; row < rows.size(); ++row) {
+            if (null_rows.contains(row)) {
+                RETURN_IF_ERROR(column_writer->add_nulls(1));
+            } else {
+                const Slice value(rows[row]);
+                RETURN_IF_ERROR(column_writer->add_values(column.name(), &value, 1));
+            }
+        }
         RETURN_IF_ERROR(column_writer->finish());
         RETURN_IF_ERROR(file_writer.begin_close());
         return file_writer.finish_close();
@@ -729,6 +748,8 @@ protected:
     std::unique_ptr<CollectionStatistics> stats_;
     std::shared_ptr<MockRuntimeState> runtime_state_;
     std::string test_dir_;
+    segment_v2::InvertedIndexQueryCache* previous_query_cache_ = nullptr;
+    std::unique_ptr<segment_v2::InvertedIndexQueryCache> query_cache_;
 };
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
@@ -1060,6 +1081,47 @@ TEST_F(CollectionStatisticsTest, AllRowsHiddenCollectsEmptyStatistics) {
     EXPECT_THROW(nothing_collected.get_doc_num(), Exception);
 }
 
+// NULL rows have no tokens. A merge-on-write tablet, whose token count comes from the norms, counts
+// them as documents without tokens, as a table without a delete bitmap does.
+TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
+    auto tablet_schema = create_legacy_v3_schema();
+    const std::string segment_path = test_dir_ + "/null_rows_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path, 0,
+                                        {"alpha beta", "", "alpha", "", "beta gamma delta"}, {1, 3})
+                        .ok());
+    auto collect = [&](const MowHiddenRows* hidden) {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset =
+                std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+        rowset->set_num_segments(1);
+        rowset->set_segment_path(0, segment_path);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+        CollectionStatistics stats;
+        const Status status = stats.collect(runtime_state_.get(), splits, tablet_schema,
+                                            create_match_expr_contexts("alpha"), nullptr, hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return std::make_pair(stats.get_doc_num(), stats.get_total_term_cnt_by_col(L"1"));
+    };
+
+    const auto without_bitmap = collect(nullptr);
+    EXPECT_EQ(without_bitmap.first, 5);
+    EXPECT_EQ(without_bitmap.second, 6);
+    MowHiddenRows nothing_hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9300),
+                                  .version = 2};
+    EXPECT_EQ(collect(&nothing_hidden), without_bitmap);
+
+    // A hidden NULL row leaves the document count and still adds no tokens.
+    MowHiddenRows null_hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9301), .version = 2};
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    for (const auto seg : rowset->segments()) {
+        null_hidden.delete_bitmap->add(seg.delete_bitmap_key(2), 1);
+    }
+    EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
+}
+
 namespace {
 
 // A cursor listing its documents in the given blocks, a pair standing for a dense range.
@@ -1169,17 +1231,21 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsSumsNormsOfReturnedRow
     index_query::testing::FakeIndexSource source;
     source.set_doc_count(4);
     source.norms = {{0, 3}, {1, 5}, {2, 2}, {3, 7}};
+    uint64_t non_null_length_sum = 0;
+    ASSERT_TRUE(sum_non_null_norm_lengths(source, {}, &non_null_length_sum).ok());
+    EXPECT_EQ(non_null_length_sum, 17);
+    const roaring::Roaring no_nulls;
     index_query::IndexScoringStats stats {
             .doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
     const std::vector<uint32_t> hidden {1, 3};
-    ASSERT_TRUE(exclude_hidden_docs(source, hidden, &stats).ok());
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, no_nulls, non_null_length_sum, &stats).ok());
     EXPECT_EQ(stats.doc_count, 2);
     EXPECT_EQ(stats.token_count, 5);
 
     // With nothing hidden the token count still comes from the norms, as on a replica that
     // compacted the hidden rows away.
     stats = {.doc_count = 4, .token_count = 1000, .has_positions = true, .has_norms = true};
-    ASSERT_TRUE(exclude_hidden_docs(source, {}, &stats).ok());
+    ASSERT_TRUE(exclude_hidden_docs(source, {}, no_nulls, non_null_length_sum, &stats).ok());
     EXPECT_EQ(stats.doc_count, 4);
     EXPECT_EQ(stats.token_count, 17);
 }
@@ -1190,7 +1256,9 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneT
     index_query::IndexScoringStats stats {
             .doc_count = 5, .token_count = 9, .has_positions = false, .has_norms = false};
     const std::vector<uint32_t> hidden {0, 4};
-    ASSERT_TRUE(exclude_hidden_docs(source, hidden, &stats).ok());
+    roaring::Roaring nulls;
+    nulls.add(1);
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, nulls, 0, &stats).ok());
     EXPECT_EQ(stats.doc_count, 3);
     EXPECT_EQ(stats.token_count, 3);
 }
@@ -1198,11 +1266,42 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsWithoutNormsCountsOneT
 TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsRejectsRowBeyondIndex) {
     index_query::testing::FakeIndexSource source;
     source.set_doc_count(2);
+    source.norms = {{0, 1}, {1, 1}};
     index_query::IndexScoringStats stats {
             .doc_count = 2, .token_count = 2, .has_positions = true, .has_norms = true};
     const std::vector<uint32_t> hidden {2};
-    const Status status = exclude_hidden_docs(source, hidden, &stats);
+    Status status = exclude_hidden_docs(source, hidden, roaring::Roaring {}, 2, &stats);
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+    const std::vector<uint32_t> nulls {2};
+    uint64_t non_null_length_sum = 0;
+    status = sum_non_null_norm_lengths(source, nulls, &non_null_length_sum);
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_CORRUPTED) << status;
+}
+
+// A NULL row is a document without tokens, though its norm stands for one: it stays in the
+// document count and its length is left out, hidden or not.
+TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsLeavesOutLengthsOfNullRows) {
+    index_query::testing::FakeIndexSource source;
+    source.set_doc_count(5);
+    source.norms = {{0, 3}, {1, 5}, {2, 1}, {3, 7}, {4, 1}};
+    const std::vector<uint32_t> null_doc_ids {2, 4};
+    uint64_t non_null_length_sum = 0;
+    ASSERT_TRUE(sum_non_null_norm_lengths(source, null_doc_ids, &non_null_length_sum).ok());
+    EXPECT_EQ(non_null_length_sum, 15);
+    roaring::Roaring nulls;
+    nulls.addMany(null_doc_ids.size(), null_doc_ids.data());
+
+    index_query::IndexScoringStats stats {
+            .doc_count = 5, .token_count = 1000, .has_positions = true, .has_norms = true};
+    ASSERT_TRUE(exclude_hidden_docs(source, {}, nulls, non_null_length_sum, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 5);
+    EXPECT_EQ(stats.token_count, 15);
+
+    stats = {.doc_count = 5, .token_count = 1000, .has_positions = true, .has_norms = true};
+    const std::vector<uint32_t> hidden {1, 2};
+    ASSERT_TRUE(exclude_hidden_docs(source, hidden, nulls, non_null_length_sum, &stats).ok());
+    EXPECT_EQ(stats.doc_count, 3);
+    EXPECT_EQ(stats.token_count, 10);
 }
 
 TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenTermDocsTakesHiddenHoldersOnly) {
