@@ -1397,6 +1397,21 @@ public class GroupStructInfoGoldenTest {
         return PlanConstructor.newLogicalOlapScan(tableId, tableName, 0);
     }
 
+    @Test
+    public void testCommutativeExpressionOperandsHashTheSame() {
+        LogicalOlapScan t = scan(0, "t");
+        Expression first = t.getOutput().get(0);
+        Expression second = t.getOutput().get(1);
+        GroupStructInfo direct = describe(new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(first, second)), t));
+        GroupStructInfo reversed = describe(new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(second, first)), t));
+        for (GroupStructInfo.LiteralMode mode : GroupStructInfo.LiteralMode.values()) {
+            Assertions.assertEquals(direct.getFingerprint(mode), reversed.getFingerprint(mode),
+                    "a commutative expression keeps one structural key in " + mode);
+        }
+    }
+
     private static GroupStructInfo describe(Plan plan) {
         return GroupStructInfo.describeGroup(new Memo(null, plan).getRoot());
     }
