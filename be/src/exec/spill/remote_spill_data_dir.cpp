@@ -67,7 +67,8 @@ io::RemoteFileSystemSPtr RemoteSpillDataDir::select_vault_fs(
         const std::string& id = id_and_version.first;
         auto resource = get_storage_resource(id);
         // The resource map may change between listing and lookup.
-        if (!resource.has_value() || resource->first.fs->type() != io::FileSystemType::S3) {
+        if (!resource.has_value() ||
+            resource->first.fs->type() != io::FileSystemType::OBJECT_STORAGE) {
             continue;
         }
         // Vault IDs are decimal numbers: a longer ID is a larger one.
@@ -103,7 +104,7 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
                 _vault_id.empty() ? "no S3 storage vault is known yet"
                                   : fmt::format("storage vault '{}' not found", _vault_id));
     }
-    if (fs->type() != io::FileSystemType::S3) {
+    if (fs->type() != io::FileSystemType::OBJECT_STORAGE) {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
                                     _vault_id, fs->type());
     }
