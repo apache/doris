@@ -39,7 +39,9 @@
 #include "format/table/deletion_vector.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -565,6 +567,13 @@ TEST_F(VIcebergDeleteSinkTest, TestValidateDeletionVectorContentSize) {
 }
 
 TEST_F(VIcebergDeleteSinkTest, TestWritePositionDeletesCommitsTableLocation) {
+    // The Parquet writer's dictionary encoder allocates from ExecEnv's Arrow pool, which this
+    // fixture does not otherwise initialize.
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_pool = env->_arrow_memory_pool;
+    env->_arrow_memory_pool = arrow::default_memory_pool();
+    Defer restore_pool([&] { env->_arrow_memory_pool = previous_pool; });
+
     std::filesystem::path temp_dir = std::filesystem::temp_directory_path() /
                                      ("iceberg_delete_sink_test_" + generate_uuid_string());
     ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
