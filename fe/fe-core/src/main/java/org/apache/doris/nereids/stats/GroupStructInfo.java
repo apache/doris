@@ -79,6 +79,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.MutableState;
@@ -1589,21 +1590,24 @@ public class GroupStructInfo {
                     fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
-            // the optimizer answers an aggregation over a scan from the storage layer itself: the node is
-            // a catalog relation without children, and its identity is the aggregation together with the
-            // relation it reads. The argument expressions are referenced by expression id there, which is
-            // not stable across queries, so they are left out: they do not change the number of rows this
-            // node produces (one row, the query has no grouping).
-            PhysicalStorageLayerAggregate aggregate = (PhysicalStorageLayerAggregate) plan;
-            Node node = new Node(Kind.STORAGE_AGGREGATE);
-            node.storageAggregate = aggregate;
-            if (aggregate.getRelation() instanceof OlapScan) {
-                node.scan = scanDescriptor((OlapScan) aggregate.getRelation(), ctx);
-                if (node.scan == null) {
-                    return null;
-                }
+            // the hbo information of this wrapper is the one of the relation it embeds: it is a catalog
+            // relation without children which the translator delegates to that relation, and the read
+            // side applies statistics at filter/join/aggregation nodes only. Describing the wrapper as
+            // the scan it reads keeps the canonical string, the key and the summary of the group
+            // consistent - the wrapper used to describe a scan token while the summary counted none,
+            // which made the prefilter reject every entry of the filter above it.
+            PhysicalRelation relation = ((PhysicalStorageLayerAggregate) plan).getRelation();
+            if (relation instanceof OlapScan) {
+                HboScanDescriptor descriptor = scanDescriptor((OlapScan) relation, ctx);
+                return descriptor == null ? null : scanRecord(Kind.SCAN, descriptor);
             }
-            return node;
+            if (relation instanceof PhysicalFileScan) {
+                PhysicalFileScan fileScan = (PhysicalFileScan) relation;
+                return fileScanNode(fileScan.getTable(),
+                        HboScanDescriptor.relationIdentityOf(fileScan.getTableAlias()),
+                        fileScan.getTableSnapshot().isPresent() || fileScan.getScanParams().isPresent(), ctx);
+            }
+            return invalidNode("storage layer aggregate over " + relation.getClass().getSimpleName(), ctx);
         }
         if (plan instanceof TopN) {
             if (ge.arity() != 1) {
@@ -3165,6 +3169,13 @@ public class GroupStructInfo {
                     ? ((LogicalFileScan) plan).getTable()
                     : ((PhysicalFileScan) plan).getTable();
             relations.add(HboScanDescriptor.qualifiedNameOf(fileTable));
+        } else if (plan instanceof PhysicalStorageLayerAggregate) {
+            // the description of this wrapper is the description of the relation it embeds, so the
+            // summary counts that relation as well: a group whose canonical string names the scan has to
+            // name it here too, otherwise the prefilter of the pinned entries rejects every entry of the
+            // filter above it before its fingerprint is compared
+            scanCount = 1;
+            relations.add(HboScanDescriptor.qualifiedNameOf(((PhysicalStorageLayerAggregate) plan).getTable()));
         }
         // the summary counts what the description renders: an anchor describes its consumer side, which
         // is its second child (the first one is the producer, and counting it would report scans and
