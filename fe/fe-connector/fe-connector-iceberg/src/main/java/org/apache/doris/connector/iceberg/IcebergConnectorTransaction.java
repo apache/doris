@@ -143,6 +143,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private final IcebergCatalogResourceTracker resourceTracker;
     private final String catalogFlavor;
     private final List<TIcebergCommitData> commitDataList = new ArrayList<>();
+    // The raw data locations the sinks of this write commit their files under, registered by planWrite for
+    // every sink it builds (several for a rewrite_data_files whose groups each plan one). Guarded by this,
+    // like commitDataList.
+    private final Set<String> commitLocations = new HashSet<>();
 
     // The single SDK transaction / table, opened lazily by beginWrite (the write plan binds the target
     // table only when the sink is planned). volatile: addCommitData / commit may run on different threads.
@@ -581,8 +585,44 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             throw new DorisConnectorException("failed to deserialize Iceberg commit data", e);
         }
         synchronized (this) {
+            checkCommitLocation(data);
             commitDataList.add(data);
         }
+    }
+
+    /**
+     * Registers a raw data location a sink of this write carries ({@code TIcebergTableSink.original_output_path}
+     * or {@code TIcebergDeleteSink.table_location}): BE writes the sink's files under the normalized form of it
+     * and must report them under it. Called by planWrite for every sink it builds.
+     */
+    void addCommitLocation(String location) {
+        if (location == null || location.isEmpty()) {
+            throw new DorisConnectorException("An iceberg sink must carry the raw location it commits files under");
+        }
+        synchronized (this) {
+            commitLocations.add(location);
+        }
+    }
+
+    /**
+     * Rejects a fragment whose file is not recorded under a location a sink of this write carries. BE writes
+     * through the normalized location (s3://b/db/t/data for an oss:// table) and must report the table's own
+     * form (oss://b/db/t/data/x.parquet): Iceberg metadata, other engines and {@link #rollback} resolve the
+     * reported path with the table's file system, so the s3:// form names a file no other engine can open, and
+     * nothing failed when delete files were committed that way. Throwing here makes FE reject the report: the
+     * statement fails and BE deletes the files under the paths it wrote them at.
+     */
+    private void checkCommitLocation(TIcebergCommitData data) {
+        String path = data.getFilePath();
+        if (path != null) {
+            for (String location : commitLocations) {
+                if (path.startsWith(location.endsWith("/") ? location : location + "/")) {
+                    return;
+                }
+            }
+        }
+        throw new DorisConnectorException("Iceberg commit data reports file " + path
+                + " outside the locations its sinks commit files under: " + commitLocations);
     }
 
     /**
