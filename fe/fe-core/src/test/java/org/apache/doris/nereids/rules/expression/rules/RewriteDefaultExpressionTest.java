@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -58,6 +59,21 @@ public class RewriteDefaultExpressionTest extends ExpressionRewriteTestHelper {
 
         Assertions.assertEquals(
                 TypeCoercionUtils.castIfNotSameType(PARSER.parseExpression("9"), IntegerType.INSTANCE), rewritten);
+    }
+
+    @Test
+    public void writeOnlyDefaultTakesTheTypeOfThePinnedWriterColumn() {
+        // The read schema can still hold the INT column after it was promoted to BIGINT outside Doris, while the
+        // writer schema pinned for the statement has the BIGINT column and its new default, which an INT cannot hold.
+        SlotReference score = scoreSlot(true);
+        pinWriterColumn(PrimitiveType.BIGINT, "4900000001");
+
+        Expression rewritten = executor.rewrite(new Default(score), context);
+
+        Assertions.assertEquals(
+                TypeCoercionUtils.castIfNotSameType(PARSER.parseExpression("4900000001"), BigIntType.INSTANCE),
+                rewritten);
+        Assertions.assertEquals(BigIntType.INSTANCE, rewritten.getDataType());
     }
 
     @Test
@@ -93,7 +109,11 @@ public class RewriteDefaultExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     private void pinWriterColumn(String defaultSql) {
-        Column writeColumn = new Column("score", PrimitiveType.INT, true);
+        pinWriterColumn(PrimitiveType.INT, defaultSql);
+    }
+
+    private void pinWriterColumn(PrimitiveType type, String defaultSql) {
+        Column writeColumn = new Column("score", type, true);
         writeColumn.setUniqueId(FIELD_ID);
         writeColumn.setConnectorDefaultValueSql(defaultSql);
         cascadesContext.getStatementContext().setConnectorWriteSchema(TABLE_ID, ImmutableList.of(writeColumn));

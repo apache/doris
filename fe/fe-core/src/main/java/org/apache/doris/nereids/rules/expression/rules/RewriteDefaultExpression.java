@@ -81,7 +81,6 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
         }
 
         Column column = columnOpt.get();
-        DataType targetType = DataType.fromCatalogType(column.getType());
         if (column.isGeneratedColumn()) {
             throw new AnalysisException("DEFAULT cannot be used on generated column '"
                     + column.getName() + "'");
@@ -95,6 +94,9 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
                     .orElseThrow(() -> new AnalysisException("DEFAULT(" + slotRef.toSql()
                             + ") must reference a column of the table that this statement writes"));
         }
+        // The pinned writer column can be wider than the read column the slot was bound with, e.g. after a type
+        // promotion committed outside Doris, and the default is a value of the writer column.
+        DataType targetType = DataType.fromCatalogType(column.getType());
 
         String defaultValueSql = column.getDefaultValueSql();
         if (defaultValueSql == null) {
