@@ -208,6 +208,32 @@ public class HboJoinConditions {
      * column. The slot carries both, so the identity does not depend on the alias a query gave the
      * relation, on the shape of its qualifier or on where the join is described.
      */
+    // The characters which delimit an operand in the pair text: a quoted column name may contain them,
+    // and would otherwise forge the boundary between two operands (`EqualTo(col(a),col(b))`).
+    private static String escapeOperandComponent(String value) {
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char c = value.charAt(index);
+            switch (c) {
+                case '%':
+                    escaped.append("%25");
+                    break;
+                case ',':
+                    escaped.append("%2C");
+                    break;
+                case '(':
+                    escaped.append("%28");
+                    break;
+                case ')':
+                    escaped.append("%29");
+                    break;
+                default:
+                    escaped.append(c);
+            }
+        }
+        return escaped.toString();
+    }
+
     private static Optional<String> operandIdentity(Expression operand) {
         if (!(operand instanceof SlotReference)) {
             return Optional.empty();
@@ -216,7 +242,8 @@ public class HboJoinConditions {
         if (!slot.getOriginalTable().isPresent() || !slot.getOriginalColumn().isPresent()) {
             return Optional.empty();
         }
-        return Optional.of(HboScanDescriptor.qualifiedNameOf(slot.getOriginalTable().get()) + "."
-                + slot.getOriginalColumn().get().getName());
+        return Optional.of(escapeOperandComponent(
+                HboScanDescriptor.qualifiedNameOf(slot.getOriginalTable().get()))
+                + "." + escapeOperandComponent(slot.getOriginalColumn().get().getName()));
     }
 }
