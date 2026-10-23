@@ -30,6 +30,9 @@
 -- !capture_enclosing_lambda --
 [[1, 1], [1]]
 
+-- !capture_enclosing_lambda_nested --
+[[1, 1], [1]]
+
 -- !nonnullable_body --
 [1, 2]
 

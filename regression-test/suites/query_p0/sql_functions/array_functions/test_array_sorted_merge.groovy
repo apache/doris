@@ -153,6 +153,18 @@ suite("test_array_sorted_merge") {
                          [0, 2])
     """
 
+    // The same outer argument referenced from a lambda nested inside the merge body. The merge
+    // frame rebases the outer binding onto its private block, so the inner array_map resolves x
+    // there instead of walking into the parent frames, whose positions do not describe that block.
+    order_qt_capture_enclosing_lambda_nested """
+        SELECT array_map(x -> array_sorted_merge(
+                   (a, b) -> IF(a = b
+                               AND a < element_at(array_map(y -> x, CAST([1] AS ARRAY<INT>)), 1),
+                               a, NULL),
+                   CAST([1] AS ARRAY<INT>), CAST([1] AS ARRAY<INT>), true),
+               [0, 2])
+    """
+
     // A non-nullable lambda body (COALESCE) must be wrapped into the nullable element
     // representation instead of being inserted directly.
     order_qt_nonnullable_body """

@@ -65,9 +65,10 @@ public:
 
     std::string get_name() const override { return name; }
 
-    /// Rejects a nested lambda that captures one of this lambda's arguments: the position-based
-    /// frame below does not publish them into nested lambdas, so such a capture would resolve
-    /// against the wrong column. Nested lambdas may still use their own arguments (shadowing).
+    /// Rejects a nested lambda that captures one of this lambda's arguments: a merge argument
+    /// stands for the candidate of one comparison step, which is not part of the supported
+    /// contract for a nested lambda. Nested lambdas may still use their own arguments
+    /// (shadowing) and may capture enclosing lambda arguments.
     static Status validate_nested_captures(const VExprSPtr& expr,
                                            const std::vector<std::string>& argument_names,
                                            bool inside_nested_lambda,
@@ -110,9 +111,9 @@ public:
         if (!lambda_expr->has_argument_names()) {
             return Status::OK();
         }
-        // A nested lambda that captures one of this lambda's arguments would need a binding
-        // that does not exist in the position-based frame below; reject it during prepare so
-        // the query fails instead of resolving the argument against the wrong column.
+        // A nested lambda that captures one of this lambda's arguments has no defined meaning
+        // (the argument is the candidate of a single comparison step); reject it during prepare
+        // instead of resolving it against some column at runtime.
         return validate_nested_captures(children[0]->get_child(0), lambda_expr->argument_names(),
                                         false, {});
     }
@@ -223,13 +224,13 @@ public:
                                                       source.type, binding.name));
         }
         const int merge_argument_base = static_cast<int>(lambda_block.columns());
+        std::string merge_argument_names[2];
         for (int i = 0; i < 2; ++i) {
-            const std::string argument_name =
-                    argument_names != nullptr && i < argument_names->size()
-                            ? (*argument_names)[i]
-                            : "merge_arg_" + std::to_string(i);
+            merge_argument_names[i] = argument_names != nullptr && i < argument_names->size()
+                                              ? (*argument_names)[i]
+                                              : "merge_arg_" + std::to_string(i);
             lambda_block.insert(ColumnWithTypeAndName(nested_types[i]->create_column(),
-                                                      nested_types[i], argument_name));
+                                                      nested_types[i], merge_argument_names[i]));
         }
         // The lambda arguments are bound by name (the column refs carry the argument names),
         // so the body reads these two one-row columns.
@@ -240,8 +241,26 @@ public:
                         .get()};
 
         LambdaExecutionContext::Frame lambda_frame;
-        lambda_frame.bind_by_name = false;
-        lambda_frame.parent_bindings_visible = false;
+        if (argument_names != nullptr) {
+            // Rebase every binding this lambda can see onto the private block, so a nested lambda
+            // resolves an enclosing argument to the copy materialized here instead of walking into
+            // the parent frames, whose positions do not describe this block. The merge arguments
+            // are published last and therefore shadow an outer binding with the same name.
+            lambda_frame.bind_by_name = true;
+            lambda_frame.parent_bindings_visible = false;
+            for (size_t i = 0; i < enclosing_bindings.size(); ++i) {
+                lambda_frame.argument_bindings.push_back(
+                        {enclosing_bindings[i].name, enclosing_positions[i]});
+            }
+            for (int i = 0; i < 2; ++i) {
+                lambda_frame.argument_bindings.push_back(
+                        {merge_argument_names[i], merge_argument_base + i});
+            }
+        } else {
+            // Positional (legacy) references resolve through the block, so keep the old frame.
+            lambda_frame.bind_by_name = false;
+            lambda_frame.parent_bindings_visible = false;
+        }
         LambdaExecutionContext::FrameGuard lambda_frame_guard(context->lambda_execution_context(),
                                                               std::move(lambda_frame));
 
