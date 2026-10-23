@@ -32,7 +32,6 @@
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
-#include "core/custom_allocator.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/types.h"
@@ -126,8 +125,8 @@ private:
 };
 
 // The TINYINT writer of a composite column's null map.
-inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
-                                           io::FileWriter* file_writer, uint32_t id) {
+inline NullMapColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
+                                            io::FileWriter* file_writer, uint32_t id) {
     if (!opts.meta->is_nullable()) {
         return nullptr;
     }
@@ -154,7 +153,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_column_ptr->set_index_length(-1); // no short key index
     null_options.meta->set_encoding(
             EncodingInfo::resolve_default_encoding(opts.storage_format, *null_column_ptr));
-    return new ScalarColumnWriter(null_options, std::move(null_column_ptr), file_writer);
+    return new NullMapColumnWriter(null_options, std::move(null_column_ptr), file_writer);
 }
 
 ColumnWriter::ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta)
@@ -183,7 +182,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         sub_column_writers.push_back(std::move(sub_column_writer));
     }
 
-    ScalarColumnWriter* null_writer =
+    NullMapColumnWriter* null_writer =
             get_null_writer(opts, file_writer, column->get_subtype_count() + 1);
 
     *writer = std::unique_ptr<ColumnWriter>(new StructColumnWriter(
@@ -235,7 +234,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     auto* length_writer =
             new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
-    ScalarColumnWriter* null_writer = get_null_writer(opts, file_writer, 3);
+    NullMapColumnWriter* null_writer = get_null_writer(opts, file_writer, 3);
 
     *writer = std::unique_ptr<ColumnWriter>(
             new ArrayColumnWriter(opts, std::make_shared<TabletColumn>(*column), length_writer,
@@ -299,7 +298,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     auto* length_writer =
             new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
-    ScalarColumnWriter* null_writer =
+    NullMapColumnWriter* null_writer =
             get_null_writer(opts, file_writer, column->get_subtype_count() + 2);
 
     *writer = std::unique_ptr<ColumnWriter>(
@@ -320,16 +319,8 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     // serialised types.
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT ||
         type == PrimitiveType::TYPE_BITMAP) {
-        // The states are stored as the function serialises them: strings as VARCHAR, bitmaps
-        // as BITMAP, fixed-length objects through AGG_STATE's own layout.
-        FieldType storage_type = FieldType::OLAP_FIELD_TYPE_AGG_STATE;
-        if (type == PrimitiveType::TYPE_STRING) {
-            storage_type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
-        } else if (type == PrimitiveType::TYPE_BITMAP) {
-            storage_type = FieldType::OLAP_FIELD_TYPE_BITMAP;
-        }
-        *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
-                opts, std::make_shared<TabletColumn>(*column), file_writer, storage_type));
+        *writer = std::unique_ptr<ColumnWriter>(
+                new ScalarColumnWriter(opts, std::make_shared<TabletColumn>(*column), file_writer));
     } else if (type == PrimitiveType::TYPE_ARRAY) {
         RETURN_IF_ERROR(create_array_writer(opts, column, file_writer, writer));
     } else if (type == PrimitiveType::TYPE_MAP) {
@@ -407,12 +398,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                        io::FileWriter* file_writer)
-        : ScalarColumnWriter(opts, column, file_writer, column->type()) {}
-
-ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                                       io::FileWriter* file_writer, FieldType storage_type)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta),
-          _storage_type(storage_type),
+          _storage_type(get_column()->type()),
           _opts(opts),
           _file_writer(file_writer),
           _data_size(0) {
@@ -426,6 +413,23 @@ ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts, TabletCo
     DCHECK(opts.meta->has_is_nullable());
     DCHECK(file_writer != nullptr);
     _inverted_index_builders.resize(_opts.inverted_indexes.size());
+
+    // An AGG_STATE column stores what its aggregate function serialises to: strings as VARCHAR,
+    // bitmaps as BITMAP and fixed-length objects through AGG_STATE's own layout.
+    if (_storage_type == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
+        const auto data_type = DataTypeFactory::instance().create_data_type(*get_column());
+        const auto type = assert_cast<const DataTypeAggState*>(data_type.get())
+                                  ->get_serialized_type()
+                                  ->get_primitive_type();
+        if (type == PrimitiveType::TYPE_STRING) {
+            _storage_type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
+        } else if (type == PrimitiveType::TYPE_BITMAP) {
+            _storage_type = FieldType::OLAP_FIELD_TYPE_BITMAP;
+        } else {
+            // create_agg_state_writer gives a scalar writer only these three serialised types.
+            DORIS_CHECK(type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT);
+        }
+    }
 }
 
 ScalarColumnWriter::~ScalarColumnWriter() {
@@ -839,12 +843,13 @@ Status OffsetColumnWriter::init() {
     return Status::OK();
 }
 
-Status OffsetColumnWriter::append_data(const uint8_t* cells, size_t num_rows) {
-    const auto* offsets = reinterpret_cast<const uint64_t*>(cells);
+Status OffsetColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    const auto* offsets = assert_cast<const ColumnOffset64&>(column).get_data().data() + row_pos;
     size_t pos = 0;
     while (pos < num_rows) {
         size_t num_written = num_rows - pos;
-        RETURN_IF_ERROR(append_data_in_current_page(cells + pos * cell_size(), &num_written));
+        RETURN_IF_ERROR(append_data_in_current_page(reinterpret_cast<const uint8_t*>(offsets + pos),
+                                                    &num_written));
         pos += num_written;
         // Callers provide one extra tail offset after the written rows so the page footer can
         // store the next array item ordinal for the current page.
@@ -861,8 +866,14 @@ void OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_next_offset);
 }
 
+Status NullMapColumnWriter::append(const IColumn& null_map, size_t row_pos, size_t num_rows) {
+    // The flags are UInt8 and the column TINYINT; their bytes are the stored cells as they are.
+    return append_data(assert_cast<const ColumnUInt8&>(null_map).get_data().data() + row_pos,
+                       num_rows);
+}
+
 StructColumnWriter::StructColumnWriter(
-        const ColumnWriterOptions& opts, TabletColumnPtr column, ScalarColumnWriter* null_writer,
+        const ColumnWriterOptions& opts, TabletColumnPtr column, NullMapColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
@@ -904,7 +915,9 @@ Status StructColumnWriter::append(const IColumn& column, size_t row_pos, size_t 
     }
     if (is_nullable()) {
         DORIS_CHECK(null_map != nullptr);
-        RETURN_IF_ERROR(_null_writer->append_data(null_map, num_rows));
+        RETURN_IF_ERROR(_null_writer->append(
+                assert_cast<const ColumnNullable&>(column).get_null_map_column(), row_pos,
+                num_rows));
     }
     return Status::OK();
 }
@@ -955,7 +968,7 @@ Status StructColumnWriter::finish_current_page() {
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                      OffsetColumnWriter* offset_writer,
-                                     ScalarColumnWriter* null_writer,
+                                     NullMapColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta),
           _item_writer(std::move(item_writer)),
@@ -1042,7 +1055,9 @@ Status ArrayColumnWriter::append(const IColumn& column, size_t row_pos, size_t n
 
     if (is_nullable()) {
         DORIS_CHECK(null_map != nullptr);
-        RETURN_IF_ERROR(_null_writer->append_data(null_map, num_rows));
+        RETURN_IF_ERROR(_null_writer->append(
+                assert_cast<const ColumnNullable&>(column).get_null_map_column(), row_pos,
+                num_rows));
     }
     return Status::OK();
 }
@@ -1091,8 +1106,8 @@ Status ArrayColumnWriter::append_nulls(size_t num_rows) {
     if (!is_nullable()) {
         return Status::OK();
     }
-    const DorisVector<uint8_t> nulls(num_rows, 1);
-    return _null_writer->append_data(nulls.data(), num_rows);
+    const auto nulls = ColumnUInt8::create(num_rows, 1);
+    return _null_writer->append(*nulls, 0, num_rows);
 }
 
 Status ArrayColumnWriter::finish_current_page() {
@@ -1101,7 +1116,8 @@ Status ArrayColumnWriter::finish_current_page() {
 
 /// ============================= MapColumnWriter =====================////
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                                 ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
+                                 NullMapColumnWriter* null_writer,
+                                 OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
@@ -1172,7 +1188,9 @@ Status MapColumnWriter::append(const IColumn& column, size_t row_pos, size_t num
 
     if (is_nullable()) {
         DORIS_CHECK(null_map != nullptr);
-        RETURN_IF_ERROR(_null_writer->append_data(null_map, num_rows));
+        RETURN_IF_ERROR(_null_writer->append(
+                assert_cast<const ColumnNullable&>(column).get_null_map_column(), row_pos,
+                num_rows));
     }
     return Status::OK();
 }

@@ -27,9 +27,11 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -230,9 +232,9 @@ void expect_page_inputs(const RecordingPageBuilder& builder, const IColumn& colu
 // Feed stored cells directly to the encoder and the same input through ColumnWriter.
 template <FieldType FT, class Builder>
 void expect_same_pages(const IColumn& source, PageBuilderOptions options, size_t min_pages = 1,
-                       size_t append_rows = kAppendRows, FieldType storage_type = FT) {
-    auto tablet_column = std::make_shared<TabletColumn>(
-            FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, FT, false);
+                       size_t append_rows = kAppendRows, FieldType storage_type = FT,
+                       TabletColumnPtr tablet_column = std::make_shared<TabletColumn>(
+                               FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, FT, false)) {
     // The writer pads CHAR to the column's length; the reference cells are padded the same.
     size_t char_length = 0;
     if constexpr (FT == FieldType::OLAP_FIELD_TYPE_CHAR) {
@@ -264,8 +266,8 @@ void expect_same_pages(const IColumn& source, PageBuilderOptions options, size_t
     meta.set_is_nullable(false);
     ColumnWriterOptions writer_options;
     writer_options.meta = &meta;
-    auto column_writer = std::make_unique<ScalarColumnWriter>(writer_options, tablet_column,
-                                                              file.get(), storage_type);
+    auto column_writer =
+            std::make_unique<ScalarColumnWriter>(writer_options, tablet_column, file.get());
     auto& writer = *column_writer;
     // Inject the encoder under test; no indexes or compression affect the comparison.
     auto page_builder = std::make_unique<RecordingPageBuilder>(make_builder<Builder>(options));
@@ -290,6 +292,32 @@ void expect_same_pages(const IColumn& source, PageBuilderOptions options, size_t
     for (size_t i = 0; i < expected.bytes.size(); ++i) {
         EXPECT_EQ(expected.bytes[i], actual.bytes[i]) << "page " << i;
     }
+}
+
+// An AGG_STATE column of `function(argument)`; its writer stores what the function serialises to.
+TabletColumnPtr agg_state_column(std::string_view function, std::string_view argument,
+                                 int32_t argument_length) {
+    ColumnPB column;
+    column.set_unique_id(0);
+    column.set_name("v");
+    column.set_type("AGG_STATE");
+    column.set_is_key(false);
+    column.set_is_nullable(false);
+    column.set_aggregation(std::string(function));
+    column.set_length(1);
+    column.set_result_is_nullable(false);
+    column.set_be_exec_version(BeExecVersionManager::get_newest_version());
+    auto* arg = column.add_children_columns();
+    arg->set_unique_id(1);
+    arg->set_name("arg");
+    arg->set_type(std::string(argument));
+    arg->set_is_key(false);
+    arg->set_is_nullable(false);
+    arg->set_aggregation("NONE");
+    arg->set_length(argument_length);
+    auto tablet_column = std::make_shared<TabletColumn>();
+    tablet_column->init_from_pb(column);
+    return tablet_column;
 }
 
 PageBuilderOptions small_pages(size_t data_page_size) {
@@ -484,10 +512,12 @@ TEST(PageBuilderColumnTest, AggregateStatesBorrowSerializedBatches) {
     }
     expect_same_pages<FieldType::OLAP_FIELD_TYPE_AGG_STATE,
                       BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_AGG_STATE>>(
-            *counts, small_pages(128), 2, 2500);
+            *counts, small_pages(128), 2, 2500, FieldType::OLAP_FIELD_TYPE_AGG_STATE,
+            agg_state_column("count", "INT", 4));
     expect_same_pages<FieldType::OLAP_FIELD_TYPE_AGG_STATE,
                       BinaryPlainPageV3Builder<FieldType::OLAP_FIELD_TYPE_AGG_STATE>>(
-            *strings, small_pages(128), 2, 2500, FieldType::OLAP_FIELD_TYPE_VARCHAR);
+            *strings, small_pages(128), 2, 2500, FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            agg_state_column("hll_union", "HLL", 16387));
 }
 
 TEST(PageBuilderColumnTest, PlainInt) {

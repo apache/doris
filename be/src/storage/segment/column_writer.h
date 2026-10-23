@@ -224,22 +224,11 @@ public:
     ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                        io::FileWriter* file_writer);
 
-    // An AGG_STATE column stores whatever its aggregate function serialises to: storage_type
-    // is VARCHAR for strings, BITMAP for bitmaps and AGG_STATE for fixed-length objects. Every
-    // other column is stored as its own type.
-    ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                       io::FileWriter* file_writer, FieldType storage_type);
-
     ~ScalarColumnWriter() override;
 
     Status init() override;
 
-    Status append(const IColumn& column, size_t row_pos, size_t num_rows) final;
-
-    // Writes a run of cells already in this column's storage layout, none of them NULL,
-    // page by page. append prepares its cells from a column; the composite writers feed
-    // their null maps, whose bytes are the TINYINT cells, directly.
-    virtual Status append_data(const uint8_t* cells, size_t num_rows);
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
     Status append_nulls(size_t num_rows) override;
 
@@ -278,6 +267,7 @@ protected:
                 { return _internal_append_data_in_current_page(ptr, num_written); });
     }
     friend class OffsetColumnWriter;
+    friend class NullMapColumnWriter;
 
 private:
     Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
@@ -288,10 +278,15 @@ private:
     // writes them.
     Status append_values(const IColumn& values, size_t row_pos, size_t num_rows);
 
+    // Writes cells already in this column's storage layout, none of them NULL, page by page.
+    // NullMapColumnWriter feeds a null map's flags, which are its TINYINT cells, directly.
+    Status append_data(const uint8_t* cells, size_t num_rows);
+
     void _reserve_null_bitmap(const uint8_t* null_map, size_t num_rows);
 
-    // The StorageLayout the values are stored through.
-    const FieldType _storage_type;
+    // The StorageLayout the values are stored through: the column's own type, or what an
+    // AGG_STATE column's aggregate function serialises to.
+    FieldType _storage_type;
     // Where append_values puts what it cannot borrow from the column.
     StorageBuffers _buffers;
 
@@ -364,7 +359,8 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t* cells, size_t num_rows) override;
+    // `column` holds the rebased offsets, one entry more than the rows.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
 private:
     void put_extra_info_in_page(DataPageFooterPB* footer) override;
@@ -372,11 +368,20 @@ private:
     uint64_t _next_offset;
 };
 
+// The null map of a nullable STRUCT, ARRAY or MAP, stored as a NOT NULL TINYINT column. append
+// takes the composite column's null map column, whose flag bytes are the stored cells.
+class NullMapColumnWriter final : public ScalarColumnWriter {
+public:
+    using ScalarColumnWriter::ScalarColumnWriter;
+
+    Status append(const IColumn& null_map, size_t row_pos, size_t num_rows) override;
+};
+
 // STRUCT values, including nested structs, with one child writer per field.
 class StructColumnWriter final : public ColumnWriter {
 public:
     explicit StructColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                                ScalarColumnWriter* null_writer,
+                                NullMapColumnWriter* null_writer,
                                 std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
     ~StructColumnWriter() override = default;
 
@@ -437,7 +442,7 @@ private:
 
 private:
     size_t _num_sub_column_writers;
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<NullMapColumnWriter> _null_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _sub_column_writers;
     ColumnWriterOptions _opts;
 };
@@ -446,7 +451,7 @@ private:
 class ArrayColumnWriter final : public ColumnWriter {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                               OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
+                               OffsetColumnWriter* offset_writer, NullMapColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
 
@@ -510,7 +515,7 @@ private:
 
 private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<NullMapColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
     std::unique_ptr<IndexColumnWriter> _inverted_index_writer;
     std::unique_ptr<AnnIndexColumnWriter> _ann_index_writer;
@@ -526,7 +531,7 @@ private:
 class MapColumnWriter final : public ColumnWriter {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                             ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
+                             NullMapColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
     ~MapColumnWriter() override = default;
@@ -593,7 +598,7 @@ private:
 private:
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<NullMapColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
     std::unique_ptr<IndexColumnWriter> _index_builder;
     ColumnWriterOptions _opts;
