@@ -18,8 +18,6 @@
 // Exercise the real FE/BE SQL result cache, including a verified cache plan.
 // Internal six-child payload retention is covered separately by QueryCache BE tests.
 suite("test_file_type_sql_cache") {
-    def publicStruct = "STRUCT<uri:VARCHAR(65533),offset:BIGINT,size:BIGINT," +
-            "content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>"
     def hasSqlCache = { String statement ->
         sql("EXPLAIN PHYSICAL PLAN " + statement).collect { it[0].toString() }
                 .join("\n").contains("PhysicalSqlCache")
@@ -55,9 +53,9 @@ suite("test_file_type_sql_cache") {
             """
             def statement = """
                 SELECT id, f,
-                       CAST(ARRAY(CAST(f AS ${publicStruct}), NULL) AS ARRAY<FILE>) AS files,
-                       CAST(NAMED_STRUCT('f', CAST(f AS ${publicStruct})) AS STRUCT<f:FILE>) AS holder,
-                       CAST(MAP('source', CAST(f AS ${publicStruct})) AS MAP<STRING,FILE>) AS lookup
+                       ARRAY(f, NULL) AS files,
+                       NAMED_STRUCT('f', f) AS holder,
+                       MAP('source', f) AS lookup
                 FROM (SELECT id, CAST(IF(uri IS NULL, NULL,
                     NAMED_STRUCT('uri', uri, 'offset', file_offset, 'size', file_size,
                         'content_type', content_type, 'checksum', checksum, 'inline', NULL)) AS FILE) AS f
