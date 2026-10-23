@@ -27,6 +27,7 @@ import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -92,7 +93,9 @@ public final class CloudObjectStoreAdapter {
         }
         if (properties.containsKey(FS_PROVIDER_KEY)) {
             // S3 Provider properties should be case insensitive.
-            builder.setProvider(Provider.valueOf(properties.get(FS_PROVIDER_KEY).toUpperCase()));
+            String provider = properties.get(FS_PROVIDER_KEY).toUpperCase(Locale.ROOT);
+            // GCS is a filesystem alias; the cloud protocol uses GCP.
+            builder.setProvider("GCS".equals(provider) ? Provider.GCP : Provider.valueOf(provider));
         }
 
         if (properties.containsKey(USE_PATH_STYLE)) {

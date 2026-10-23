@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -794,6 +795,8 @@ public class S3ResourceTest {
             Assertions.assertEquals(Integer.parseInt(connector.getRequestTimeoutMs()), thrift.getRequestTimeoutMs());
             Assertions.assertEquals(Integer.parseInt(connector.getConnectionTimeoutMs()), thrift.getConnTimeoutMs());
             Assertions.assertEquals(Boolean.parseBoolean(connector.getUsePathStyle()), thrift.isUsePathStyle());
+            Assertions.assertEquals(Cloud.ObjectStoreInfoPB.Provider.GCP,
+                    CloudObjectStoreAdapter.getObjStoreInfoPB(normalized).getProvider());
             Assertions.assertEquals(connector.getAccessKey(), CloudObjectStoreAdapter.getObjStoreInfoPB(normalized).getAk());
             Assertions.assertEquals(connector.getSecretKey(), CloudObjectStoreAdapter.getObjStoreInfoPB(normalized).getSk());
             Assertions.assertEquals(thrift.isUsePathStyle(), CloudObjectStoreAdapter.getObjStoreInfoPB(normalized).getUsePathStyle());
