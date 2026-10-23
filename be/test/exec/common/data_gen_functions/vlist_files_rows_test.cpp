@@ -33,10 +33,10 @@ namespace doris {
 TEST(ListFilesRowsTest, DirectoryNullsSizesAndProjectionsAcrossBatches) {
     const std::array<std::string, 3> names {"path", "size", "file"};
     const std::array<DataTypePtr, 3> types {std::make_shared<DataTypeString>(),
-                                          std::make_shared<DataTypeInt64>(),
-                                          std::make_shared<DataTypeFile>()};
-    const std::vector<std::vector<size_t>> projections {
-            {0, 1, 2}, {0}, {1}, {2}, {0, 1}, {0, 2}, {1, 2}, {2, 0}, {2, 1, 0}};
+                                            std::make_shared<DataTypeInt64>(),
+                                            std::make_shared<DataTypeFile>()};
+    const std::vector<std::vector<size_t>> projections {{0, 1, 2}, {0},    {1},    {2},      {0, 1},
+                                                        {0, 2},    {1, 2}, {2, 0}, {2, 1, 0}};
     for (bool recursive : {false, true}) {
         for (const auto& projection : projections) {
             TTupleDescriptor tuple_spec;

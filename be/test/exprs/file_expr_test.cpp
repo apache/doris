@@ -38,8 +38,8 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/table_function/table_function_factory.h"
 #include "exprs/table_function/vexplode_file.h"
-#include "exprs/vectorized_fn_call.h"
 #include "exprs/vcast_expr.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
@@ -416,7 +416,8 @@ TEST_F(FileExprTest, CastRejectsScalarInputsAndFileToString) {
         const auto array_type = std::make_shared<DataTypeArray>(make_nullable(file_type));
         EXPECT_FALSE(
                 cast(column(array_type, {Field::create_field<TYPE_ARRAY>(Array {file_value()})}),
-                     make_nullable(text), strict, output).ok());
+                     make_nullable(text), strict, output)
+                        .ok());
     }
 }
 
@@ -450,14 +451,16 @@ TEST_F(FileExprTest, VariantCastsAreUnsupported) {
         value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
         const auto input = column(make_nullable(file_type), {value, Field()});
         ColumnPtr variant;
-        const auto json_input = column(json_type,
+        const auto json_input = column(
+                json_type,
                 {json(R"({"uri":"s3://b/variant","offset":0,"size":3,"content_type":null,"checksum":null,"inline":null})")});
         ASSERT_TRUE(cast(json_input, variant_type, true, variant).ok());
         for (bool strict : {false, true}) {
             ColumnPtr output;
             EXPECT_FALSE(cast(input, variant_type, strict, output).ok());
-            EXPECT_FALSE(cast({variant, variant_type, "variant"}, make_nullable(file_type),
-                              strict, output).ok());
+            EXPECT_FALSE(cast({variant, variant_type, "variant"}, make_nullable(file_type), strict,
+                              output)
+                                 .ok());
         }
         EXPECT_EQ((*input.column)[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().str(), bytes);
     }
@@ -487,7 +490,8 @@ TEST_F(FileExprTest, VariantCastsRejectAllInputValues) {
     for (bool strict : {false, true}) {
         for (size_t row = 0; row < variant->size(); ++row) {
             EXPECT_FALSE(cast({variant->cut(row, 1), variant_type, "variant"},
-                              make_nullable(file_type), strict, output).ok());
+                              make_nullable(file_type), strict, output)
+                                 .ok());
         }
     }
 }
@@ -506,7 +510,8 @@ TEST_F(FileExprTest, JsonCastsAreUnsupported) {
     for (bool strict : {false, true}) {
         for (size_t row = 0; row < input.column->size(); ++row) {
             EXPECT_FALSE(cast({input.column->cut(row, 1), json_type, "input"},
-                              make_nullable(file_type), strict, output).ok());
+                              make_nullable(file_type), strict, output)
+                                 .ok());
         }
         EXPECT_FALSE(cast(column(file_type, {file_value()}), json_type, strict, output).ok());
     }
@@ -770,8 +775,8 @@ TEST_F(FileExprTest, BinaryGetterSharesStoredPayloadAndDetachesBeforeMutation) {
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
     auto input = column(file_type, {value, value});
     const auto& source = assert_cast<const ColumnFile&>(*input.column);
-    auto function = SimpleFunctionFactory::instance().get_function(
-            "fl_get_binary", {input}, make_nullable(binary));
+    auto function = SimpleFunctionFactory::instance().get_function("fl_get_binary", {input},
+                                                                   make_nullable(binary));
     ASSERT_NE(function, nullptr);
     Block block {input, {nullptr, make_nullable(binary), "binary"}};
     ASSERT_TRUE(function->execute(nullptr, block, {0}, 1, 2).ok());
@@ -915,7 +920,8 @@ TEST_F(FileExprTest, NestedFileToStructCastIsUnsupportedAndIdentityPreservesInli
     EXPECT_EQ((*output)[0].get<TYPE_ARRAY>()[0].get<TYPE_FILE>()[5].get<TYPE_VARBINARY>().size(),
               3);
     EXPECT_FALSE(cast(input, std::make_shared<DataTypeArray>(make_nullable(public_struct())), true,
-                      output).ok());
+                      output)
+                         .ok());
 }
 
 TEST_F(FileExprTest, ExplodeFilePublicFieldsNullAndOuterRows) {

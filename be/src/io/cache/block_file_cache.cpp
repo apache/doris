@@ -2797,9 +2797,9 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
 }
 
 template FileBlockCell* BlockFileCache::get_cell(const UInt128Wrapper& hash, size_t offset,
-                                                std::lock_guard<std::mutex>& cache_lock);
+                                                 std::lock_guard<std::mutex>& cache_lock);
 template FileBlockCell* BlockFileCache::get_cell(const UInt128Wrapper& hash, size_t offset,
-                                                std::unique_lock<std::mutex>& cache_lock);
+                                                 std::unique_lock<std::mutex>& cache_lock);
 
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
