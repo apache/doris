@@ -18,33 +18,42 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.analysis.ExprId;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.FileType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.proto.Types.PGenericType;
 import org.apache.doris.proto.Types.PGenericType.TypeId;
-import org.apache.doris.proto.Types.PScalarType;
-import org.apache.doris.proto.Types.PStructField;
-import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.proto.Types.PValues;
 import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -63,6 +72,48 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
                         + "\"content_type\":null,\"checksum\":null,\"inline\":null}")), FileType.INSTANCE);
         Assertions.assertTrue(expression.isConstant());
         Assertions.assertTrue(collectConstants(expression).isEmpty());
+    }
+
+    @Test
+    void testFileCastsRemainForRuntimeEvaluation() {
+        StructLiteral fileFields = new StructLiteral(ImmutableList.of(new StringLiteral("urn:x"),
+                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
+                new NullLiteral(StringType.INSTANCE), new NullLiteral(StringType.INSTANCE),
+                new NullLiteral(VarBinaryType.INSTANCE)), FileType.INSTANCE.publicStructType());
+        List<Expression> expressions = ImmutableList.of(
+                new Cast(fileFields, FileType.INSTANCE),
+                new Cast(new ArrayLiteral(ImmutableList.of(fileFields)), ArrayType.of(FileType.INSTANCE)),
+                new Cast(new MapLiteral(ImmutableMap.of(new StringLiteral("f"), fileFields)),
+                        MapType.of(StringType.INSTANCE, FileType.INSTANCE)),
+                new Cast(new StructLiteral(ImmutableList.of(fileFields)),
+                        new StructType(ImmutableList.of(new StructField("f", FileType.INSTANCE, true, "")))));
+        for (Expression expression : expressions) {
+            Assertions.assertTrue(expression.isConstant());
+            Assertions.assertTrue(CheckCast.check(expression.child(0).getDataType(), expression.getDataType(), false));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> expression.child(0).checkedCastTo(expression.getDataType()));
+            Assertions.assertSame(expression, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(expression, context));
+            Assertions.assertTrue(collectConstants(expression).isEmpty(), expression.toSql());
+            Assertions.assertTrue(collectConstants(new IsNull(expression)).isEmpty(), expression.toSql());
+        }
+        Expression supported = new EqualTo(new Add(new IntegerLiteral(1), new IntegerLiteral(2)),
+                new IntegerLiteral(3));
+        Assertions.assertEquals(ImmutableList.of(supported),
+                collectConstants(new And(new IsNull(expressions.get(0)), supported)));
+    }
+
+    @Test
+    void testFileNullCastsUseNativeLiteralFolding() {
+        for (DataType type : ImmutableList.of(FileType.INSTANCE, ArrayType.of(FileType.INSTANCE),
+                MapType.of(StringType.INSTANCE, FileType.INSTANCE),
+                new StructType(ImmutableList.of(new StructField("f", FileType.INSTANCE, true, ""))))) {
+            Assertions.assertEquals(new NullLiteral(type), FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
+                    new Cast(new NullLiteral(), type), context));
+        }
+        ArrayType fileArray = ArrayType.of(FileType.INSTANCE);
+        Assertions.assertEquals(new ArrayLiteral(ImmutableList.of(new NullLiteral(FileType.INSTANCE)), fileArray),
+                FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(new Cast(
+                        new ArrayLiteral(ImmutableList.of(new NullLiteral())), fileArray), context));
     }
 
     @Test
@@ -85,32 +136,6 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
         for (int row = 0; row < expected.size(); row++) {
             Assertions.assertEquals(new StructLiteral(ImmutableList.of(expected.get(row)), type), decoded.get(row));
         }
-    }
-
-    @Test
-    void testReconstructFileTypeFromBeMetadata() {
-        PTypeNode.Builder root = PTypeNode.newBuilder().setType(TTypeNodeType.FILE.getValue());
-        List<PTypeNode> nodes = new ArrayList<>();
-        nodes.add(null);
-        for (org.apache.doris.catalog.StructField field : Type.FILE.getFields()) {
-            root.addStructFields(PStructField.newBuilder().setName(field.getName()).setContainsNull(true));
-            nodes.add(PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
-                    .setScalarType(PScalarType.newBuilder().setType(field.getType().getPrimitiveType().toThrift()
-                            .getValue()).setLen(field.getType().getLength())).build());
-        }
-        nodes.set(0, root.build());
-        // Exercise the protobuf type reconstruction that precedes value decoding.
-        Pair<DataType, Integer> decoded = Deencapsulation.invoke(FoldConstantRuleOnBE.class,
-                "convertToNereidsType", nodes, 0);
-        Assertions.assertSame(FileType.INSTANCE, decoded.key());
-        Assertions.assertEquals(7, decoded.value());
-        nodes.add(0, PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
-                .setScalarType(PScalarType.newBuilder().setType(
-                        org.apache.doris.thrift.TPrimitiveType.ARRAY.getValue())).build());
-        Pair<DataType, Integer> nested = Deencapsulation.invoke(FoldConstantRuleOnBE.class,
-                "convertToNereidsType", nodes, 0);
-        Assertions.assertEquals(org.apache.doris.nereids.types.ArrayType.of(FileType.INSTANCE), nested.key());
-        Assertions.assertEquals(8, nested.value());
     }
 
     private List<Expression> collectConstants(Expression expression) {

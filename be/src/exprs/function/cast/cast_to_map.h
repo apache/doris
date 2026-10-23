@@ -107,7 +107,7 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
             (contains_file_type(from_kv_types[0]) || contains_file_type(from_kv_types[1]) ||
              contains_file_type(to_kv_types[0]) || contains_file_type(to_kv_types[1]))) {
             // Both keys and values use entry rows rather than map rows.
-            child_null_map.resize(from_col_map->get_keys_ptr()->size(), 0);
+            child_null_map.resize_fill(from_col_map->get_keys_ptr()->size(), 0);
             const auto& offsets = from_col_map->get_offsets();
             size_t begin = 0;
             for (size_t row = 0; row < from_col_map->size(); ++row) {

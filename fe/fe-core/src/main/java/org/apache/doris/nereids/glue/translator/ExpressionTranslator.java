@@ -51,7 +51,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.dictionary.Dictionary;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -116,7 +115,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -772,14 +770,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitToFile(ToFile toFile, PlanTranslatorContext context) {
-        // Translation runs for the current EXECUTE. Never retain credentials on
-        // the Nereids expression, which can be reused by a prepared statement.
-        StatementContext statement = context.getStatementContext();
-        ConnectContext connection = statement.getConnectContext();
-        if (connection != null && connection.getStatementContext() != null) {
-            statement = connection.getStatementContext();
-        }
-        statement.registerUsedS3ResourceName(toFile.getResourceName());
+        context.getConnectContext().getOrRegisterS3Resource(toFile.getResourceName());
         return visitScalarFunction(toFile, context);
     }
 

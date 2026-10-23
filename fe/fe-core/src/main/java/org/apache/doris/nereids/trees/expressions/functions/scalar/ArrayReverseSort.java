@@ -65,7 +65,7 @@ public class ArrayReverseSort extends ScalarFunction
                 itemType = ((ArrayType) itemType).getItemType();
             }
             if (itemType.isMapType() || itemType.isStructType()
-                    || itemType.isVariantType() || itemType.isJsonType()) {
+                    || itemType.isVariantType() || itemType.isJsonType() || itemType.typeContainsFile()) {
                 throw new AnalysisException("array_reverse_sort does not support types: " + argType.toSql());
             }
         }

@@ -51,10 +51,7 @@ public:
     const DataTypes& get_elements() const { return _elements; }
     const DataTypePtr& get_element(size_t i) const { return _elements.at(i); }
     const Strings& get_element_names() const { return _names; }
-    const String& get_element_name(size_t i) const { return _names.at(i); }
-    size_t get_position_by_name(const String& name) const;
     std::optional<size_t> try_get_position_by_name(const String& name) const;
-    String get_name_by_position(size_t i) const { return _names.at(i); }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;

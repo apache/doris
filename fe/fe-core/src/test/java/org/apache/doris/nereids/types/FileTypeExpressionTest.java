@@ -17,16 +17,16 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnBE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -51,9 +51,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFileOuter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCompact;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -64,24 +66,18 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.FileLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.proto.Types.PGenericType;
-import org.apache.doris.proto.Types.PGenericType.TypeId;
-import org.apache.doris.proto.Types.PValues;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.doris.thrift.TResultSinkType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -104,6 +100,41 @@ public class FileTypeExpressionTest {
     }
 
     @Test
+    public void testFlightRejectsOnlyFileResultColumns() {
+        ConnectContext previous = ConnectContext.get();
+        try {
+            ConnectContext flight = MemoTestUtils.createConnectContext();
+            flight.setResultSinkType(TResultSinkType.ARROW_FLIGHT_PROTOCOL);
+            flight.setCurrentUserIdentity(UserIdentity.ROOT);
+            flight.setRemoteIP("127.0.0.1");
+            flight.setEnv(Env.getCurrentEnv());
+            flight.setThreadLocalInfo();
+            String file = "cast(named_struct('uri', 'urn:x', 'offset', null, 'size', null, "
+                    + "'content_type', null, 'checksum', null, 'inline', null) as file)";
+            for (String value : Arrays.asList("cast(null as file)", file, "array(" + file + ")",
+                    "named_struct('f', " + file + ")", "map('key', " + file + ")")) {
+                String sql = "select " + value;
+                assertAnalysisError("Arrow Flight does not support FILE result columns",
+                        () -> PlanChecker.from(flight).analyze(sql), sql);
+                Assertions.assertDoesNotThrow(
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
+                flight.setThreadLocalInfo();
+            }
+            for (String sql : Arrays.asList("select 1", "select named_struct('s', 'text')",
+                    "select element_at(" + file + ", 'uri')",
+                    "select cast(" + file + " as json)")) {
+                Assertions.assertDoesNotThrow(() -> PlanChecker.from(flight).analyze(sql), sql);
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testFileChecksDoNotReconstructPersistedDecimalArithmeticTypes() {
         ConnectContext previous = ConnectContext.get();
         try {
@@ -118,8 +149,6 @@ public class FileTypeExpressionTest {
             Assertions.assertThrows(NotSupportedException.class, divide::getDataType);
             Assertions.assertDoesNotThrow(divide::checkInputDataTypes);
             Assertions.assertDoesNotThrow(alias::checkInputDataTypes);
-            Assertions.assertDoesNotThrow(() -> Expression.checkFileExecutionVersion(divide));
-            Assertions.assertDoesNotThrow(() -> Expression.checkFileExecutionVersion(alias));
             Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
             Assertions.assertFalse(context.getSessionVariable().isEnableDecimal256());
         } finally {
@@ -158,6 +187,29 @@ public class FileTypeExpressionTest {
             Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select " + expression + " from (select 1 id, cast(null as file) f, "
                             + "cast(null as array<file>) files) t"), expression);
+        }
+    }
+
+    @Test
+    public void testArrayComparisonFunctionsRejectNestedFile() {
+        for (String sqlType : Arrays.asList("ARRAY<FILE>", "ARRAY<ARRAY<FILE>>",
+                "ARRAY<STRUCT<f:FILE>>", "ARRAY<MAP<STRING,FILE>>")) {
+            Expression array = new SlotReference("files", type(sqlType));
+            for (BoundFunction function : Arrays.asList(new ArrayReverseSort(array), new ArrayCompact(array))) {
+                String expected = function.getName() + " does not support type";
+                assertAnalysisError(expected, () -> TypeCoercionUtils.processBoundFunction(function), sqlType);
+                String sql = "select " + function.getName() + "(files) from (select cast(null as "
+                        + sqlType + ") files) t";
+                assertAnalysisError(expected,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
+            }
+        }
+        for (String sqlType : Arrays.asList("ARRAY<INT>", "ARRAY<ARRAY<INT>>")) {
+            Expression array = new SlotReference("values", type(sqlType));
+            for (BoundFunction function : Arrays.asList(new ArrayReverseSort(array), new ArrayCompact(array))) {
+                Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processBoundFunction(function),
+                        function.getName() + " " + sqlType);
+            }
         }
     }
 
@@ -202,7 +254,8 @@ public class FileTypeExpressionTest {
         for (Expression selector : Arrays.asList(new StringLiteral("path"),
                 new IntegerLiteral(1), new SlotReference("s", StringType.INSTANCE))) {
             assertAnalysisError(selector instanceof StringLiteral
-                    ? "Unknown FILE field:" : "element_at over FILE requires a constant public field name",
+                    ? "the specified field name path was not found"
+                    : "element_at over FILE requires a constant public field name",
                     () -> TypeCoercionUtils.processBoundFunction(new ElementAt(file, selector)));
         }
     }
@@ -373,7 +426,7 @@ public class FileTypeExpressionTest {
                     () -> TypeCoercionUtils.processInPredicate(
                             new InPredicate(value, Collections.singletonList(value))));
             assertAnalysisError("does not support FILE",
-                    () -> Expression.checkFileKey(value, "ORDER BY"));
+                    () -> ExpressionUtils.checkFileKey(value, "ORDER BY"));
         }
     }
 
@@ -402,13 +455,14 @@ public class FileTypeExpressionTest {
     }
 
     @Test
-    public void testElementAtExplodeAndReverseCastFieldRewrite() {
+    public void testElementAtExplodeAndReverseCastFields() {
         Expression file = new SlotReference("f", FileType.INSTANCE);
         for (StructField field : FileType.INSTANCE.getFields()) {
             Expression accessed = ExpressionAnalyzer.analyzeFunction(null, null,
                     new ElementAt(file, new StringLiteral(field.getName().toUpperCase(Locale.ROOT))));
             Assertions.assertTrue(accessed instanceof ElementAt);
-            Assertions.assertEquals(field.getName(), ((StringLiteral) accessed.child(1)).getStringValue());
+            Assertions.assertEquals(field.getName().toUpperCase(Locale.ROOT),
+                    ((StringLiteral) accessed.child(1)).getStringValue());
             Assertions.assertEquals(field.getDataType(), accessed.getDataType());
             Assertions.assertTrue(accessed.nullable());
         }
@@ -420,12 +474,12 @@ public class FileTypeExpressionTest {
             Assertions.assertEquals(FileType.INSTANCE.publicStructType(),
                     TypeCoercionUtils.processBoundFunction(explode).getDataType());
         }
-        Expression accessed = TypeCoercionUtils.processBoundFunction(new ElementAt(
-                new Cast(file, FileType.INSTANCE.publicStructType(), true), new StringLiteral("INLINE")));
+        Cast struct = new Cast(file, FileType.INSTANCE.publicStructType(), true);
+        Expression accessed = TypeCoercionUtils.processBoundFunction(new ElementAt(struct, new StringLiteral("INLINE")));
         Assertions.assertTrue(accessed instanceof ElementAt);
-        Assertions.assertSame(file, accessed.child(0));
+        Assertions.assertSame(struct, accessed.child(0));
         Assertions.assertEquals(VarBinaryType.INSTANCE, accessed.getDataType());
-        Assertions.assertEquals("inline", ((StringLiteral) accessed.child(1)).getStringValue());
+        Assertions.assertEquals("INLINE", ((StringLiteral) accessed.child(1)).getStringValue());
     }
 
     @Test
@@ -567,81 +621,6 @@ public class FileTypeExpressionTest {
     }
 
     @Test
-    public void testInlineOnlyLiteralPreservesNullUri() {
-        for (byte[] bytes : Arrays.asList(new byte[0], new byte[] {0, (byte) 0xff})) {
-            FileLiteral literal = new FileLiteral(Arrays.asList(new NullLiteral(VarcharType.createVarcharType(65533)),
-                    new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
-                    new NullLiteral(VarcharType.createVarcharType(1024)),
-                    new NullLiteral(VarcharType.createVarcharType(1024)), new VarBinaryLiteral(bytes)));
-            Assertions.assertTrue(literal.getStringValue().contains("\"uri\":null"));
-            TExpr wire = literal.toLegacyLiteral().treeToThrift();
-            Assertions.assertEquals(TExprNodeType.NULL_LITERAL, wire.getNodes().get(1).getNodeType());
-            Assertions.assertEquals(TExprNodeType.FILE_LITERAL, wire.getNodes().get(0).getNodeType());
-            Assertions.assertEquals(6, wire.getNodes().get(0).getNumChildren());
-            Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                    .analyze("select " + literal.toSql()));
-        }
-        Assertions.assertThrows(IllegalArgumentException.class, () -> new FileLiteral(Arrays.asList(
-                new NullLiteral(VarcharType.createVarcharType(65533)), new NullLiteral(BigIntType.INSTANCE),
-                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(VarcharType.createVarcharType(1024)),
-                new NullLiteral(VarcharType.createVarcharType(1024)), new NullLiteral(VarBinaryType.INSTANCE))));
-    }
-
-    @Test
-    public void testIndependentLiteralAndSixChildWire() {
-        FileLiteral literal = new FileLiteral(Arrays.asList(new StringLiteral("urn:x"),
-                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
-                new NullLiteral(VarcharType.createVarcharType(1024)),
-                new NullLiteral(VarcharType.createVarcharType(1024)), new NullLiteral(VarBinaryType.INSTANCE)));
-        Assertions.assertEquals(Literal.class, literal.getClass().getSuperclass());
-        TExpr wire = literal.toLegacyLiteral().treeToThrift();
-        Assertions.assertEquals(TExprNodeType.FILE_LITERAL, wire.getNodes().get(0).getNodeType());
-        Assertions.assertEquals(6, wire.getNodes().get(0).getNumChildren());
-        Assertions.assertEquals(7, wire.getNodesSize());
-        Assertions.assertTrue(literal.getStringValue().contains("\"inline\":null"));
-        Assertions.assertTrue(literal.toSql().contains("'inline'"));
-        Assertions.assertTrue(literal.toLegacyLiteral().toSql()
-                .contains("'inline'"));
-        FileLiteral binary = new FileLiteral(Arrays.asList(new StringLiteral("urn:x"),
-                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
-                new NullLiteral(VarcharType.createVarcharType(1024)),
-                new NullLiteral(VarcharType.createVarcharType(1024)),
-                new VarBinaryLiteral(new byte[] {0, (byte) 0xff, (byte) 0x80})));
-        Assertions.assertTrue(binary.getStringValue().contains("\"inline\":\"AP+A\""));
-        Assertions.assertTrue(binary.toSql().contains("X'00FF80'"));
-        Assertions.assertTrue(binary.toLegacyLiteral().toSql()
-                .contains("X'00FF80'"));
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                .analyze("select " + binary.toSql()));
-        FileLiteral empty = new FileLiteral(Arrays.asList(new StringLiteral("urn:empty"),
-                new NullLiteral(BigIntType.INSTANCE), new NullLiteral(BigIntType.INSTANCE),
-                new NullLiteral(VarcharType.createVarcharType(1024)),
-                new NullLiteral(VarcharType.createVarcharType(1024)), new VarBinaryLiteral(new byte[0])));
-        Assertions.assertTrue(empty.getStringValue().contains("\"inline\":\"\""));
-        Assertions.assertTrue(empty.toSql().contains("X''"));
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> literal.toLegacyLiteral().compareLiteral(literal.toLegacyLiteral()));
-        PValues.Builder values = PValues.newBuilder().setType(PGenericType.newBuilder().setId(TypeId.FILE));
-        values.addChildElement(PValues.newBuilder().setType(PGenericType.newBuilder().setId(TypeId.STRING))
-                .addStringValue("urn:x"));
-        for (int i = 1; i < 6; i++) {
-            PValues.Builder child = PValues.newBuilder().setHasNull(true).addNullMap(true)
-                    .setType(PGenericType.newBuilder().setId(i <= 2 ? TypeId.INT64
-                            : i < 5 ? TypeId.STRING : TypeId.VARBINARY));
-            if (i <= 2) {
-                child.addInt64Value(0);
-            } else if (i < 5) {
-                child.addStringValue("");
-            } else {
-                child.addBytesValue(com.google.protobuf.ByteString.EMPTY);
-            }
-            values.addChildElement(child);
-        }
-        Assertions.assertEquals(Collections.singletonList(literal),
-                FoldConstantRuleOnBE.getResultExpression(FileType.INSTANCE, values.build()));
-    }
-
-    @Test
     public void testSqlValueTransportAndExplodeAliases() {
         for (String sql : Arrays.asList(
                 "select element_at(cast(null as file), 'uri')",
@@ -737,7 +716,7 @@ public class FileTypeExpressionTest {
             if (sql.contains("lateral view")) {
                 expectedMessage = "EXPLODE_FILE requires exactly six column aliases";
             } else if (sql.contains("missing")) {
-                expectedMessage = "Unknown FILE field:";
+                expectedMessage = "the specified field name missing was not found";
             } else if (sql.contains(" = ")) {
                 expectedMessage = "comparison predicate could not contains complex type";
             } else if (sql.startsWith("select min(")) {
@@ -746,23 +725,6 @@ public class FileTypeExpressionTest {
             assertAnalysisError(expectedMessage,
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
         }
-    }
-
-    @Test
-    public void testQueryVersionGate() {
-        LogicalOneRowRelation relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                Collections.singletonList(new Alias(new NullLiteral(FileType.INSTANCE), "f")));
-        int version = Config.be_exec_version;
-        try {
-            Config.be_exec_version = Config.FILE_MIN_BE_EXEC_VERSION - 1;
-            assertAnalysisError("FILE requires execution version", () -> CheckAnalysis.checkFilePlan(relation));
-            Expression getter = ExpressionAnalyzer.analyzeFunction(null, null,
-                    new ElementAt(new SlotReference("f", FileType.INSTANCE), new StringLiteral("uri")));
-            assertAnalysisError("FILE requires execution version", getter::checkInputDataTypes);
-        } finally {
-            Config.be_exec_version = version;
-        }
-        Assertions.assertDoesNotThrow(() -> CheckAnalysis.checkFilePlan(relation));
     }
 
     @Test

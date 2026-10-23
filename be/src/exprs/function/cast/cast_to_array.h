@@ -75,7 +75,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
             if (null_map &&
                 (contains_file_type(from_nested_type) || contains_file_type(to_nested_type))) {
                 // A nullable array masks rows; FILE validation reads element rows.
-                child_null_map.resize(from_col_array->get_data_ptr()->size(), 0);
+                child_null_map.resize_fill(from_col_array->get_data_ptr()->size(), 0);
                 const auto& offsets = from_col_array->get_offsets();
                 size_t begin = 0;
                 for (size_t row = 0; row < from_col_array->size(); ++row) {

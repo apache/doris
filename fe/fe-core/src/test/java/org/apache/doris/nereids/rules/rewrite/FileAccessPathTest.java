@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -94,6 +95,45 @@ public class FileAccessPathTest {
         for (Expression expression : ImmutableList.of(new IsNull(field(file, "size")))) {
             Assertions.assertEquals(ImmutableList.of(data("f", "size")),
                     prune(file, expression).getAllAccessPaths());
+        }
+    }
+
+    @Test
+    public void testFileStringFieldAccessPaths() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        for (String name : ImmutableList.of("uri", "content_type", "checksum")) {
+            Expression getter = field(file, name);
+            AccessPathInfo info = prune(file, new Length(getter));
+            Assertions.assertEquals(ImmutableList.of(data("f", name)), info.getAllAccessPaths());
+            Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+            Assertions.assertEquals(ImmutableList.of(data("f", name)),
+                    prune(file, new IsNull(getter)).getAllAccessPaths());
+            Assertions.assertEquals(ImmutableList.of(data("f", name)),
+                    prune(file, collect(file, false, true, new Length(getter))).getAllAccessPaths());
+        }
+    }
+
+    @Test
+    public void testAccessPathsDoNotCrossFileConversionCasts() {
+        SlotReference file = slot("f", FileType.INSTANCE, true);
+        Expression identityField = field(new Cast(file, FileType.INSTANCE), "uri");
+        Assertions.assertEquals(ImmutableList.of(data("f", "uri")),
+                prune(file, new Length(identityField)).getAllAccessPaths());
+        Assertions.assertEquals(ImmutableList.of(data("f", "uri")),
+                prune(file, new IsNull(identityField)).getAllAccessPaths());
+
+        Expression structField = field(new Cast(file, FileType.INSTANCE.publicStructType(), true), "uri");
+        for (Expression expression : ImmutableList.of(new Length(structField), new IsNull(structField))) {
+            AccessPathInfo info = prune(file, expression);
+            Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
+            Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
+        }
+        SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
+        Expression fileField = field(new Cast(struct, FileType.INSTANCE, true), "uri");
+        for (Expression expression : ImmutableList.of(new Length(fileField), new IsNull(fileField))) {
+            AccessPathInfo info = prune(struct, expression);
+            Assertions.assertEquals(ImmutableList.of(data("s")), info.getAllAccessPaths());
+            Assertions.assertEquals(struct.getDataType(), info.getPrunedType());
         }
     }
 
@@ -170,11 +210,12 @@ public class FileAccessPathTest {
                 prune(file, field(new Cast(file, FileType.INSTANCE.publicStructType(), true), "size"))
                         .getAllAccessPaths());
         for (Expression selector : ImmutableList.of(new StringLiteral("size"), new IntegerLiteral(3))) {
-            Expression rewritten = TypeCoercionUtils.processBoundFunction(new ElementAt(
+            Expression accessed = TypeCoercionUtils.processBoundFunction(new ElementAt(
                     new Cast(file, FileType.INSTANCE.publicStructType(), true), selector));
-            Assertions.assertEquals(ImmutableList.of(data("f", "size")), prune(file, rewritten).getAllAccessPaths());
-            Assertions.assertEquals(ImmutableList.of(data("f", "size")),
-                    prune(file, new IsNull(rewritten)).getAllAccessPaths());
+            Assertions.assertTrue(accessed.child(0) instanceof Cast);
+            Assertions.assertEquals(ImmutableList.of(data("f")), prune(file, accessed).getAllAccessPaths());
+            Assertions.assertEquals(ImmutableList.of(data("f")),
+                    prune(file, new IsNull(accessed)).getAllAccessPaths());
         }
         SlotReference struct = slot("s", FileType.INSTANCE.publicStructType(), true);
         Assertions.assertEquals(ImmutableList.of(data("s")),
