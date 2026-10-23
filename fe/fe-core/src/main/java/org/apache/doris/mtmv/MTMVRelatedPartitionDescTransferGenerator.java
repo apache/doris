@@ -31,7 +31,6 @@ import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -84,7 +83,7 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
      * partitioned base table can hold several keys of the MV's partition column, so two partitions -- of one
      * table or of two -- can describe keys that meet, and an MV's own partitions cannot overlap. The one
      * partition that holds a group's keys names every table's partitions of them, which is what a refresh
-     * reads and records for those keys (see {@link MTMVPartitionUtil#mergedListDescs}).
+     * reads and records for those keys (see {@link MTMVPartitionUtil#groupedListDescs}).
      *
      * <p>Merging across tables, not within each of them, is what keeps the MV buildable: two tables of a
      * multi-table MV have to come out with the same descs, or one table's merged desc repeats a key another
@@ -96,16 +95,21 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
         for (Map<PartitionKeyDesc, Set<String>> onePctDescs : descs.values()) {
             allDescs.addAll(onePctDescs.keySet());
         }
-        Map<PartitionKeyDesc, PartitionKeyDesc> mergedOfDesc = MTMVPartitionUtil.mergedListDescs(allDescs);
+        Map<PartitionKeyDesc, Set<PartitionKeyDesc>> groups = MTMVPartitionUtil.groupedListDescs(allDescs);
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
-        for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
-            for (Entry<PartitionKeyDesc, Set<String>> onePctEntry : entry.getValue().entrySet()) {
-                PartitionKeyDesc desc = mergedOfDesc.getOrDefault(onePctEntry.getKey(), onePctEntry.getKey());
-                res.computeIfAbsent(desc, k -> new HashMap<>())
-                        .merge(entry.getKey(), Sets.newHashSet(onePctEntry.getValue()), (left, right) -> {
-                            left.addAll(right);
-                            return left;
-                        });
+        for (Entry<PartitionKeyDesc, Set<PartitionKeyDesc>> group : groups.entrySet()) {
+            Map<MTMVRelatedTableIf, Set<String>> namesByTable = Maps.newHashMap();
+            for (Entry<MTMVRelatedTableIf, Map<PartitionKeyDesc, Set<String>>> entry : descs.entrySet()) {
+                for (PartitionKeyDesc source : group.getValue()) {
+                    Set<String> names = entry.getValue().get(source);
+                    if (names == null) {
+                        continue;
+                    }
+                    namesByTable.computeIfAbsent(entry.getKey(), k -> Sets.newHashSet()).addAll(names);
+                }
+            }
+            if (!namesByTable.isEmpty()) {
+                res.put(group.getKey(), namesByTable);
             }
         }
         return res;

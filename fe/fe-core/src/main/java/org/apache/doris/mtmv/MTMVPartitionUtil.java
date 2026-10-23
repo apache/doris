@@ -338,19 +338,24 @@ public class MTMVPartitionUtil {
     }
 
     /**
-     * The desc of the MV partition each of these descs belongs to: the keys of a list partitioned base table
-     * can meet at the MV's partition column -- a partition holding several keys of it, one of them shared with
-     * another partition -- and an MV's own partitions cannot overlap, so descs whose keys meet are one
-     * partition whose keys are the union of theirs. A desc whose keys meet nothing is answered with itself,
-     * and so is every desc that is not a list of keys.
+     * The desc of the MV partition each of these descs belongs to, grouped: the keys of a list partitioned
+     * base table can meet at the MV's partition column -- a partition holding several keys of it, one of them
+     * shared with another partition -- and an MV's own partitions cannot overlap, so descs whose keys meet
+     * are one partition whose keys are the union of theirs. A desc whose keys meet nothing is answered with
+     * itself, and so is every desc that is not a list of keys.
      *
      * <p>The keys of a merged desc are written out in the order
      * {@link PartitionKeyDesc#sortedInValues} gives the same key set, which is the order
      * {@link ListPartitionItem#toPartitionKeyDesc(int)} writes it in too, because
      * {@link PartitionKeyDesc#equals} compares that list: the same keys in another order are another desc,
      * which would leave the MV partition an alignment computes unmatchable to the one it holds.
+     *
+     * <p>Answered as groups -- the merged desc, and the descs whose keys it holds -- rather than one merged
+     * desc per source desc: a caller mapping every source desc would otherwise hash the group's merged desc,
+     * N+1 keys, once per source desc in it, which is quadratic in a group of N.
      */
-    public static Map<PartitionKeyDesc, PartitionKeyDesc> mergedListDescs(Collection<PartitionKeyDesc> descs) {
+    public static Map<PartitionKeyDesc, Set<PartitionKeyDesc>> groupedListDescs(
+            Collection<PartitionKeyDesc> descs) {
         // A union-find over the keys: two descs whose keys meet end up in one group, transitively, and each
         // key is looked up once -- walking the groups per desc would be quadratic in the number of partitions.
         Map<List<PartitionValue>, List<PartitionValue>> groupOfKey = Maps.newHashMap();
@@ -369,31 +374,30 @@ public class MTMVPartitionUtil {
         for (List<PartitionValue> key : groupOfKey.keySet()) {
             keysOfGroup.computeIfAbsent(findKey(groupOfKey, key), k -> Sets.newHashSet()).add(key);
         }
-        Map<List<PartitionValue>, Integer> descCountOfGroup = Maps.newHashMap();
+        Map<List<PartitionValue>, Set<PartitionKeyDesc>> descsOfGroup = Maps.newHashMap();
         Map<List<PartitionValue>, PartitionKeyDesc> onlyDescOfGroup = Maps.newHashMap();
-        Map<PartitionKeyDesc, List<PartitionValue>> groupOfDesc = Maps.newHashMap();
         for (PartitionKeyDesc desc : descs) {
             if (!desc.hasInValues()) {
                 continue;
             }
             List<PartitionValue> group = findKey(groupOfKey, desc.getInValues().iterator().next());
-            groupOfDesc.put(desc, group);
-            descCountOfGroup.merge(group, 1, Integer::sum);
+            descsOfGroup.computeIfAbsent(group, k -> Sets.newHashSet()).add(desc);
             onlyDescOfGroup.putIfAbsent(group, desc);
         }
-        // One merged desc per group, not one per desc that joined it: a group of N descs would otherwise
-        // allocate and hash its N+1 keys N times over.
-        Map<List<PartitionValue>, PartitionKeyDesc> mergedDescOfGroup = Maps.newHashMap();
-        Map<PartitionKeyDesc, PartitionKeyDesc> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<PartitionKeyDesc>> res = Maps.newHashMap();
+        for (Entry<List<PartitionValue>, Set<PartitionKeyDesc>> entry : descsOfGroup.entrySet()) {
+            Set<PartitionKeyDesc> groupDescs = entry.getValue();
+            PartitionKeyDesc mergedDesc = groupDescs.size() == 1
+                    ? onlyDescOfGroup.get(entry.getKey())
+                    : PartitionKeyDesc.createIn(
+                            PartitionKeyDesc.sortedInValues(keysOfGroup.get(entry.getKey())));
+            res.put(mergedDesc, groupDescs);
+        }
+        // A desc that is not a list of keys meets nothing and is its own group.
         for (PartitionKeyDesc desc : descs) {
             if (!desc.hasInValues()) {
-                res.put(desc, desc);
-                continue;
+                res.put(desc, Sets.newHashSet(desc));
             }
-            List<PartitionValue> group = groupOfDesc.get(desc);
-            res.put(desc, mergedDescOfGroup.computeIfAbsent(group, k -> descCountOfGroup.get(k) == 1
-                    ? onlyDescOfGroup.get(k)
-                    : PartitionKeyDesc.createIn(PartitionKeyDesc.sortedInValues(keysOfGroup.get(k)))));
         }
         return res;
     }
