@@ -32,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -63,20 +62,16 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                 innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                         .when(topJoin -> checkReorder(topJoin, topJoin.left().child(),
                                 enableLeftZigZag))
-                        .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint()))
+                        .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
+                        .when(join -> join.left().isAllSlots()))
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
                             = topProject.child();
-                    Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
-                            normalizedProject = ProjectJoinReorderHelper.normalize(topJoin.left());
-                    if (!normalizedProject.isPresent()) {
-                        return null;
-                    }
                     /* ********** init ********** */
-                    LogicalJoin<Plan, Plan> bottomJoin = normalizedProject.get().child();
-                    Plan a = bottomJoin.left();
-                    Plan b = bottomJoin.right();
-                    Plan c = topJoin.right();
+                    LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
+                    GroupPlan a = bottomJoin.left();
+                    GroupPlan b = bottomJoin.right();
+                    GroupPlan c = topJoin.right();
                     Set<ExprId> bExprIdSet = b.getOutputExprIdSet();
 
                     /* ********** split Conjuncts ********** */

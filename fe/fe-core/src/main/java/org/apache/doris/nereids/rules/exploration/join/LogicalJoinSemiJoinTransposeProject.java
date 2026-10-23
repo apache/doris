@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -50,22 +49,18 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
                         .whenNot(topJoin -> topJoin.hasDistributeHint()
-                                || topJoin.left().child().hasDistributeHint()))
+                                || topJoin.left().child().hasDistributeHint())
+                        .when(join -> join.left().isAllSlots()))
                         .then(topProject -> {
                             LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
                                     = topProject.child();
-                            Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
-                                    normalizedProject = ProjectJoinReorderHelper.normalize(topJoin.left());
-                            if (!normalizedProject.isPresent()) {
-                                return null;
-                            }
-                            LogicalJoin<Plan, Plan> bottomJoin = normalizedProject.get().child();
+                            LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
                             if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
                                 return null;
                             }
-                            Plan a = bottomJoin.left();
-                            Plan b = bottomJoin.right();
-                            Plan c = topJoin.right();
+                            GroupPlan a = bottomJoin.left();
+                            GroupPlan b = bottomJoin.right();
+                            GroupPlan c = topJoin.right();
 
                             Set<ExprId> topUsedExprIds = new HashSet<>();
                             topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
@@ -88,22 +83,18 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
                         .whenNot(topJoin -> topJoin.hasDistributeHint()
-                                || topJoin.right().child().hasDistributeHint()))
+                                || topJoin.right().child().hasDistributeHint())
+                        .when(join -> join.right().isAllSlots()))
                         .then(topProject -> {
                             LogicalJoin<GroupPlan, LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin
                                     = topProject.child();
-                            Optional<LogicalProject<LogicalJoin<Plan, Plan>>>
-                                    normalizedProject = ProjectJoinReorderHelper.normalize(topJoin.right());
-                            if (!normalizedProject.isPresent()) {
-                                return null;
-                            }
-                            LogicalJoin<Plan, Plan> bottomJoin = normalizedProject.get().child();
+                            LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.right().child();
                             if (!JoinUtils.checkReorderPrecondition(topJoin, bottomJoin)) {
                                 return null;
                             }
-                            Plan a = topJoin.left();
-                            Plan b = bottomJoin.left();
-                            Plan c = bottomJoin.right();
+                            GroupPlan a = topJoin.left();
+                            GroupPlan b = bottomJoin.left();
+                            GroupPlan c = bottomJoin.right();
 
                             Set<ExprId> topUsedExprIds = new HashSet<>();
                             topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
