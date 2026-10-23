@@ -115,3 +115,6 @@ e	0	0	[{"value":0, "count":5}]	[{"value":0, "count":5}]
 -- !max_k_accepted --
 [{"value":1, "count":1}]	[{"value":1, "count":1}]
 
+-- !nonliteral_count_all_null --
+[]
+

@@ -195,6 +195,28 @@ suite("min_max_topk") {
         exception "min_topk requires a non-null constant count"
     }
 
+    // A count the FE cannot fold is validated by BE on every input row. Over a global aggregate
+    // the optimizer must therefore keep the rows even when x is NULL everywhere; filtering them
+    // away would silently return an empty array instead of reporting the NULL count.
+    test {
+        sql """SELECT min_topk(v, bitmap_min(bitmap_from_string('')))
+               FROM (SELECT CAST(NULL AS INT) AS v UNION ALL SELECT CAST(NULL AS INT) AS v) t"""
+        exception "the count of min_topk and max_topk must be a non-null constant"
+    }
+
+    test {
+        sql """SELECT max_topk(v, bitmap_min(bitmap_from_string('')))
+               FROM (SELECT CAST(NULL AS INT) AS v UNION ALL SELECT CAST(NULL AS INT) AS v) t"""
+        exception "the count of min_topk and max_topk must be a non-null constant"
+    }
+
+    // The same non-literal path with a valid count keeps returning the empty array for all-NULL
+    // input, so the row visibility change only affects the invalid-count error.
+    order_qt_nonliteral_count_all_null """
+        SELECT min_topk(v, bitmap_min(bitmap_from_string('1')))
+        FROM (SELECT CAST(NULL AS INT) AS v UNION ALL SELECT CAST(NULL AS INT) AS v) t
+    """
+
     test {
         sql "SELECT min_topk(DISTINCT i, 2) FROM min_max_topk_t"
         exception "min_topk does not support DISTINCT"
