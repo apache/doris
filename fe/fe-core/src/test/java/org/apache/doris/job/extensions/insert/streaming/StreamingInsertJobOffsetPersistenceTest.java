@@ -388,6 +388,50 @@ public class StreamingInsertJobOffsetPersistenceTest {
     }
 
     @Test
+    public void testCloudReplayDoesNotFetchProgressAndPendingFailurePreventsDispatch() throws Exception {
+        TestStreamingInsertJob job = Mockito.spy(newJob(new S3SourceOffsetProvider(), 1021L));
+        Deencapsulation.setField(job, "tvfType", S3TableValuedFunction.NAME);
+        Deencapsulation.setField(job, "runningStreamTask", null);
+        job.offsetProvider.restoreFromPersistInfo("{\"endFile\":\"data/a.csv\"}");
+        StreamingInsertJob replayJob = new StreamingInsertJob();
+        Deencapsulation.setField(replayJob, "jobId", 9001L);
+        Deencapsulation.setField(replayJob, "properties", new HashMap<String, String>());
+        Deencapsulation.setField(replayJob, "tvfType", S3TableValuedFunction.NAME);
+        replayJob.setJobStatus(JobStatus.PAUSED);
+        replayJob.getProperties().put(StreamingJobProperties.OFFSET_PROPERTY, "{\"fileName\":\"data/b.csv\"}");
+        replayJob.setOffsetProviderPersist("{\"endFile\":\"data/b.csv\"}");
+        replayJob.getJobStatistic().setScannedRows(10);
+        replayJob.getJobStatistic().setLoadBytes(218);
+        replayJob.getJobStatistic().setFileNumber(1);
+        replayJob.getJobStatistic().setFileSize(138);
+        replayJob.getJobStatistic().setFilteredRows(2);
+        StreamingInsertJob replayRecord = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(replayJob, StreamingInsertJob.class), StreamingInsertJob.class);
+        Mockito.doThrow(new JobException("MS unavailable")).when(job).replayOnCloudMode();
+
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+
+            job.replayOnUpdated(replayRecord);
+
+            Mockito.verify(job, Mockito.never()).replayOnCloudMode();
+            Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+            Assertions.assertEquals("{\"endFile\":\"data/b.csv\"}", job.getOffsetProviderPersist());
+            Assertions.assertEquals("{\"fileName\":\"data/b.csv\"}", job.offsetProvider.getShowCurrentOffset());
+            Assertions.assertEquals(replayJob.getJobStatistic().toJson(), job.getJobStatistic().toJson());
+
+            job.setJobStatus(JobStatus.PENDING);
+            new StreamingJobSchedulerTask(job).run();
+
+            Mockito.verify(job).replayOnCloudMode();
+            Assertions.assertEquals(JobStatus.PAUSED, job.getJobStatus());
+            Assertions.assertTrue(job.getFailureReason().getMsg().contains("MS unavailable"));
+            Mockito.verify(job, Mockito.never()).replayOffsetProviderIfNeed();
+            Mockito.verify(job, Mockito.never()).createStreamingTask();
+        }
+    }
+
+    @Test
     public void testReplayUpdatedRestoresFinalStateAndRemovesCallback() {
         TestStreamingInsertJob job = newJob(new JdbcSourceOffsetProvider(), 1013L);
         TestStreamingInsertJob replayJob = newJob(new JdbcSourceOffsetProvider(), 1014L);
