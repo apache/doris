@@ -169,7 +169,13 @@ public:
         // take the positions after the last captured column and are bound by name.
         std::set<int> captured_ids;
         children[0]->collect_slot_column_ids(captured_ids);
-        if (!captured_ids.empty() && block == nullptr) {
+        // An enclosing lambda's argument is a name reference rather than a slot, and this
+        // function executes its lambda against a block of its own that hides the parent frames.
+        // Publish the visible binding values under their names in that block, so the reference
+        // resolves by name like the merge arguments do.
+        std::vector<LambdaExecutionContext::Binding> enclosing_bindings;
+        context->lambda_execution_context().collect_visible_bindings(enclosing_bindings);
+        if ((!captured_ids.empty() || !enclosing_bindings.empty()) && block == nullptr) {
             return Status::InternalError(
                     "array_sorted_merge lambda references outer columns but has no input block");
         }
@@ -198,6 +204,25 @@ public:
                         ColumnUInt8::create(1, 0), std::make_shared<DataTypeUInt8>(), "temp"));
             }
         }
+        // The enclosing bindings go before the merge arguments, and the name lookup scans the
+        // block backwards, so a merge argument with the same name shadows the outer one.
+        std::vector<ColumnPtr> enclosing_columns;
+        std::vector<int> enclosing_positions;
+        for (const auto& binding : enclosing_bindings) {
+            if (binding.column_position < 0 ||
+                static_cast<size_t>(binding.column_position) >= block->columns()) {
+                return Status::InternalError(
+                        "array_sorted_merge enclosing lambda argument '{}' is outside the input "
+                        "block (position {})",
+                        binding.name, binding.column_position);
+            }
+            const auto& source = block->get_by_position(binding.column_position);
+            enclosing_columns.push_back(source.column->convert_to_full_column_if_const());
+            enclosing_positions.push_back(static_cast<int>(lambda_block.columns()));
+            lambda_block.insert(ColumnWithTypeAndName(enclosing_columns.back()->clone_empty(),
+                                                      source.type, binding.name));
+        }
+        const int merge_argument_base = static_cast<int>(lambda_block.columns());
         for (int i = 0; i < 2; ++i) {
             const std::string argument_name =
                     argument_names != nullptr && i < argument_names->size()
@@ -209,8 +234,8 @@ public:
         // The lambda arguments are bound by name (the column refs carry the argument names),
         // so the body reads these two one-row columns.
         IColumn* argument_columns[2] = {
-                lambda_block.get_by_position(lambda_argument_base).column->assert_mutable().get(),
-                lambda_block.get_by_position(lambda_argument_base + 1)
+                lambda_block.get_by_position(merge_argument_base).column->assert_mutable().get(),
+                lambda_block.get_by_position(merge_argument_base + 1)
                         .column->assert_mutable()
                         .get()};
 
@@ -257,6 +282,10 @@ public:
             const auto source_row = expr_selector == nullptr ? row : (*expr_selector)[row];
             for (const auto& [id, column] : captured_columns) {
                 lambda_block.get_by_position(id).column = column->cut(source_row, 1);
+            }
+            for (size_t i = 0; i < enclosing_columns.size(); ++i) {
+                lambda_block.get_by_position(enclosing_positions[i]).column =
+                        enclosing_columns[i]->cut(source_row, 1);
             }
 
             size_t left = row == 0 ? 0 : offsets0[row - 1];
