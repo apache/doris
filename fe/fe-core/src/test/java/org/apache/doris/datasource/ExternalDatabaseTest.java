@@ -64,6 +64,53 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testExplicitRefreshInvalidatesNamesObjectAndId() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "Foo");
+            NameMissTableCatalog catalog = new NameMissTableCatalog(0);
+            InspectableDatabase db = new InspectableDatabase(catalog, 200L, "db1", "db1");
+            db.setInitializedForTest(true);
+            TestExternalTable oldTable = db.getTableNullable("Foo");
+            Assertions.assertNotNull(oldTable);
+
+            NameMissTableCatalogProvider.MOCKED_META.get("db1").remove("Foo");
+            db.invalidateTableLookup("Foo");
+
+            Assertions.assertNull(db.getCachedTableForTest("Foo"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(oldTable.getId()));
+            Assertions.assertTrue(db.getTableNamesWithLock().isEmpty());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
+    public void testExplicitRefreshFencesCaseEquivalentOldObject() {
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db_ci", "Dest");
+            CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+            InspectableDatabase db = new InspectableDatabase(catalog, 210L, "db_ci", "db_ci");
+            db.setInitializedForTest(true);
+            TestExternalTable oldTable = db.getTableNullable("Dest");
+            Assertions.assertNotNull(oldTable);
+
+            NameMissTableCatalogProvider.MOCKED_META.get("db_ci").remove("Dest");
+            NameMissTableCatalogProvider.putTable("db_ci", "DEST");
+            db.resetMetaCacheNames();
+            Assertions.assertTrue(db.getTableNamesWithLock().contains("DEST"));
+            db.invalidateTableLookup("DEST");
+
+            Assertions.assertNull(db.getCachedTableForTest("Dest"));
+            Assertions.assertNull(db.getCachedTableNameByIdForTest(oldTable.getId()));
+            Assertions.assertNotSame(oldTable, db.getTableNullable("DEST"));
+        } finally {
+            NameMissTableCatalogProvider.reset();
+        }
+    }
+
+    @Test
     public void testResetMetaCacheNamesKeepsObjectAndIdCache() {
         InspectableCatalog catalog = new InspectableCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 200L, "db1", "db1");

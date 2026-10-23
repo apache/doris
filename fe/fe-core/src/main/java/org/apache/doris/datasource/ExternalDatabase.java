@@ -743,6 +743,25 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
+    /** Refreshes table membership and lookup identity without loading remote metadata. */
+    public void invalidateTableLookup(String tableName) {
+        if (!isInitialized()) {
+            return;
+        }
+        // In case-insensitive lookup mode an older spelling may still be loading while a refreshed
+        // names snapshot already contains the new spelling. Fence every object/ID load in this database.
+        if (isTableNamesCaseInsensitive()) {
+            invalidateAllTableCache();
+            return;
+        }
+        String localTableName = resolveTableNameForInvalidation(tableName);
+        try {
+            invalidateTableCache(localTableName);
+        } finally {
+            resetMetaCacheNames();
+        }
+    }
+
     private void invalidateAllTableCache() {
         if (tableNames != null) {
             tableNames.invalidateAll();

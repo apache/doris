@@ -40,6 +40,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.jupiter.api.AfterEach;
@@ -53,6 +54,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -116,6 +118,7 @@ public class RefreshManagerTest {
             mockedEnv.close();
             mockedEnv = null;
         }
+        MutableCatalogProvider.reset();
     }
 
     @Test
@@ -165,6 +168,79 @@ public class RefreshManagerTest {
         assertColdTableInvalidatedByName();
         Mockito.verify(metaCacheMgr).invalidateTable(
                 CATALOG_ID, DATABASE_ID, DATABASE_NAME, TABLE_ID, TABLE_NAME);
+    }
+
+    @Test
+    public void testExplicitRefreshReloadsTableNamesAndObject() throws Exception {
+        useMutableCatalog();
+        TestExternalTable oldTable = database.getTableNullable(TABLE_NAME);
+        Assertions.assertNotNull(oldTable);
+
+        MutableCatalogProvider.putTable("new_column");
+        new RefreshManager().handleRefreshTable(CATALOG_NAME, DATABASE_NAME, TABLE_NAME, false);
+
+        Assertions.assertNull(database.getCachedTableNamesForTest());
+        Assertions.assertNull(database.getCachedTableForTest(TABLE_NAME));
+        TestExternalTable refreshed = database.getTableNullable(TABLE_NAME);
+        Assertions.assertNotSame(oldTable, refreshed);
+        ArgumentCaptor<ExternalObjectLog> log = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(editLog).logRefreshExternalTable(log.capture());
+        Assertions.assertTrue(log.getValue().isInvalidateTableLookup());
+    }
+
+    @Test
+    public void testContentRefreshRetainsTableNamesAndObject() {
+        useMutableCatalog();
+        TestExternalTable table = database.getTableNullable(TABLE_NAME);
+        Assertions.assertNotNull(table);
+
+        new RefreshManager().refreshTableAfterExternalMutation(table);
+
+        Assertions.assertNotNull(database.getCachedTableNamesForTest());
+        Assertions.assertSame(table, database.getCachedTableForTest(TABLE_NAME));
+        ArgumentCaptor<ExternalObjectLog> log = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(editLog).logRefreshExternalTable(log.capture());
+        Assertions.assertFalse(log.getValue().isInvalidateTableLookup());
+    }
+
+    @Test
+    public void testExplicitRefreshReplayClearsNamesWhenTableObjectIsCold() {
+        useMutableCatalog();
+        TestExternalTable table = database.getTableNullable(TABLE_NAME);
+        Assertions.assertNotNull(table);
+        database.evictTableObjectForTest(TABLE_NAME);
+        MutableCatalogProvider.removeTable();
+
+        new RefreshManager().replayRefreshTable(ExternalObjectLog.createForExplicitRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L));
+
+        Assertions.assertNull(database.getCachedTableNamesForTest());
+        Assertions.assertTrue(database.getTableNamesWithLock().isEmpty());
+    }
+
+    @Test
+    public void testExplicitRefreshReplayInvalidatesDatabaseInCaseInsensitiveMode() {
+        useMutableCatalog(2);
+        Assertions.assertNotNull(database.getTableNullable(TABLE_NAME));
+        ExternalObjectLog log = ExternalObjectLog.createForExplicitRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L);
+
+        new RefreshManager().replayRefreshTable(
+                GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(log), ExternalObjectLog.class));
+
+        Assertions.assertNull(database.getCachedTableNamesForTest());
+        Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
+    }
+
+    @Test
+    public void testExplicitRefreshReplayInvalidatesColdDatabaseInCaseInsensitiveMode() {
+        useMutableCatalog(2);
+        catalog.setInitializedForTest(false);
+
+        new RefreshManager().replayRefreshTable(ExternalObjectLog.createForExplicitRefreshTable(
+                CATALOG_ID, DATABASE_NAME, TABLE_NAME, 123L));
+
+        Mockito.verify(metaCacheMgr).invalidateDb(CATALOG_ID, DATABASE_ID, DATABASE_NAME);
     }
 
     @Test
@@ -405,6 +481,45 @@ public class RefreshManagerTest {
         Assertions.assertEquals(NEW_TABLE_NAME, constraintManager.newTableName.getTbl());
     }
 
+    private void useMutableCatalog() {
+        useMutableCatalog(0);
+    }
+
+    private void useMutableCatalog(int lowerCaseTableNames) {
+        MutableCatalogProvider.putTable("old_column");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("catalog_provider.class", MutableCatalogProvider.class.getName());
+        properties.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, Integer.toString(lowerCaseTableNames));
+        catalog = new TestExternalCatalog(CATALOG_ID, CATALOG_NAME, "", properties, "");
+        catalog.setInitializedForTest(true);
+        database = new CountingDatabase(catalog, DATABASE_ID, DATABASE_NAME, DATABASE_NAME);
+        database.setInitializedForTest(true);
+        catalog.addDatabaseForTest(database);
+        testingCatalogMgr.setCatalog(catalog);
+    }
+
+    public static class MutableCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        private static final Map<String, Map<String, List<Column>>> METADATA = new HashMap<>();
+
+        static void putTable(String columnName) {
+            METADATA.computeIfAbsent(DATABASE_NAME, ignored -> new HashMap<>())
+                    .put(TABLE_NAME, Collections.singletonList(new Column(columnName, PrimitiveType.INT)));
+        }
+
+        static void removeTable() {
+            METADATA.get(DATABASE_NAME).remove(TABLE_NAME);
+        }
+
+        static void reset() {
+            METADATA.clear();
+        }
+
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return METADATA;
+        }
+    }
+
     public static class EmptyCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
         @Override
         public Map<String, Map<String, List<Column>>> getMetadata() {
@@ -470,6 +585,11 @@ public class RefreshManagerTest {
         @Override
         public CatalogIf<? extends DatabaseIf<? extends TableIf>> getCatalog(long id) {
             return catalog != null && id == catalog.getId() ? catalog : null;
+        }
+
+        @Override
+        public CatalogIf<? extends DatabaseIf<? extends TableIf>> getCatalog(String name) {
+            return catalog != null && name.equals(catalog.getName()) ? catalog : null;
         }
     }
 
