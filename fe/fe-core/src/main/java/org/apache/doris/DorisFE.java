@@ -729,18 +729,15 @@ public class DorisFE {
 
     @VisibleForTesting
     static void gracefulShutdown() {
-        if (EditLog.isWriteFailed()) {
-            // Nothing done from now on can be persisted, and every thread that writes the edit log is blocked
-            // while holding its locks. Waiting for running queries would keep this frontend serving metadata
-            // that may never become durable.
-            LOG.warn("skip waiting for running queries because the edit log can not be written");
-            return;
-        }
-        // wait for all queries to finish
+        // wait for all queries to finish, unless the edit log can not be written, which may also happen while
+        // waiting. Nothing done from then on can be persisted, and every thread that writes the edit log is
+        // blocked while holding its locks. Waiting for running queries would keep this frontend serving metadata
+        // that may never become durable.
         try {
             long now = System.currentTimeMillis();
             List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
+            while (!allCoordinators.isEmpty() && !EditLog.isWriteFailed()
+                    && System.currentTimeMillis() - now < 300 * 1000L) {
                 Thread.sleep(1000);
                 allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
                 LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
@@ -749,6 +746,9 @@ public class DorisFE {
             LOG.error("", t);
         }
 
+        if (EditLog.isWriteFailed()) {
+            LOG.warn("stop waiting for running queries because the edit log can not be written");
+        }
         LOG.info("graceful shutdown finished");
     }
 }

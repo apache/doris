@@ -49,4 +49,31 @@ public class DorisFETest {
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
         }
     }
+
+    // The edit log may also fail after the hook has started to wait, for example when SIGTERM or an exit that does
+    // not come from the edit log started it while an INSERT was still committing. The wait must end then as well.
+    @Test
+    public void testGracefulShutdownStopsWaitingWhenEditLogWriteFailsWhileWaiting() throws Exception {
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(coordinator.getQueryOptions()).thenReturn(new TQueryOptions());
+        TUniqueId queryId = new TUniqueId(10L, 21L);
+        QeProcessorImpl.INSTANCE.registerQuery(queryId, new QeProcessorImpl.QueryInfo(coordinator));
+        Thread shutdown = new Thread(DorisFE::gracefulShutdown, "graceful-shutdown");
+        try {
+            shutdown.start();
+            // The hook sleeps between two looks at the running queries.
+            long deadline = System.currentTimeMillis() + 10_000L;
+            while (shutdown.getState() != Thread.State.TIMED_WAITING && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10);
+            }
+            Assertions.assertEquals(Thread.State.TIMED_WAITING, shutdown.getState());
+            Deencapsulation.setField(EditLog.class, "writeFailed", true);
+            shutdown.join(10_000L);
+            Assertions.assertFalse(shutdown.isAlive());
+        } finally {
+            Deencapsulation.setField(EditLog.class, "writeFailed", false);
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            shutdown.join();
+        }
+    }
 }

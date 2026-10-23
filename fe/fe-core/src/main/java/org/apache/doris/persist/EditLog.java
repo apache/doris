@@ -178,8 +178,10 @@ public class EditLog {
     }
 
     // The in-memory metadata has already changed when an edit can not be written, and it can not be
-    // rolled back, so this frontend must stop.
-    private static void exitOnWriteFailure(Throwable t) {
+    // rolled back, so this frontend must stop. Every exit caused by a failed journal write goes through
+    // here, including the ones the journal decides on by itself (see BDBJEJournal), so that the shutdown
+    // hook does not wait for running queries.
+    public static void exitOnWriteFailure(Throwable t) {
         writeFailed = true;
         LOG.error("Fatal Error : write stream Exception", t);
         System.exit(-1);
