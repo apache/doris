@@ -21,8 +21,8 @@ import org.apache.doris.common.io.Text;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -48,20 +48,20 @@ public class GsonStreamUtilsTest {
 
         int chunkCount = 0;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            Assert.assertEquals(-1, in.readInt());
+            Assertions.assertEquals(-1, in.readInt());
             int chunkLength;
             while ((chunkLength = in.readInt()) != 0) {
-                Assert.assertTrue(chunkLength <= CHUNK_SIZE);
-                Assert.assertEquals(chunkLength, in.skipBytes(chunkLength));
+                Assertions.assertTrue(chunkLength <= CHUNK_SIZE);
+                Assertions.assertEquals(chunkLength, in.skipBytes(chunkLength));
                 chunkCount++;
             }
-            Assert.assertEquals(0, in.available());
+            Assertions.assertEquals(0, in.available());
         }
-        Assert.assertTrue(chunkCount > 1);
+        Assertions.assertTrue(chunkCount > 1);
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             TestData actual = GsonStreamUtils.readJson(in, TestData.class);
-            Assert.assertEquals(expected.value, actual.value);
+            Assertions.assertEquals(expected.value, actual.value);
         }
     }
 
@@ -77,20 +77,20 @@ public class GsonStreamUtilsTest {
         }
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            Assert.assertEquals(-1, in.readInt());
+            Assertions.assertEquals(-1, in.readInt());
             int chunkCount = 0;
             int chunkLength;
             while ((chunkLength = in.readInt()) != 0) {
-                Assert.assertEquals(1, chunkLength);
-                Assert.assertEquals(1, in.skipBytes(chunkLength));
+                Assertions.assertEquals(1, chunkLength);
+                Assertions.assertEquals(1, in.skipBytes(chunkLength));
                 chunkCount++;
             }
-            Assert.assertTrue(chunkCount > expected.value.length());
+            Assertions.assertTrue(chunkCount > expected.value.length());
         }
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            Assert.assertEquals(expected.value, GsonStreamUtils.readJson(in, TestData.class).value);
-            Assert.assertEquals(0, in.available());
+            Assertions.assertEquals(expected.value, GsonStreamUtils.readJson(in, TestData.class).value);
+            Assertions.assertEquals(0, in.available());
         }
     }
 
@@ -106,9 +106,9 @@ public class GsonStreamUtilsTest {
         }
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            Assert.assertEquals("first", GsonStreamUtils.readJson(in, TestData.class).value);
-            Assert.assertEquals("second", GsonStreamUtils.readJson(in, TestData.class).value);
-            Assert.assertEquals(0, in.available());
+            Assertions.assertEquals("first", GsonStreamUtils.readJson(in, TestData.class).value);
+            Assertions.assertEquals("second", GsonStreamUtils.readJson(in, TestData.class).value);
+            Assertions.assertEquals(0, in.available());
         }
     }
 
@@ -124,16 +124,16 @@ public class GsonStreamUtilsTest {
         }
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            Assert.assertNull(GsonStreamUtils.readJson(in, TestData.class));
-            Assert.assertEquals("after-null", GsonStreamUtils.readJson(in, TestData.class).value);
-            Assert.assertEquals(0, in.available());
+            Assertions.assertNull(GsonStreamUtils.readJson(in, TestData.class));
+            Assertions.assertEquals("after-null", GsonStreamUtils.readJson(in, TestData.class).value);
+            Assertions.assertEquals(0, in.available());
         }
     }
 
     /**
      * An I/O error raised during chunk body emission remains an IOException instead of a Gson wrapper.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testWriteFailureRemainsIOException() throws Exception {
         OutputStream failingOutput = new OutputStream() {
             private int remaining = Integer.BYTES;
@@ -145,14 +145,15 @@ public class GsonStreamUtilsTest {
                 }
             }
         };
-        GsonStreamUtils.writeJson(new DataOutputStream(failingOutput),
-                new TestData(Strings.repeat("a", CHUNK_SIZE * 2)));
+        Assertions.assertThrows(IOException.class,
+                () -> GsonStreamUtils.writeJson(new DataOutputStream(failingOutput),
+                        new TestData(Strings.repeat("a", CHUNK_SIZE * 2))));
     }
 
     /**
      * A chunk whose declared length exceeds its payload reports an IOException.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testTruncatedChunkRemainsIOException() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
@@ -161,28 +162,28 @@ public class GsonStreamUtilsTest {
             out.writeBytes("{}");
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            GsonStreamUtils.readJson(in, TestData.class);
+            Assertions.assertThrows(IOException.class, () -> GsonStreamUtils.readJson(in, TestData.class));
         }
     }
 
     /**
      * Reserved negative values cannot be interpreted as legacy lengths or chunked records.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testInvalidRecordMarkerIsRejected() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
             out.writeInt(-2);
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            GsonStreamUtils.readJson(in, TestData.class);
+            Assertions.assertThrows(IOException.class, () -> GsonStreamUtils.readJson(in, TestData.class));
         }
     }
 
     /**
      * A negative chunk length is rejected instead of being treated as a terminator.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testNegativeChunkLengthIsRejected() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
@@ -190,14 +191,14 @@ public class GsonStreamUtilsTest {
             out.writeInt(-1);
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            GsonStreamUtils.readJson(in, TestData.class);
+            Assertions.assertThrows(IOException.class, () -> GsonStreamUtils.readJson(in, TestData.class));
         }
     }
 
     /**
      * Malformed UTF-8 in a chunk is reported as an IOException.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testMalformedUtf8IsRejected() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
@@ -207,18 +208,18 @@ public class GsonStreamUtilsTest {
             out.writeInt(0);
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            GsonStreamUtils.readJson(in, TestData.class);
+            Assertions.assertThrows(IOException.class, () -> GsonStreamUtils.readJson(in, TestData.class));
         }
     }
 
     /**
      * Malformed UTF-16 is rejected, matching the former Text.writeString encoding behavior.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testInvalidSurrogateIsRejected() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
-            GsonStreamUtils.writeJson(out, new TestData("\uD800"));
+            Assertions.assertThrows(IOException.class, () -> GsonStreamUtils.writeJson(out, new TestData("\uD800")));
         }
     }
 
@@ -235,7 +236,7 @@ public class GsonStreamUtilsTest {
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             TestData actual = GsonStreamUtils.readJson(in, TestData.class);
-            Assert.assertEquals(expected.value, actual.value);
+            Assertions.assertEquals(expected.value, actual.value);
         }
     }
 
@@ -251,16 +252,16 @@ public class GsonStreamUtilsTest {
         }
 
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            Assert.assertEquals("legacy", GsonStreamUtils.readJson(in, TestData.class).value);
-            Assert.assertEquals("chunked", GsonStreamUtils.readJson(in, TestData.class).value);
-            Assert.assertEquals(0, in.available());
+            Assertions.assertEquals("legacy", GsonStreamUtils.readJson(in, TestData.class).value);
+            Assertions.assertEquals("chunked", GsonStreamUtils.readJson(in, TestData.class).value);
+            Assertions.assertEquals(0, in.available());
         }
     }
 
     /**
      * A truncated legacy payload is reported as an IOException.
      */
-    @Test(expected = IOException.class)
+    @Test
     public void testTruncatedLegacyJsonIsRejected() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(bytes)) {
@@ -268,7 +269,7 @@ public class GsonStreamUtilsTest {
             out.writeBytes("{}");
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
-            GsonStreamUtils.readJson(in, TestData.class);
+            Assertions.assertThrows(IOException.class, () -> GsonStreamUtils.readJson(in, TestData.class));
         }
     }
 
