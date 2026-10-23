@@ -23,6 +23,8 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "format/table/iceberg/partition_spec.h"
@@ -88,6 +90,9 @@ Status IcebergInsertPartitionFunction::init(const std::vector<TExpr>& texprs) {
             insert_field.expr_ctx = std::move(ctx);
             insert_field.source_id = field.__isset.source_id ? field.source_id : 0;
             insert_field.name = field.__isset.name ? field.name : "";
+            if (field.__isset.source_field_path) {
+                insert_field.source_field_path = field.source_field_path;
+            }
             _partition_fields.emplace_back(std::move(insert_field));
         }
     }
@@ -118,10 +123,22 @@ Status IcebergInsertPartitionFunction::open(RuntimeState* state) {
         RETURN_IF_ERROR(VExpr::open(field_ctxs, state));
         for (auto& field : _partition_fields) {
             try {
+                DataTypePtr source_type = field.expr_ctx->root()->data_type();
+                for (int32_t child_index : field.source_field_path) {
+                    const auto* struct_type = check_and_get_data_type<DataTypeStruct>(
+                            remove_nullable(source_type).get());
+                    if (child_index < 0 || struct_type == nullptr ||
+                        static_cast<size_t>(child_index) >= struct_type->get_elements().size()) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                        "Iceberg nested merge partition source does not match "
+                                        "expression type");
+                    }
+                    // Transform validation must use the leaf type that get_partitions() extracts.
+                    source_type = struct_type->get_element(static_cast<size_t>(child_index));
+                }
                 doris::iceberg::PartitionField partition_field(field.source_id, 0, field.name,
                                                                field.transform);
-                field.transformer = PartitionColumnTransforms::create(
-                        partition_field, field.expr_ctx->root()->data_type());
+                field.transformer = PartitionColumnTransforms::create(partition_field, source_type);
             } catch (const doris::Exception& e) {
                 return Status::NotSupported("Unsupported Iceberg partition transform: {}",
                                             e.what());
@@ -168,9 +185,57 @@ Status IcebergInsertPartitionFunction::clone(RuntimeState* state,
             field.expr_ctx = dst_field_ctxs[i];
             field.source_id = _partition_fields[i].source_id;
             field.name = _partition_fields[i].name;
+            field.source_field_path = _partition_fields[i].source_field_path;
             new_function->_partition_fields.emplace_back(std::move(field));
         }
     }
+    return Status::OK();
+}
+
+Status IcebergInsertPartitionFunction::_nested_partition_source(
+        size_t rows, const InsertPartitionField& field, ColumnWithTypeAndName* source) const {
+    if (field.source_field_path.empty()) {
+        return Status::OK();
+    }
+    ColumnPtr column = source->column->convert_to_full_column_if_const();
+    DataTypePtr type = source->type;
+    ColumnUInt8::MutablePtr combined_nulls;
+    bool nullable = false;
+    auto unwrap_nullable = [&]() {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(column.get())) {
+            nullable = true;
+            if (!combined_nulls) {
+                combined_nulls = ColumnUInt8::create(rows, 0);
+            }
+            const auto& nulls = nullable_column->get_null_map_data();
+            auto& combined = combined_nulls->get_data();
+            for (size_t row = 0; row < combined.size(); ++row) {
+                combined[row] |= nulls[row];
+            }
+            column = nullable_column->get_nested_column_ptr();
+            type = remove_nullable(type);
+        }
+    };
+    for (int32_t child_index : field.source_field_path) {
+        unwrap_nullable();
+        const auto* struct_column = check_and_get_column<ColumnStruct>(column.get());
+        const auto* struct_type = check_and_get_data_type<DataTypeStruct>(type.get());
+        if (child_index < 0 || struct_column == nullptr || struct_type == nullptr ||
+            static_cast<size_t>(child_index) >= struct_column->tuple_size()) {
+            return Status::InternalError(
+                    "Iceberg nested merge partition source does not match input block");
+        }
+        column = struct_column->get_column_ptr(static_cast<size_t>(child_index));
+        type = struct_type->get_element(static_cast<size_t>(child_index));
+    }
+    // A nullable parent masks a materialized child value; exchange routing must match the writer's partition.
+    unwrap_nullable();
+    if (nullable) {
+        column = ColumnNullable::create(column, std::move(combined_nulls));
+        type = make_nullable(type);
+    }
+    std::string name = source->name;
+    *source = {std::move(column), std::move(type), std::move(name)};
     return Status::OK();
 }
 
@@ -196,8 +261,13 @@ Status IcebergInsertPartitionFunction::_compute_hashes_with_transform(
         if (_partition_fields[i].transformer == nullptr) {
             return Status::InternalError("Merge partitioning transform is not initialized");
         }
+        ColumnWithTypeAndName source = block->get_by_position(results[i]);
+        if (!_partition_fields[i].source_field_path.empty()) {
+            RETURN_IF_ERROR(_nested_partition_source(rows, _partition_fields[i], &source));
+        }
+        Block source_block({source});
         ColumnWithTypeAndName transformed =
-                _partition_fields[i].transformer->apply(*block, results[i]);
+                _partition_fields[i].transformer->apply(source_block, 0);
         const auto& [column, is_const] = unpack_if_const(transformed.column);
         if (is_const) {
             // A const column has the same value for all rows in this block,

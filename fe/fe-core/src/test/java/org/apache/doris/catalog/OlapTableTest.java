@@ -52,6 +52,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,6 +83,29 @@ public class OlapTableTest {
         Assert.assertEquals(909L, stats.getDataLength());
         Assert.assertEquals(3L, stats.getAvgRowLength());
         Assert.assertEquals(132L, stats.getIndexLength());
+    }
+
+    @Test
+    public void testPartitionNameMapToleratesConcurrentAdd() {
+        OlapTable olapTable = new OlapTable();
+        for (int i = 0; i < 3; i++) {
+            long partitionId = 10 + i;
+            MaterializedIndex index = new MaterializedIndex(partitionId, MaterializedIndex.IndexState.NORMAL);
+            olapTable.addPartition(new Partition(partitionId, "p" + i, index, new RandomDistributionInfo(1)));
+        }
+
+        // getPartitionNames() copies nameToPartition's keys without holding any lock, while a writer
+        // holding the table write lock may add a partition at the same time, so the iteration must be
+        // weakly consistent instead of fail fast.
+        Iterator<String> iterator = olapTable.getNameToPartition().keySet().iterator();
+        Assert.assertTrue(iterator.hasNext());
+        iterator.next();
+        MaterializedIndex newIndex = new MaterializedIndex(20, MaterializedIndex.IndexState.NORMAL);
+        olapTable.addPartition(new Partition(20, "p10", newIndex, new RandomDistributionInfo(1)));
+        while (iterator.hasNext()) {
+            iterator.next();
+        }
+        Assert.assertEquals(4, olapTable.getPartitionNames().size());
     }
 
     private Replica mockReplica(Replica.ReplicaState state, long dataSize, long localSegmentSize,

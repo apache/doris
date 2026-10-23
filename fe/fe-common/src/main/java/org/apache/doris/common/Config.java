@@ -1429,6 +1429,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 16;
 
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Maximum snapshot parallelism per FROM TO task; values below 1 are treated as 1")
+    public static int streaming_cdc_max_snapshot_parallelism = 16;
+
     /**
      * the max timeout of get kafka meta.
      */
@@ -2660,6 +2664,18 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * Which MySQL clients that announce caching_sha2_password are authenticated with it (through its
+     * full-authentication exchange, the password is still checked against the stored native hash):
+     * "auto" - clients announcing caching_sha2_password with _client_version 9 or later
+     * (such as mysql / mysqldump 9.x); every other client is switched to mysql_native_password
+     * as before. "all" - every client announcing caching_sha2_password. "none" - no client;
+     * every client is switched to mysql_native_password, the behavior before this option.
+     */
+    @ConfField(mutable = true, masterOnly = false, options = {"auto", "all", "none"},
+            callback = OptionsConfHandler.class)
+    public static String mysql_caching_sha2_password_clients = "auto";
+
+    /**
      * ssl connection needs to authenticate client's certificate store type.
      */
     @ConfField(mutable = false, masterOnly = false)
@@ -3860,16 +3876,31 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
-                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
-                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
-                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+                    + "longer exists, when loading the image, in the tablet rebalancer round, and once per replayed "
+                    + "batch of backend-removal journals (on Followers too, since each FE applies this locally). "
+                    + "Those entries are already ignored at query time (the replica is rehashed), so they only "
+                    + "waste FE memory and image size. Set to false to keep the legacy leaking behavior. "
+                    + "Default is true.")
     public static boolean enable_cloud_replica_stale_route_clean = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Start time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. Used with "
+            + "`cloud_tablet_rebalancer_stale_route_clean_end_time` to decide the window. Only gates the "
+            + "rebalancer's own sweep -- image loading and replayed backend-removal batches always clean "
+            + "regardless of this window. If set to the same value as the end time (the default), the "
+            + "rebalancer sweeps any time it would otherwise sweep, i.e. the window is unrestricted.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+
+    @ConfField(mutable = true, masterOnly = true, description = "End time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. See "
+            + "`cloud_tablet_rebalancer_stale_route_clean_start_time`.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
 
     @ConfField(mutable = false, masterOnly = true,
             description = {
                     "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
                             + "If false, use the legacy modulo placement. Restart-only."})
-    public static boolean enable_cloud_colocate_consistent_hash = true;
+    public static boolean enable_cloud_colocate_consistent_hash = false;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认 true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
@@ -4147,7 +4178,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField
-    public static int cloud_snapshot_handler_interval_second = 3600;
+    public static int cloud_snapshot_handler_interval_second = 10;
     @ConfField(mutable = true)
     public static long cloud_snapshot_timeout_seconds = 600;
     @ConfField(mutable = true)

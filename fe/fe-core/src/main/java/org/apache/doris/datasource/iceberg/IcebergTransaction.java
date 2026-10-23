@@ -1019,14 +1019,18 @@ public class IcebergTransaction implements Transaction {
             if (sourceField == null) {
                 return null;
             }
+            String sourceColumnName = identitySourceColumnName(schema, field.sourceId());
+            if (sourceColumnName == null) {
+                return null;
+            }
             String valueStr = partitionValues.get(i);
             if ("null".equals(valueStr)) {
                 valueStr = null;
             }
             Object value = IcebergUtils.parsePartitionValueFromString(valueStr, sourceField.type());
             Expression predicate = value == null
-                    ? Expressions.isNull(sourceField.name())
-                    : Expressions.equal(sourceField.name(), value);
+                    ? Expressions.isNull(sourceColumnName)
+                    : Expressions.equal(sourceColumnName, value);
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
         return expression;
@@ -1232,14 +1236,18 @@ public class IcebergTransaction implements Transaction {
                     throw new RuntimeException(String.format("Source field not found for partition field: %s",
                         partitionColName));
                 }
+                String sourceColName = identitySourceColumnName(schema, field.sourceId());
+                if (sourceColName == null) {
+                    throw new RuntimeException(String.format(
+                            "Source column path not found for partition field: %s", partitionColName));
+                }
 
                 // Convert partition value string to appropriate type
                 Object partitionValue = IcebergUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type());
 
-                // Build equality expression using source field name (not partition field name)
-                // For identity partitions, Iceberg requires the source column name in expressions
-                String sourceColName = sourceField.name();
+                // Build equality expression using the source column path (not partition field name).
+                // For identity partitions, Iceberg requires the source column in expressions.
                 Expression eqExpr;
                 if (partitionValue == null) {
                     eqExpr = Expressions.isNull(sourceColName);
@@ -1268,4 +1276,10 @@ public class IcebergTransaction implements Transaction {
         }
         return result;
     }
+
+    private String identitySourceColumnName(Schema schema, int sourceId) {
+        // Nested identity predicates must bind to the full path when sibling structs reuse a leaf name.
+        return schema.findColumnName(sourceId);
+    }
+
 }

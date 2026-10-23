@@ -208,10 +208,12 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
         // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
         // them, together with the field's token count, in the norms. A segment written without
         // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
-        // segments that have norms, so refuse to score the collection. An index that is not
-        // analyzed never writes norms and is left as it is.
+        // segments that have norms, so refuse to score the collection. Keyword indexes and
+        // built-in lowercase normalizers can use unit frequency and length instead.
         const auto token_count = index_reader->sumTotalTermFreq(ws_field_name.c_str());
-        if (!token_count.has_value() &&
+        const bool single_term_normalizer = segment_v2::IndexReaderHelper::is_normalizer_only(
+                collect_info.index_meta->properties());
+        if (!token_count.has_value() && !single_term_normalizer &&
             segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     collect_info.index_meta->properties())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -220,7 +222,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
                     "for a variant path, when inverted_index_skip_norms_for_variant is on",
                     seg_path, StringHelper::to_string(ws_field_name));
         }
-        _total_num_tokens[ws_field_name] += token_count.value_or(0);
+        // Missing term totals imply one token per row for keyword and lowercase indexes.
+        _total_num_tokens[ws_field_name] += token_count.value_or(index_reader->maxDoc());
 
         for (const auto& term_info : collect_info.term_infos) {
             auto iter = TermIterator::create(io_ctx, false, index_reader, ws_field_name,
@@ -231,6 +234,38 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
 
     _total_num_docs += total_seg_num_docs;
 
+    return Status::OK();
+}
+
+void CollectionStatistics::copy_collected_from(const CollectionStatistics& other) {
+    _total_num_docs = other._total_num_docs;
+    _total_num_tokens = other._total_num_tokens;
+    _term_doc_freqs = other._term_doc_freqs;
+    _avg_dl_by_col.clear();
+    _idf_by_col_term.clear();
+}
+
+TabletCollectionStatistics::TabletCollectionStatistics(std::vector<RowSetSplits> rs_splits)
+        : _rs_splits(std::move(rs_splits)) {}
+
+TabletCollectionStatistics::~TabletCollectionStatistics() = default;
+
+Status TabletCollectionStatistics::copy_to(RuntimeState* state,
+                                           const TabletSchemaSPtr& tablet_schema,
+                                           const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                           io::IOContext* io_ctx,
+                                           CollectionStatistics* statistics) {
+    DORIS_CHECK(statistics != nullptr);
+    std::lock_guard lock(_mutex);
+    if (!_collected) {
+        _status = _statistics.collect(state, _rs_splits, tablet_schema, common_expr_ctxs_push_down,
+                                      io_ctx);
+        _collected = true;
+        // Do not hold the rowsets any longer than needed.
+        _rs_splits.clear();
+    }
+    RETURN_IF_ERROR(_status);
+    statistics->copy_collected_from(_statistics);
     return Status::OK();
 }
 

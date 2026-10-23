@@ -44,12 +44,30 @@ public class MysqlCapabilityTest {
     public void testDefaultFlags() {
         MysqlCapability capability = MysqlCapability.DEFAULT_CAPABILITY;
         Assert.assertEquals("CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
-                + " | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_CONNECT_ATTRS"
+                + " | CLIENT_SECURE_CONNECTION | CLIENT_MULTI_STATEMENTS | CLIENT_MULTI_RESULTS"
+                + " | CLIENT_PS_MULTI_RESULTS | CLIENT_PLUGIN_AUTH | CLIENT_CONNECT_ATTRS"
                 + " | CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA | CLIENT_DEPRECATE_EOF",
                 capability.toString());
         Assert.assertTrue(capability.supportClientLocalFile());
         Assert.assertTrue(capability.isConnectAttrs());
         Assert.assertTrue(capability.isPluginAuthDataLengthEncoded());
         Assert.assertTrue(capability.isDeprecatedEOF());
+        Assert.assertTrue(capability.isClientMultiStatements());
+        Assert.assertFalse(capability.isClientUseSsl());
+    }
+
+    @Test
+    public void testSslFlags() {
+        MysqlCapability capability = MysqlCapability.SSL_CAPABILITY;
+        Assert.assertEquals(
+                MysqlCapability.DEFAULT_CAPABILITY.getFlags() | MysqlCapability.Flag.CLIENT_SSL.getFlagBit(),
+                capability.getFlags());
+        Assert.assertEquals("CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
+                + " | CLIENT_SSL | CLIENT_SECURE_CONNECTION | CLIENT_MULTI_STATEMENTS | CLIENT_MULTI_RESULTS"
+                + " | CLIENT_PS_MULTI_RESULTS | CLIENT_PLUGIN_AUTH | CLIENT_CONNECT_ATTRS"
+                + " | CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA | CLIENT_DEPRECATE_EOF",
+                capability.toString());
+        Assert.assertTrue(capability.isClientUseSsl());
+        Assert.assertTrue(capability.isClientMultiStatements());
     }
 }
