@@ -206,9 +206,6 @@ kerberosHdfsPort=8820
 enableNonCatalogKerberosTest = true
 
 
-// LakeSoul catalog test config
-enableLakesoulTest = true
-
 // AWS iam role config
 
 // hudi p0 external regression test config

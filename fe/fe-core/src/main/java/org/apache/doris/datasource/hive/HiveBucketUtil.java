@@ -92,16 +92,11 @@ public class HiveBucketUtil {
         }
     }
 
-    private static final Pattern BUCKET_WITH_OPTIONAL_ATTEMPT_ID_PATTERN =
-            Pattern.compile("bucket_(\\d+)(_\\d+)?$");
-
     private static final Iterable<Pattern> BUCKET_PATTERNS = ImmutableList.of(
             // legacy Presto naming pattern (current version matches Hive)
             Pattern.compile("\\d{8}_\\d{6}_\\d{5}_[a-z0-9]{5}_bucket-(\\d+)(?:[-_.].*)?"),
             // Hive naming pattern per `org.apache.hadoop.hive.ql.exec.Utilities#getBucketIdFromFile()`
-            Pattern.compile("(\\d+)_\\d+.*"),
-            // Hive ACID with optional direct insert attempt id
-            BUCKET_WITH_OPTIONAL_ATTEMPT_ID_PATTERN);
+            Pattern.compile("(\\d+)_\\d+.*"));
 
     public static List<InputSplit> getPrunedSplitsByBuckets(
             List<InputSplit> splits,

@@ -116,9 +116,6 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
 
                 // At present, doris only supports three formats of orc parquet textfile, while others are not supported
 
-                // hive tables in avro format are not supported
-                //order_qt_34 """select * from ${catalog_name}.${ex_db_name}.avro_all_types limit 1;"""
-
                 // hive tables in SEQUENCEFILE format are not supported
                 //order_qt_35 """select * from ${catalog_name}.${ex_db_name}.sequence_all_types limit 1;"""
 

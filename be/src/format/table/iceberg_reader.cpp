@@ -1968,7 +1968,7 @@ Status IcebergOrcReader::init_reader(
     _expand_col_names = std::move(new_expand_col_names);
 
     return orc_reader->init_reader(&_all_required_col_names, _col_name_to_block_idx, conjuncts,
-                                   false, tuple_descriptor, row_descriptor,
+                                   tuple_descriptor, row_descriptor,
                                    not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
                                    table_info_node_ptr, column_ids, filter_column_ids);
 }
@@ -2385,7 +2385,7 @@ Status IcebergOrcReader::_process_equality_delete(
         }
 
         RETURN_IF_ERROR(delete_reader->init_reader(&read_root_names, &read_root_positions, {},
-                                                   false, nullptr, nullptr, nullptr, nullptr,
+                                                   nullptr, nullptr, nullptr, nullptr,
                                                    eq_file_node));
         RETURN_IF_ERROR(delete_reader->set_fill_columns(partition_columns, missing_columns));
 

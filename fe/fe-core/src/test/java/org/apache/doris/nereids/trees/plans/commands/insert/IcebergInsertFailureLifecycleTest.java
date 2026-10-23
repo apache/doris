@@ -21,7 +21,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
@@ -69,7 +68,6 @@ class IcebergInsertFailureLifecycleTest {
         Mockito.when(env.getGlobalExternalTransactionInfoMgr()).thenReturn(globalTransactions);
 
         IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
-        HiveTransactionMgr hiveTransactionMgr = Mockito.mock(HiveTransactionMgr.class);
         IcebergTransactionManager transactionManager = new IcebergTransactionManager(metadataOps);
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(catalog.getName()).thenReturn("iceberg");
@@ -95,7 +93,6 @@ class IcebergInsertFailureLifecycleTest {
         try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
                 MockedStatic<EnvFactory> factoryMock = Mockito.mockStatic(EnvFactory.class)) {
             envMock.when(Env::getCurrentEnv).thenReturn(env);
-            envMock.when(Env::getCurrentHiveTransactionMgr).thenReturn(hiveTransactionMgr);
             factoryMock.when(EnvFactory::getInstance).thenReturn(factory);
 
             FailingIcebergExecutor executor = new FailingIcebergExecutor(

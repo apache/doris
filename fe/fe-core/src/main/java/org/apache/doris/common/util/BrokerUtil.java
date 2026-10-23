@@ -156,30 +156,17 @@ public class BrokerUtil {
 
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, true, false).getValues();
-    }
-
-    public static List<String> parseColumnsFromPath(
-            String filePath,
-            List<String> columnsFromPath,
-            boolean caseSensitive,
-            boolean isACID)
-            throws UserException {
-        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, caseSensitive, isACID)
-                .getValues();
+        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, true).getValues();
     }
 
     public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfo(
             String filePath,
             List<String> columnsFromPath,
-            boolean caseSensitive,
-            boolean isACID)
+            boolean caseSensitive)
             throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return new ParsedColumnsFromPath(Collections.emptyList(), Collections.emptyList());
         }
-        // if it is ACID, the path count is 3. The hdfs path is hdfs://xxx/table_name/par=xxx/delta(or base)_xxx/.
-        int pathCount = isACID ? 3 : 2;
         List<String> expectedColumns = columnsFromPath;
         if (!caseSensitive) {
             expectedColumns = new ArrayList<>(columnsFromPath.size());
@@ -196,13 +183,13 @@ public class BrokerUtil {
         Boolean[] columnsFromPathIsNull = new Boolean[expectedColumns.size()];
         int size = 0;
         boolean skipOnce = true;
-        for (int i = strings.length - pathCount; i >= 0; i--) {
+        for (int i = strings.length - 2; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                if (!isACID && skipOnce) {
+                if (skipOnce) {
                     skipOnce = false;
                     continue;
                 }
@@ -239,11 +226,10 @@ public class BrokerUtil {
     public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfoForLoad(
             String filePath,
             List<String> columnsFromPath,
-            boolean caseSensitive,
-            boolean isACID)
+            boolean caseSensitive)
             throws UserException {
         ParsedColumnsFromPath parsed = parseColumnsFromPathWithNullInfo(
-                filePath, columnsFromPath, caseSensitive, isACID);
+                filePath, columnsFromPath, caseSensitive);
         List<String> values = new ArrayList<>(parsed.getValues());
         List<Boolean> isNull = new ArrayList<>(parsed.getIsNull());
         for (int i = 0; i < values.size(); i++) {

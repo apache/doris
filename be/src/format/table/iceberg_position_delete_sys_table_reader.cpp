@@ -337,8 +337,8 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
         }
         VExprContextSPtrs conjuncts;
         RETURN_IF_ERROR(orc_reader->init_reader(&read_column_names, &_read_col_name_to_block_idx,
-                                                conjuncts, false, nullptr, nullptr, nullptr,
-                                                nullptr, std::move(table_info_node)));
+                                                conjuncts, nullptr, nullptr, nullptr, nullptr,
+                                                std::move(table_info_node)));
         _position_reader = std::move(orc_reader);
         return Status::OK();
     }

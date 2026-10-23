@@ -353,8 +353,6 @@ under the License.
         <arrow.version>19.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
-        <!-- lakesoul -->
-        <lakesoul.version>2.6.2</lakesoul.version>
 
 
         <commons-collections.version>4.5.0</commons-collections.version>
@@ -373,7 +371,6 @@ under the License.
         <httpcore5.version>5.4.3</httpcore5.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
-        <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <gcs-connector.version>3.1.18</gcs-connector.version>
         <google-auth-library-oauth2-http.version>1.46.0</google-auth-library-oauth2-http.version>

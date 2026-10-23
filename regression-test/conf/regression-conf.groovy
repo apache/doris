@@ -266,15 +266,6 @@ kerberosHdfsPort=8820
 enableRefactorParamsHdfsTest=true
 
 
-// LakeSoul catalog test config
-enableLakesoulTest = false
-lakesoulPGUser="*******"
-lakesoulPGPwd="*******"
-lakesoulPGUrl="*******"
-lakesoulMinioAK="*******"
-lakesoulMinioSK="*******"
-lakesoulMinioEndpoint="*******"
-
 // cloud
 metaServiceToken = "greedisgood9999"
 instanceId = "default_instance_id"

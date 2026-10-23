@@ -215,16 +215,8 @@ public class FileQueryScanNodeTest {
     }
 
     @Test
-    public void testTransactionalHiveAndMetadataCountRangesOmitBeSplitSize() {
+    public void testMetadataCountRangesOmitBeSplitSize() {
         SessionVariable sv = new SessionVariable();
-        TFileRangeDesc transactionalRange = new TFileRangeDesc();
-        transactionalRange.setFormatType(TFileFormatType.FORMAT_ORC);
-        TTableFormatFileDesc transactional = new TTableFormatFileDesc();
-        transactional.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE.value());
-        transactionalRange.setTableFormatParams(transactional);
-        FileQueryScanNode.setTargetSplitSize(transactionalRange, sv);
-        Assert.assertFalse(transactionalRange.isSetTargetSplitSize());
-
         TFileRangeDesc countRange = new TFileRangeDesc();
         countRange.setFormatType(TFileFormatType.FORMAT_PARQUET);
         TTableFormatFileDesc metadataCount = new TTableFormatFileDesc();

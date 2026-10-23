@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.NameMapping;
@@ -30,8 +29,6 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.LockResponse;
-import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
@@ -39,9 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.Proxy;
-import java.util.ArrayDeque;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -198,21 +193,6 @@ public class ThriftHMSCachedClientTest {
     }
 
     @Test
-    public void testAcquireSharedLockDoesNotBorrowSecondClient() {
-        provider.lockStates.add(LockState.WAITING);
-        provider.lockStates.add(LockState.ACQUIRED);
-        ThriftHMSCachedClient cachedClient = newClient(1);
-
-        cachedClient.acquireSharedLock("query-1", 1L, "user",
-                new TableName("internal", "db1", "tbl1"), Collections.emptyList(), 5_000L);
-
-        Assert.assertEquals(1, provider.createdClients.get());
-        Assert.assertEquals(1, provider.checkLockCalls.get());
-        Assert.assertEquals(1, getPool(cachedClient).getNumIdle());
-        Assert.assertEquals(0, getPool(cachedClient).getNumActive());
-    }
-
-    @Test
     public void testUpdatePartitionStatisticsInvalidatesFailedClient() throws Exception {
         provider.alterPartitionFailure = new RuntimeException("alter partition failed");
         ThriftHMSCachedClient cachedClient = newClient(1);
@@ -298,8 +278,6 @@ public class ThriftHMSCachedClientTest {
     private static class MockMetastoreClientProvider implements ThriftHMSCachedClient.MetaStoreClientProvider {
         private final AtomicInteger createdClients = new AtomicInteger();
         private final AtomicInteger closedClients = new AtomicInteger();
-        private final AtomicInteger checkLockCalls = new AtomicInteger();
-        private final Deque<LockState> lockStates = new ArrayDeque<>();
 
         private volatile RuntimeException alterPartitionFailure;
         private volatile RuntimeException addPartitionsFailure;
@@ -356,30 +334,7 @@ public class ThriftHMSCachedClientTest {
                 }
                 return true;
             }
-            if ("lock".equals(methodName)) {
-                return newLockResponse(nextLockState());
-            }
-            if ("checkLock".equals(methodName)) {
-                checkLockCalls.incrementAndGet();
-                return newLockResponse(nextLockState());
-            }
             return defaultValue(returnType);
-        }
-
-        private LockState nextLockState() {
-            synchronized (lockStates) {
-                if (lockStates.isEmpty()) {
-                    return LockState.ACQUIRED;
-                }
-                return lockStates.removeFirst();
-            }
-        }
-
-        private LockResponse newLockResponse(LockState state) {
-            LockResponse response = new LockResponse();
-            response.setLockid(1L);
-            response.setState(state);
-            return response;
         }
 
         private Object defaultValue(Class<?> returnType) {

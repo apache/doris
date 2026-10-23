@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveDatabaseMetadata;
 import org.apache.doris.datasource.hive.HivePartitionStatistics;
@@ -187,26 +186,6 @@ public class TestHMSCachedClient implements HMSCachedClient {
     @Override
     public NotificationEventResponse getNextNotification(long lastEventId, int maxEvents, IMetaStoreClient.NotificationFilter filter) throws MetastoreNotificationFetchException {
         return null;
-    }
-
-    @Override
-    public long openTxn(String user) {
-        return 0;
-    }
-
-    @Override
-    public void commitTxn(long txnId) {
-
-    }
-
-    @Override
-    public Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
-        return null;
-    }
-
-    @Override
-    public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName, List<String> partitionNames, long timeoutMs) {
-
     }
 
     @Override

@@ -23,8 +23,6 @@ public enum TableFormatType {
     HUDI("hudi"),
     PAIMON("paimon"),
     MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
     TRINO_CONNECTOR("trino_connector"),
     TVF("tvf"),
     REMOTE_DORIS("remote_doris"),

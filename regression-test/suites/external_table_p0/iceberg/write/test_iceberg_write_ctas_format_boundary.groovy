@@ -155,26 +155,4 @@ suite("test_iceberg_write_ctas_format_boundary",
         exception "can't cast to INT in strict mode"
     }
     assertEquals(0, (sql """show tables like 'ctas_failed_atomicity'""").size())
-
-    // WC01-S03: Iceberg allows Avro, but the current Doris writer supports
-    // Parquet and ORC only. Reject Avro explicitly instead of silently falling back.
-    sql """drop table if exists avro_write_boundary"""
-    sql """
-        create table avro_write_boundary (
-            id int,
-            payload string
-        )
-        properties (
-            "format-version" = "2",
-            "write.format.default" = "avro"
-        )
-    """
-    long avroSnapshots = (sql """select count(*) from avro_write_boundary\$snapshots""")[0][0] as long
-    test {
-        sql """insert into avro_write_boundary values (1, 'must-not-fallback')"""
-        exception "Unsupported input format type: avro"
-    }
-    assertEquals(avroSnapshots,
-            (sql """select count(*) from avro_write_boundary\$snapshots""")[0][0] as long)
-    assertEquals(0, (sql """select count(*) from avro_write_boundary\$files""")[0][0] as long)
 }

@@ -46,7 +46,6 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
-import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
@@ -1104,8 +1103,6 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, localDbName, remoteDbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, localDbName, remoteDbName);
-            case LAKESOUL:
-                return new LakeSoulExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, localDbName, remoteDbName);
             case PAIMON:
