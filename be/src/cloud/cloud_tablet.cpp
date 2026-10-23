@@ -961,7 +961,7 @@ std::string CloudTablet::compaction_not_scheduled_reason() {
     if (is_zombie_tablet()) {
         return "zombie";
     }
-    if (_tablet_meta->tablet_schema()->disable_auto_compaction()) {
+    if (_tablet_meta->disable_auto_compaction()) {
         return "disabled";
     }
     if (_engine.has_base_compaction(tablet_id()) || _engine.has_cumu_compaction(tablet_id()) ||
@@ -1050,8 +1050,8 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     root.AddMember("is zombie tablet", is_zombie_tablet(), root.GetAllocator());
     root.AddMember("has active alter job", has_active_alter_job(), root.GetAllocator());
     root.AddMember("alter version", alter_version(), root.GetAllocator());
-    root.AddMember("disable auto compaction",
-                   _tablet_meta->tablet_schema()->disable_auto_compaction(), root.GetAllocator());
+    root.AddMember("disable auto compaction", _tablet_meta->disable_auto_compaction(),
+                   root.GetAllocator());
     rapidjson::Value reason_value;
     std::string reason_str = compaction_not_scheduled_reason();
     reason_value.SetString(reason_str.c_str(), cast_set<uint>(reason_str.length()),

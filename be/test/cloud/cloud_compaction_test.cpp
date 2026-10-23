@@ -1997,7 +1997,7 @@ TEST_F(CloudCompactionTest, zombie_tablet_excluded_from_score_and_candidates) {
         auto tablet = std::make_shared<CloudTablet>(_engine, meta);
         tablet->set_has_active_alter_job(has_alter_job);
         tablet->_approximate_cumu_num_deltas = cumu_deltas;
-        tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+        tablet->tablet_meta()->set_disable_auto_compaction(false);
         mgr.put_tablet_for_UT(tablet);
         return tablet;
     };
