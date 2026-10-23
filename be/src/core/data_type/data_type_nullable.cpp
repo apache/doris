@@ -153,6 +153,37 @@ const char* DataTypeNullable::deserialize(const char* buf, const char* end,
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Malformed nullable column: encoded null map exceeds input");
             }
+            const uint8_t* encoded_data = reinterpret_cast<const uint8_t*>(buf + sizeof(size_t));
+            uint32_t value_count = cast_set<UInt32>(upper_int32(null_map_size));
+            size_t control_bytes = (static_cast<size_t>(value_count) + 3) / 4;
+            if (control_bytes > encode_size) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Malformed nullable column: null map control bytes exceed input");
+            }
+
+            // StreamVByte stores one control byte per four integers, and each
+            // two-bit code selects one to four data bytes for its integer.
+            size_t expected_encode_size = control_bytes;
+            size_t remaining_values = value_count;
+            for (size_t i = 0; i < control_bytes; ++i) {
+                uint8_t control = encoded_data[i];
+                size_t values_in_group = std::min<size_t>(remaining_values, 4);
+                for (size_t j = 0; j < values_in_group; ++j) {
+                    size_t value_bytes = ((control >> (j * 2)) & 0x03) + 1;
+                    if (value_bytes > encode_size - expected_encode_size) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                        "Malformed nullable column: null map data exceeds input");
+                    }
+                    expected_encode_size += value_bytes;
+                }
+                remaining_values -= values_in_group;
+            }
+            if (expected_encode_size != encode_size) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Malformed nullable column: encoded null map size mismatch: {} != {}",
+                        expected_encode_size, encode_size);
+            }
         }
     }
 
@@ -173,8 +204,14 @@ const char* DataTypeNullable::deserialize(const char* buf, const char* end,
         size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         // Throw exception if mem_size is large than UINT32_MAX
-        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(null_map_data.data()),
-                           cast_set<UInt32>(upper_int32(mem_size)));
+        uint32_t value_count = cast_set<UInt32>(upper_int32(mem_size));
+        size_t decoded_bytes = streamvbyte_decode((const uint8_t*)buf,
+                                                  (uint32_t*)(null_map_data.data()), value_count);
+        if (decoded_bytes != encode_size) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Malformed nullable column: decoded null map size mismatch: {} != {}",
+                            decoded_bytes, encode_size);
+        }
         buf += encode_size;
     }
 
