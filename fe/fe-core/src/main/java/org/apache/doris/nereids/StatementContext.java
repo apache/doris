@@ -354,9 +354,6 @@ public class StatementContext implements Closeable {
     private boolean hasNestedColumns;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
-
-    // CTEs that must be materialized (e.g., containing non-deterministic functions)
-    private final Set<CTEId> forceMaterializeCTEs = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
 
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
@@ -1871,18 +1868,6 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
-    }
-
-    public void addForceMaterializeCTE(CTEId cteId) {
-        forceMaterializeCTEs.add(cteId);
-    }
-
-    public boolean isForceMaterializeCTE(CTEId cteId) {
-        return forceMaterializeCTEs.contains(cteId);
-    }
-
-    public Set<CTEId> getForceMaterializeCTEs() {
-        return forceMaterializeCTEs;
     }
 
     public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {

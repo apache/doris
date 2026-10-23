@@ -37,10 +37,6 @@ suite("query4_constraints") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql 'set join_order_time_limit=10000'
-    // Keep CTE materialized here: with cte_inline_mode >= 0 this CTE is inlined and the resulting
-    // plan holds several equal-cost alternatives, so the chosen join implementation and join order
-    // depend on the environment and the expected output cannot be pinned.
-    sql "set cte_inline_mode=-1"
 
     def ds = """with year_total as (
  select c_customer_id customer_id
