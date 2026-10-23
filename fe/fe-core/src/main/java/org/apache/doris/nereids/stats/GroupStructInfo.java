@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -1920,6 +1921,12 @@ public class GroupStructInfo {
 
     /** The token of an olap scan, or null when its data state cannot be read. */
     private static HboScanDescriptor scanDescriptor(OlapScan scan, Ctx ctx) {
+        if (usesTemporaryPartitions(scan)) {
+            // a temporary partition is a short lived copy replaced by a manual job: no entry recorded for
+            // it can be reused, and the queries which read one are rare, so hbo is not injected for them
+            invalid(ctx, "temporary partition of " + scan.getTable().getNameWithFullQualifiers());
+            return null;
+        }
         if (scan instanceof LogicalOlapScan && ((LogicalOlapScan) scan).getTableSample().isPresent()) {
             // a table sample reads a random subset of the table, and a different one on every execution:
             // no row count recorded for such a scan can be reused, and a node above it inherits that
@@ -1943,6 +1950,24 @@ public class GroupStructInfo {
                     + " (" + e.getMessage() + ")");
             return null;
         }
+    }
+
+    /** Whether the scan reads a temporary partition, see {@link #scanDescriptor}. */
+    private static boolean usesTemporaryPartitions(OlapScan scan) {
+        List<Partition> tempPartitions = scan.getTable().getAllTempPartitions();
+        if (tempPartitions.isEmpty()) {
+            return false;
+        }
+        Set<Long> tempPartitionIds = new HashSet<>();
+        for (Partition partition : tempPartitions) {
+            tempPartitionIds.add(partition.getId());
+        }
+        for (long partitionId : scan.getSelectedPartitionIds()) {
+            if (tempPartitionIds.contains(partitionId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The children at the given indexes, or null when one of them invalidates this node. */
