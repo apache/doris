@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -137,8 +138,53 @@ public class HboJoinConditionsTest {
                 canonical(JoinType.INNER_JOIN, new EqualTo(a.getOutput().get(1), b.getOutput().get(0)), a, b));
     }
 
+    @Test
+    public void testAnOuterJoinWithoutACrossSidePairHasNoKey() {
+        LogicalOlapScan a = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalOlapScan b = PlanConstructor.newLogicalOlapScan(1, "t", 0);
+        LogicalOlapScan c = PlanConstructor.newLogicalOlapScan(2, "u", 0);
+        // both operands of the equality read the left child: the mirror plan (the same condition inside
+        // the right child) reads the same columns, so the pair cannot name a side
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> leftJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
+                ImmutableList.<Expression>of(), ImmutableList.<Expression>of(), a, b, null);
+        Assertions.assertFalse(joinKey(JoinType.LEFT_OUTER_JOIN,
+                new EqualTo(a.getOutput().get(0), b.getOutput().get(0)), leftJoin, c).isPresent(),
+                "an outer join whose pair reads one side only has no key");
+        // a self join on the same column: both identities are t.k, so the two occurrences are
+        // interchangeable in the key although only one of them is the preserved side
+        Assertions.assertFalse(joinKey(JoinType.LEFT_OUTER_JOIN,
+                new EqualTo(a.getOutput().get(0), b.getOutput().get(0)), a, b).isPresent(),
+                "an outer join whose pair names one column only has no key");
+    }
+
+    @Test
+    public void testColumnPruningDoesNotChangeAnOuterExpansionKey() {
+        LogicalOlapScan t = PlanConstructor.newLogicalOlapScan(0, "t", 0);
+        LogicalOlapScan u = PlanConstructor.newLogicalOlapScan(1, "u", 0);
+        EqualTo equal = new EqualTo(t.getOutput().get(0), u.getOutput().get(0));
+        String full = canonical(JoinType.LEFT_OUTER_JOIN, equal, t, u);
+        // the key name only the equality operands, so the projects a key-only selection pushes below the
+        // join do not change it
+        LogicalProject<LogicalOlapScan> narrowT = new LogicalProject<>(
+                ImmutableList.of(t.getOutput().get(0)), t);
+        LogicalProject<LogicalOlapScan> narrowU = new LogicalProject<>(
+                ImmutableList.of(u.getOutput().get(0)), u);
+        LogicalJoin<LogicalProject<LogicalOlapScan>, LogicalProject<LogicalOlapScan>> narrow =
+                new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                        ImmutableList.<Expression>of(new EqualTo(narrowT.getOutput().get(0),
+                                narrowU.getOutput().get(0))),
+                        ImmutableList.<Expression>of(), narrowT, narrowU, null);
+        Assertions.assertEquals(full, HboJoinConditions.canonicalOf(narrow).get(),
+                "column pruning changed the key of an outer join");
+    }
+
     private static String canonical(JoinType type, EqualTo equal, LogicalOlapScan left, LogicalOlapScan right) {
+        return joinKey(type, equal, left, right).get();
+    }
+
+    private static java.util.Optional<String> joinKey(JoinType type, EqualTo equal,
+            org.apache.doris.nereids.trees.plans.Plan left, org.apache.doris.nereids.trees.plans.Plan right) {
         return HboJoinConditions.canonicalOf(new LogicalJoin<>(type,
-                ImmutableList.<Expression>of(equal), ImmutableList.<Expression>of(), left, right, null)).get();
+                ImmutableList.<Expression>of(equal), ImmutableList.<Expression>of(), left, right, null));
     }
 }
