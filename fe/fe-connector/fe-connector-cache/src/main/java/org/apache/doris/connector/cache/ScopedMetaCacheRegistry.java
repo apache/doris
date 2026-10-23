@@ -212,6 +212,32 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         tryPrune(invalidated.existing);
     }
 
+    /** Keeps a short auxiliary-index mutation ordered with value publication, then cleans values outside the gate. */
+    void invalidateAndRunUnderPublicationGate(ScopePath path, Runnable commitAction) {
+        Objects.requireNonNull(path, "path can not be null");
+        Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
+        checkOpen();
+        AtomicReference<InvalidatedScope> invalidated = new AtomicReference<>();
+        try {
+            publicationGate.write(() -> {
+                List<ScopeNode> existing = resolveExisting(path);
+                bumpPublicationStates(existing);
+                if (existing.size() == path.level().ordinal() + 1) {
+                    ScopeNode target = existing.get(existing.size() - 1);
+                    invalidated.set(new InvalidatedScope(existing, replaceState(target)));
+                }
+                action.run();
+                return null;
+            });
+        } finally {
+            InvalidatedScope scope = invalidated.get();
+            if (scope != null) {
+                cleanDetachedState(scope.oldState);
+                tryPrune(scope.existing);
+            }
+        }
+    }
+
     void invalidate(List<ScopePath> paths, Runnable afterStateReplacement) {
         Objects.requireNonNull(paths, "paths can not be null");
         Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");

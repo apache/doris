@@ -767,9 +767,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             tableNames.invalidateAll();
         }
         if (tables != null) {
-            tables.invalidateAll();
+            tables.invalidateAllAndRun(tableIdNameIndex::clear);
+        } else {
+            tableIdNameIndex.clear();
         }
-        tableIdNameIndex.clear();
     }
 
     @Override

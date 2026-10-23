@@ -239,7 +239,8 @@ public class FeMetaCacheEntry<K, V> {
                         && (!effectiveEnabled || data.getIfPresent(key) == value);
                 if (current && required.test(key, value) && isCurrent(stripe, token)) {
                     try {
-                        action.accept(key, value);
+                        // A warm-value index repair must share the publication barrier with bulk invalidation.
+                        data.compareAndSet(key, value, value, () -> action.accept(key, value));
                     } catch (RuntimeException | Error throwable) {
                         data.invalidateKey(key);
                         throw throwable;
@@ -360,6 +361,12 @@ public class FeMetaCacheEntry<K, V> {
     }
 
     public void invalidateAll() {
+        invalidateAllAndRun(() -> {
+        });
+    }
+
+    public void invalidateAllAndRun(Runnable commitAction) {
+        Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
         for (int i = 0; i < stripeCount; i++) {
             StripeState<K> stripe = stripeStates.get(i);
             if (stripe != null) {
@@ -370,7 +377,7 @@ public class FeMetaCacheEntry<K, V> {
                 }
             }
         }
-        owner.invalidateCatalog();
+        owner.invalidateCatalogAndRun(action);
     }
 
     public void forEach(BiConsumer<K, V> consumer) {
