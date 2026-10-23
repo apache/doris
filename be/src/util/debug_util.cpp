@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 #include <bvar/multi_dimension.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gflags/gflags.h>
 #include <stdint.h>
@@ -40,6 +41,11 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+std::string print_fragment_params_summary(const TPipelineFragmentParams& params) {
+    return fmt::format("query_id={}, fragment_id={}, local_instances={}", print_id(params.query_id),
+                       params.fragment_id, params.local_params.size());
+}
 
 std::string print_plan_node_type(const TPlanNodeType::type& type) {
     std::map<int, const char*>::const_iterator i;
