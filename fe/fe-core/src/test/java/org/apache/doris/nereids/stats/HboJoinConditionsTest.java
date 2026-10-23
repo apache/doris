@@ -58,7 +58,7 @@ public class HboJoinConditionsTest {
     }
 
     @Test
-    public void testTheLiteralsOfAResidualArePartOfTheExpansionKey() {
+    public void testAResidualDoesNotChangeTheExpansionKey() {
         LogicalOlapScan a = PlanConstructor.newLogicalOlapScan(0, "a", 0);
         LogicalOlapScan b = PlanConstructor.newLogicalOlapScan(1, "b", 0);
         EqualTo equal = new EqualTo(a.getOutput().get(0), b.getOutput().get(0));
@@ -70,8 +70,10 @@ public class HboJoinConditionsTest {
                 ImmutableList.<Expression>of(equal),
                 ImmutableList.<Expression>of(new GreaterThan(a.getOutput().get(1),
                         new Add(b.getOutput().get(1), new IntegerLiteral(1000)))), a, b, null);
-        Assertions.assertNotEquals(HboJoinConditions.canonicalOf(one), HboJoinConditions.canonicalOf(many));
-        Assertions.assertNotEquals(HboJoinConditions.fingerprintOf(one), HboJoinConditions.fingerprintOf(many));
+        // the factor is the fan out of the equality conditions only: the residual keeps its own
+        // selectivity in the estimation, so it is not part of the key
+        Assertions.assertEquals(HboJoinConditions.canonicalOf(one), HboJoinConditions.canonicalOf(many));
+        Assertions.assertEquals(HboJoinConditions.fingerprintOf(one), HboJoinConditions.fingerprintOf(many));
     }
 
     @Test
