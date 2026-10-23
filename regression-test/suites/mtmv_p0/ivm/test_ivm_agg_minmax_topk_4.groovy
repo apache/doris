@@ -21,7 +21,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // Multi-group behaviour: a group with exactly K distinct values and a group with fewer are both
 // complete; a new all-NULL group starts empty; one group exhausting its range rebuilds the whole
 // MV, and the rebuilt state keeps serving incremental refreshes.
-suite("test_ivm_minmax_topk_4") {
+suite("test_ivm_agg_minmax_topk_4") {
     sql """set enable_materialized_view_rewrite = false;"""
     sql """set enable_dml_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists ivm_topk_4_mv"""

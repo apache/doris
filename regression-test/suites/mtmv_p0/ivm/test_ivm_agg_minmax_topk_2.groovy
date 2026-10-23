@@ -22,7 +22,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // the state column keeps an empty list plus the current extreme. A retraction breaks the premise
 // and falls back; that half runs on a merge-on-write table with an explicit K = 0, because a
 // predicate DELETE on a changelog-enabled DUP table cannot produce row-level events.
-suite("test_ivm_minmax_topk_2") {
+suite("test_ivm_agg_minmax_topk_2") {
     sql """set enable_materialized_view_rewrite = false;"""
     sql """set enable_dml_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists ivm_topk_2_mv"""
