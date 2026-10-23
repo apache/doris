@@ -51,7 +51,7 @@ suite("test_paimon_blob_jni", "p0,external,doris,external_docker,external_docker
         sql "set force_jni_scanner = true"
         sql "set paimon_blob_max_size = 10485760"
 
-        ["blob_basic", "blob_all_null", "blob_size_limit", "blob_multi_columns",
+        ["blob_basic", "blob_all_null", "blob_size_limit", "blob_large_payload", "blob_multi_columns",
          "blob_partitioned", "blob_multi_snapshot", "blob_rollover", "blob_schema_evolution",
          "blob_compacted", "blob_descriptor_default"].each { table ->
             explain {
@@ -374,7 +374,71 @@ suite("test_paimon_blob_jni", "p0,external,doris,external_docker,external_docker
             from blob_descriptor_default order by id
         """
 
-        // Small payloads exercise the limit: do not allocate 10 MiB just to test an error.
+        // Real payloads exercise the default 10 MiB boundary without returning large values.
+        qt_large_default_exact """
+            select id, length(fl_get_binary(image)),
+                   md5(cast(fl_get_binary(image) as string)),
+                   length(fl_get_binary(image)) <=> expected_size,
+                   md5(cast(fl_get_binary(image) as string)) <=> expected_md5
+            from blob_large_payload where id = 1
+        """
+        test {
+            sql "select length(fl_get_binary(image)) from blob_large_payload where id = 2"
+            exception "paimon_blob_max_size=10485760"
+        }
+        test {
+            sql "select length(fl_get_binary(image)) from blob_large_payload where id = 3"
+            exception "paimon_blob_max_size=10485760"
+        }
+        test {
+            sql """
+                select id from blob_large_payload
+                where length(fl_get_binary(image)) <= 10485760
+            """
+            exception "paimon_blob_max_size=10485760"
+        }
+        qt_large_default_descriptor """
+            select id, element_at(image, 'size'),
+                   element_at(image, 'size') <=> expected_size,
+                   element_at(image, 'uri') is not null,
+                   element_at(image, 'offset') >= 4,
+                   fl_get_binary(image) is null
+            from blob_large_payload@options('blob-as-descriptor'='true') order by id
+        """
+
+        sql "set paimon_blob_max_size = 12582912"
+        qt_large_raised_content """
+            select id, length(fl_get_binary(image)),
+                   md5(cast(fl_get_binary(image) as string)),
+                   length(fl_get_binary(image)) <=> expected_size,
+                   md5(cast(fl_get_binary(image) as string)) <=> expected_md5
+            from blob_large_payload order by id
+        """
+
+        // Neither ordinary-column projection nor descriptor output needs payload bytes.
+        sql "set paimon_blob_max_size = 1"
+        qt_large_metadata_only """
+            select id, case_name, expected_size, expected_md5
+            from blob_large_payload order by id
+        """
+        qt_large_count "select count(*) from blob_large_payload"
+        qt_large_descriptor_with_low_limit """
+            select id, element_at(image, 'size'),
+                   element_at(image, 'size') <=> expected_size,
+                   element_at(image, 'uri') is not null,
+                   element_at(image, 'offset') >= 4,
+                   fl_get_binary(image) is null
+            from blob_large_payload@options('blob-as-descriptor'='true') order by id
+        """
+
+        // A successful inline read must not cache the larger limit for later queries.
+        sql "set paimon_blob_max_size = 10485760"
+        test {
+            sql "select length(fl_get_binary(image)) from blob_large_payload where id = 2"
+            exception "paimon_blob_max_size=10485760"
+        }
+
+        // Keep the smaller boundary cases for NULL, empty and multiple BLOB columns.
         sql "set paimon_blob_max_size = 8"
         qt_limit_allowed """
             select id, length(fl_get_binary(image)),

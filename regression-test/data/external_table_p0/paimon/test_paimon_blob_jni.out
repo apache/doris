@@ -5,6 +5,7 @@ blob_basic
 blob_compacted
 blob_descriptor_default
 blob_empty
+blob_large_payload
 blob_multi_columns
 blob_multi_snapshot
 blob_orc_fallback
@@ -245,6 +246,32 @@ thumbnail	3781	0
 1	\N	true
 2	0	true
 10	11	true
+
+-- !large_default_exact --
+1	10485760	8b8378787c0925f42ccb829f6cc2fb97	true	true
+
+-- !large_default_descriptor --
+1	10485760	true	true	true	true
+2	10485761	true	true	true	true
+3	11534336	true	true	true	true
+
+-- !large_raised_content --
+1	10485760	8b8378787c0925f42ccb829f6cc2fb97	true	true
+2	10485761	126c1549a4e98d4e0254c84619963624	true	true
+3	11534336	cbbd1fd2a18bcea6f08205a0fa8baa5b	true	true
+
+-- !large_metadata_only --
+1	limit_10m_exact	10485760	8b8378787c0925f42ccb829f6cc2fb97
+2	limit_10m_plus_one	10485761	126c1549a4e98d4e0254c84619963624
+3	payload_11m	11534336	cbbd1fd2a18bcea6f08205a0fa8baa5b
+
+-- !large_count --
+3
+
+-- !large_descriptor_with_low_limit --
+1	10485760	true	true	true	true
+2	10485761	true	true	true	true
+3	11534336	true	true	true	true
 
 -- !limit_allowed --
 1	\N	\N
