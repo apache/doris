@@ -137,11 +137,15 @@ suite("test_mow_ingest_binlog") {
     assertTrue(syncer.getBackendClients())
 
     def debugPointName = "BaseTablet::calc_segment_delete_bitmap.inject_err"
+    def targetTablets = target_sql "SHOW TABLETS FROM ${tableName}"
+    assertEquals(targetTablets.size(), 1)
+    def targetTabletId = targetTablets[0][0] as String
     def targetBackends = target_sql "SHOW PROC '/backends'"
     try {
+        // Only inject into the target tablet so that concurrent MoW loads are not affected.
         targetBackends.each { backend ->
             DebugPoint.enableDebugPoint(backend[1] as String, backend[4] as int, NodeType.BE,
-                    debugPointName, [percent: "1.0"])
+                    debugPointName, [percent: "1.0", tablet_id: targetTabletId])
         }
         assertFalse(syncer.ingestBinlog())
         assertFalse(syncer.checkTargetVersion())
