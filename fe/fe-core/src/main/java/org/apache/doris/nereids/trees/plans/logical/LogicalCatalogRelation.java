@@ -205,6 +205,22 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         this.operativeSlotsDerived = true;
     }
 
+    /**
+     * Carries the state of the operative slots derivation into a copy of this relation.
+     *
+     * <p>Every {@code withXxx} of a relation builds a new node and passes the operative slot list,
+     * which does not tell whether it is a derivation result, so the state has to be carried
+     * explicitly: the memo builds a group expression for every leaf with
+     * {@code withGroupExpression}, and the statistics derivation of that copy would otherwise fetch
+     * the statistics of every column of a relation that needs no column at all.
+     */
+    protected <T extends LogicalCatalogRelation> T copyOperativeSlotsState(T copy) {
+        if (operativeSlotsDerived) {
+            copy.markOperativeSlotsDerived();
+        }
+        return copy;
+    }
+
     public List<NamedExpression> getVirtualColumns() {
         return virtualColumns;
     }
