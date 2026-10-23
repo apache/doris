@@ -877,7 +877,20 @@ public class GroupStructInfo {
         Map<ExprId, Expression> childDefinitions = childColumnDefinitions(node);
         resolveNodeExpressions(node, childDefinitions);
         if (plan instanceof Project) {
-            node.columnDefinitions = projectColumnDefinitions((Project) plan, childDefinitions);
+            Map<ExprId, Expression> definitions = projectColumnDefinitions((Project) plan, childDefinitions);
+            if (node.children.size() == 1 && selectsRows(node.children.get(0).node.kind)) {
+                // the value the project computes reads the output of a node which selects the rows
+                // (a top-n or a limit): the same expression above another such node denotes other values,
+                // so the definition is bound to this producer
+                Map<ExprId, Expression> bound = new LinkedHashMap<>();
+                for (Map.Entry<ExprId, Expression> definition : definitions.entrySet()) {
+                    Expression expression = definition.getValue();
+                    bound.put(definition.getKey(), expression instanceof Bound
+                            ? expression : new Bound("", expression));
+                }
+                definitions = Collections.unmodifiableMap(bound);
+            }
+            node.columnDefinitions = definitions;
         } else if (plan instanceof Aggregate) {
             node.columnDefinitions = aggregateColumnDefinitions((Aggregate<?>) plan, childDefinitions);
         } else {
@@ -911,7 +924,7 @@ public class GroupStructInfo {
      * side an outer join null-extends does not forward the value it computed: for the rows the join does
      * not match, the whole side is NULL, and a definition which can turn NULL into a non-NULL value
      * (a coalesce, an `is null`, a udf, ...) therefore has a different value above the join. Such a
-     * definition is wrapped with the id of the boundary it crossed (see {@link NullExtended}).
+     * definition is wrapped with the id of the boundary it crossed (see {@link Bound}).
      */
     private static Map<ExprId, Expression> childColumnDefinitions(Node node) {
         if (node.children.size() == 1) {
@@ -922,16 +935,16 @@ public class GroupStructInfo {
         }
         Map<ExprId, Expression> definitions = new LinkedHashMap<>();
         for (int index = 0; index < node.children.size(); index++) {
-            boolean nullExtended = isNullExtendedSide(node, index);
+            boolean nullExtended = isBoundSide(node, index);
             Map<ExprId, Expression> childDefinitions = node.children.get(index).node.columnDefinitions;
             for (Map.Entry<ExprId, Expression> definition : childDefinitions.entrySet()) {
                 Expression expression = definition.getValue();
                 if (nullExtended && canConvertNullToNonNull(expression)) {
-                    definitions.put(definition.getKey(), new NullExtended("", expression));
-                } else if (node.children.size() > 1 && expression instanceof NullExtended) {
+                    definitions.put(definition.getKey(), new Bound("", expression));
+                } else if (node.children.size() > 1 && expression instanceof Bound) {
                     // the definition crossed a boundary somewhere below this child: the consumer reaches it
                     // through this child index, which is a property of the tree
-                    definitions.put(definition.getKey(), ((NullExtended) expression).prepend(index));
+                    definitions.put(definition.getKey(), ((Bound) expression).prepend(index));
                 } else {
                     definitions.put(definition.getKey(), expression);
                 }
@@ -941,7 +954,7 @@ public class GroupStructInfo {
     }
 
     /** Whether a join null-extends the columns of the given child. */
-    private static boolean isNullExtendedSide(Node node, int index) {
+    private static boolean isBoundSide(Node node, int index) {
         if (node.kind != Kind.JOIN || node.flattenable) {
             return false;
         }
@@ -976,11 +989,12 @@ public class GroupStructInfo {
     }
 
     /**
-     * A definition which crossed a null extension: the value it denotes is NULL for the rows the join did
-     * not match, whatever the wrapped expression computes, so the expression alone would name the same
-     * value for both plans. The id names the boundary (see Node#nullExtensionBoundaryId).
+     * A definition which crossed a producer boundary: the value it denotes is computed from the rows (or
+     * the null extended columns) a specific node of the sub tree produces, so the expression alone would
+     * name the same value for two plans whose producers differ. The path names where in the assembled
+     * tree the producer sits (see the child indices a consumer prepends).
      */
-    private static final class NullExtended extends Expression {
+    private static final class Bound extends Expression {
         /**
          * The child indices from the boundary to the consumer (empty for the boundary itself). The code is
          * a property of the assembled tree, never of the order the descriptions were built in, so a cached
@@ -989,13 +1003,13 @@ public class GroupStructInfo {
         private final String path;
         private final Expression child;
 
-        private NullExtended(String path, Expression child) {
+        private Bound(String path, Expression child) {
             this.path = path;
             this.child = child;
         }
 
-        private NullExtended prepend(int index) {
-            return new NullExtended(index + path, child);
+        private Bound prepend(int index) {
+            return new Bound(index + path, child);
         }
 
         @Override
@@ -1004,9 +1018,9 @@ public class GroupStructInfo {
         }
 
         @Override
-        public NullExtended withChildren(List<Expression> children) {
+        public Bound withChildren(List<Expression> children) {
             return children.size() == 1 && children.get(0) == child
-                    ? this : new NullExtended(path, children.get(0));
+                    ? this : new Bound(path, children.get(0));
         }
 
         @Override
@@ -1043,6 +1057,11 @@ public class GroupStructInfo {
             }
         }
         return Collections.unmodifiableMap(definitions);
+    }
+
+    /** Whether a node selects the rows its parent reads (so a definition above it is bound to it). */
+    private static boolean selectsRows(Kind kind) {
+        return kind == Kind.TOPN || kind == Kind.LIMIT;
     }
 
     /** Substitute every reference to a defined column with the expression which computes it. */
@@ -2972,9 +2991,9 @@ public class GroupStructInfo {
             // decides which values are counted, i.e. how many rows a predicate above the aggregation keeps
             return className + "<distinct>";
         }
-        if (expression instanceof NullExtended) {
-            String path = ((NullExtended) expression).path;
-            return path.isEmpty() ? "NullExtended" : "NullExtended<" + path + ">";
+        if (expression instanceof Bound) {
+            String path = ((Bound) expression).path;
+            return path.isEmpty() ? "Bound" : "Bound<" + path + ">";
         }
         if (expression instanceof Function && usesSessionTimeZone((Function) expression)) {
             // the session which evaluates the expression decides how an epoch value is read: the same
