@@ -18,15 +18,14 @@
 suite("test_file_type") {
     def publicStruct = "STRUCT<uri:VARCHAR(65533),offset:BIGINT,size:BIGINT," +
             "content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>"
-    // Only scalar JSON rows are combined here; FILE is constructed after UNION ALL.
     def fileCtes = """
         WITH test_file_type_values AS (
             SELECT id, CAST(j AS FILE) AS f FROM (
-                SELECT 1 AS id, JSON_PARSE('{"uri":"S3://Bucket/a%2fb?versionId=v1","size":0,
-                    "content_type":"Image/PNG","checksum":"CRC32:00000000","offset":null,"inline":"AP+A"}') AS j
+                SELECT 1 AS id, NAMED_STRUCT('uri', 'S3://Bucket/a%2fb?versionId=v1', 'size', CAST(0 AS BIGINT),
+                    'content_type', 'Image/PNG', 'checksum', 'CRC32:00000000', 'offset', CAST(NULL AS BIGINT), 'inline', X'00FF80') AS j
                 UNION ALL SELECT 2, NULL
-                UNION ALL SELECT 3, JSON_PARSE('{"uri":"urn:example:three","offset":2,"size":8,
-                    "content_type":null,"checksum":null,"inline":""}')
+                UNION ALL SELECT 3, NAMED_STRUCT('uri', 'urn:example:three', 'size', CAST(8 AS BIGINT),
+                    'content_type', NULL, 'checksum', NULL, 'offset', CAST(2 AS BIGINT), 'inline', X'')
             ) scalar_rows
         ), test_file_type_nested AS (
             SELECT id, ARRAY(f, NULL) AS files,
@@ -34,13 +33,13 @@ suite("test_file_type") {
             FROM test_file_type_values
         ), test_file_type_inline_values AS (
             SELECT id, CAST(j AS FILE) AS f FROM (
-                SELECT 1 AS id, JSON_PARSE('{"uri":null,"offset":null,"size":null,
-                    "content_type":null,"checksum":null,"inline":"AP8="}') AS j
-                UNION ALL SELECT 2, JSON_PARSE('{"uri":null,"offset":null,"size":null,
-                    "content_type":null,"checksum":null,"inline":""}')
+                SELECT 1 AS id, NAMED_STRUCT('uri', CAST(NULL AS STRING), 'offset', NULL, 'size', NULL,
+                    'content_type', NULL, 'checksum', NULL, 'inline', X'00FF') AS j
+                UNION ALL SELECT 2, NAMED_STRUCT('uri', NULL, 'offset', NULL, 'size', NULL,
+                    'content_type', NULL, 'checksum', NULL, 'inline', X'')
                 UNION ALL SELECT 3, NULL
-                UNION ALL SELECT 4, JSON_PARSE('{"uri":"urn:reference","offset":null,"size":null,
-                    "content_type":null,"checksum":null,"inline":null}')
+                UNION ALL SELECT 4, NAMED_STRUCT('uri', 'urn:reference', 'offset', NULL, 'size', NULL,
+                    'content_type', NULL, 'checksum', NULL, 'inline', NULL)
             ) scalar_inline_rows
         )
     """
@@ -50,18 +49,18 @@ suite("test_file_type") {
                'URI', 'urn:example:three', 'OFFSET', CAST(CAST(2 AS INT) AS BIGINT),
                'content_type', NULL, 'checksum', NULL, 'inline', X'') AS FILE)
     """)
-    qt_values fileQuery("SELECT id, f, CAST(CAST(f AS JSON) AS STRING), CAST(f AS JSON) FROM test_file_type_values ORDER BY id")
+    qt_values fileQuery("SELECT id, f, CAST(TO_JSON(f) AS STRING), TO_JSON(f) FROM test_file_type_values ORDER BY id")
+    qt_to_json_nested fileQuery("""
+        SELECT id, TO_JSON(files), TO_JSON(holder), TO_JSON(lookup)
+        FROM test_file_type_nested ORDER BY id
+    """)
+    qt_to_json_inline fileQuery("SELECT id, TO_JSON(f) FROM test_file_type_inline_values ORDER BY id")
     qt_fields fileQuery("""
         SELECT id, ELEMENT_AT(f, 'uri'), ELEMENT_AT(f, 'offset'), ELEMENT_AT(f, 'size'),
                ELEMENT_AT(f, 'content_type'), ELEMENT_AT(f, 'checksum'), ELEMENT_AT(f, 'UrI'),
-               FROM_BINARY(ELEMENT_AT(f, 'inline')), FROM_BINARY(ELEMENT_AT(f, 'INLINE')),
-               ELEMENT_AT(f, 'inline') IS NULL,
+               FROM_BINARY(FL_GET_BINARY(f)), FROM_BINARY(FL_GET_BINARY(f)),
+               FL_GET_BINARY(f) IS NULL,
                f IS NULL, f IS NOT NULL
-        FROM test_file_type_values ORDER BY id
-    """)
-    qt_struct fileQuery("""
-        SELECT id, CAST(f AS STRUCT<uri:VARCHAR(65533),offset:BIGINT,size:BIGINT,
-                   content_type:VARCHAR(1024),checksum:VARCHAR(1024),inline:VARBINARY>)
         FROM test_file_type_values ORDER BY id
     """)
     qt_count fileQuery("SELECT COUNT(f) FROM test_file_type_values")
@@ -96,7 +95,7 @@ suite("test_file_type") {
             sql "SET short_circuit_evaluation = ${shortCircuit}"
             def selected = sql """
                 SELECT number, ELEMENT_AT(chosen, 'uri'),
-                       FROM_BINARY(ELEMENT_AT(chosen, 'inline')), CAST(chosen IS NULL AS INT)
+                       FROM_BINARY(FL_GET_BINARY(chosen)), CAST(chosen IS NULL AS INT)
                 FROM (
                     SELECT number,
                            CASE WHEN number % 3 = 0 THEN f
@@ -140,12 +139,23 @@ suite("test_file_type") {
             }
         }
     }
-    def inlineFallback = """CAST(JSON_PARSE('{"uri":null,"offset":null,"size":null,
-            "content_type":null,"checksum":null,"inline":"AP+A"}') AS FILE)"""
+    for (def key in ["f", "ARRAY(f)", "NAMED_STRUCT('f', f)", "MAP('asset', f)"]) {
+        test {
+            sql """EXPLAIN SELECT MAP(${key}, number) FROM (
+                SELECT number, CAST(NAMED_STRUCT('uri', CONCAT('urn:map-key:', number),
+                    'offset', NULL, 'size', NULL, 'content_type', NULL,
+                    'checksum', NULL, 'inline', NULL) AS FILE) AS f
+                FROM NUMBERS("number" = "2")
+            ) inputs"""
+            exception "MAP key does not support FILE"
+        }
+    }
+    def inlineFallback = """CAST(NAMED_STRUCT('uri', NULL, 'offset', NULL, 'size', NULL,
+            'content_type', NULL, 'checksum', NULL, 'inline', X'00FF80') AS FILE)"""
     qt_conditional_values fileQuery("""
         SELECT id, COALESCE(f, ${inlineFallback}), IF(id = 2, ${inlineFallback}, f),
                IFNULL(f, ${inlineFallback}), CASE WHEN id = 2 THEN ${inlineFallback} ELSE f END,
-               FROM_BINARY(ELEMENT_AT(COALESCE(f, ${inlineFallback}), 'inline'))
+               FROM_BINARY(FL_GET_BINARY(COALESCE(f, ${inlineFallback})))
         FROM test_file_type_values ORDER BY id
     """)
     qt_null_only_propagation fileQuery("""
@@ -171,7 +181,7 @@ suite("test_file_type") {
     """)
     qt_count_fields fileQuery("""
         SELECT COUNT(ELEMENT_AT(f, 'uri')), COUNT(ELEMENT_AT(f, 'size')),
-               COUNT(ELEMENT_AT(f, 'inline')) FROM test_file_type_values
+               COUNT(FL_GET_BINARY(f)) FROM test_file_type_values
     """)
     test {
         sql fileQuery("SELECT ANY_VALUE(f) FROM test_file_type_values")
@@ -292,13 +302,13 @@ suite("test_file_type") {
     for (def expression in [
         "ARRAY_SORTBY(files, ARRAY(2, 1))", "ARRAY_MAP(x -> ELEMENT_AT(x, 'uri'), files)",
         "FIRST_VALUE(lookup) OVER (ORDER BY id)", "LAST_VALUE(files) OVER (ORDER BY id)",
-        "NTH_VALUE(holder, 1) OVER (ORDER BY id)",
-        "LAG(files) OVER (ORDER BY id)", "LEAD(holder) OVER (ORDER BY id)"
+        "NTH_VALUE(holder, 1) OVER (ORDER BY id)"
     ]) {
         sql fileQuery("SELECT ${expression} FROM test_file_type_nested")
     }
     for (def expression in [
-        "ARRAY_SORT(files)", "ARRAY_DISTINCT(files)", "ARRAY_CONTAINS(files, ELEMENT_AT(files, 1))"
+        "ARRAY_SORT(files)", "ARRAY_DISTINCT(files)", "ARRAY_CONTAINS(files, ELEMENT_AT(files, 1))",
+        "LAG(files) OVER (ORDER BY id)", "LEAD(holder) OVER (ORDER BY id)"
     ]) {
         test {
             sql fileQuery("SELECT ${expression} FROM test_file_type_nested")
@@ -317,27 +327,58 @@ suite("test_file_type") {
               UNION ALL SELECT 's3://bucket/a b+中文%ZZ#fragment') t ORDER BY uri
     """
     sql "SET enable_strict_cast = true"
-    for (def invalid in [
-        '{"uri":"urn:missing-inline","offset":null,"size":null,"content_type":null,"checksum":null}',
-        '{"uri":"urn:bad-inline","offset":null,"size":null,"content_type":null,"checksum":null,"inline":"AB=="}',
-        '{"uri":"urn:bad-inline","offset":null,"size":null,"content_type":null,"checksum":null,"inline":"AA"}',
-        '{"uri":"urn:x","offset":1,"size":null,"content_type":null,"checksum":null,"inline":null}',
-        '{"uri":"urn:x","size":-1,"offset":null,"content_type":null,"checksum":null,"inline":null}',
-        '{"uri":"urn:x","offset":9223372036854775807,"size":1,"content_type":null,"checksum":null,"inline":null}',
-        '{"uri":"urn:x","size":1.5,"offset":null,"content_type":null,"checksum":null,"inline":null}', '{"uri":"urn:x","content_type":"invalid","offset":null,"size":null,"checksum":null,"inline":null}',
-        '{"uri":"urn:x","checksum":"md5:00000000000000000000000000000000","offset":null,"size":null,"content_type":null,"inline":null}',
-        '{"uri":"urn:x","checksum":"MD5:ABCDEF00000000000000000000000000","offset":null,"size":null,"content_type":null,"inline":null}',
-        '{"uri":"urn:x","inline":7,"offset":null,"size":null,"content_type":null,"checksum":null}', '{"URI":"urn:x","uri":null,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}',
-        '{"uri":"urn:x","uri":"urn:y","offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}', '{"uri":"urn:x","extra":1,"offset":null,"size":null,"content_type":null,"checksum":null,"inline":null}'
-    ]) {
-        test {
-            sql fileQuery("SELECT CAST(JSON_PARSE('${invalid}') AS FILE)")
-            exception "FILE"
+    for (def strict in [true, false]) {
+        sql "SET enable_strict_cast = ${strict}"
+        for (def castFunction in ["CAST", "TRY_CAST"]) {
+            for (def expression in [
+                "${castFunction}(f AS ${publicStruct})",
+                "${castFunction}(f AS STRING)",
+                "${castFunction}(ARRAY(f) AS STRING)",
+                "${castFunction}(NAMED_STRUCT('f', f) AS STRING)",
+                "${castFunction}(MAP('f', f) AS STRING)",
+                "${castFunction}(CAST(NULL AS FILE) AS ${publicStruct})",
+                "${castFunction}(ARRAY(f) AS ARRAY<${publicStruct}>)",
+                "${castFunction}(NAMED_STRUCT('f', f) AS STRUCT<f:${publicStruct}>)",
+                "${castFunction}(MAP('f', f) AS MAP<STRING,${publicStruct}>)",
+                "${castFunction}(ARRAY(NAMED_STRUCT('f', f)) AS ARRAY<STRUCT<f:${publicStruct}>>)"
+            ]) {
+                test {
+                    sql fileQuery("SELECT ${expression} FROM test_file_type_values")
+                    exception "FILE"
+                }
+            }
+            for (def externalType in ["JSON", "VARIANT"]) {
+                for (def expression in [
+                    "${castFunction}(f AS ${externalType})",
+                    "${castFunction}(CAST(TO_JSON(f) AS ${externalType}) AS FILE)",
+                    "${castFunction}(CAST(NULL AS FILE) AS ${externalType})",
+                    "${castFunction}(CAST(NULL AS ${externalType}) AS FILE)",
+                    "${castFunction}(ARRAY(f) AS ARRAY<${externalType}>)",
+                    "${castFunction}(CAST(TO_JSON(ARRAY(f)) AS ARRAY<${externalType}>) AS ARRAY<FILE>)",
+                    "${castFunction}(CAST(TO_JSON(ARRAY(f)) AS ${externalType}) AS ARRAY<FILE>)",
+                    "${castFunction}(ARRAY(f) AS ${externalType})",
+                    "${castFunction}(NAMED_STRUCT('f', f) AS ${externalType})",
+                    "${castFunction}(CAST(TO_JSON(NAMED_STRUCT('f', f)) AS ${externalType}) AS STRUCT<f:FILE>)",
+                    "${castFunction}(MAP('f', f) AS ${externalType})",
+                    "${castFunction}(CAST(TO_JSON(MAP('f', f)) AS ${externalType}) AS MAP<STRING,FILE>)",
+                    "${castFunction}(NAMED_STRUCT('f', f) AS STRUCT<f:${externalType}>)",
+                    "${castFunction}(CAST(TO_JSON(NAMED_STRUCT('f', f)) AS STRUCT<f:${externalType}>) AS STRUCT<f:FILE>)",
+                    "${castFunction}(MAP('f', f) AS MAP<STRING,${externalType}>)",
+                    "${castFunction}(CAST(NULL AS MAP<STRING,${externalType}>) AS MAP<STRING,FILE>)"
+                ]) {
+                    test {
+                        sql fileQuery("SELECT ${expression} FROM test_file_type_values")
+                        exception "FILE"
+                    }
+                }
+            }
         }
     }
+    sql "SET enable_strict_cast = true"
     qt_try_cast fileQuery("""
-        SELECT TRY_CAST(JSON_PARSE('{"uri":"relative/path","offset":null,"size":-1,"content_type":null,"checksum":null,"inline":null}') AS FILE) IS NULL,
-               CAST(JSON_PARSE('null') AS FILE) IS NULL, CAST(NULL AS FILE) IS NULL
+        SELECT TRY_CAST(NAMED_STRUCT('uri', 'relative/path', 'offset', NULL, 'size', CAST(-1 AS BIGINT),
+                   'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS FILE) IS NULL,
+               CAST(NULL AS FILE) IS NULL
     """)
     qt_nested_try_cast fileQuery("""
         SELECT TRY_CAST(ARRAY(NAMED_STRUCT('uri', 'urn:valid', 'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL),
@@ -350,7 +391,8 @@ suite("test_file_type") {
     """)
     sql "SET enable_strict_cast = false"
     test {
-        sql fileQuery("""SELECT CAST(JSON_PARSE('{"uri":"urn:x","size":-1,"offset":null,"content_type":null,"checksum":null,"inline":null}') AS FILE)""")
+        sql fileQuery("""SELECT CAST(NAMED_STRUCT('uri', 'urn:x', 'size', CAST(-1 AS BIGINT), 'offset', NULL,
+                'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS FILE)""")
         exception "FILE size must be nonnegative"
     }
     sql "SET enable_strict_cast = true"
@@ -412,13 +454,14 @@ suite("test_file_type") {
     }
 
     // Explicit conversions remain query expressions; no FILE assignment policy is imposed.
-    def fileValue = "CAST(NAMED_STRUCT('uri', 'urn:cast', 'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS FILE)"
-    def fileArrayValue = "CAST(ARRAY(CAST(${fileValue} AS ${publicStruct})) AS ARRAY<FILE>)"
-    qt_explicit_reverse fileQuery("""
-        SELECT CAST(CAST(${fileValue} AS JSON) AS STRING), CAST(${fileValue} AS JSON),
-               ELEMENT_AT(CAST(${fileValue} AS ${publicStruct}), 'uri'),
-               ELEMENT_AT(CAST(CAST(${fileArrayValue} AS ARRAY<JSON>) AS ARRAY<STRING>), 1),
-               ELEMENT_AT(ELEMENT_AT(CAST(${fileArrayValue} AS ARRAY<${publicStruct}>), 1), 'uri')
+    def structValue = "NAMED_STRUCT('uri', 'urn:cast', 'offset', NULL, 'size', NULL, 'content_type', NULL, 'checksum', NULL, 'inline', NULL)"
+    def fileValue = "CAST(${structValue} AS FILE)"
+    def fileArrayValue = "CAST(ARRAY(${structValue}) AS ARRAY<FILE>)"
+    qt_explicit_struct_to_file fileQuery("""
+        SELECT CAST(TO_JSON(${fileValue}) AS STRING), TO_JSON(${fileValue}),
+               ELEMENT_AT(${fileValue}, 'uri'),
+               CAST(TO_JSON(ELEMENT_AT(${fileArrayValue}, 1)) AS STRING),
+               ELEMENT_AT(ELEMENT_AT(${fileArrayValue}, 1), 'uri')
     """)
     for (def query in [
         "SELECT CAST(f AS STRING) FROM test_file_type_values",
@@ -431,27 +474,14 @@ suite("test_file_type") {
             exception "FILE"
         }
     }
-    qt_variant_casts fileQuery("""
-        SELECT id, ELEMENT_AT(CAST(CAST(f AS VARIANT) AS FILE), 'uri'),
-               ELEMENT_AT(CAST(CAST(f AS VARIANT) AS FILE), 'size'),
-               FROM_BINARY(ELEMENT_AT(CAST(CAST(f AS VARIANT) AS FILE), 'inline')),
-               FROM_BINARY(ELEMENT_AT(CAST(CAST(f AS JSON) AS FILE), 'inline'))
-        FROM test_file_type_values ORDER BY id
-    """)
-    qt_inline_struct_roundtrip fileQuery("""
-        SELECT id, FROM_BINARY(ELEMENT_AT(CAST(CAST(f AS
-                   STRUCT<inline:VARBINARY,checksum:STRING,content_type:STRING,size:BIGINT,offset:BIGINT,uri:STRING>)
-                   AS FILE), 'inline'))
-        FROM test_file_type_values ORDER BY id
-    """)
     qt_explicit_forward fileQuery("""
         SELECT id, ELEMENT_AT(CAST(j AS FILE), 'uri'),
-               ELEMENT_AT(ELEMENT_AT(CAST(ARRAY(CAST(CAST(j AS FILE) AS ${publicStruct})) AS ARRAY<FILE>), 1), 'uri')
+               ELEMENT_AT(ELEMENT_AT(CAST(ARRAY(j) AS ARRAY<FILE>), 1), 'uri')
         FROM (
-            SELECT 2 AS id, JSON_PARSE('{"uri":"urn:struct","offset":null,"size":null,
-                "content_type":null,"checksum":null,"inline":null}') AS j
-            UNION ALL SELECT 3, JSON_PARSE('{"uri":"urn:json","offset":null,"size":null,
-                "content_type":null,"checksum":null,"inline":null}')
+            SELECT 2 AS id, NAMED_STRUCT('uri', 'urn:struct', 'offset', NULL, 'size', NULL,
+                'content_type', NULL, 'checksum', NULL, 'inline', NULL) AS j
+            UNION ALL SELECT 3, NAMED_STRUCT('uri', 'urn:reference', 'offset', NULL, 'size', NULL,
+                'content_type', NULL, 'checksum', NULL, 'inline', NULL)
         ) scalar_cast_rows ORDER BY id
     """)
 
@@ -486,21 +516,20 @@ def evaluate(value):
 
     qt_inline_values fileQuery("""
         SELECT id, f, ELEMENT_AT(f, 'uri'), ELEMENT_AT(f, 'size'),
-               FROM_BINARY(ELEMENT_AT(f, 'inline')), f IS NULL
+               FROM_BINARY(FL_GET_BINARY(f)), f IS NULL
         FROM test_file_type_inline_values ORDER BY id
     """)
     qt_inline_counts fileQuery("""
-        SELECT COUNT(f), COUNT(ELEMENT_AT(f, 'uri')), COUNT(ELEMENT_AT(f, 'inline'))
+        SELECT COUNT(f), COUNT(ELEMENT_AT(f, 'uri')), COUNT(FL_GET_BINARY(f))
         FROM test_file_type_inline_values
     """)
     qt_inline_constructors fileQuery("""
         SELECT id, ARRAY(f, NULL), NAMED_STRUCT('asset', f), MAP('asset', f),
-               FROM_BINARY(ELEMENT_AT(ELEMENT_AT(ARRAY(f), 1), 'inline')),
-               FROM_BINARY(ELEMENT_AT(ELEMENT_AT(NAMED_STRUCT('asset', f), 'asset'), 'inline')),
-               FROM_BINARY(ELEMENT_AT(ELEMENT_AT(MAP('asset', f), 'asset'), 'inline'))
+               FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(ARRAY(f), 1))),
+               FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(NAMED_STRUCT('asset', f), 'asset'))),
+               FROM_BINARY(FL_GET_BINARY(ELEMENT_AT(MAP('asset', f), 'asset')))
         FROM test_file_type_inline_values ORDER BY id
     """)
-    qt_inline_struct fileQuery("SELECT id, CAST(f AS ${publicStruct}) FROM test_file_type_inline_values ORDER BY id")
     qt_inline_explode fileQuery("""
         SELECT id, uri, off, size, mime, checksum, FROM_BINARY(inline_bytes)
         FROM test_file_type_inline_values

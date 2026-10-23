@@ -253,9 +253,12 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_file_wrapper(from_type, to_type);
     }
     if ((contains_file_type(from_type) || contains_file_type(to_type)) &&
-        (from_type->get_primitive_type() == TYPE_VARIANT ||
+        (from_type->get_primitive_type() == TYPE_JSONB ||
+         to_type->get_primitive_type() == TYPE_JSONB ||
+         from_type->get_primitive_type() == TYPE_VARIANT ||
          to_type->get_primitive_type() == TYPE_VARIANT ||
-         is_string_type(from_type->get_primitive_type()))) {
+         is_string_type(from_type->get_primitive_type()) ||
+         is_string_type(to_type->get_primitive_type()))) {
         return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 
