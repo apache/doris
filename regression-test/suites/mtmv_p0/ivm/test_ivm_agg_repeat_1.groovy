@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_repeat_1") {
+suite("test_ivm_agg_repeat_1") {
     // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
     sql """set enable_materialized_view_rewrite = false;"""
-    sql """drop materialized view if exists test_ivm_repeat_1_mv;"""
-    sql """drop table if exists test_ivm_repeat_1_t;"""
+    sql """drop materialized view if exists test_ivm_agg_repeat_1_mv;"""
+    sql """drop table if exists test_ivm_agg_repeat_1_t;"""
 
     sql """
-        CREATE TABLE test_ivm_repeat_1_t (
+        CREATE TABLE test_ivm_agg_repeat_1_t (
             id INT,
             region VARCHAR(16),
             product VARCHAR(16),
@@ -38,14 +38,14 @@ suite("test_ivm_repeat_1") {
     """
 
     sql """
-        INSERT INTO test_ivm_repeat_1_t VALUES
+        INSERT INTO test_ivm_agg_repeat_1_t VALUES
             (1, 'east', 'book', 10),
             (2, 'east', 'toy', 20),
             (3, 'west', 'book', 30);
     """
 
     sql """
-        CREATE MATERIALIZED VIEW test_ivm_repeat_1_mv
+        CREATE MATERIALIZED VIEW test_ivm_agg_repeat_1_mv
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
@@ -57,15 +57,15 @@ suite("test_ivm_repeat_1") {
                GROUPING_ID(region, product) AS gid,
                COUNT(*) AS cnt,
                SUM(amount) AS total_amount
-        FROM test_ivm_repeat_1_t
+        FROM test_ivm_agg_repeat_1_t
         GROUP BY GROUPING SETS ((region, product), (region), ());
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_1_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_repeat_1_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_repeat_1_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_repeat_1_mv")
     order_qt_repeat_complete """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
-        FROM test_ivm_repeat_1_mv
+        FROM test_ivm_agg_repeat_1_mv
     """
     order_qt_repeat_complete_source """
         SELECT region,
@@ -75,22 +75,22 @@ suite("test_ivm_repeat_1") {
                GROUPING_ID(region, product) AS gid,
                COUNT(*) AS cnt,
                SUM(amount) AS total_amount
-        FROM test_ivm_repeat_1_t
+        FROM test_ivm_agg_repeat_1_t
         GROUP BY GROUPING SETS ((region, product), (region), ())
     """
     order_qt_repeat_complete_empty_group """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
-        FROM test_ivm_repeat_1_mv
+        FROM test_ivm_agg_repeat_1_mv
         WHERE g_region = 1 AND g_product = 1
     """
 
-    sql """INSERT INTO test_ivm_repeat_1_t VALUES (4, 'west', 'toy', 40);"""
+    sql """INSERT INTO test_ivm_agg_repeat_1_t VALUES (4, 'west', 'toy', 40);"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_1_mv INCREMENTAL"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_repeat_1_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_repeat_1_mv INCREMENTAL"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_repeat_1_mv")
     order_qt_repeat_incr """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
-        FROM test_ivm_repeat_1_mv
+        FROM test_ivm_agg_repeat_1_mv
     """
     order_qt_repeat_incr_source """
         SELECT region,
@@ -100,20 +100,20 @@ suite("test_ivm_repeat_1") {
                GROUPING_ID(region, product) AS gid,
                COUNT(*) AS cnt,
                SUM(amount) AS total_amount
-        FROM test_ivm_repeat_1_t
+        FROM test_ivm_agg_repeat_1_t
         GROUP BY GROUPING SETS ((region, product), (region), ())
     """
     order_qt_repeat_incr_empty_group """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
-        FROM test_ivm_repeat_1_mv
+        FROM test_ivm_agg_repeat_1_mv
         WHERE g_region = 1 AND g_product = 1
     """
 
-    sql """REFRESH MATERIALIZED VIEW test_ivm_repeat_1_mv COMPLETE"""
-    waitingMTMVTaskFinishedByMvName("test_ivm_repeat_1_mv")
+    sql """REFRESH MATERIALIZED VIEW test_ivm_agg_repeat_1_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_agg_repeat_1_mv")
     order_qt_repeat_complete2 """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
-        FROM test_ivm_repeat_1_mv
+        FROM test_ivm_agg_repeat_1_mv
     """
     order_qt_repeat_complete2_source """
         SELECT region,
@@ -123,12 +123,12 @@ suite("test_ivm_repeat_1") {
                GROUPING_ID(region, product) AS gid,
                COUNT(*) AS cnt,
                SUM(amount) AS total_amount
-        FROM test_ivm_repeat_1_t
+        FROM test_ivm_agg_repeat_1_t
         GROUP BY GROUPING SETS ((region, product), (region), ())
     """
     order_qt_repeat_complete2_empty_group """
         SELECT region, product, g_region, g_product, gid, cnt, total_amount
-        FROM test_ivm_repeat_1_mv
+        FROM test_ivm_agg_repeat_1_mv
         WHERE g_region = 1 AND g_product = 1
     """
 }
