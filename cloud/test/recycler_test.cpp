@@ -5450,7 +5450,7 @@ TEST(HdfsAccessorLocationTest, location) {
     HdfsAccessor accessor3(info3);
 
     EXPECT_EQ(accessor1.uri(), "hdfs://nn1:8020/p1");
-    EXPECT_EQ(accessor1.location(), accessor1.uri());
+    EXPECT_EQ(accessor1.location(), "hdfs://nn1:8020\n/p1");
     EXPECT_EQ(accessor1.location(), accessor1_again.location());
     EXPECT_NE(accessor1.location(), accessor2.location());
     EXPECT_NE(accessor1.location(), accessor3.location());
@@ -5480,6 +5480,28 @@ TEST(HdfsAccessorLocationTest, location) {
     EXPECT_EQ(accessor_a.uri(), accessor_b.uri());
     EXPECT_NE(accessor_a.location(), accessor_b.location());
     EXPECT_EQ(accessor_a.location(), accessor_a_reordered.location());
+
+    // fs_name and prefix do not merge: same uri, different directories
+    auto info_split_1 = make_info("hdfs://ns/a", "b");
+    auto info_split_2 = make_info("hdfs://ns", "a/b");
+    HdfsAccessor accessor_split_1(info_split_1);
+    HdfsAccessor accessor_split_2(info_split_2);
+    EXPECT_EQ(accessor_split_1.uri(), accessor_split_2.uri());
+    EXPECT_NE(accessor_split_1.location(), accessor_split_2.location());
+
+    // A repeated key takes effect with its first value, as libhdfs applies it
+    auto repeated = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                  {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"},
+                                  {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                  {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"}});
+    auto repeated_reversed = make_ha_info({{"dfs.ha.namenodes.ns", "nn1,nn2"},
+                                           {"dfs.namenode.rpc-address.ns.nn1", "b1:8020"},
+                                           {"dfs.namenode.rpc-address.ns.nn2", "a2:8020"},
+                                           {"dfs.namenode.rpc-address.ns.nn1", "a1:8020"}});
+    HdfsAccessor accessor_repeated(repeated);
+    HdfsAccessor accessor_repeated_reversed(repeated_reversed);
+    EXPECT_EQ(accessor_repeated.location(), accessor_a.location());
+    EXPECT_NE(accessor_repeated_reversed.location(), accessor_a.location());
 }
 #endif
 

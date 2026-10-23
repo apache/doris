@@ -29,7 +29,7 @@
 #include <hdfs/hdfs.h> // IWYU pragma: export
 #endif
 
-#include <algorithm>
+#include <map>
 #include <string_view>
 #include <vector>
 
@@ -340,18 +340,21 @@ std::string accessor_prefix(const HdfsVaultInfo& info) {
 
 // fs_name and prefix name the directory, but a logical nameservice in fs_name resolves through the
 // vault's hdfs_confs: two vaults with fs_name hdfs://ns and prefix /warehouse are different
-// clusters when their dfs.namenode.rpc-address.ns.* differ. Append all confs, sorted, so equal
-// locations mean equal configurations; differences that do not matter only cost a second listing.
+// clusters when their dfs.namenode.rpc-address.ns.* differ. Append the effective confs, sorted by
+// key, so equal locations mean equal configurations; differences that do not matter only cost a
+// second listing. '\n' separates the parts, so e.g. hdfs://ns/a + /b and hdfs://ns + /a/b differ.
 std::string accessor_location(const HdfsVaultInfo& info) {
-    std::vector<std::string> confs;
+    // libhdfs applies builder confs so that the first value set for a key wins: keep that one
+    std::map<std::string, std::string> confs;
     for (const auto& conf : info.build_conf().hdfs_confs()) {
-        confs.push_back(conf.key() + '=' + conf.value());
+        confs.emplace(conf.key(), conf.value());
     }
-    std::sort(confs.begin(), confs.end());
-    std::string location = info.build_conf().fs_name() + accessor_prefix(info);
-    for (const auto& conf : confs) {
+    std::string location = info.build_conf().fs_name() + '\n' + accessor_prefix(info);
+    for (const auto& [key, value] : confs) {
         location += '\n';
-        location += conf;
+        location += key;
+        location += '=';
+        location += value;
     }
     return location;
 }
