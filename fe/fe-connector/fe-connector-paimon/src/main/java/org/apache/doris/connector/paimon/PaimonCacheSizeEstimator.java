@@ -25,7 +25,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.DelegatedFileStoreTable;
@@ -94,10 +93,6 @@ final class PaimonCacheSizeEstimator {
     }
 
     static MetaCacheSizeEstimate estimateTable(Identifier key, Table table, long entryOverheadBytes) {
-        if (table instanceof PrivilegedFileStoreTable) {
-            return MetaCacheSizeEstimate.incomplete(
-                    "authorization decorators must be applied outside the metadata cache");
-        }
         long bytes = add(entryOverheadBytes, ReflectiveObjectSizeEstimator.estimateComplete(key));
         if (table instanceof FileStoreTable) {
             Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());

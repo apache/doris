@@ -25,7 +25,6 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.DelegatedFileStoreTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -127,11 +126,11 @@ public final class PaimonScanParams {
     private static final Set<String> PAIMON_READER_SYSTEM_TABLES = ImmutableSet.of(
             "audit_log", "binlog", "row_tracking");
 
-    // Not a capability the user selects but a property of where the snapshot is resolved: these five
+    // Not a capability the user selects but a property of where the snapshot is resolved: these tables
     // pick it inside the BE reader rather than reading what the FE planned. See
     // resolvesSnapshotOnBackend for the per-table call chain.
     private static final Set<String> BACKEND_SNAPSHOT_SYSTEM_TABLES = ImmutableSet.of(
-            "files", "partitions", "manifests", "statistics", "table_indexes");
+            "files", "file_indexes", "partitions", "manifests", "statistics", "table_indexes");
 
     private static final Set<String> OPTIONS_SYSTEM_TABLES = ImmutableSet.of(
             // A system table may advertise OPTIONS only when every row-producing stage observes
@@ -159,6 +158,12 @@ public final class PaimonScanParams {
         PaimonReaderOptions.validateEffectiveTableOptions(options);
 
         String scanMode = options.get(CoreOptions.SCAN_MODE.key());
+        if ("latest-delta".equalsIgnoreCase(scanMode)) {
+            // This resolver fixes startup selectors with scan.snapshot-id, which selects a full
+            // snapshot. Paimon 2.1's latest-delta needs a pinned delta range instead.
+            throw new DorisConnectorException("Paimon scan mode 'latest-delta' is not supported by Doris "
+                    + "OPTIONS. Use @incr with an explicit snapshot range for incremental reads.");
+        }
         if ("from-creation-timestamp".equalsIgnoreCase(scanMode)
                 && options.get(CoreOptions.SCAN_CREATION_TIME_MILLIS.key()) == null) {
             // Paimon 1.3.1 does not validate this newer mode, but its starting scanner
@@ -244,10 +249,6 @@ public final class PaimonScanParams {
                         copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath));
             }
         }
-        if (table instanceof DelegatedFileStoreTable && !(table instanceof FallbackReadFileStoreTable)) {
-            return PaimonTableDecorators.replaceWrapped(table, copyWithPinnedFallback(
-                    ((DelegatedFileStoreTable) table).wrapped(), dynamicOptions, coordinates, path));
-        }
         return table.copyWithoutTimeTravel(dynamicOptions);
     }
 
@@ -263,10 +264,6 @@ public final class PaimonScanParams {
             return PaimonTableDecorators.rebuildFallbackPair(pair,
                     restoreBoundSchema(pair.wrapped(), schemaId, options, path),
                     restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath));
-        }
-        if (table instanceof DelegatedFileStoreTable) {
-            FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
-            return PaimonTableDecorators.replaceWrapped(table, restoreBoundSchema(wrapped, schemaId, options, path));
         }
         TableSchema persistedSchema = table.schemaManager().schema(table.schema().id());
         // A live pin can describe a replacement while this object still belongs to the old table.
@@ -604,7 +601,7 @@ public final class PaimonScanParams {
      * splits and the snapshot is picked inside the BE reader. Two shapes, both honoring
      * {@code scan.snapshot-id}:
      * <ul>
-     *   <li>{@code $files} / {@code $partitions} re-plan the base table on the BE
+     *   <li>{@code $files} / {@code $file_indexes} / {@code $partitions} re-plan the base table on the BE
      *       ({@code FilesTable.FilesRead#createReader} -&gt; {@code DataTableScan#plan()},
      *       {@code PartitionsTable.PartitionsRead#createReader} -&gt;
      *       {@code newScan().listPartitionEntries()});</li>
@@ -612,7 +609,7 @@ public final class PaimonScanParams {
      *       ({@code TimeTravelUtil#tryTravelOrLatest}, reached from {@code ManifestsTable},
      *       {@code TableIndexesTable} and {@code AbstractFileStoreTable#statistics}).</li>
      * </ul>
-     * All five have a fixed row type, so pinning the catalog's snapshot for them cannot rewind the
+     * All six have a fixed row type, so pinning the catalog's snapshot for them cannot rewind the
      * BE schema. Consumed by {@code PaimonScanPlanProvider}, which hands the BE a catalog-less table
      * and therefore has to do on the FE what the catalog would have done inside the BE reader.
      */

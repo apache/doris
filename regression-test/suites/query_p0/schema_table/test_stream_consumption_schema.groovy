@@ -30,8 +30,7 @@ suite("test_stream_consumption_schema") {
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 
@@ -67,8 +66,7 @@ suite("test_stream_consumption_schema") {
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 
@@ -107,8 +105,7 @@ suite("test_stream_consumption_schema") {
         DISTRIBUTED BY HASH(`sname`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 

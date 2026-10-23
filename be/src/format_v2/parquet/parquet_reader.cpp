@@ -575,8 +575,9 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::optional<std::string> hive_parquet_time_zone,
-                             bool preserve_binary_uuid)
+                             bool preserve_binary_uuid, ParquetProfileCache* profile_cache)
         : FileReader(system_properties, file_description, io_ctx, profile),
+          _profile_cache(profile_cache),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
@@ -1098,7 +1099,12 @@ Status ParquetReader::close() {
 }
 
 void ParquetReader::_init_profile() {
-    _parquet_profile.init(_profile);
+    if (_profile_cache != nullptr) {
+        _parquet_profile = _profile_cache->get();
+    } else {
+        // Standalone readers do not have a scan instance to own a shared counter set.
+        _parquet_profile.init(_profile);
+    }
 }
 
 } // namespace doris::format::parquet

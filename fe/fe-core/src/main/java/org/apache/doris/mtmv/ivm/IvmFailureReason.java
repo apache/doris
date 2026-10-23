@@ -19,8 +19,10 @@ package org.apache.doris.mtmv.ivm;
 
 /** Reasons IVM analysis or execution can fail. */
 public enum IvmFailureReason {
-    BINLOG_BROKEN,
-    BINLOG_NOT_ENABLED,
+    // ATTN(changelog-rename): formerly "BINLOG_BROKEN"
+    CHANGELOG_BROKEN,
+    // ATTN(changelog-rename): formerly "BINLOG_NOT_ENABLED"
+    CHANGELOG_NOT_ENABLED,
     STREAM_UNSUPPORTED,
     SNAPSHOT_ALIGNMENT_UNSUPPORTED,
     PLAN_PATTERN_UNSUPPORTED,
@@ -37,7 +39,7 @@ public enum IvmFailureReason {
     MV_PARTITION_NOT_FOUND;
 
     public boolean requiresCompleteRefresh() {
-        return this == BINLOG_BROKEN
+        return this == CHANGELOG_BROKEN
                 || this == STREAM_UNSUPPORTED
                 || this == MIN_MAX_BOUNDARY_HIT
                 || this == BITMAP_AGG_DELETE

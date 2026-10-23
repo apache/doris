@@ -779,17 +779,8 @@ public abstract class ExternalCatalog
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
-        try {
-            makeSureInitialized();
-        } catch (Exception e) {
-            String diagnosticTrace = initErrorStackTrace(e);
-            if (diagnosticTrace != null) {
-                LOG.warn("failed to get db {} in catalog {}: {}", dbName, name, diagnosticTrace);
-            } else {
-                LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
-            }
-            return null;
-        }
+        // Initialization errors do not establish that the requested database is absent.
+        makeSureInitialized();
 
         SessionContext sessionContext = SessionContext.current();
         if (shouldBypassDbNameCache(sessionContext)) {
@@ -1098,42 +1089,14 @@ public abstract class ExternalCatalog
         // When running ut, disable this check to make ut pass.
         // Because in ut, the database is not created in remote system.
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
-            try {
-                final String lookupLocalDbName = localDbName;
-                // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
-                Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
-                        namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
-                if (!Boolean.TRUE.equals(exists)) {
-                    LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
-                            localDbName);
-                    return null;
-                }
-            } catch (RuntimeException e) {
-                // Handle "Found conflicting" exception explicitly
-                if (e.getMessage().contains(FOUND_CONFLICTING)) {
-                    LOG.error(e.getMessage());
-                    throw e; // Rethrow to let the caller handle this critical issue
-                } else {
-                    // Any errors other than name conflicts, we default to not finding the database
-                    String diagnosticTrace = initErrorStackTrace(e);
-                    if (diagnosticTrace != null) {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
-                                localDbName, diagnosticTrace);
-                    } else {
-                        LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                    }
-                    return null;
-                }
-            } catch (Exception e) {
-                // If connection failed, it will throw exception.
-                // ignore it and treat it as not exist.
-                String diagnosticTrace = initErrorStackTrace(e);
-                if (diagnosticTrace != null) {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it: {}",
-                            localDbName, diagnosticTrace);
-                } else {
-                    LOG.warn("Failed to check db {} exist in remote system, ignore it.", localDbName, e);
-                }
+            // Authentication and connection failures must propagate; only a successful lookup can prove absence.
+            final String lookupLocalDbName = localDbName;
+            // Reuse the shared names lookup helper so existence checks follow the same miss-refresh policy.
+            Boolean exists = resolveDatabaseNameFromSnapshot(lookupLocalDbName, false,
+                    namesValue -> namesValue.containsLocalName(lookupLocalDbName) ? Boolean.TRUE : null);
+            if (!Boolean.TRUE.equals(exists)) {
+                LOG.warn("Database {} does not exist in the remote system. Skipping initialization.",
+                        localDbName);
                 return null;
             }
         }

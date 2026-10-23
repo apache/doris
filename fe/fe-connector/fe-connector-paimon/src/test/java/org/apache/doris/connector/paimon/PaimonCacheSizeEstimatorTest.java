@@ -29,8 +29,8 @@ import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
@@ -222,7 +222,7 @@ class PaimonCacheSizeEstimatorTest {
         }
         LocalFileIO fileIO = LocalFileIO.create();
         Path path = new Path(warehouse.resolve(name).toUri());
-        new SchemaManager(fileIO, path).createTable(builder.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(builder.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 
@@ -285,7 +285,7 @@ class PaimonCacheSizeEstimatorTest {
         }
         LocalFileIO fileIO = LocalFileIO.create();
         Path path = new Path(warehouse.resolve(name).toUri());
-        new SchemaManager(fileIO, path).createTable(builder.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(builder.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 

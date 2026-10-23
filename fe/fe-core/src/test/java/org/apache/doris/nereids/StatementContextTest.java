@@ -45,22 +45,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class StatementContextTest {
 
     @Test
-    public void testRowBinlogReferenceTsoIsStatementScoped() {
+    public void testChangelogReferenceTsoIsStatementScoped() {
         StatementContext statementContext = new StatementContext();
         AtomicInteger calls = new AtomicInteger();
 
-        statementContext.requireRowBinlogReferenceTso();
-        org.junit.jupiter.api.Assertions.assertTrue(statementContext.isRowBinlogReferenceTsoRequired());
+        statementContext.requireChangelogReferenceTso();
+        org.junit.jupiter.api.Assertions.assertTrue(statementContext.isChangelogReferenceTsoRequired());
         org.junit.jupiter.api.Assertions.assertEquals(101L,
-                statementContext.getOrRegisterRowBinlogReferenceTso(() -> 100L + calls.incrementAndGet()));
+                statementContext.getOrRegisterChangelogReferenceTso(() -> 100L + calls.incrementAndGet()));
         org.junit.jupiter.api.Assertions.assertEquals(101L,
-                statementContext.getOrRegisterRowBinlogReferenceTso(() -> 100L + calls.incrementAndGet()));
+                statementContext.getOrRegisterChangelogReferenceTso(() -> 100L + calls.incrementAndGet()));
         org.junit.jupiter.api.Assertions.assertEquals(1, calls.get());
 
         statementContext.resetConnectorStatementScope();
-        org.junit.jupiter.api.Assertions.assertFalse(statementContext.isRowBinlogReferenceTsoRequired());
+        org.junit.jupiter.api.Assertions.assertFalse(statementContext.isChangelogReferenceTsoRequired());
         org.junit.jupiter.api.Assertions.assertThrows(AnalysisException.class,
-                statementContext::getRowBinlogReferenceTso);
+                statementContext::getChangelogReferenceTso);
     }
 
     @Test

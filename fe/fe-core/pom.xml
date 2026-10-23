@@ -934,7 +934,8 @@ under the License.
         <dependency>
             <groupId>com.taobao.arthas</groupId>
             <artifactId>arthas-packaging</artifactId>
-            <version>4.0.5</version>
+            <!-- Arthas embeds its own Netty; the FE BOM cannot update that copy. -->
+            <version>4.3.5</version>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>

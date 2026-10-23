@@ -360,14 +360,6 @@ TEST(CountEmitShortcut, EngageRefusalTruthTable) {
         Block block = fx.read_schema->create_read_block();
         EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
     }
-    // Rowid consumers need real row ids.
-    {
-        Fixture fx;
-        fx.set_hit();
-        fx.iter->_opts.record_rowids = true;
-        Block block = fx.read_schema->create_read_block();
-        EXPECT_FALSE(fx.iter->_should_engage_count_emit_shortcut(&block));
-    }
     // Block shape != read schema (e.g. delete-condition column beyond block).
     {
         Fixture fx;

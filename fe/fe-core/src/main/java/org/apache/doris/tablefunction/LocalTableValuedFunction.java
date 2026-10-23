@@ -21,7 +21,9 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGlobResponse;
 import org.apache.doris.proto.InternalService.PGlobResponse.PFileInfo;
@@ -61,6 +63,9 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
     private boolean sharedStorage = false;
 
     public LocalTableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        // Check privileges before listing files or discovering their schema.
+        checkAuth(ConnectContext.get());
+
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
 
@@ -130,6 +135,16 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
         } catch (Exception e) {
             throw new AnalysisException("get file list from backend failed. " + e.getMessage());
         }
+    }
+
+    @Override
+    public void checkAuth(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.OPERATOR)) {
+            String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN/OPERATOR");
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
+        }
+        super.checkAuth(ctx);
     }
 
     @Override

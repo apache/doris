@@ -1146,8 +1146,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (index == null) {
                 throw new MetaNotFoundException("index " + tabletMeta.getIndexId() + " does not exist");
             }
-            if (index.isRowBinlog()) {
-                // Row-binlog delete bitmap is derived and saved by its base tablet.
+            if (index.isChangelog()) {
+                // Changelog delete bitmap is derived and saved by its base tablet.
                 continue;
             }
 
@@ -1192,7 +1192,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!Config.calc_delete_bitmap_get_versions_in_batch) {
             Map<Long, Long> partitionToVersions = Maps.newHashMap();
             partitionMap.forEach((key, value) -> {
-                long visibleVersion = value.getVisibleVersion();
+                long visibleVersion = ((CloudPartition) value).getVisibleVersionFromMs(
+                        Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns);
                 long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
                 partitionToVersions.put(key, newVersion);
             });

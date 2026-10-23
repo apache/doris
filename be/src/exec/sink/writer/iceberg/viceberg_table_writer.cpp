@@ -29,10 +29,12 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/external_file_writer_compatibility.h"
 #include "exec/sink/writer/iceberg/iceberg_partition_path.h"
+#include "exec/sink/writer/iceberg/iceberg_write_validator.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -132,6 +134,14 @@ VIcebergTableWriter::_to_iceberg_partition_columns() {
     std::vector<IcebergPartitionColumn> partition_columns;
 
     for (const auto& partition_field : _partition_spec->fields()) {
+        if (partition_field.transform() == "void") {
+            // A void field is NULL for every row. A v1 table keeps one for each dropped partition
+            // field and may drop its source column later, so the source is not resolved.
+            partition_columns.emplace_back(partition_field, TYPE_NULL, -1, std::vector<size_t> {},
+                                           std::make_unique<VoidPartitionColumnTransform>(
+                                                   std::make_shared<DataTypeString>()));
+            continue;
+        }
         const auto* field_path = _schema->find_field_path(partition_field.source_id());
         if (field_path == nullptr || field_path->empty()) {
             throw Exception(
@@ -402,6 +412,7 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
+    RETURN_IF_ERROR(iceberg::validate_write_block(*_schema, output_block));
 
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
             writer_positions;
@@ -526,6 +537,15 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
                 auto col = ColumnConst::create(std::move(data_col), output_block.rows());
                 transformed_block.insert(
                         {std::move(col), result_type, iceberg_partition_columns.field().name()});
+            } else if (iceberg_partition_columns.source_idx() < 0) {
+                // A void field has no source column; materialize its NULLs, since partition values
+                // are read row by row.
+                auto result_type = make_nullable(
+                        iceberg_partition_columns.partition_column_transform().get_result_type());
+                auto data_col = result_type->create_column();
+                data_col->insert_many_defaults(output_block.rows());
+                transformed_block.insert({std::move(data_col), result_type,
+                                          iceberg_partition_columns.field().name()});
             } else {
                 Block source_block;
                 source_block.insert(
@@ -570,8 +590,14 @@ Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
             if (writer_iter == _partitions_to_writers.end()) {
                 if (_partitions_to_writers.size() + 1 >
                     config::table_sink_partition_write_max_partition_nums_per_writer) {
-                    return Status::InternalError(
-                            "Too many open partitions {}",
+                    return Status::InvalidArgument(
+                            "Too many open partitions for Iceberg writer: open partitions={}, "
+                            "attempted partitions={}, limit={}. This is a per-writer limit "
+                            "controlled by BE configuration "
+                            "'table_sink_partition_write_max_partition_nums_per_writer'. "
+                            "Split the write into multiple statements or increase this "
+                            "configuration.",
+                            _partitions_to_writers.size(), _partitions_to_writers.size() + 1,
                             config::table_sink_partition_write_max_partition_nums_per_writer);
                 }
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));

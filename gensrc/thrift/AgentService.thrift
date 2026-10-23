@@ -80,7 +80,8 @@ enum TTabletType {
 
 enum TTabletRole {
     TABLET_ROLE_DATA = 0,
-    TABLET_ROLE_ROW_BINLOG = 1
+    // ATTN(changelog-rename): formerly "TABLET_ROLE_ROW_BINLOG"
+    TABLET_ROLE_CHANGELOG = 1
 }
 
 enum TObjStorageType {
@@ -218,7 +219,8 @@ enum TInvertedIndexStorageFormat {
 
 enum TBinlogFormat {
     STATEMENT_AND_SNAPSHOT = 0,
-    ROW = 1
+    // ATTN(changelog-rename): formerly "ROW"
+    CHANGELOG = 1
 }
 
 struct TBinlogConfig {
@@ -228,7 +230,7 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
     5: optional TBinlogFormat binlog_format;
     6: optional bool need_historical_value;
-    // Monotonic FE-journaled generation; reject delayed ROW retention updates.
+    // Monotonic FE-journaled generation; reject delayed changelog retention updates.
     7: optional i64 config_version;
 }
 

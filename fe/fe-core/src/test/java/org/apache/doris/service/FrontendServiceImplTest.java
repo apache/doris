@@ -559,8 +559,110 @@ public class FrontendServiceImplTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreatePartitionWithRowBinlog() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_row_binlog(\n"
+    public void testCreatePartitionRangeLimitDoesNotLeavePartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_range_limit (event_day DATETIME NOT NULL, id INT) "
+                + "DUPLICATE KEY(event_day, id) "
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(
+                    createPartitionRequest(db, table, "2023-08-07 00:00:00", "2023-08-08 00:00:00"));
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assertions.assertEquals(0, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionListLimitCountsOnlyNewPartitions() throws Exception {
+        createTable("CREATE TABLE test.partition_list_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assertions.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult existing = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, existing.getStatus().getStatusCode());
+            Assertions.assertEquals(1, table.getPartitionNum());
+
+            TCreatePartitionResult overflow = impl.createPartition(
+                    createPartitionRequest(db, table, "BEIJING", "SHANGHAI"));
+            Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, overflow.getStatus().getStatusCode());
+            Assertions.assertTrue(overflow.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+            Assertions.assertEquals(1, table.getPartitionNum());
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    @Test
+    public void testCreatePartitionLimitIsRecheckedAtPublication() throws Exception {
+        createTable("CREATE TABLE test.partition_list_concurrent_limit (city_code VARCHAR(100) NOT NULL, id INT) "
+                + "DUPLICATE KEY(city_code, id) "
+                + "AUTO PARTITION BY LIST (city_code) () "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num' = '1')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_concurrent_limit");
+        int oldLimit = Config.max_auto_partition_num;
+        try {
+            Config.max_auto_partition_num = 1;
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TCreatePartitionResult first = impl.createPartition(createPartitionRequest(db, table, "BEIJING"));
+            Assertions.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+
+            // Model a concurrent publication after the request's read-lock precheck.
+            OlapTable spyTable = Mockito.spy(table);
+            AtomicBoolean stalePrecheck = new AtomicBoolean(true);
+            db.unregisterTable(table.getName());
+            db.registerTable(spyTable);
+            try {
+                Mockito.doAnswer(invocation -> stalePrecheck.compareAndSet(true, false)
+                        ? 0 : invocation.callRealMethod()).when(spyTable).getPartitionNum();
+                TCreatePartitionResult result = impl.createPartition(createPartitionRequest(db, spyTable, "SHANGHAI"));
+                Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, result.getStatus().getStatusCode());
+                Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("max_auto_partition_num"));
+                Assertions.assertFalse(stalePrecheck.get());
+                Assertions.assertEquals(1, spyTable.getPartitionNum());
+            } finally {
+                db.unregisterTable(spyTable.getName());
+                db.registerTable(table);
+            }
+        } finally {
+            Config.max_auto_partition_num = oldLimit;
+        }
+    }
+
+    private static TCreatePartitionRequest createPartitionRequest(Database db, OlapTable table, String... values) {
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        for (String value : values) {
+            TNullableStringLiteral literal = new TNullableStringLiteral();
+            literal.setValue(value);
+            partitionValues.add(Collections.singletonList(literal));
+        }
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        return request;
+    }
+
+    @Test
+    public void testCreatePartitionWithChangelog() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_changelog(\n"
                 + "    event_day DATETIME NOT NULL,\n"
                 + "    site_id INT,\n"
                 + "    city_code VARCHAR(100)\n"
@@ -568,12 +670,11 @@ public class FrontendServiceImplTest extends TestWithFeService {
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
                 + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
-                + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
-                + "\"binlog.format\" = \"ROW\");";
-        createTableWithRowBinlog(createOlapTblStmt);
+                + "PROPERTIES(\"replication_num\" = \"1\", \"changelog.enable\" = \"true\");";
+        createTableWithChangelog(createOlapTblStmt);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
-        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_changelog");
         TNullableStringLiteral start = new TNullableStringLiteral();
         start.setValue("2023-08-09 00:00:00");
         TCreatePartitionRequest request = new TCreatePartitionRequest();
@@ -589,20 +690,20 @@ public class FrontendServiceImplTest extends TestWithFeService {
 
         Partition createdPartition = table.getPartition("p20230809000000");
         Assertions.assertNotNull(createdPartition);
-        MaterializedIndex rowBinlogIndex = createdPartition
+        MaterializedIndex changelogIndex = createdPartition
                 .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true).stream()
-                .filter(MaterializedIndex::isRowBinlog)
+                .filter(MaterializedIndex::isChangelog)
                 .findFirst()
                 .orElseThrow();
         Assertions.assertEquals(createdPartition.getBaseIndex().getTablets().size() * 2,
                 result.getTabletsSize());
-        for (Tablet rowBinlogTablet : rowBinlogIndex.getTablets()) {
+        for (Tablet changelogTablet : changelogIndex.getTablets()) {
             TTabletLocation location = result.getTablets().stream()
-                    .filter(tablet -> tablet.getTabletId() == rowBinlogTablet.getId())
+                    .filter(tablet -> tablet.getTabletId() == changelogTablet.getId())
                     .findFirst()
                     .orElseThrow();
             Assertions.assertTrue(location.isSetBaseTabletId());
-            Assertions.assertEquals(rowBinlogTablet.getRowBinlogBaseTabletId(), location.getBaseTabletId());
+            Assertions.assertEquals(changelogTablet.getChangelogBaseTabletId(), location.getBaseTabletId());
         }
     }
 
