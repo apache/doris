@@ -23,6 +23,7 @@ import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.BooleanType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
@@ -66,7 +67,9 @@ public class PaimonTypeUtils {
         ColumnType columnType = new ColumnType(columnName, paimonColumnType.getType(), paimonColumnType.getLength(),
                 paimonColumnType.getPrecision(),
                 paimonColumnType.getScale());
-        columnType.setChildTypes(paimonColumnType.getChildTypes());
+        if (!columnType.isFile()) {
+            columnType.setChildTypes(paimonColumnType.getChildTypes());
+        }
         return columnType;
     }
 
@@ -167,6 +170,11 @@ public class PaimonTypeUtils {
             PaimonColumnType paimonColumnType = new PaimonColumnType(Type.DATETIMEV2);
             paimonColumnType.setPrecision(localZonedTimestampType.getPrecision());
             return paimonColumnType;
+        }
+
+        @Override
+        public PaimonColumnType visit(BlobType blobType) {
+            return new PaimonColumnType(Type.FILE);
         }
 
         @Override
