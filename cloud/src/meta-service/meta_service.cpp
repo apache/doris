@@ -40,6 +40,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -2816,44 +2817,33 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
 }
 
-// Returns false only when reading or parsing the recycle rowset key fails, or when the rowset has
-// already been marked as recycled. recycle_rs_key_exists tells the caller whether the key exists,
-bool check_recycle_rowset_key(Transaction* txn, const std::string& recycle_rs_key,
-                              const doris::RowsetMetaCloudPB& rowset_meta,
-                              bool* recycle_rs_key_exists, MetaServiceCode& code,
-                              std::string& msg) {
-    *recycle_rs_key_exists = false;
-    if (!rowset_meta.has_delete_predicate()) {
-        std::string recycle_rs_val;
-        TxnErrorCode err = txn->get(recycle_rs_key, &recycle_rs_val);
-        if (err == TxnErrorCode::TXN_OK) {
-            *recycle_rs_key_exists = true;
-            RecycleRowsetPB recycle_rowset;
-            if (!recycle_rowset.ParseFromString(recycle_rs_val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = fmt::format("malformed recycle rowset value. key={}", hex(recycle_rs_key));
-                return false;
-            }
-            auto rs_meta = recycle_rowset.rowset_meta();
-            if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = fmt::format("rowset has already been marked as recycled, key={}, rs_meta={}",
-                                  hex(recycle_rs_key), rs_meta.ShortDebugString());
-                return false;
-            }
-        } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            return true;
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get recycle rowset, err={}, key={}", err,
-                              hex(recycle_rs_key));
-            return false;
-        }
-    } else {
-        // Old BE does not write recycle rowset keys for delete predicate rowsets during
-        // commit_rowset, so treat the key as existing for compatibility.
-        *recycle_rs_key_exists = true;
+bool check_recycle_rowset_key_exists(Transaction* txn, const std::string& recycle_rs_key,
+                                     std::optional<bool>& recycle_rs_key_exists,
+                                     MetaServiceCode& code, std::string& msg) {
+    std::string value;
+    auto err = txn->get(recycle_rs_key, &value);
+
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        recycle_rs_key_exists = false;
+        return true;
     }
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get recycle rowset, err={}, key={}", err, hex(recycle_rs_key));
+        return false;
+    }
+
+    RecycleRowsetPB recycle_rowset;
+    if (!recycle_rowset.ParseFromString(value)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed recycle rowset value. key={}", hex(recycle_rs_key));
+        return false;
+    }
+
+    recycle_rs_key_exists = recycle_rowset.rowset_meta().has_is_recycled()
+                                    ? !recycle_rowset.rowset_meta().is_recycled()
+                                    : true;
     return true;
 }
 
@@ -2912,8 +2902,18 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
     auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
+    std::optional<bool> recycle_rs_key_exists;
 
-    if (!config::enable_recycle_delete_rowset_key_check) {
+    if (config::enable_recycle_delete_rowset_key_check && !rowset_meta.has_delete_predicate()) {
+        if (!check_recycle_rowset_key_exists(txn.get(), recycle_rs_key, recycle_rs_key_exists, code,
+                                             msg)) {
+            return;
+        }
+    } else {
+        // Fallback path:
+        // Use the old job and transaction checks when the recycle key check is off
+        // or the rowset has a delete predicate, because older BEs do not call prepare_rowset for these rowsets.
+        // enable_tablet_job_check and enable_load_txn_status_check are both true by default.
         std::string tablet_job_id = request->tablet_job_id();
         if (config::enable_tablet_job_check && !tablet_job_id.empty()) {
             if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
@@ -2948,25 +2948,18 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
             return;
         }
         if (existed_rowset_meta->rowset_id_v2() == rowset_meta.rowset_id_v2()) {
-            if (config::enable_recycle_delete_rowset_key_check) {
-                bool recycle_rs_key_exists = false;
-                if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
-                                              &recycle_rs_key_exists, code, msg)) {
-                    return;
-                }
-                if (recycle_rs_key_exists) {
-                    code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = fmt::format(
-                            "tmp rowset key and recycle rowset key are mutually exclusive, "
-                            "tmp_rs_key={}, recycle_rs_key={}",
-                            hex(tmp_rs_key), hex(recycle_rs_key));
-                    LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key "
-                                 "are mutually exclusive, txn_id="
-                              << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
-                              << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
-                              << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
-                    return;
-                }
+            if (recycle_rs_key_exists.has_value() && recycle_rs_key_exists.value()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format(
+                        "tmp rowset key and recycle rowset key are mutually exclusive, "
+                        "tmp_rs_key={}, recycle_rs_key={}",
+                        hex(tmp_rs_key), hex(recycle_rs_key));
+                LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key "
+                             "are mutually exclusive, txn_id="
+                          << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                          << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
+                          << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
+                return;
             }
             // Same request, return OK
             if (load_writer_binding_changed) {
@@ -3027,20 +3020,13 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
-    if (config::enable_recycle_delete_rowset_key_check) {
-        bool recycle_rs_key_exists = false;
-        if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
-                                      &recycle_rs_key_exists, code, msg)) {
-            return;
-        }
-        if (!recycle_rs_key_exists) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
-            LOG(INFO) << "skip commit rowset because recycle rowset key does not exist, txn_id="
-                      << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
-                      << ", rowset_id=" << rowset_id << ", recycle_rs_key=" << hex(recycle_rs_key);
-            return;
-        }
+    if (recycle_rs_key_exists.has_value() && !recycle_rs_key_exists.value()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
+        LOG(INFO) << "skip commit rowset because recycle rowset key does not exist, txn_id="
+                  << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                  << ", rowset_id=" << rowset_id << ", recycle_rs_key=" << hex(recycle_rs_key);
+        return;
     }
     // write schema kv if rowset_meta has schema
     if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
