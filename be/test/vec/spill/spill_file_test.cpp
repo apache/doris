@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <numeric>
@@ -37,6 +38,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/spill_counters.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/spill/spill_file_format.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
@@ -125,6 +127,19 @@ protected:
 
     Block _create_int_block(const std::vector<int32_t>& data) {
         return ColumnHelper::create_block<DataTypeInt32>(data);
+    }
+
+    std::string _part_path(const std::string& relative_path, size_t part_index) const {
+        return _data_dir_ptr->get_spill_data_path() + "/" + relative_path + "/" +
+               std::to_string(part_index);
+    }
+
+    static std::string _part_trailer(const std::string& path) {
+        std::ifstream part(path, std::ios::binary);
+        part.seekg(-static_cast<std::streamoff>(kSpillPartFormatBytes), std::ios::end);
+        std::string trailer(kSpillPartFormatBytes, '\0');
+        part.read(trailer.data(), trailer.size());
+        return trailer;
     }
 
     Block _create_two_column_block(const std::vector<int32_t>& col1,
@@ -329,6 +344,80 @@ TEST_F(SpillFileTest, WriteSingleBlock) {
     ASSERT_EQ(write_rows_counter->value(), 5);
 }
 
+TEST_F(SpillFileTest, PartFormatTrailer) {
+    const std::string relative_path = "test_query/part_format_trailer";
+    auto spill_file = std::make_shared<SpillFile>(_data_dir_ptr, relative_path);
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _create_int_block({1, 2, 3})).ok());
+    ASSERT_TRUE(writer->close().ok());
+
+    const auto path = _part_path(relative_path, 0);
+    ASSERT_TRUE(std::filesystem::exists(path));
+    EXPECT_EQ(_part_trailer(path), std::string("\x01\x00\x00\x00"
+                                               "DSPL",
+                                               8));
+
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    ASSERT_TRUE(reader->open().ok());
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(reader->read(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 3);
+    auto column = block.get_by_position(0).column;
+    EXPECT_EQ(column->get_int(0), 1);
+    EXPECT_EQ(column->get_int(2), 3);
+    ASSERT_TRUE(reader->close().ok());
+}
+
+TEST_F(SpillFileTest, RejectInvalidPartMagic) {
+    const std::string relative_path = "test_query/invalid_part_magic";
+    auto spill_file = std::make_shared<SpillFile>(_data_dir_ptr, relative_path);
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _create_int_block({1})).ok());
+    ASSERT_TRUE(writer->close().ok());
+
+    const auto path = _part_path(relative_path, 0);
+    {
+        std::fstream part(path, std::ios::in | std::ios::out | std::ios::binary);
+        ASSERT_TRUE(part.is_open());
+        part.seekp(-4, std::ios::end);
+        part.write("BAD!", 4);
+        ASSERT_TRUE(part.good());
+    }
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    const auto status = reader->open();
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("invalid spill part magic"), std::string::npos);
+    EXPECT_NE(status.to_string().find(path), std::string::npos);
+}
+
+TEST_F(SpillFileTest, RejectUnsupportedPartVersion) {
+    const std::string relative_path = "test_query/unsupported_part_version";
+    auto spill_file = std::make_shared<SpillFile>(_data_dir_ptr, relative_path);
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _create_int_block({1})).ok());
+    ASSERT_TRUE(writer->close().ok());
+
+    const auto path = _part_path(relative_path, 0);
+    {
+        std::fstream part(path, std::ios::in | std::ios::out | std::ios::binary);
+        ASSERT_TRUE(part.is_open());
+        part.seekp(-static_cast<std::streamoff>(kSpillPartFormatBytes), std::ios::end);
+        part.write("\x02\x00\x00\x00", 4);
+        ASSERT_TRUE(part.good());
+    }
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    const auto status = reader->open();
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("unsupported spill part format version 2"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find(path), std::string::npos);
+}
+
 TEST_F(SpillFileTest, WriteMultipleBlocks) {
     SpillFileSPtr spill_file;
     auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("test_query/multi_blocks",
@@ -375,13 +464,11 @@ TEST_F(SpillFileTest, WriteTwoColumnBlock) {
 }
 
 TEST_F(SpillFileTest, WriteEmptyBlock) {
-    SpillFileSPtr spill_file;
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("test_query/empty_block",
-                                                                          spill_file);
-    ASSERT_TRUE(st.ok());
+    const std::string relative_path = "test_query/empty_block";
+    auto spill_file = std::make_shared<SpillFile>(_data_dir_ptr, relative_path);
 
     SpillFileWriterSPtr writer;
-    st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
+    auto st = spill_file->create_writer(_runtime_state.get(), _profile.get(), writer);
     ASSERT_TRUE(st.ok());
 
     Block empty_block;
@@ -390,6 +477,19 @@ TEST_F(SpillFileTest, WriteEmptyBlock) {
 
     st = writer->close();
     ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto path = _part_path(relative_path, 0);
+    ASSERT_TRUE(std::filesystem::exists(path));
+    EXPECT_EQ(_part_trailer(path), std::string("\x01\x00\x00\x00"
+                                               "DSPL",
+                                               8));
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    ASSERT_TRUE(reader->open().ok());
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(reader->read(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    ASSERT_TRUE(reader->close().ok());
 }
 
 TEST_F(SpillFileTest, DoubleCloseWriter) {
@@ -835,10 +935,9 @@ TEST_F(SpillFileTest, PartRotationDataIntegrity) {
     auto saved_part_size = config::spill_file_part_size_bytes;
     config::spill_file_part_size_bytes = 512;
 
-    SpillFileSPtr spill_file;
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(
-            "test_query/rotation_integrity", spill_file);
-    ASSERT_TRUE(st.ok());
+    const std::string relative_path = "test_query/rotation_integrity";
+    auto spill_file = std::make_shared<SpillFile>(_data_dir_ptr, relative_path);
+    Status st;
 
     std::vector<std::vector<int32_t>> all_data;
     const int num_blocks = 30;
@@ -861,6 +960,16 @@ TEST_F(SpillFileTest, PartRotationDataIntegrity) {
         st = writer->close();
         ASSERT_TRUE(st.ok());
     }
+
+    size_t part_count = 0;
+    while (std::filesystem::exists(_part_path(relative_path, part_count))) {
+        EXPECT_EQ(_part_trailer(_part_path(relative_path, part_count)),
+                  std::string("\x01\x00\x00\x00"
+                              "DSPL",
+                              8));
+        ++part_count;
+    }
+    ASSERT_GT(part_count, 1);
 
     // Read & verify data integrity across parts
     auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
