@@ -35,6 +35,7 @@
 #include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
+class SparseFlushOutput;
 class Block;
 
 namespace segment_v2 {
@@ -116,6 +117,9 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const Block* block, int32_t segment_id,
                               int64_t* flush_size = nullptr);
+    Status flush_single_block(const Block* block,
+                              const std::shared_ptr<const SparseFlushOutput>& sparse_output,
+                              int32_t segment_id, int64_t* flush_size = nullptr);
 
     int64_t num_rows_written() const { return _num_rows_written; }
 
@@ -238,6 +242,9 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const Block* block, int32_t segment_id,
                               int64_t* flush_size = nullptr);
+    Status flush_single_block(const Block* block,
+                              const std::shared_ptr<const SparseFlushOutput>& sparse_output,
+                              int32_t segment_id, int64_t* flush_size = nullptr);
 
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.

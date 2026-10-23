@@ -24,6 +24,8 @@
 #include <algorithm>
 #include <numeric>
 
+#include "storage/sparse_flush_output.h"
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include <crc32c/crc32c.h>
 
@@ -449,7 +451,8 @@ Status VerticalSegmentWriter::append_block(const Block* block, size_t row_pos, s
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, size_t num_rows) {
+Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, size_t num_rows,
+                                          std::shared_ptr<const SparseFlushOutput> sparse_output) {
     RETURN_IF_ERROR(_open_group(_all_column_ids(), true));
     // Each column writer is created right before its column is written, so
     // only one column's page buffers are alive at a time. The derived
@@ -470,9 +473,7 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
         if (_derived_column.second && _derived_column.first == cid) {
             continue;
         }
-        RETURN_IF_ERROR(_create_column_writer(cid, cid, _tablet_schema));
         const IColumn* column = block->get_by_position(cid).column.get();
-        DORIS_CHECK_EQ(column->size(), block->rows()) << block->dump_structure();
         if (cid < _tablet_schema->num_key_columns()) {
             key_columns.push_back(column);
         }
@@ -480,9 +481,7 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
             seq_column = column;
         }
         _collect_cluster_key_column(cid, column, &cluster_key_columns);
-        RETURN_IF_ERROR(_column_writers[cid]->append(*column, row_pos, num_rows));
-        RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
-        RETURN_IF_ERROR(_finalize_column_writer_and_update_meta(cid));
+        RETURN_IF_ERROR(_write_block_column(*block, cid, row_pos, num_rows, sparse_output.get()));
     }
     _columns_data_flushed = true;
 
@@ -502,6 +501,30 @@ Status VerticalSegmentWriter::write_block(const Block* block, size_t row_pos, si
     // The generator snapshots the block's rows; it must not survive them.
     _derived_column = {};
     return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_block_column(const Block& block, uint32_t cid, size_t row_pos,
+                                                  size_t num_rows,
+                                                  const SparseFlushOutput* sparse_output) {
+    RETURN_IF_ERROR(_create_column_writer(cid, cid, _tablet_schema));
+    const auto& column = *block.get_by_position(cid).column;
+    if (sparse_output && sparse_output->has_column(cid)) {
+        // A million all-NULL rows retain only one materialized batch at a time.
+        // Keys and sequence columns remain in the dense Block.
+        constexpr size_t materialize_batch_rows = 4096;
+        for (size_t offset = 0; offset < num_rows; offset += materialize_batch_rows) {
+            size_t batch_rows = std::min(materialize_batch_rows, num_rows - offset);
+            MutableColumnPtr materialized;
+            RETURN_IF_ERROR(sparse_output->materialize(cid, row_pos + offset, batch_rows, column,
+                                                       &materialized));
+            RETURN_IF_ERROR(_column_writers[cid]->append(*materialized, 0, batch_rows));
+        }
+    } else {
+        DORIS_CHECK_EQ(column.size(), block.rows()) << block.dump_structure();
+        RETURN_IF_ERROR(_column_writers[cid]->append(column, row_pos, num_rows));
+    }
+    RETURN_IF_ERROR(_check_column_writer_disk_capacity(cid));
+    return _finalize_column_writer_and_update_meta(cid);
 }
 
 void VerticalSegmentWriter::_collect_cluster_key_column(

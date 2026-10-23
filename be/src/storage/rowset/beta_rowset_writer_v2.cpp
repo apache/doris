@@ -45,6 +45,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/vertical_segment_writer.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -111,6 +112,19 @@ Status BetaRowsetWriterV2::flush_memtable(Block* block, int32_t segment_id, int6
     }
     // delete bitmap and seg compaction are done on the destination BE.
     return Status::OK();
+}
+
+Status BetaRowsetWriterV2::flush_memtable(const MemTableFlushOutput& output, int32_t segment_id,
+                                          int64_t* flush_size) {
+    if (!output.sparse_attachment) {
+        return flush_memtable(output.block.get(), segment_id, flush_size);
+    }
+    if (output.block->rows() == 0) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_segment_writer_ns);
+    return _segment_creator.flush_single_block(output.block.get(), output.sparse_attachment,
+                                               segment_id, flush_size);
 }
 
 Status BetaRowsetWriterV2::flush_single_block(const Block* block) {

@@ -365,6 +365,12 @@ Status MemTableWriter::_do_close_wait() {
                   << _wait_flush_time_ns << "(ns), stats: " << _flush_token->get_stats();
     }
 
+    VLOG_DEBUG << "memtable_load_observability tablet_id=" << _req.tablet_id
+               << " load_id=" << print_id(_req.load_id) << " import_peak_memory_bytes="
+               << _resource_ctx->memory_context()->peak_memory_bytes()
+               << " memtable_peak_memory_bytes="
+               << _flush_token->memtable_stat().memtable_peak_memory_bytes.load();
+
     return Status::OK();
 }
 
@@ -390,6 +396,18 @@ void MemTableWriter::_update_profile(RuntimeProfile* profile) {
     auto segment_num = ADD_COUNTER(child, "SegmentNum", TUnit::UNIT);
     auto raw_rows_num = ADD_COUNTER(child, "RawRowNum", TUnit::UNIT);
     auto merged_rows_num = ADD_COUNTER(child, "MergedRowNum", TUnit::UNIT);
+    auto* sparse_candidate_columns = ADD_COUNTER(child, "SparseCandidateColumns", TUnit::UNIT);
+    auto* sparse_encoded_columns = ADD_COUNTER(child, "SparseEncodedColumns", TUnit::UNIT);
+    auto* sparse_all_null_columns = ADD_COUNTER(child, "SparseAllNullColumns", TUnit::UNIT);
+    auto* sparse_fallback_columns = ADD_COUNTER(child, "SparseFallbackColumns", TUnit::UNIT);
+    auto* sparse_dense_bytes =
+            ADD_COUNTER(child, "MemTableDenseEquivalentBytesAtFlush", TUnit::BYTES);
+    auto* sparse_actual_bytes = ADD_COUNTER(child, "MemTableActualBytesAtFlush", TUnit::BYTES);
+    auto* sparse_sidecar_bytes = ADD_COUNTER(child, "SparseSidecarBytesAtFlush", TUnit::BYTES);
+    auto* sparse_materialize_bytes = ADD_COUNTER(child, "SparseMaterializeBytes", TUnit::BYTES);
+    auto* sparse_materialize_time = ADD_TIMER(child, "SparseMaterializeTime");
+    auto* import_peak_memory = ADD_COUNTER(child, "ImportPeakMemoryBytes", TUnit::BYTES);
+    auto* memtable_peak_memory = ADD_COUNTER(child, "MemTablePeakMemoryBytes", TUnit::BYTES);
 
     COUNTER_UPDATE(lock_timer, _lock_watch.elapsed_time());
     COUNTER_SET(delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
@@ -406,6 +424,17 @@ void MemTableWriter::_update_profile(RuntimeProfile* profile) {
     COUNTER_SET(agg_times, memtable_stat.agg_times);
     COUNTER_SET(raw_rows_num, memtable_stat.raw_rows);
     COUNTER_SET(merged_rows_num, memtable_stat.merged_rows);
+    COUNTER_SET(sparse_candidate_columns, memtable_stat.sparse_candidate_columns);
+    COUNTER_SET(sparse_encoded_columns, memtable_stat.sparse_encoded_columns);
+    COUNTER_SET(sparse_all_null_columns, memtable_stat.sparse_all_null_columns);
+    COUNTER_SET(sparse_fallback_columns, memtable_stat.sparse_fallback_columns);
+    COUNTER_SET(sparse_dense_bytes, memtable_stat.sparse_dense_equivalent_bytes);
+    COUNTER_SET(sparse_actual_bytes, memtable_stat.sparse_actual_bytes_at_flush);
+    COUNTER_SET(sparse_sidecar_bytes, memtable_stat.sparse_sidecar_bytes_at_flush);
+    COUNTER_SET(sparse_materialize_bytes, memtable_stat.sparse_materialize_bytes);
+    COUNTER_SET(sparse_materialize_time, memtable_stat.sparse_materialize_ns);
+    COUNTER_SET(import_peak_memory, _resource_ctx->memory_context()->peak_memory_bytes());
+    COUNTER_SET(memtable_peak_memory, memtable_stat.memtable_peak_memory_bytes);
 }
 
 Status MemTableWriter::cancel() {

@@ -869,6 +869,10 @@ DECLARE_mBool(enable_adaptive_write_buffer_size);
 DECLARE_mInt64(write_buffer_size_for_agg);
 
 DECLARE_mInt64(min_write_buffer_size_for_partial_update);
+// Experimental MemTable-only sparse encoding. The persisted block format is unchanged.
+DECLARE_mBool(enable_sparse_memtable);
+DECLARE_mInt64(sparse_memtable_materialize_limit_bytes);
+DECLARE_mInt64(sparse_memtable_max_rows);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
 

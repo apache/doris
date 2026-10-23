@@ -38,6 +38,7 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
@@ -51,6 +52,7 @@
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/vertical_segment_writer.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/transform/block_transform.h"
 #include "storage/utils.h"
@@ -630,6 +632,71 @@ TEST_F(VerticalSegmentWriterWritePathsTest, GeneratedColumnIsPumpedByWriteBlock)
     EXPECT_EQ(holder->writer->row_count(), kNumRows);
     EXPECT_EQ(generator->rows_generated, kNumRows);
     EXPECT_GT(segment_file_size, 0);
+}
+
+// GTest assertions expand into branches; keep the complete two-model round trip together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(VerticalSegmentWriterWritePathsTest, SparseColumnsMatchDenseAfterWriteBlock) {
+    // Cross the writer's 4096-row materialization boundary with a partial final batch.
+    constexpr size_t num_rows = 4096 + 73;
+    for (auto keys_type : {DUP_KEYS, UNIQUE_KEYS}) {
+        const bool mow = keys_type == UNIQUE_KEYS;
+        const std::string name = mow ? "sparse_mow" : "sparse_dup";
+        auto schema = create_schema(keys_type, /*with_cluster_key=*/false);
+        Block block = schema->create_storage_block();
+        {
+            auto column_guard = block.mutate_columns_scoped();
+            auto& columns = column_guard.mutable_columns();
+            for (size_t row = 0; row < num_rows; ++row) {
+                const auto value = static_cast<int32_t>(row);
+                columns[0]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+                if (row % 20 == 0) {
+                    columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+                } else {
+                    columns[1]->insert_default();
+                }
+                columns[2]->insert_default();
+            }
+        }
+        WrittenSegment dense;
+        ASSERT_NO_FATAL_FAILURE(write_whole_block(schema, block, mow, name + "_dense", &dense));
+
+        Block sparse_block(block);
+        SparseFlushOutput::Columns columns(block.columns());
+        for (size_t cid : {size_t {1}, size_t {2}}) {
+            const auto& column =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(cid).column);
+            auto sparse = std::make_unique<SparseFlushOutput::Column>();
+            sparse->row_count = num_rows;
+            sparse->values = column.get_nested_column().clone_empty();
+            for (size_t row = 0; row < num_rows; ++row) {
+                if (!column.is_null_at(row)) {
+                    sparse->rowids.push_back(static_cast<uint32_t>(row));
+                    sparse->values->insert_from(column.get_nested_column(), row);
+                }
+            }
+            columns[cid] = std::move(sparse);
+            sparse_block.get_by_position(cid).column = column.clone_empty();
+        }
+        std::shared_ptr<const SparseFlushOutput> attachment;
+        ASSERT_TRUE(SparseFlushOutput::create(std::move(columns), &attachment).ok());
+        auto holder = make_writer(schema, mow, name + "_sparse");
+        ASSERT_TRUE(holder->writer->write_block(&sparse_block, 0, num_rows, attachment).ok());
+        uint64_t index_size = 0;
+        uint64_t file_size = 0;
+        ASSERT_TRUE(holder->writer->finalize_columns(&index_size).ok());
+        ASSERT_TRUE(holder->writer->finalize_footer(&file_size).ok());
+        WrittenSegment sparse;
+        ASSERT_NO_FATAL_FAILURE(collect(*holder, schema, mow, &sparse));
+        EXPECT_EQ(sparse.row_count, num_rows);
+        EXPECT_EQ(sparse.rows, dense.rows);
+        EXPECT_EQ(sparse.min_key, dense.min_key);
+        EXPECT_EQ(sparse.max_key, dense.max_key);
+        EXPECT_EQ(sparse.primary_key_entries, dense.primary_key_entries);
+        EXPECT_EQ(sparse.short_key_entries, dense.short_key_entries);
+        EXPECT_EQ(sparse_block.get_by_position(1).column->size(), 0);
+        EXPECT_EQ(sparse_block.get_by_position(2).column->size(), 0);
+    }
 }
 
 // A duplicate table without key columns gets no key group from

@@ -35,15 +35,39 @@
 #include "runtime/thread_context.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
+inline constexpr size_t kSparseMemtableSampleRows = 4096;
+inline constexpr double kSparseMemtableMaxNonNullRatio = 0.10;
+inline constexpr double kSparseMemtableMinSavingRatio = 0.30;
+
+class Schema;
 class SlotDescriptor;
 class TabletSchema;
 struct TabletAddRowsPayload;
 class TupleDescriptor;
 enum KeysType : int;
+
+enum class SparseFlushCapabilityReason : uint8_t {
+    ELIGIBLE,
+    CONFIG_DISABLED,
+    UNSUPPORTED_KEYS,
+    PARTIAL_UPDATE,
+    NO_KEY_COLUMNS,
+    CLUSTER_KEY,
+    ROW_STORE,
+    VARIANT,
+    NO_SPARSE_COLUMNS,
+    UNIQUE_DUPLICATES,
+};
+
+struct SparseFlushCapability {
+    SparseFlushCapabilityReason reason = SparseFlushCapabilityReason::ELIGIBLE;
+    bool eligible() const { return reason == SparseFlushCapabilityReason::ELIGIBLE; }
+};
 
 // Active: the memtable is currently used by writer to insert into blocks
 // Write_finished: the memtable finished write blocks and in the queue waiting for flush
@@ -157,6 +181,20 @@ public:
         duration_ns += stat.duration_ns;
         sort_times += stat.sort_times;
         agg_times += stat.agg_times;
+        sparse_candidate_columns += stat.sparse_candidate_columns;
+        sparse_encoded_columns += stat.sparse_encoded_columns;
+        sparse_all_null_columns += stat.sparse_all_null_columns;
+        sparse_fallback_columns += stat.sparse_fallback_columns;
+        sparse_dense_equivalent_bytes += stat.sparse_dense_equivalent_bytes;
+        sparse_actual_bytes_at_flush += stat.sparse_actual_bytes_at_flush;
+        sparse_sidecar_bytes_at_flush += stat.sparse_sidecar_bytes_at_flush;
+        sparse_materialize_bytes += stat.sparse_materialize_bytes;
+        sparse_materialize_ns += stat.sparse_materialize_ns;
+        const int64_t peak = stat.memtable_peak_memory_bytes.load();
+        int64_t current_peak = memtable_peak_memory_bytes.load();
+        while (current_peak < peak &&
+               !memtable_peak_memory_bytes.compare_exchange_weak(current_peak, peak)) {
+        }
 
         return *this;
     }
@@ -169,6 +207,17 @@ public:
     int64_t duration_ns = 0;
     std::atomic<int64_t> sort_times = 0;
     std::atomic<int64_t> agg_times = 0;
+    std::atomic<int64_t> sparse_candidate_columns = 0;
+    std::atomic<int64_t> sparse_encoded_columns = 0;
+    std::atomic<int64_t> sparse_all_null_columns = 0;
+    std::atomic<int64_t> sparse_fallback_columns = 0;
+    std::atomic<int64_t> sparse_dense_equivalent_bytes = 0;
+    std::atomic<int64_t> sparse_actual_bytes_at_flush = 0;
+    std::atomic<int64_t> sparse_sidecar_bytes_at_flush = 0;
+    std::atomic<int64_t> sparse_materialize_bytes = 0;
+    std::atomic<int64_t> sparse_materialize_ns = 0;
+    // Maximum tracker consumption of one MemTable in this writer, not a sum across flushes.
+    std::atomic<int64_t> memtable_peak_memory_bytes = 0;
 };
 
 class MemTable {
@@ -194,10 +243,14 @@ public:
     Status to_block(std::unique_ptr<Block>* res);
 
     ConstAllocatedLsnVectorSharedPtr allocated_lsns() const { return _output_allocated_lsns; }
+    Status to_flush_output(MemTableFlushOutput* output);
+
+    SparseFlushCapability sparse_flush_capability_for_test(size_t duplicate_keys = 0) const;
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
     const MemTableStat& stat() { return _stat; }
+    void set_peak_memory_bytes(int64_t bytes) { _stat.memtable_peak_memory_bytes = bytes; }
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
@@ -212,6 +265,33 @@ public:
     int64_t raw_rows() { return _stat.raw_rows.load(); }
 
 private:
+    enum class SparseState : uint8_t {
+        DISABLED,
+        COLLECTING_SAMPLE,
+        ALL_NULL,
+        SPARSE,
+        PERMANENT_DENSE
+    };
+
+    struct SparseNullableSidecar {
+        SparseState state = SparseState::DISABLED;
+        uint64_t non_null_count = 0;
+        size_t dense_bytes_per_row = 0;
+        SparseColumnData data;
+
+        bool encoded() const {
+            return state == SparseState::ALL_NULL || state == SparseState::SPARSE;
+        }
+    };
+
+    struct SparseOptions {
+        size_t sample_rows = 0;
+        double max_non_null_ratio = 0;
+        double min_saving_ratio = 0;
+        size_t materialize_limit_bytes = 0;
+        uint64_t max_rows = 0;
+    };
+
     // for vectorized
     template <bool has_skip_bitmap_col>
     void _aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* new_row,
@@ -227,10 +307,8 @@ private:
     void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
                                               RowInBlock* row_in_skiplist);
 
-    // Used to wrapped by to_block to do exception handle logic
-    Status _to_block(std::unique_ptr<Block>* res);
-
     int64_t _adaptive_write_buffer_size() const;
+    Status _to_flush_output(MemTableFlushOutput* output);
 
 private:
     std::atomic<MemType> _mem_type;
@@ -256,6 +334,7 @@ private:
                                             const TupleDescriptor* tuple_desc);
     std::vector<int> _column_offset;
     int32_t _row_lsn_col_pos = -1;
+    std::vector<int> _schema_column_index;
 
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
@@ -293,7 +372,29 @@ private:
             MutableBlock& mutable_block,
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
+    Status _put_into_flush_output(size_t same_keys_num, bool use_sparse_output,
+                                  MemTableFlushOutput* output);
     Status _put_into_output(Block& in_block);
+    Status _put_into_sparse_output(Block& in_block,
+                                   std::shared_ptr<const SparseFlushOutput>* sparse_output);
+    SparseFlushCapability _sparse_flush_capability(size_t duplicate_keys) const;
+    SparseFlushCapability _sparse_flush_static_capability() const;
+    void _record_sparse_flush_fallback(SparseFlushCapabilityReason reason) const;
+    void _init_sparse_columns(const Block& clone_block);
+    static void _append_sparse_column_data(SparseNullableSidecar& sidecar, const IColumn& src,
+                                           const DorisVector<uint32_t>& row_idxs);
+    Status _append_rows_by_sparse_state(const Block* input_block,
+                                        const DorisVector<uint32_t>& row_idxs);
+    void _make_sparse_column_decisions();
+    Status _materialize_sparse_column(size_t column_idx, bool fallback);
+    Status _materialize_sparse_columns();
+    bool _is_sparse_supported_type(FieldType type) const;
+    size_t _sparse_sidecar_bytes() const;
+    size_t _dense_equivalent_bytes() const;
+    size_t _effective_write_buffer_size() const;
+#ifndef NDEBUG
+    void _check_sparse_invariants() const;
+#endif
     bool _is_first_insertion;
 
     void _init_agg_functions(const Block* block);
@@ -310,6 +411,10 @@ private:
     int32_t _seq_col_unique_id {-1};
 
     bool _is_partial_update_and_auto_inc = false;
+    bool _enable_sparse = false;
+    const bool _enable_sparse_snapshot;
+    const SparseOptions _sparse_options;
+    std::vector<SparseNullableSidecar> _sparse_columns;
 }; // class MemTable
 
 } // namespace doris
